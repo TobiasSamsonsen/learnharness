@@ -57,10 +57,11 @@ describe("POST /api/chats — the birth stamp", () => {
 		assert.deepEqual(record.settings, {
 			model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" },
 			thinkingLevel: "low",
+			language: "en",
 		});
 	});
 
-	it("no strong slot configured (fresh BYOK boot) → NO stamp; the turn gate refuses downstream", async () => {
+	it("no strong slot configured (fresh BYOK boot) → NO model stamp (the turn gate refuses downstream), the language still stamps", async () => {
 		fs.rmSync(path.join(TMP_DATA, "settings.json"), { force: true });
 		assert.equal(readSettings(), null);
 		const res = await post();
@@ -68,7 +69,7 @@ describe("POST /api/chats — the birth stamp", () => {
 		const { id } = (await res.json()) as { id: string };
 		const record = chatStore.getChat(id);
 		assert.ok(record);
-		assert.equal(record.settings, undefined, "nothing stamped — nothing to lie about");
+		assert.deepEqual(record.settings, { language: "en" }, "no model stamped — nothing to lie about; the factory language is");
 	});
 
 	it("an unset thinking level rides as-is — the session's level resolves (strong's, then the model's ladder)", async () => {
@@ -81,7 +82,17 @@ describe("POST /api/chats — the birth stamp", () => {
 		const record = chatStore.getChat(id);
 		assert.ok(record);
 		assert.equal(record.settings?.thinkingLevel, undefined);
-		assert.deepEqual(record.settings, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+		assert.deepEqual(record.settings, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" }, language: "en" });
+	});
+
+	it("the language stamps from the default (general.language) and stays a copy (fork addition)", async () => {
+		writeSettings({ version: 1, general: { language: "nb" } });
+		const first = (await (await post()).json()) as { id: string };
+		assert.equal(chatStore.getChat(first.id)?.settings?.language, "nb");
+		writeSettings({ version: 1, general: { language: "en" } });
+		const second = (await (await post()).json()) as { id: string };
+		assert.equal(chatStore.getChat(second.id)?.settings?.language, "en");
+		assert.equal(chatStore.getChat(first.id)?.settings?.language, "nb", "a later default never reaches an existing lesson");
 	});
 
 	it("changing the strong slot afterward NEVER touches existing sessions — the stamp is a copy, not a live view", async () => {

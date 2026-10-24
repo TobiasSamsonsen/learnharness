@@ -48,7 +48,7 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 - **Windows (x64):** run the installer. It is currently unsigned; Windows may show an “unknown publisher” or SmartScreen warning.
 - **Linux (x64):** make the AppImage executable and open it, or install the Debian/Ubuntu `.deb`.
 
-Add your provider API key and choose your models, then start a session with what you want to understand. LearnHarness supports 30+ provider options, including OpenAI, Anthropic, Google, DeepSeek, and OpenRouter. Optional dictation and web search use separate service keys.
+Add your provider API key and choose your models, then start a session with what you want to understand. LearnHarness supports 30+ provider options, including OpenAI, Anthropic, Google, DeepSeek, and OpenRouter. Dictation runs locally on your machine by default (see below); web search and the optional cloud dictation engine use separate service keys.
 
 All three platforms support in-app updates.
 
@@ -65,6 +65,30 @@ How it works: each model turn runs `claude -p` with Claude Code's own prompt, to
 Trade-offs: each turn starts a CLI process (a few seconds of overhead), the conversation is replayed as one transcript per turn, and usage counts against your plan's limits. The cost meter shows $0 for these models because they aren't billed per token.
 
 Options: `LH_CLAUDE_CODE_BIN=/path/to/claude` pins the executable (useful when a GUI-launched app's `PATH` misses it), and `LH_CLAUDE_CODE=0` turns the provider off.
+
+### Lesson language: English or Norwegian
+
+Every lesson has a language, **English** or **Norsk (bokmål)**. The prober, teacher, and practice agents teach in it: messages, questions, options, plan labels, demos, and figures. The knowledge graph's propositions from that lesson are written in it, and dictation transcribes it.
+
+- **Default:** Settings → General → *Default lesson language*. New lessons start in it; the language pill on the new-lesson screen sets the same default.
+- **Per lesson:** the **EN / NO** pill next to the model picker, under the composer. Switching takes effect from the next turn; the agent continues in the new language even if earlier messages were in the other one.
+
+Lessons created before this feature are treated as English.
+
+### Local dictation
+
+Dictation is transcribed **on your machine** with Whisper (transformers.js + onnxruntime, CPU). It's free, works offline after a one-time model download, and audio never leaves the computer. Each language has its own model, chosen by benchmark on FLEURS:
+
+| Language | Model | Download | Word error rate* |
+| --- | --- | --- | --- |
+| English | `onnx-community/whisper-small` (q8) | ~250 MB | ~5% |
+| Norwegian | `onnx-community/nb-whisper-small-ONNX` (q8), the National Library's Norwegian Whisper | ~410 MB | ~6% |
+
+\*Measured on a handful of clips; a laptop CPU transcribes 10 s of speech in about 2 s.
+
+The model for a lesson's language downloads the first time you dictate in that language. The dictation bar shows the progress, or you can download in advance under Settings → General → Dictation. Models are stored in the app's data folder under `models/stt`. Transcription runs in a separate worker process that exits after 10 idle minutes to free its memory (~1 GB).
+
+To use Deepgram's cloud engine instead, choose *Deepgram (cloud)* under Settings → General → Dictation engine and add a Deepgram key; it gets the lesson's language too.
 
 ## Your keys, your data
 

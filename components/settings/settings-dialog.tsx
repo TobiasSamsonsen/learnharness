@@ -21,6 +21,7 @@
  * switching sections never refetches.
  */
 
+import { LanguageSection } from "@/components/settings/language-section";
 import {
 	createContext,
 	useCallback,
@@ -369,10 +370,15 @@ export function SettingsDialogBody({
 											checked={record.general?.autoUpdate ?? true}
 											label="auto update"
 											onChange={(on) =>
-												void write("general", { autoUpdate: on })
+												// replace-whole section: keep the siblings
+												void write("general", { ...record.general, autoUpdate: on })
 											}
 										/>
 									</SettingsRow>
+									<LanguageSection
+										general={record.general}
+										onChange={(next) => void write("general", next)}
+									/>
 								</SettingsSection>
 							)}
 							{active === "keys" && (

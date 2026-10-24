@@ -1,6 +1,7 @@
 import * as crypto from "node:crypto";
 import type { Usage } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { DEFAULT_LESSON_LANGUAGE, resolveLessonLanguage, withLanguageDirective, type LessonLanguage } from "../../core/language.ts";
 import { Type, type Static, type TSchema } from "typebox";
 import { toToolResult } from "../tool-execute.ts";
 import type { ModelRole } from "../../../config.ts";
@@ -471,6 +472,8 @@ function runExtractor(
 	batchIds: ReadonlySet<string>,
 	signal: AbortSignal | undefined,
 	onStep: (usage: Usage, model: string, step: number, finishReason: string, tools: string) => void,
+	/** The session's lesson language: propositions are written in it. */
+	language: LessonLanguage = DEFAULT_LESSON_LANGUAGE,
 ): Promise<SessionFindings> {
 	// Chains in (the wire), chains out (the store) — no translation seam
 	// since chains-primary. Validation runs at the submit seam (error-back)
@@ -486,7 +489,7 @@ function runExtractor(
 		parameters: sessionFindingsSchema,
 		fill: fillFindings,
 		validate: (value) => validateSessionAnchors(value, batchIds) ?? validateFindingsChains(value, existingIds),
-		systemPrompt: EXTRACTOR_INSTRUCTIONS,
+		systemPrompt: withLanguageDirective(EXTRACTOR_INSTRUCTIONS, language, "extraction"),
 		prompt,
 		engine,
 		signal,
@@ -939,6 +942,8 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 				recordStep(jobKey, "extractor", callUsage(usage), model);
 				console.info(`[extraction] extractor step ${step}: ${finishReason}, tools: ${tools}`);
 			},
+			// a chat source's id IS its chatId: the lesson's own language
+			resolveLessonLanguage(chatStore.getChat(sourceId)?.settings),
 		);
 		console.info(`[extraction ${jobKey}] extractor done in ${Math.round(performance.now() - t0)}ms`);
 		return findings;

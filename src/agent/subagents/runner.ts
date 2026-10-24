@@ -1,3 +1,4 @@
+import { resolveLessonLanguage } from "../../core/language.ts";
 import type { PiEngine } from "../models.ts";
 import type { SearchProvider } from "../../core/search.ts";
 import {
@@ -420,6 +421,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 					engine: model,
 					abortSignal: loop.abortSignal,
 					chatId: loop.chatId,
+					language: resolveLessonLanguage(loop.chatId ? chatStore.getChat(loop.chatId)?.settings : undefined),
 					onUsage: (usage) => loop.onUsage(piUsageToStep(usage)),
 					onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
 				},
@@ -456,6 +458,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 					engine: model,
 					abortSignal: loop.abortSignal,
 					chatId: loop.chatId,
+					language: resolveLessonLanguage(loop.chatId ? chatStore.getChat(loop.chatId)?.settings : undefined),
 					onUsage: (usage) => loop.onUsage(piUsageToStep(usage)),
 					onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
 				},

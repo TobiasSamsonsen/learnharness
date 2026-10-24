@@ -9,6 +9,24 @@ import { describe, it } from "node:test";
 const source = fs.readFileSync(new URL("../scripts/build-server.mjs", import.meta.url), "utf8");
 const STANDALONE = path.join(".next", "standalone");
 const PROMPT = path.join("src", "agent", "system-prompt.md");
+/** The local dictation worker's repo-side payload (fork addition): what
+ *  build-server copies, plus a FOREIGN platform's onnxruntime binary that
+ *  must not ride along. */
+const ORT_BIN = path.join("node_modules", "onnxruntime-node", "bin", "napi-v6");
+const OTHER_PLATFORM = process.platform === "win32" ? "linux" : "win32";
+const STT_REPO_FILES = [
+	path.join("src", "server", "stt", "worker.mjs"),
+	path.join("node_modules", "@huggingface", "transformers", "package.json"),
+	path.join("node_modules", "@huggingface", "transformers", "dist", "transformers.node.mjs"),
+	path.join("node_modules", "@huggingface", "transformers", "dist", "transformers.web.js"),
+	path.join("node_modules", "@huggingface", "tokenizers", "package.json"),
+	path.join("node_modules", "@huggingface", "jinja", "package.json"),
+	path.join("node_modules", "onnxruntime-common", "package.json"),
+	path.join("node_modules", "onnxruntime-node", "package.json"),
+	path.join("node_modules", "onnxruntime-node", "dist", "index.js"),
+	path.join(ORT_BIN, process.platform, process.arch, "onnxruntime_binding.node"),
+	path.join(ORT_BIN, OTHER_PLATFORM, "x64", "onnxruntime_binding.node"),
+];
 
 function withPayload(test: (fixture: {
 	root: string;
@@ -28,6 +46,7 @@ function withPayload(test: (fixture: {
 		write(path.join("public", "asset.txt"));
 		write(path.join(STANDALONE, PROMPT));
 		write(path.join(STANDALONE, "src", "agent", "prompts", "teacher", "20-teaching.md"));
+		for (const file of STT_REPO_FILES) write(file);
 		test({ root, write, run: () => spawnSync(process.execPath, [path.join(root, "scripts", "build-server.mjs")], {
 			cwd: root, encoding: "utf8", timeout: 10_000,
 		}) });
@@ -83,6 +102,29 @@ describe("desktop standalone payload", () => {
 				assert.match(String(result.stderr), /REFUSING/);
 			});
 		}
+	});
+
+	it("copies the dictation worker with ONLY this platform's onnxruntime binary", () => {
+		withPayload(({ root, run }) => {
+			const result = run();
+			assert.equal(result.status, 0, String(result.stderr));
+			const out = (rel: string) => fs.existsSync(path.join(root, STANDALONE, rel));
+			assert.ok(out(path.join("src", "server", "stt", "worker.mjs")));
+			assert.ok(out(path.join("node_modules", "@huggingface", "transformers", "dist", "transformers.node.mjs")));
+			assert.ok(out(path.join(ORT_BIN, process.platform, process.arch, "onnxruntime_binding.node")));
+			assert.equal(out(path.join(ORT_BIN, OTHER_PLATFORM)), false, "foreign platform binaries pruned");
+			assert.equal(out(path.join("node_modules", "@huggingface", "transformers", "dist", "transformers.web.js")), false, "web build left out");
+			assert.equal(out(path.join("node_modules", "sharp")), false, "sharp never copied (the worker stubs it)");
+		});
+	});
+
+	it("refuses a missing dictation worker payload", () => {
+		withPayload(({ root, run }) => {
+			fs.rmSync(path.join(root, "src", "server", "stt", "worker.mjs"));
+			const result = run();
+			assert.equal(result.status, 1);
+			assert.match(String(result.stderr), /local dictation payload missing/);
+		});
 	});
 
 	it("still refuses a missing runtime prompt asset", () => {

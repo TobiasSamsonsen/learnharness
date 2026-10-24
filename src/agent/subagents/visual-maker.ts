@@ -1,3 +1,4 @@
+import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } from "../../core/language.ts";
 import { randomUUID } from "node:crypto";
 import type { AssistantMessage, Message, Tool, ToolResultMessage, Usage } from "@earendil-works/pi-ai";
 import { normalizeContext } from "@earendil-works/pi-ai";
@@ -35,6 +36,8 @@ export interface VisualMakerInput {
 }
 
 export interface VisualMakerOptions {
+	/** The lesson's language: learner-visible text is written in it. */
+	language?: LessonLanguage;
 	/** Test seam: scripted engine; production uses the visualMaker role. */
 	engine?: PiEngine;
 	headless?: HeadlessApi;
@@ -163,7 +166,7 @@ export async function runVisualMaker(input: VisualMakerInput, opts: VisualMakerO
 			// loop owns tool execution and the image-in-the-loop injection).
 			const result = await streamOnce(
 				engine,
-				INSTRUCTIONS,
+				withLanguageDirective(INSTRUCTIONS, opts.language ?? DEFAULT_LESSON_LANGUAGE, "artifact"),
 				messages,
 				toolDeclarations,
 				sessionId,

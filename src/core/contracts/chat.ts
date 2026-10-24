@@ -6,6 +6,7 @@
  * master. Pure types + protocol docs + tiny pure helpers. See docs/vision.md.
  */
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { LessonLanguage } from "../language.ts";
 import type { LhMessage } from "../native-messages.ts";
 import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
@@ -78,6 +79,10 @@ export interface ChatSettings {
 	/** pi thinking level — must be in the chosen model's supported list
 	 *  (getSupportedThinkingLevels; enforced by the settings route). */
 	thinkingLevel?: ThinkingLevel;
+	/** The lesson's language (fork addition, 2026-10-24): what the agents
+	 *  write and dictation transcribes. Stamped at birth from the default
+	 *  (GeneralSettings.language); absent = English (core/language.ts). */
+	language?: LessonLanguage;
 }
 
 

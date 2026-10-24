@@ -21,6 +21,7 @@ graph/coverage.jsonl       Extraction fingerprints, NOT learner assessment
 graph/positions.json      Canvas layout, not semantic relationships
 graph/render-settings.json  Presentation preferences, not learning evidence
 jobs/<job-id>.json        Background work records; delivered artifacts also appear in sessions
+models/stt/…              Downloaded local dictation models (binary), NOT learning data
 ```
 
 `settings.json`, downloaded models, caches, and provider debug logs are not needed
@@ -41,7 +42,7 @@ Each `chats/*.json` file is an object with:
 | `messages` | Complete stored chronological history, including custom app markers |
 | `tree` | Optional session plan: nodes, prerequisite edges, revision number |
 | `turns`, `extractions` | Parallel usage/cost-observation logs, not learner answers |
-| `settings` | Per-session model/thinking overrides, not an understanding assessment |
+| `settings` | Per-session model/thinking overrides and the lesson `language` (`en`/`nb`; absent = English), not an understanding assessment |
 
 The plan is session scaffolding, not the persistent knowledge graph. Its visited
 or current positions are not proof of mastery. Context compaction changes what the

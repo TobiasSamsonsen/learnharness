@@ -4,6 +4,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2Icon, MicIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
+import { useSettingsSaved } from "@/components/settings-signal";
+import {
+	DEFAULT_DICTATION_ENGINE,
+	DEFAULT_LESSON_LANGUAGE,
+	lessonLanguageInfo,
+	resolveLessonLanguage,
+	type ChatSettings,
+	type DictationEngine,
+	type LessonLanguage,
+	type LocalSttStatus,
+	type UserSettings,
+} from "@/src/core";
 
 /**
  * Voice dictation — the cloud engine (STT wave 1, 2026-09-17).
@@ -84,17 +96,76 @@ import { Hint } from "@/components/ui/hint";
 /*
  * Deepgram streaming params (the owner's live-tuned dictate config): nova-3,
  * endpointing=300, no interims. Silence streams too (the worklet never
- * pauses), so the socket never idles — no KeepAlive needed.
+ * pauses), so the socket never idles — no KeepAlive needed. The language
+ * is the lesson's (fork addition): nova-3 takes "en" and "no".
  */
-const DG_URL =
-	"wss://api.deepgram.com/v1/listen" +
-	"?model=nova-3" +
-	"&encoding=linear16" +
-	"&sample_rate=16000" +
-	"&channels=1" +
-	"&smart_format=true" +
-	"&punctuate=true" +
-	"&endpointing=300";
+export function deepgramUrl(language: LessonLanguage): string {
+	return (
+		"wss://api.deepgram.com/v1/listen" +
+		"?model=nova-3" +
+		`&language=${lessonLanguageInfo(language).deepgram}` +
+		"&encoding=linear16" +
+		"&sample_rate=16000" +
+		"&channels=1" +
+		"&smart_format=true" +
+		"&punctuate=true" +
+		"&endpointing=300"
+	);
+}
+
+/*
+ * THE LOCAL ENGINE (fork addition, 2026-10-24): on-device Whisper behind
+ * /api/stt/local (src/server/stt-local.ts). The transcript is DEFERRED
+ * anyway (owner round 2 — it lands once, at stop), so a local run is a
+ * recording: the same worklet frames buffer in memory for the whole run
+ * and post as ONE clip when it ends. The language's model warms while the
+ * learner speaks (prepare at start), so the stop usually waits only for
+ * the transcription itself (~2s per 10s of speech on a laptop CPU).
+ */
+
+/** Where this page's dictation runs and in which language: the default
+ *  engine, and the lesson's language (the default one on a draft). */
+export interface DictationConfig {
+	engine: DictationEngine;
+	language: LessonLanguage;
+}
+
+async function readDictationConfig(chatId: string | undefined): Promise<DictationConfig> {
+	const settings = await fetch("/api/settings")
+		.then((r) => r.json() as Promise<{ settings: UserSettings | null }>)
+		.then((b) => b.settings)
+		.catch(() => null);
+	const engine = settings?.general?.dictationEngine ?? DEFAULT_DICTATION_ENGINE;
+	if (!chatId) return { engine, language: settings?.general?.language ?? DEFAULT_LESSON_LANGUAGE };
+	const lesson = await fetch(`/api/chats/${chatId}`)
+		.then((r) => r.json() as Promise<{ settings?: ChatSettings }>)
+		.then((b) => b.settings)
+		.catch(() => undefined);
+	return { engine, language: resolveLessonLanguage(lesson) };
+}
+
+/** The stop-phase line while the local engine works: a first-run model
+ *  download shows its progress; otherwise it is transcribing. Pure. */
+export function localStopLabel(status: LocalSttStatus | undefined): string {
+	if (status?.state === "downloading") {
+		const pct = status.progress !== undefined ? ` ${Math.round(status.progress * 100)}%` : "";
+		return `Downloading speech model${pct}`;
+	}
+	if (status?.state === "loading") return "Loading speech model";
+	return "Transcribing";
+}
+
+/** Join a run's Int16 frames into one clip body. Pure. */
+export function joinFrames(frames: readonly ArrayBuffer[]): Uint8Array<ArrayBuffer> {
+	const total = frames.reduce((n, f) => n + f.byteLength, 0);
+	const out = new Uint8Array(total);
+	let at = 0;
+	for (const f of frames) {
+		out.set(new Uint8Array(f), at);
+		at += f.byteLength;
+	}
+	return out;
+}
 
 /** Meter tuning — the owner's tested values, see the file header. */
 const METER_FLOOR_DB = -50;
@@ -251,6 +322,9 @@ export type Dictation = {
 	phase: DictationPhase;
 	/** Terminal-state explanation, shown inside the wide button (cleared on the next start). */
 	error: string | null;
+	/** The local engine's stop-phase line ("Transcribing", a first-run
+	 *  model download's progress); null otherwise. */
+	stopLabel: string | null;
 	/** Latest observed RMS, 0..1 — sampled by the meter's own tick, never reset. */
 	levelRef: { current: number };
 	/** Not idle — from the click until the stop completes (the optimistic window). */
@@ -284,9 +358,27 @@ export type Dictation = {
  * composer fallback; the mounted question form's claim wins while a
  * question waits.
  */
-export function useDictation({ append }: { append: (text: string) => void }): Dictation {
+export function useDictation({ append, chatId }: { append: (text: string) => void; chatId?: string }): Dictation {
 	const [phase, setPhase] = useState<DictationPhase>("idle");
 	const [error, setError] = useState<string | null>(null);
+	const [stopLabel, setStopLabel] = useState<string | null>(null);
+	/** Engine + language, re-read when the settings or this lesson change;
+	 *  a run keeps the config it STARTED with (runConfigRef). */
+	const configRef = useRef<DictationConfig>({ engine: DEFAULT_DICTATION_ENGINE, language: DEFAULT_LESSON_LANGUAGE });
+	const runConfigRef = useRef<DictationConfig>(configRef.current);
+	/** The local engine's recording: every frame of the run, posted at stop. */
+	const localFramesRef = useRef<ArrayBuffer[]>([]);
+	const refreshConfig = useCallback(() => {
+		void readDictationConfig(chatId).then((c) => {
+			configRef.current = c;
+			// pre-mint for a Deepgram page (mitigation D) — silent if keyless
+			if (c.engine === "deepgram") warmTokens.refresh();
+		});
+	}, [chatId]);
+	useEffect(refreshConfig, [refreshConfig]);
+	useSettingsSaved((section) => {
+		if (section === "general" || section === "lesson") refreshConfig();
+	});
 	/** Latest RMS from the worklet — the meter samples this (dictate pattern). */
 	const levelRef = useRef(0);
 	/** The page's fallback append — kept fresh per render so a mid-recording
@@ -336,6 +428,8 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 			safetyRef.current = null;
 		}
 		pendingRef.current = [];
+		localFramesRef.current = [];
+		setStopLabel(null);
 		for (const track of streamRef.current?.getTracks() ?? []) track.stop();
 		streamRef.current = null;
 		sourceRef.current?.disconnect();
@@ -356,8 +450,8 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		// target field with the dictated tail already in it.
 		for (const w of waitersRef.current.splice(0)) w();
 		// Pre-mint for the next run (mitigation D) — best-effort; a keyless
-		// page just doesn't warm.
-		warmTokens.refresh();
+		// page just doesn't warm. The local engine needs no token.
+		if (configRef.current.engine === "deepgram") warmTokens.refresh();
 	}, []);
 
 	/** Open the Deepgram socket and wire its messages. `gen` guards staleness. */
@@ -366,7 +460,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 			// Minted JWTs authenticate via the "bearer" subprotocol — ["token",
 			// jwt] is rejected at the handshake (verified live; "token" is for
 			// raw API keys only, as in the owner's pi dictate extension).
-			const ws = new WebSocket(DG_URL, ["bearer", token]);
+			const ws = new WebSocket(deepgramUrl(runConfigRef.current.language), ["bearer", token]);
 			wsRef.current = ws;
 
 			ws.addEventListener("open", () => {
@@ -432,7 +526,19 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		reconnectsRef.current = 0;
 		bufferRef.current = []; // fresh run, fresh buffer (round 2)
 		pendingRef.current = []; // fresh run, fresh queue (mitigation A)
+		localFramesRef.current = [];
 		const gen = ++genRef.current;
+		const config = (runConfigRef.current = configRef.current);
+		const local = config.engine === "local";
+		// Local: warm the language's model while the learner speaks (the
+		// first run also downloads it); failures surface at stop.
+		if (local) {
+			void fetch("/api/stt/local/prepare", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ language: config.language }),
+			}).catch(() => {});
+		}
 
 		// Mitigation D: the warm token (pre-minted at mount / after the last
 		// run) resolves ~instantly; a cold/keyless mint surfaces below. The
@@ -440,7 +546,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		// the token runs concurrently with it. 127.0.0.1 is a secure
 		// context, so getUserMedia works without TLS; macOS TCC prompts on
 		// first use.
-		const tokenPromise = warmTokens.mint();
+		const tokenPromise = local ? Promise.resolve("") : warmTokens.mint();
 		tokenPromise.catch(() => {}); // surfaced below; no unhandled rejection
 		const micPromise = navigator.mediaDevices.getUserMedia({
 			audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -468,6 +574,10 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 				if (msg.type === "level") {
 					levelRef.current = msg.rms ?? 0; // never reset to zero (dictate pattern)
 				} else if (msg.type === "audio") {
+					if (local) {
+						localFramesRef.current.push(msg.buffer!); // the recording (local engine)
+						return;
+					}
 					const ws = wsRef.current;
 					if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg.buffer!);
 					// Mitigation A: not OPEN yet (handshake or reconnect gap) —
@@ -497,6 +607,10 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 			return;
 		}
 		if (gen !== genRef.current) return;
+		if (local) {
+			setPhase("recording"); // no socket: a live capture graph IS recording
+			return;
+		}
 		let token: string;
 		try {
 			token = await tokenPromise;
@@ -512,6 +626,43 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		openSocket(gen, token);
 	}, [openSocket, cleanup]);
 
+	/** The local engine's stop: post the run's recording as one clip, show
+	 *  the model/transcription progress meanwhile, flush the text through
+	 *  the same deferred path a Deepgram final takes. */
+	const transcribeLocalRun = useCallback(
+		async (gen: number) => {
+			const clip = joinFrames(localFramesRef.current);
+			localFramesRef.current = [];
+			const { language } = runConfigRef.current;
+			setStopLabel(localStopLabel(undefined));
+			const poll = setInterval(() => {
+				fetch("/api/stt/local")
+					.then((r) => r.json() as Promise<{ models?: LocalSttStatus[] }>)
+					.then((b) => {
+						if (gen === genRef.current) setStopLabel(localStopLabel(b.models?.find((m) => m.language === language)));
+					})
+					.catch(() => {});
+			}, 1000);
+			try {
+				const res = await fetch(`/api/stt/local?language=${language}`, {
+					method: "POST",
+					headers: { "Content-Type": "application/octet-stream" },
+					body: clip,
+				});
+				const body = (await res.json().catch(() => ({}))) as { text?: string; error?: string };
+				if (gen !== genRef.current) return; // cancelled meanwhile: discard
+				if (!res.ok) setError(body.error ? `Local dictation failed: ${body.error}` : `Local dictation failed (${res.status})`);
+				else if (body.text) bufferRef.current.push(body.text);
+			} catch {
+				if (gen === genRef.current) setError("Local dictation: server unreachable");
+			} finally {
+				clearInterval(poll);
+			}
+			if (gen === genRef.current) cleanup();
+		},
+		[cleanup],
+	);
+
 	const stop = useCallback(() => {
 		const gen = genRef.current;
 		if (phase !== "recording" && phase !== "connecting") return;
@@ -525,6 +676,11 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		sourceRef.current = null;
 		workletRef.current?.disconnect();
 		workletRef.current = null;
+
+		if (runConfigRef.current.engine === "local") {
+			void transcribeLocalRun(gen);
+			return;
+		}
 
 		const ws = wsRef.current;
 		if (ws && ws.readyState === WebSocket.OPEN) {
@@ -542,7 +698,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		} else {
 			cleanup();
 		}
-	}, [phase, cleanup]);
+	}, [phase, cleanup, transcribeLocalRun]);
 
 	const cancel = useCallback(() => {
 		if (phase === "idle") return;
@@ -585,9 +741,6 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	// page owns ONE hook instance, and only the mounted page's listener is
 	// attached.
 	useEffect(() => {
-		warmTokens.refresh(); // pre-mint at mount (mitigation D) — silent if keyless
-	}, []);
-	useEffect(() => {
 		window.addEventListener("lh:kbd-toggle-dictation", toggle);
 		return () => window.removeEventListener("lh:kbd-toggle-dictation", toggle);
 	}, [toggle]);
@@ -599,6 +752,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	return {
 		phase,
 		error,
+		stopLabel,
 		levelRef,
 		active: phase !== "idle",
 		toggle,
@@ -733,6 +887,13 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 			{/* Fixed width while recording — nothing ever appends text beside it
 			    (no interims, owner round 1). Cells carry no minimum width; the
 			    COUNT adapts to the measured row space (owner round 2). */}
+			{/* The local engine's stop phase: its line replaces the (frozen)
+			    meter — "Transcribing", or a first-run model download's %. */}
+			{phase === "stopping" && dictation.stopLabel ? (
+				<span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" data-testid="dictation-stop-label">
+					{dictation.stopLabel}…
+				</span>
+			) : (
 			<div ref={meterRef} className="flex h-4 min-w-0 flex-1 items-center gap-[2px]" data-testid="dictation-meter">
 				{levels.slice(-cellCount).map((v, i) => (
 					<span
@@ -742,6 +903,7 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 					/>
 				))}
 			</div>
+			)}
 		</div>
 	);
 }

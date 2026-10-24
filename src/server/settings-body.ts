@@ -25,6 +25,7 @@ import type {
 } from "../core/settings.ts";
 import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
+import { LESSON_LANGUAGES, isDictationEngine, isLessonLanguage } from "../core/language.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
 export type SettingsBodyResult<T> =
@@ -38,6 +39,7 @@ export function parseSettingsBody(body: unknown): SettingsBodyResult<ChatSetting
 	const raw = body as {
 		model?: { provider?: unknown; id?: unknown };
 		thinkingLevel?: unknown;
+		language?: unknown;
 	};
 	const settings: ChatSettings = {};
 	if (raw.model !== undefined) {
@@ -57,6 +59,12 @@ export function parseSettingsBody(body: unknown): SettingsBodyResult<ChatSetting
 		}
 		settings.thinkingLevel = raw.thinkingLevel as ThinkingLevel;
 	}
+	if (raw.language !== undefined) {
+		if (!isLessonLanguage(raw.language)) {
+			return { ok: false, error: `language must be one of: ${LESSON_LANGUAGES.map((l) => l.id).join(", ")}` };
+		}
+		settings.language = raw.language;
+	}
 	// Wave 7 killed the graph-context injection (owner: zero configuration
 	// beyond chat models — the prober reads its map through tools now); its
 	// budget dial is gone with it. A stale client sending the old key has
@@ -75,7 +83,7 @@ function asRecord(body: unknown): Record<string, unknown> | null {
 	return body as Record<string, unknown>;
 }
 
-/** general: { autoUpdate?: boolean } */
+/** general: { autoUpdate?: boolean, language?: LessonLanguage, dictationEngine?: DictationEngine } */
 export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<GeneralSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
@@ -85,6 +93,18 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 			return { ok: false, error: "autoUpdate must be a boolean" };
 		}
 		settings.autoUpdate = raw.autoUpdate;
+	}
+	if (raw.language !== undefined) {
+		if (!isLessonLanguage(raw.language)) {
+			return { ok: false, error: `language must be one of: ${LESSON_LANGUAGES.map((l) => l.id).join(", ")}` };
+		}
+		settings.language = raw.language;
+	}
+	if (raw.dictationEngine !== undefined) {
+		if (!isDictationEngine(raw.dictationEngine)) {
+			return { ok: false, error: "dictationEngine must be one of: local, deepgram" };
+		}
+		settings.dictationEngine = raw.dictationEngine;
 	}
 	return { ok: true, settings };
 }

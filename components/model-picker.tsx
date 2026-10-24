@@ -131,7 +131,8 @@ export function ModelControl({ chatId }: { chatId?: string }) {
 	}, [readRecord]);
 
 	useSettingsSaved((section) => {
-		if (section === "models") readRecord();
+		// "lesson": the language control rewrote this lesson's record
+		if (section === "models" || section === "lesson") readRecord();
 	});
 
 	// Dual-bound truth: chat mode displays the session's own record,
@@ -260,13 +261,15 @@ export function ModelControl({ chatId }: { chatId?: string }) {
 	const apply = useCallback(
 		(provider: string, id: string, level: ThinkingLevel | undefined) => {
 			if (chatId) {
-				void saveChat({ model: { provider, id }, thinkingLevel: level });
+				// Replace-whole PUT: the lesson's other fields (its language)
+				// ride along so a model pick never clears them.
+				void saveChat({ ...session, model: { provider, id }, thinkingLevel: level });
 			} else {
 				// composeSlotModel's empty-string convention: no level = unset.
 				void save(composeSlotModel(models, "strong", provider, id, level ?? ""));
 			}
 		},
-		[chatId, models, save, saveChat],
+		[chatId, models, save, saveChat, session],
 	);
 
 	// Shortcut seams (keyboard wave A): ⌘K opens the model menu (the

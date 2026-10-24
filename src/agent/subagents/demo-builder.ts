@@ -1,3 +1,4 @@
+import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } from "../../core/language.ts";
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Usage } from "@earendil-works/pi-ai";
@@ -31,6 +32,8 @@ export interface DemoBuilderInput {
 }
 
 export interface DemoBuilderOptions {
+	/** The lesson's language: learner-visible text is written in it. */
+	language?: LessonLanguage;
 	/** Test seam: scripted engine; production uses the demoBuilder role. */
 	engine?: PiEngine;
 	headless?: HeadlessApi;
@@ -207,7 +210,7 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 		const result = await runSubagent(Object.values(createDemoBuilderTools(state, headless, opts.onActivity)), {
 			role: "demoBuilder",
 			engine: opts.engine,
-			systemPrompt: INSTRUCTIONS,
+			systemPrompt: withLanguageDirective(INSTRUCTIONS, opts.language ?? DEFAULT_LESSON_LANGUAGE, "artifact"),
 			prompt,
 			maxTurns: opts.maxSteps ?? 24,
 			abortSignal: opts.abortSignal,

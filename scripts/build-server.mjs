@@ -76,6 +76,33 @@ for (const extra of ["dist", path.join("node_modules", "electron")]) {
 	}
 }
 
+// 2d) The local dictation worker (fork addition, 2026-10-24): forked, never
+// imported, so the tracer sees neither it nor its dependencies. Copy them
+// explicitly — onnxruntime-node pruned to THIS build's platform/arch binary
+// (it ships all of them, ~290 MB) and transformers.js to its Node build.
+// sharp is NOT copied: the worker stubs it out (src/server/stt/worker.mjs).
+const sttFiles = [
+	path.join("src", "server", "stt", "worker.mjs"),
+	path.join("node_modules", "@huggingface", "transformers", "package.json"),
+	path.join("node_modules", "@huggingface", "transformers", "dist", "transformers.node.mjs"),
+	path.join("node_modules", "@huggingface", "tokenizers"),
+	path.join("node_modules", "@huggingface", "jinja"),
+	path.join("node_modules", "onnxruntime-common"),
+	path.join("node_modules", "onnxruntime-node", "package.json"),
+	path.join("node_modules", "onnxruntime-node", "dist"),
+	path.join("node_modules", "onnxruntime-node", "bin", "napi-v6", process.platform, process.arch),
+];
+for (const rel of sttFiles) {
+	const from = path.join(ROOT, rel);
+	if (!exists(from)) {
+		console.error(`[build-server] local dictation payload missing: ${rel} — run npm install.`);
+		process.exit(1);
+	}
+	fs.mkdirSync(path.dirname(path.join(STANDALONE, rel)), { recursive: true });
+	copyTree(from, path.join(STANDALONE, rel));
+}
+console.log(`[build-server] local dictation worker + onnxruntime (${process.platform}-${process.arch}) copied`);
+
 // 3) Sanity: the runtime-read prompt assets must be present (the teacher
 //    agent reads them from disk at request time).
 for (const asset of [

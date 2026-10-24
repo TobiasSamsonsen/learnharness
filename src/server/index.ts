@@ -44,3 +44,4 @@ export { runPiTurn, piTurnResponse, type PiTurnHandle, type PiTurnSpec } from ".
 export * from "./observability.ts";
 export * from "./model-catalog.ts";
 export { claudeCodeAvailable } from "../agent/claude-code.ts";
+export { localSttStatuses, prepareLocalStt, transcribeLocal } from "./stt-local.ts";
