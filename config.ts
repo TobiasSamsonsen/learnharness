@@ -32,6 +32,9 @@ export const PATHS = {
 	/** Downloaded model caches (fork addition): data/models/stt holds the
 	 *  local dictation models (src/server/stt-local.ts). */
 	models: path.join(DATA_ROOT, "models"),
+	/** Lesson source material (fork addition): data/materials/<chatId>/ —
+	 *  index.json plus one folder per material (src/store/materials.ts). */
+	materials: path.join(DATA_ROOT, "materials"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────

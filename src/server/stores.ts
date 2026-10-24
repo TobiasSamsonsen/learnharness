@@ -10,6 +10,7 @@ import { chatStore } from "../store/chats.ts";
 import { graphStore } from "../store/graph.ts";
 import { jobStore } from "../store/jobs.ts";
 import { settingsStore } from "../store/settings.ts";
+import { materialStore } from "../store/materials.ts";
 import { resolveSettings, type EffectiveSettings } from "../core/settings-resolution.ts";
 /** The wired adapters. Satisfies core/graph.ts's GraphDeps structurally. */
 export const stores = {
@@ -17,6 +18,8 @@ export const stores = {
 	graphStore,
 	jobStore,
 	settingsStore,
+	// Lesson source material (fork addition, 2026-10-24).
+	materialStore,
 };
 
 export type Stores = typeof stores;

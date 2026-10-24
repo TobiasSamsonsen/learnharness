@@ -1,5 +1,6 @@
 "use client";
 
+import { uploadDraftMaterials } from "@/components/materials-client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CornerDownLeftIcon, DumbbellIcon } from "lucide-react";
@@ -147,6 +148,10 @@ export function Home({
 				}),
 			});
 			const { id } = (await res.json()) as { id: string };
+			// The draft's source material rides in right after creation
+			// (fork addition); the chat page holds the first message until
+			// it is read.
+			await uploadDraftMaterials(id);
 			// No settings PUT on create (per-session models, owner
 			// 2026-09-28): the SERVER stamps the newborn from the strong
 			// slot — the same default this surface's model control edits.

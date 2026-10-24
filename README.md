@@ -101,6 +101,15 @@ Every lesson has a language, **English** or **Norsk (bokmål)**. The prober, tea
 
 Lessons created before this feature are treated as English.
 
+### Source material
+
+A lesson can carry source material: **PDFs** (textbooks, slides, past exams), **text or Markdown** (notes, a syllabus, exam rules), **images** (photographed pages, a whiteboard), and **web links**. Add it with the **Sources** pill under the composer, either on the new-lesson screen or at any time during a lesson.
+
+- Each item is copied into the lesson (the data folder's `materials/`) and read once in the background with the vision model. That produces a *profile*: the material's targets, contents with page numbers, definitions, notation and terms, its approach, and its exercises. A new lesson waits for its material before the first question.
+- **The material sets the lesson's target and scope.** Teaching uses its definitions, notation and terminology. The teacher may explain things its own way, add perspectives, and change the order, as long as every target in the material is met. It cites the material ("Definition 4.1, p. 1") and says when it goes beyond or differs from it.
+- To quote exactly, the teacher looks passages up in the material itself (`material_search`, `material_read`); math-heavy PDF pages can be read visually.
+- Material added mid-lesson is announced to the teacher once, so it can adjust the plan. Removing an item takes effect from the next turn.
+
 ### Local dictation
 
 Dictation is transcribed **on your machine** with Whisper (transformers.js + onnxruntime, CPU). It's free, works offline after a one-time model download, and audio never leaves the computer. Each language has its own model, chosen by benchmark on FLEURS:

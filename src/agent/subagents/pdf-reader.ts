@@ -23,7 +23,9 @@ import { pdfExtract, pdfInfo, pdfProbe, pdfSearch, type PdfSearchHit } from "./p
  * runPdfJob wraps it into PdfResult with pagesConsulted tracked by the loop.
  */
 
-const INSTRUCTIONS = `You are a PDF reading specialist. You work for a teacher agent inside a learning
+/** The reading doctrine — shared by the brief and the source-material
+ *  profile (material-profiler.ts), which differ only in deliverable. */
+export const PDF_READING_DOCTRINE = `You are a PDF reading specialist. You work for a teacher agent inside a learning
 application: given a PDF path and a question, read the document on the teacher's behalf and
 produce a focused brief that the teacher can teach from, with page citations.
 
@@ -47,12 +49,16 @@ Reading doctrine — always in this order:
 
 Tool outputs may be error strings (file unreadable, invalid regex, no hits). Adapt: narrow the
 page spec, change the query, lower DPI. If the document genuinely cannot answer the question,
-say so in the brief instead of inventing content.
+say so in the brief instead of inventing content.`;
 
-Your FINAL assistant message is your entire deliverable — it must stand alone, in this format:
+const BRIEF_DELIVERABLE = `Your FINAL assistant message is your entire deliverable — it must stand alone, in this format:
 2-6 sentences (or short sections) answering the teacher's question from the document, each
 claim cited as (p. N). End with a line "Pages consulted: N, N, …" listing every page you
 extracted or rendered.`;
+
+const INSTRUCTIONS = `${PDF_READING_DOCTRINE}
+
+${BRIEF_DELIVERABLE}`;
 
 const MAX_ITERATIONS = 14;
 /** Rendered pages per pdf_render call — the skill renders selectively; a
@@ -68,6 +74,9 @@ export interface PdfReaderOptions {
 	onActivity?: (line: string) => void;
 	headless?: HeadlessApi;
 	maxIterations?: number;
+	/** Replaces the system prompt (the material profiler: same doctrine,
+	 *  a profile as the deliverable). */
+	instructions?: string;
 	/** Debug: raw provider-event recording key (LH_PROVIDER_EVENTS=1). */
 	chatId?: string;
 }
@@ -206,7 +215,7 @@ export async function runPdfReaderAgent(
 		for (let iteration = 0; iteration < maxIterations; iteration++) {
 			const result = await streamOnce(
 				engine,
-				INSTRUCTIONS,
+				opts.instructions ?? INSTRUCTIONS,
 				messages,
 				toolDeclarations,
 				sessionId,

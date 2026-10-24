@@ -1,5 +1,6 @@
 "use client";
 
+import { waitForMaterialsRead } from "@/components/materials-client";
 import { createContext, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useChatSession } from "@/components/session";
 import { visibleQueuedSteers } from "@/components/session-core";
@@ -252,9 +253,12 @@ export function Chat({
 	useEffect(() => {
 		if (!sentInitial.current && initialPromptOwed(initialMessages, initialPrompt)) {
 			sentInitial.current = true;
-			void send({ type: "text", text: initialPrompt! });
+			// A new lesson's source material is read first (fork addition):
+			// the first turn sets the target from its profiles. Returns at
+			// once when the lesson has none.
+			void waitForMaterialsRead(chatId).then(() => send({ type: "text", text: initialPrompt! }));
 		}
-	}, [initialPrompt, initialMessages, send]);
+	}, [initialPrompt, initialMessages, send, chatId]);
 
 	// A turn running server-side, attached to no live view of ours (navigate
 	// away mid-turn, or a wake turn discovered mid-session): the reattach

@@ -1,5 +1,6 @@
 "use client";
 
+import { uploadDraftMaterials } from "@/components/materials-client";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Conversation, ConversationContent, ConversationEmptyState } from "@/components/ai-elements/conversation";
@@ -62,6 +63,9 @@ export async function startDraftSession(
 		),
 	});
 	const { id } = (await res.json()) as { id: string };
+	// The draft's source material rides in right after creation (fork
+	// addition); the chat page holds the first message until it is read.
+	await uploadDraftMaterials(id, fetchLike);
 	// No settings PUT on create (per-session models, owner 2026-09-28):
 	// the SERVER stamps the newborn from the strong slot.
 	return `/chat/${id}?prompt=${encodeURIComponent(t)}`;

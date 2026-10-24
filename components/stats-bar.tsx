@@ -5,6 +5,7 @@ import { contextWindow, sessionCost, turnCost, type ChatSettings, type TurnUsage
 import { formatTokens, formatUsd, prettyModel } from "@/components/usage-format";
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
 import { LanguageControl } from "@/components/language-control";
+import { MaterialsControl } from "@/components/materials-control";
 
 /**
  * The below-composer stats bar (wave 4 observability): the session's
@@ -193,6 +194,8 @@ export function StatsBar({
 			<div className="flex items-center gap-1.5">
 				{/* The lesson's language (fork addition) — same dual binding as
 				    the model control: this lesson's, or the new-lesson default. */}
+				{/* The lesson's source material (fork addition). */}
+				<MaterialsControl chatId={chatId} />
 				<LanguageControl chatId={chatId} />
 				<ModelControl chatId={chatId} />
 			</div>

@@ -22,6 +22,8 @@ graph/positions.json      Canvas layout, not semantic relationships
 graph/render-settings.json  Presentation preferences, not learning evidence
 jobs/<job-id>.json        Background work records; delivered artifacts also appear in sessions
 models/stt/…              Downloaded local dictation models (binary), NOT learning data
+materials/<chat-id>/      A lesson's source material: index.json (name, kind, status, the
+                          model-written profile) + one folder per item with its stored copy
 ```
 
 `settings.json`, downloaded models, caches, and provider debug logs are not needed

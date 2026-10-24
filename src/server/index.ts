@@ -46,3 +46,4 @@ export * from "./model-catalog.ts";
 export { claudeCodeAvailable } from "../agent/claude-code.ts";
 export { localSttStatuses, prepareLocalStt, transcribeLocal } from "./stt-local.ts";
 export { dismissUpstreamVersion, launchClaudeUpdate, upstreamStatus } from "./upstream.ts";
+export { addLinkMaterial, addUploadedMaterial, listMaterials, removeMaterial } from "./materials.ts";

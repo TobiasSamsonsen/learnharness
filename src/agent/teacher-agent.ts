@@ -120,6 +120,10 @@ export interface AgentBuildOptions {
 	/** The lesson's language (fork addition): its core/language.ts
 	 *  conversation directive is appended to the prompt. Absent = English. */
 	language?: LessonLanguage;
+	/** The lesson's source material (fork addition): its system-prompt
+	 *  section (core/materials.ts materialsPromptSection) and the lookup
+	 *  tools (tools/materials.ts), added to every conversation agent. */
+	materials?: { section: string; tools: AgentTool<any>[] };
 	/** Native conversation identity: the existing persisted chat id, reused
 	 * across reconstructed prober, teacher, and practice Agents.
 	 * Debug: when set AND LH_PROVIDER_EVENTS=1, raw provider stream events
@@ -175,11 +179,15 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	// ("practice" is not a ModelRole) honest about that.
 	const engine = opts.engine ?? piEngineFor(kind as "prober" | "teacher");
 	const stopper = makeQuestionStopper();
+	const composed = opts.promptSwitches ? composeInstructions(kind, opts.promptSwitches) : composedInstructions[kind]!;
 	const systemPrompt = withLanguageDirective(
-		opts.promptSwitches ? composeInstructions(kind, opts.promptSwitches) : composedInstructions[kind]!,
+		opts.materials ? `${composed}
+
+${opts.materials.section}` : composed,
 		opts.language ?? DEFAULT_LESSON_LANGUAGE,
 		"conversation",
 	);
+	if (opts.materials) tools = [...tools, ...opts.materials.tools];
 	// Debug recorder (owner, 2026-10-04): raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is
 	// the normal no-observer path (tests, env-off).

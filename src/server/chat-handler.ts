@@ -44,6 +44,7 @@ import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./com
 import { catalogContextLimits } from "./model-catalog.ts";
 import { emit } from "../core/events.ts";
 import { resolveLessonLanguage } from "../core/language.ts";
+import { materialsForTurn } from "./materials.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
 import {
@@ -355,6 +356,9 @@ export async function handleChatInput(
 		// The lesson's language (fork addition): its own stamp, English for
 		// lessons born before languages existed.
 		language: resolveLessonLanguage(record.settings),
+		// The lesson's source material (fork addition): profiles in the
+		// prompt + the lookup tools; absent when the lesson has none.
+		materials: materialsForTurn(chatId),
 	};
 	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
 	// session builds the practitioner from turn 1 — no prober→teacher
