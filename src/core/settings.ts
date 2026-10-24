@@ -60,6 +60,10 @@ export const BACKGROUND_MODEL_ROLES = [
 	// override ONLY (the chat-handler reads the raw override), else on the
 	// lesson's own model.
 	"planner",
+	// Fork addition: the PDF reader (PDF jobs + source-material profiles)
+	// gets its own override like the other roles (it followed the vision
+	// slot with no way to change it alone).
+	"pdfReader",
 ] as const;
 
 export type BackgroundModelRole = (typeof BACKGROUND_MODEL_ROLES)[number];

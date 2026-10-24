@@ -66,6 +66,8 @@ import {
 	type ModelCatalogEntry,
 	type ModelSlotName,
 	type ModelsSettings,
+	type BackgroundModelRole,
+	type RoleModelOverride,
 } from "@/src/core";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { prettyModel } from "@/components/usage-format";
@@ -80,6 +82,40 @@ const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
 	cheap: { label: "Cheap", roster: "The assistants that research, build demos, and grade your work" },
 	vision: { label: "Vision", roster: "The assistants that draw and read PDFs" },
 };
+
+/** The per-role rows (fork addition, 2026-10-24): every model role a user
+ *  can point at its own model. `slot` = what the role follows when it has
+ *  no override (null: the planner follows the LESSON's model). Order:
+ *  conversation first, then the cheap tier's roles, then vision. */
+export const ROLE_ROWS: readonly { role: BackgroundModelRole; label: string; hint: string; slot: ModelSlotName | null }[] = [
+	{ role: "planner", label: "Planner", hint: "Plans each lesson — one turn, and the whole lesson follows it", slot: null },
+	{ role: "researcher", label: "Researcher", hint: "Researches questions in the background", slot: "cheap" },
+	{ role: "demoBuilder", label: "Demo builder", hint: "Writes the interactive demos", slot: "cheap" },
+	{ role: "extractor", label: "Extractor", hint: "Turns lessons into knowledge-graph ideas", slot: "cheap" },
+	{ role: "auditor", label: "Auditor", hint: "Links new ideas to the ones already in your graph", slot: "cheap" },
+	{ role: "visualMaker", label: "Visual maker", hint: "Draws figures and diagrams", slot: "vision" },
+	{ role: "pdfReader", label: "PDF reader", hint: "Reads PDFs and profiles source material", slot: "vision" },
+];
+
+/** A role row's model trigger text: its override, else what it follows. Pure. */
+export function roleModelLabel(
+	override: RoleModelOverride | undefined,
+	slot: ModelSlotName | null,
+	slotPin: { model: { id: string } } | null | undefined,
+): { value: string; inherited: boolean } {
+	if (override?.model) return { value: prettyModel(override.model.id), inherited: false };
+	if (slot === null) return { value: "Lesson's model", inherited: true };
+	const name = slot[0]!.toUpperCase() + slot.slice(1);
+	return { value: slotPin?.model ? `${name} · ${prettyModel(slotPin.model.id)}` : name, inherited: true };
+}
+
+/** The agent section with one role's override set (or cleared). Pure. */
+export function withRoleOverride(agent: AgentSettings | undefined, role: BackgroundModelRole, override: RoleModelOverride | null): AgentSettings {
+	const models = { ...agent?.models };
+	if (override && (override.model || override.thinkingLevel)) models[role] = override;
+	else delete models[role];
+	return { ...agent, models };
+}
 
 /** The search engines this wave ships (src/core/search.ts) + their labels. */
 const SEARCH_ENGINES = ["tavily", "brave"] as const;
@@ -340,7 +376,7 @@ export function AgentSection({
 	const [segmentStatus, setSegmentStatus] = useState<string | null>(null);
 	/** One open dropdown for the whole section: which slot (or the search
 	 *  row), which kind. */
-	const [openMenu, setOpenMenu] = useState<{ target: ModelSlotName | "search"; kind: "model" | "thinking" | "engine" } | null>(null);
+	const [openMenu, setOpenMenu] = useState<{ target: ModelSlotName | BackgroundModelRole | "search"; kind: "model" | "thinking" | "engine" } | null>(null);
 	const menuAnchorRef = useRef<HTMLSpanElement>(null);
 
 	const refreshSearch = () =>
@@ -757,6 +793,100 @@ export function AgentSection({
 					);
 				})}
 			</SettingsGroup>
+
+			{/* Per-role models (fork addition): each role on its own model, or
+			    following its slot. The Claude-subscription preset sets two of
+			    these (planner → Opus, demo builder → Sonnet). */}
+			<SettingsGroup label="Roles" testid="group-roles">
+				{ROLE_ROWS.map(({ role, label, hint, slot }) => {
+					const override = agent?.models?.[role];
+					const pin = slot ? slots?.[slot] : null;
+					const shown = roleModelLabel(override, slot, pin);
+					const coord = override?.model ?? pin?.model;
+					const chosen = coord ? catalog?.find((m) => m.id === coord.id && m.provider === coord.provider) : undefined;
+					const levels = chosen ? chosen.supportedLevels : THINKING_LEVELS;
+					// what the role runs at without its own level: the slot's (or the model's default)
+					const inheritedLevel = override?.model ? "" : (pin?.thinkingLevel ?? "");
+					const thisMenuOpen = openMenu?.target === role ? openMenu.kind : null;
+					const roleCatalog = slot === "vision" ? catalog?.filter((m) => m.input.includes("image")) : catalog;
+					const write = (next: RoleModelOverride | null) => onSectionChange(withRoleOverride(agent, role, next));
+					const follows = slot ? `the ${slot} slot` : "the lesson's model";
+					return (
+						<SettingsRow key={role} label={label} hint={hint} testid={`role-row-${role}`}>
+							<span ref={thisMenuOpen ? menuAnchorRef : undefined} className="relative flex items-center gap-2">
+								<MenuTrigger
+									value={shown.inherited ? "" : shown.value}
+									emptyLabel={shown.value}
+									ariaLabel={`${label} model`}
+									testid={`role-model-${role}`}
+									open={thisMenuOpen === "model"}
+									onClick={() => setOpenMenu(thisMenuOpen === "model" ? null : { target: role, kind: "model" })}
+									widthClass="min-w-20"
+								/>
+								<MenuTrigger
+									value={override?.thinkingLevel ?? ""}
+									emptyLabel={inheritedLevel || (chosen ? defaultOrderLevel(levels) : "—")}
+									ariaLabel={`${label} thinking`}
+									testid={`role-thinking-${role}`}
+									open={thisMenuOpen === "thinking"}
+									onClick={() => setOpenMenu(thisMenuOpen === "thinking" ? null : { target: role, kind: "thinking" })}
+									widthClass="w-20"
+								/>
+								<button
+									type="button"
+									data-testid={`role-reset-${role}`}
+									disabled={!override}
+									onClick={() => write(null)}
+									title={`Follow ${follows} again`}
+									className="w-14 shrink-0 text-right text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:invisible"
+								>
+									Use slot
+								</button>
+								{thisMenuOpen === "model" && (
+									<MenuShell
+										preferredSide="down"
+										anchorTestid={`role-model-${role}`}
+										testid={`role-model-menu-${role}`}
+										menuClass="flex w-[22rem] flex-col rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
+									>
+										<ModelMenuList
+											models={roleCatalog ?? undefined}
+											effectiveId={override?.model?.id ?? ""}
+											effectiveProvider={override?.model?.provider ?? ""}
+											onPick={(entry) => {
+												write({
+													model: { provider: entry.provider, id: entry.id },
+													thinkingLevel: populateLevel(override?.thinkingLevel, entry.supportedLevels),
+												});
+												setOpenMenu(null);
+											}}
+											footer={`${label} only — "Use slot" follows ${follows} again`}
+										/>
+									</MenuShell>
+								)}
+								{thisMenuOpen === "thinking" && (
+									<MenuShell
+										preferredSide="down"
+										anchorTestid={`role-thinking-${role}`}
+										testid={`role-thinking-menu-${role}`}
+										menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
+									>
+										<ThinkingMenuList
+											levels={levels.map(String)}
+											effectiveLevel={override?.thinkingLevel ?? (inheritedLevel || undefined)}
+											onPick={(level) => {
+												write({ ...override, thinkingLevel: level as ThinkingLevel });
+												setOpenMenu(null);
+											}}
+										/>
+									</MenuShell>
+								)}
+							</span>
+						</SettingsRow>
+					);
+				})}
+			</SettingsGroup>
+
 
 			<SettingsGroup label="Tools" testid="group-tools">
 				{/* The prober's graph tools (wave 7, owner ruling 2026-09-23):

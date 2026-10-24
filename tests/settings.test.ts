@@ -212,6 +212,7 @@ describe("sanitizeUserSettings", () => {
 			"extractor",
 			"auditor",
 			"planner",
+			"pdfReader",
 		]);
 	});
 });

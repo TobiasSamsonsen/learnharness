@@ -76,11 +76,18 @@ describe("AgentSection (thin SSR)", () => {
 		// carries a Default row (menu-default testid is retired).
 		assert.equal((html.match(/>Default<\/span>/g) ?? []).length, 0, "no Default trigger");
 		assert.ok(!html.includes('data-testid="menu-default"'), "no Default row");
-		assert.equal((html.match(/>—<\/span>/g) ?? []).length, 6, "three slots × two — triggers");
-		// the per-role rows are GONE (slots-only)
-		for (const role of ["researcher", "demoBuilder", "visualMaker"]) {
-			assert.ok(!html.includes(`data-testid="role-row-${role}"`), `${role} retired`);
+		// three slots × two — triggers (the role rows' own — come on top)
+		for (const slot of ["strong", "cheap", "vision"]) {
+			assert.match(html, new RegExp(`data-testid="slot-model-${slot}"[^>]*>[\\s\\S]*?>—</span>`), `${slot} model reads —`);
 		}
+		// Fork (2026-10-24, owner): the per-role rows are BACK — every role
+		// can run on its own model; an unset role names what it follows
+		for (const role of ["planner", "researcher", "demoBuilder", "extractor", "auditor", "visualMaker", "pdfReader"]) {
+			assert.ok(html.includes(`data-testid="role-row-${role}"`), `${role} row`);
+		}
+		assert.match(html, /data-testid="role-model-planner"[\s\S]*?Lesson&#x27;s model/);
+		assert.match(html, /data-testid="role-model-extractor"[\s\S]*?>Cheap</);
+		assert.match(html, /data-testid="role-model-pdfReader"[\s\S]*?>Vision</);
 		assert.ok(html.includes('data-testid="group-models"'), "Models sub-group");
 		assert.ok(html.includes('data-testid="group-tools"'), "Tools sub-group");
 		assert.ok(html.includes('data-testid="group-prompts"'), "System prompts sub-group");

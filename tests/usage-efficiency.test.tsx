@@ -57,3 +57,43 @@ test("the plan meter's text", () => {
 		"Claude plan usage — 5-hour window 58% (resets in 45 min) · week 34% (resets in 3 days)",
 	);
 });
+
+// ─── per-role models: visible and effective ──────────────────────────────────
+
+test("every configurable role has a row in the Roles group — none hidden", async () => {
+	const { BACKGROUND_MODEL_ROLES } = await import("../src/core/settings.ts");
+	const { ROLE_ROWS } = await import("../components/settings/agent-section.tsx");
+	assert.deepEqual(ROLE_ROWS.map((r) => r.role).sort(), [...BACKGROUND_MODEL_ROLES].sort());
+});
+
+test("an override reaches the role's engine resolution (the runner, extraction and profiler path)", async () => {
+	const { resolveRoleSpec } = await import("../src/core/settings-resolution.ts");
+	const { BACKGROUND_MODEL_ROLES } = await import("../src/core/settings.ts");
+	const record = withClaudeSubscriptionPreset(null);
+	assert.equal(resolveRoleSpec("planner", record)?.id, "claude-opus-5-5", "preset: the planner on Opus");
+	assert.equal(resolveRoleSpec("demoBuilder", record)?.id, "claude-sonnet-5-5", "preset: demos on Sonnet, not the cheap slot");
+	assert.equal(resolveRoleSpec("extractor", record)?.id, "claude-haiku-5-5", "no override: follows the cheap slot");
+	assert.equal(resolveRoleSpec("pdfReader", record)?.id, "claude-sonnet-5-5", "no override: follows the vision slot");
+	for (const role of BACKGROUND_MODEL_ROLES) {
+		const pinned = { ...record, agent: { models: { [role]: { model: { provider: "claude-code", id: "claude-haiku-5-5" }, thinkingLevel: "high" } } } };
+		const spec = resolveRoleSpec(role, pinned as never);
+		assert.equal(spec?.id, "claude-haiku-5-5", `${role} honours its override`);
+		assert.equal(spec?.thinkingLevel, "high", `${role} honours its thinking level`);
+	}
+});
+
+test("role rows: what an unset role shows, and set/clear keep the other roles", async () => {
+	const { roleModelLabel, withRoleOverride } = await import("../components/settings/agent-section.tsx");
+	assert.deepEqual(roleModelLabel(undefined, null, null), { value: "Lesson's model", inherited: true });
+	assert.deepEqual(roleModelLabel(undefined, "cheap", { model: { id: "claude-haiku-5-5" } }).inherited, true);
+	assert.match(roleModelLabel(undefined, "cheap", { model: { id: "claude-haiku-5-5" } }).value, /^Cheap · /);
+	assert.equal(roleModelLabel({ model: { provider: "claude-code", id: "claude-opus-5-5" } }, null, null).inherited, false);
+	const agent = { tools: { demo: false }, models: { planner: { model: { provider: "claude-code", id: "claude-opus-5-5" } } } };
+	const set = withRoleOverride(agent, "researcher", { thinkingLevel: "low" });
+	assert.equal(set.models?.planner?.model?.id, "claude-opus-5-5");
+	assert.equal(set.models?.researcher?.thinkingLevel, "low");
+	assert.deepEqual(set.tools, { demo: false });
+	const cleared = withRoleOverride(set, "planner", null);
+	assert.equal(cleared.models?.planner, undefined, "Use slot clears it");
+	assert.equal(cleared.models?.researcher?.thinkingLevel, "low");
+});
