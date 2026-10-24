@@ -103,6 +103,26 @@ for (const rel of sttFiles) {
 }
 console.log(`[build-server] local dictation worker + onnxruntime (${process.platform}-${process.arch}) copied`);
 
+// 2e) Where this build came from (fork addition): the upstream release
+// notice opens Claude Code in the fork's checkout to merge a new upstream
+// release, so the packaged app must know which folder built it. A build
+// from outside a git checkout records nothing (the notice then offers
+// only "Copy prompt").
+if (exists(path.join(ROOT, ".git"))) {
+	let commit = null;
+	try {
+		const { execFileSync } = await import("node:child_process");
+		commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
+	} catch {
+		/* git missing on PATH: the folder alone is enough */
+	}
+	fs.writeFileSync(
+		path.join(STANDALONE, "fork-build.json"),
+		JSON.stringify({ repoPath: ROOT, commit, builtAt: new Date().toISOString() }, null, "\t"),
+	);
+	console.log(`[build-server] build origin recorded: ${ROOT}`);
+}
+
 // 3) Sanity: the runtime-read prompt assets must be present (the teacher
 //    agent reads them from disk at request time).
 for (const asset of [

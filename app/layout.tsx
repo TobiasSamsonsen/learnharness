@@ -7,6 +7,7 @@ import { ActivityProvider } from "@/components/activity-dock";
 import { ServerEventsProvider } from "@/components/server-events";
 import { AppearanceProvider } from "@/components/settings/appearance";
 import UpdateBanner from "@/components/update-banner";
+import UpstreamBanner from "@/components/upstream-banner";
 
 // Chrome = JetBrains Mono, teaching prose = Source Sans 3, titles = CMU
 // Serif (the bundled lh-cmu @font-face in globals.css — no CDN).
@@ -33,8 +34,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 					</SidebarProvider>
 				</AppearanceProvider>
 			</ServerEventsProvider>
-			{/* Auto-update banner (Wave C): fixed card, Electron-only pushes. */}
-			<UpdateBanner />
+			{/* The bottom-right notice stack: the auto-update banner (Wave C,
+			    Electron-only pushes) and the fork's upstream release notice
+			    (fork addition) — stacked, never overlapping. */}
+			<div className="pointer-events-none fixed right-4 bottom-4 z-50 flex flex-col items-end gap-2">
+				<UpstreamBanner />
+				<UpdateBanner />
+			</div>
 		</body>
 		</html>
 	);

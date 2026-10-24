@@ -56,6 +56,8 @@ export * from "./fuzzy.ts";
 export * from "./settings.ts";
 // Lesson languages + dictation engines (fork addition, 2026-10-24).
 export * from "./language.ts";
+// Upstream release notices (fork addition, 2026-10-24).
+export * from "./upstream.ts";
 // graph-deletion.ts (wave 6): the whole module is PURE but storage-port
 // driven — the deletion RUNS server-side only. The shell needs exactly one
 // two type-only things from it: the ChatDeleteMode union (the delete

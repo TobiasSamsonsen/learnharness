@@ -67,6 +67,17 @@ Then run `dist\LearnHarness-<version>-x64-setup.exe`. It installs per user (no a
 
 In-app updates check this fork's GitHub Releases, so an installed copy never "updates" to upstream's build. Until the fork publishes a release, the update check finds nothing and the app keeps running as is.
 
+### Staying current with upstream
+
+The fork keeps upstream's version number (`package.json` `version`), so it always knows which upstream release it is based on. Every few hours the app checks [upstream's releases](https://github.com/amosblomqvist/learnharness/releases) (anonymously, through GitHub's public API). When a newer release is published, a notice appears in the bottom-right corner:
+
+- **Update with Claude Code** opens a terminal running Claude Code in the fork's checkout, the folder the installed app was built from. Claude is asked to merge the release on a new branch, keep the fork's features, run the typecheck, lint, and tests, rebuild the installer, and ask you before pushing or merging. The button appears only when that folder and the `claude` CLI are both on this machine.
+- **Copy prompt** copies the same instructions to paste into Claude Code yourself.
+- **Release notes** opens upstream's release page.
+- **✕** hides the notice until the *next* upstream release.
+
+Once the merge is done and you've rebuilt and installed it, the version matches upstream again and the notice goes away. `LH_UPSTREAM_CHECK=0` turns the check off.
+
 ### Use your Claude subscription (Claude Code)
 
 This fork can run every agent on your Claude Pro/Max subscription instead of an API key, by routing model turns through your locally installed [Claude Code](https://claude.com/claude-code) CLI.
@@ -109,7 +120,7 @@ To use Deepgram's cloud engine instead, choose *Deepgram (cloud)* under Settings
 
 - **Your keys and models.** No LearnHarness subscription or markup. You pay your providers for usage; a live cost meter shows model costs.
 - **Local storage.** Your chats, graph, settings, and API keys live on your machine. Learning records are plain files you can inspect.
-- **External services.** Models run through your configured providers. Model requests send the context needed for the task; web research and dictation also contact external services. Local storage does not mean offline processing.
+- **External services.** Models run through your configured providers. Model requests send the context needed for the task; web research and cloud dictation also contact external services, and the fork's upstream release check reads GitHub's public API (no account, nothing sent but the request). Local storage does not mean offline processing.
 - **Inspectable behavior.** System prompts are visible and editable. The app is open source under the AGPL-3.0 license.
 
 ## Development and support

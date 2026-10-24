@@ -118,6 +118,18 @@ describe("desktop standalone payload", () => {
 		});
 	});
 
+	it("records the build's git checkout for the upstream notice — and nothing outside a checkout", () => {
+		withPayload(({ root, run }) => {
+			assert.equal(run().status, 0);
+			assert.equal(fs.existsSync(path.join(root, STANDALONE, "fork-build.json")), false, "no .git, no record");
+			fs.mkdirSync(path.join(root, ".git"));
+			assert.equal(run().status, 0);
+			const record = JSON.parse(fs.readFileSync(path.join(root, STANDALONE, "fork-build.json"), "utf8"));
+			assert.equal(path.resolve(record.repoPath), path.resolve(root));
+			assert.ok(record.builtAt);
+		});
+	});
+
 	it("refuses a missing dictation worker payload", () => {
 		withPayload(({ root, run }) => {
 			fs.rmSync(path.join(root, "src", "server", "stt", "worker.mjs"));

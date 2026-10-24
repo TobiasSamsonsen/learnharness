@@ -364,6 +364,13 @@ export interface GraphSettings {
  * a burn, not a preference. NO CEILING: a huge threshold just means "fit
  * everything" until the window rule binds.
  */
+/** App notices' state (fork addition): which upstream release the user
+ *  dismissed the "update your fork" notice for. Server-written only
+ *  (PUT /api/upstream) — not a settings-dialog section. */
+export interface NoticesSettings {
+	dismissedUpstreamVersion?: string;
+}
+
 export interface CompactionSettings {
 	thresholdTokens?: number;
 }
@@ -379,6 +386,7 @@ export interface UserSettings {
 	appearance?: AppearanceSettings;
 	graph?: GraphSettings;
 	compaction?: CompactionSettings;
+	notices?: NoticesSettings;
 	[key: string]: unknown;
 }
 
@@ -638,6 +646,10 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	if (r.models !== null && typeof r.models === "object" && !Array.isArray(r.models)) {
 		const models = sanitizeModels(r.models as Record<string, unknown>);
 		if (Object.keys(models).length) out.models = models;
+	}
+	if (r.notices !== null && typeof r.notices === "object" && !Array.isArray(r.notices)) {
+		const dismissed = (r.notices as Record<string, unknown>).dismissedUpstreamVersion;
+		out.notices = typeof dismissed === "string" ? { dismissedUpstreamVersion: dismissed } : {};
 	}
 	if (r.graph !== null && typeof r.graph === "object" && !Array.isArray(r.graph)) {
 		out.graph = sanitizeGraph(r.graph as Record<string, unknown>);
