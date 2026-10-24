@@ -78,7 +78,8 @@ export interface ModelCatalogResponse {
 /** One row of the providers surface. */
 export interface CatalogProvider {
 	id: string;
-	/** The env var whose presence federates this provider in. */
+	/** The env var whose presence federates this provider in ("" for the
+	 *  keyless claude-code provider, federated by the installed CLI). */
 	envVar: string;
 	/** Whether that var is currently present (env or auth file). */
 	keyPresent: boolean;

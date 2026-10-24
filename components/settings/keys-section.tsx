@@ -41,6 +41,8 @@ export interface ProviderKeyInfo {
 interface KeysResponse {
 	keys: AuthKeyStatus[];
 	providers?: ProviderKeyInfo[];
+	/** The local `claude` CLI is installed (the keyless subscription provider). */
+	claudeCode?: boolean;
 }
 
 /** The curated tools group, pinned by id (the catalog owns the copy;
@@ -325,6 +327,7 @@ export function KeysSection({
 }) {
 	const [statuses, setStatuses] = useState<AuthKeyStatus[] | null>(null);
 	const [providers, setProviders] = useState<ProviderKeyInfo[] | undefined>(undefined);
+	const [claudeCode, setClaudeCode] = useState(false);
 	const [loading, setLoading] = useState(true);
 	/** The unfolded row (its id), null = all folded. Seeded by the
 	 *  deep-link (initialRow) and re-followed when it retargets. */
@@ -356,6 +359,7 @@ export function KeysSection({
 			.then((body: KeysResponse) => {
 				setStatuses(body.keys ?? []);
 				if (body.providers) setProviders(body.providers);
+				setClaudeCode(body.claudeCode === true);
 			})
 			.catch(() => setStatuses([]))
 			.finally(() => setLoading(false));
@@ -413,6 +417,16 @@ export function KeysSection({
 	return (
 		<>
 			<SettingsGroup label="Model providers" testid="group-provider-keys">
+				{claudeCode && (
+					<div
+						data-testid="key-claude-code"
+						title="Turns run through the local claude CLI on your Claude subscription — no key needed"
+						className="flex w-full items-center justify-between gap-3 rounded-sm px-1 py-1.5"
+					>
+						<span className="font-ui text-xs text-foreground">Claude Code (subscription)</span>
+						<span className="font-mono text-[11px] text-muted-foreground">CLI detected · no key</span>
+					</div>
+				)}
 				{providerRows.map((status) => (
 					<KeyTableRow
 						key={status.id}

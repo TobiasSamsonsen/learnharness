@@ -52,6 +52,20 @@ Add your provider API key and choose your models, then start a session with what
 
 All three platforms support in-app updates.
 
+### Use your Claude subscription (Claude Code)
+
+This fork can run every agent on your Claude Pro/Max subscription instead of an API key, by routing model turns through your locally installed [Claude Code](https://claude.com/claude-code) CLI.
+
+1. Install Claude Code and run `claude` once to sign in with your Claude account.
+2. Start LearnHarness. When the `claude` CLI is found, **Claude Code (subscription)** appears under Settings → Keys as a detected provider; no key is needed.
+3. In the model pickers, choose the `claude-code` models (e.g. `claude-sonnet-5-5` for the strong slot, `claude-haiku-5-5` for the cheap slot).
+
+How it works: each model turn runs `claude -p` with Claude Code's own prompt, tools, settings, and MCP servers switched off. The app's tools are declared to the model through a do-nothing MCP stub, so its tool calls come back to LearnHarness, which runs them as it does for any provider. Claude Code owns the sign-in. LearnHarness never sees or stores a credential, and `ANTHROPIC_API_KEY` is stripped from the CLI's environment so turns bill the subscription, not a key.
+
+Trade-offs: each turn starts a CLI process (a few seconds of overhead), the conversation is replayed as one transcript per turn, and usage counts against your plan's limits. The cost meter shows $0 for these models because they aren't billed per token.
+
+Options: `LH_CLAUDE_CODE_BIN=/path/to/claude` pins the executable (useful when a GUI-launched app's `PATH` misses it), and `LH_CLAUDE_CODE=0` turns the provider off.
+
 ## Your keys, your data
 
 - **Your keys and models.** No LearnHarness subscription or markup. You pay your providers for usage; a live cost meter shows model costs.

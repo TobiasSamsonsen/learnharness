@@ -44,8 +44,9 @@ export function useZeroKeys(): boolean {
 	const read = useCallback(() => {
 		fetch("/api/keys")
 			.then((r) => r.json())
-			.then((body: { keys?: AuthKeyStatus[]; providers?: ProviderKeyInfo[] }) => {
-				setZeroKeys(!hasProviderKey(body.keys ?? [], body.providers));
+			.then((body: { keys?: AuthKeyStatus[]; providers?: ProviderKeyInfo[]; claudeCode?: boolean }) => {
+				// an installed Claude Code CLI is a keyless provider
+				setZeroKeys(!body.claudeCode && !hasProviderKey(body.keys ?? [], body.providers));
 			})
 			.catch(() => {});
 	}, []);

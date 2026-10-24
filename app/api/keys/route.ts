@@ -15,11 +15,14 @@
  * value comes from the environment (dev .env.local / launch env) or the
  * file, and `shadowedByEnv` explains why a saved key is not the live one
  * (env always wins).
+ *
+ * `claudeCode` reports whether the local `claude` CLI is installed — the
+ * fork's keyless subscription provider counts as a configured provider.
  */
-import { keyStatuses, providerKeyList } from "@/src/server";
+import { claudeCodeAvailable, keyStatuses, providerKeyList } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-	return Response.json({ keys: keyStatuses(), providers: providerKeyList() });
+	return Response.json({ keys: keyStatuses(), providers: providerKeyList(), claudeCode: claudeCodeAvailable() });
 }
