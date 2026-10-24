@@ -17,6 +17,7 @@ import {
 	renderClaudeCodeRequest,
 	renderToolCallRecord,
 	salvageTextToolCalls,
+	visibleStreamText,
 } from "../src/agent/claude-code.ts";
 
 const model = claudeCodeModels().find((m) => m.id === "claude-sonnet-5-5")!;
@@ -151,6 +152,65 @@ test("the translator salvages a text-written call into a toolUse turn", async ()
 	assert.deepEqual(message.content[0], { type: "text", text: "Next a check." });
 	assert.equal(message.content[1]?.type, "toolCall");
 	assert.deepEqual((message.content[1] as { arguments: unknown }).arguments, { type: "check", question: "Q?", options: [] });
+});
+
+test("a record opener closed by the model's own </invoke> is recovered (live shape, 2026-10-24)", () => {
+	const leaked =
+		'Riktig.\n<tool_call id="toolu_cc_9a1f" name="quiz">\n<parameter name="type">check</parameter>\n<parameter name="question">Hva er ε?</parameter>\n<parameter name="options">[]</parameter>\n</invoke>';
+	const { text, calls } = salvageTextToolCalls(leaked, [quizTool]);
+	assert.equal(text, "Riktig.");
+	assert.deepEqual(calls.map((c) => c.arguments), [{ type: "check", question: "Hva er ε?", options: [] }]);
+});
+
+test("streaming never shows text-written call markup, not even a tag's first letters", () => {
+	assert.equal(visibleStreamText("Next a check. <inv"), "Next a check. ");
+	assert.equal(visibleStreamText("Next a check. <tool_call name"), "Next a check. ");
+	assert.equal(visibleStreamText("a < b and $x<1$"), "a < b and $x<1$", "ordinary < stays visible");
+	assert.equal(visibleStreamText("Plain prose."), "Plain prose.");
+});
+
+/** Drive one text block through the translator in small deltas. */
+async function translateText(text: string, extra: Record<string, unknown>[] = []) {
+	const stream = createAssistantMessageEventStream();
+	const translator = new ClaudeCodeTranslator(stream, model, [quizTool]);
+	const lines = [
+		se({ type: "message_start", message: { id: "m", usage: {} } }),
+		se({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+		...Array.from(text.match(/[\s\S]{1,7}/g) ?? [], (chunk) => se({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: chunk } })),
+		se({ type: "content_block_stop", index: 0 }),
+		...extra,
+		se({ type: "message_delta", delta: { stop_reason: extra.length ? "tool_use" : "end_turn" }, usage: {} }),
+		se({ type: "message_stop" }),
+	];
+	for (const line of lines) translator.push(line);
+	const events: AssistantMessageEvent[] = [];
+	for await (const e of stream) events.push(e);
+	return { events, message: await stream.result() };
+}
+
+test("a text-written call streams as prose only and arrives as a real call", async () => {
+	const { events, message } = await translateText(
+		'Next a check.\n<tool_call name="quiz"><parameter name="type">check</parameter><parameter name="question">Q?</parameter><parameter name="options">[]</parameter></tool_call>',
+	);
+	const streamed = events.filter((e) => e.type === "text_delta").map((e) => (e as { delta: string }).delta).join("");
+	assert.equal(streamed, "Next a check.\n");
+	const end = events.find((e) => e.type === "text_end") as { content: string };
+	assert.equal(end.content, "Next a check.");
+	assert.ok(events.some((e) => e.type === "toolcall_end"), "the recovered call is announced");
+	assert.equal(message.stopReason, "toolUse");
+	assert.equal(message.content[1]?.type, "toolCall");
+});
+
+test("a native call plus a text-written duplicate keeps only the native call, and no markup", async () => {
+	const { message } = await translateText('Check:\n<invoke name="mcp__lh__quiz"><parameter name="type">check</parameter></invoke>', [
+		se({ type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "toolu_native", name: "mcp__lh__quiz", input: {} } }),
+		se({ type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"type":"check"}' } }),
+		se({ type: "content_block_stop", index: 1 }),
+	]);
+	assert.deepEqual(message.content, [
+		{ type: "text", text: "Check:" },
+		{ type: "toolCall", id: "toolu_native", name: "quiz", arguments: { type: "check" } },
+	]);
 });
 
 test("thinking levels map to --effort through the model's own map", () => {

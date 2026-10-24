@@ -161,12 +161,27 @@ export function renderToolCallRecord(call: ToolCall): string {
  *  (it arrives as text under stop_reason tool_use, closing tags often
  *  mismatched). */
 const TEXT_CALLS = [
-	/<tool_call\b[^>]*?\bname="([^"]+)"[^>]*>([\s\S]*?)<\/tool_call>/g,
-	/<invoke name="([^"]+)">([\s\S]*?)<\/invoke>/g,
+	// either opener with either closer: live sessions mix them (a record's
+	// <tool_call …> closed by the model's own </invoke>)
+	/<(?:tool_call|invoke)\b[^>]*?\bname="([^"]+)"[^>]*>([\s\S]*?)<\/(?:tool_call|invoke)>/g,
 ];
 const TEXT_PARAM = /<parameter name="([^"]+)">([\s\S]*?)<\/parameter>/g;
 /** Wrapper debris left once the calls inside it are lifted out. */
 const CALL_DEBRIS = /<\/?(?:tool_call|invoke|function_calls)\b[^>]*>/g;
+/** Where a text-written call begins: streaming stops showing text here. */
+const CALL_START = /<(?:tool_call|invoke|function_calls)\b/;
+const CALL_TOKENS = ["<tool_call", "<invoke", "<function_calls"];
+
+/** How much of a streaming text block may be shown: everything before a
+ *  text-written call, minus a trailing fragment that could be the start
+ *  of one ("<inv"). Pure. */
+export function visibleStreamText(text: string): string {
+	const start = text.search(CALL_START);
+	if (start >= 0) return text.slice(0, start);
+	const lt = text.lastIndexOf("<");
+	if (lt >= 0 && CALL_TOKENS.some((t) => t.startsWith(text.slice(lt)))) return text.slice(0, lt);
+	return text;
+}
 
 /**
  * The fallback for a tool call that arrived as TEXT (see TEXT_CALLS):
@@ -294,6 +309,8 @@ export class ClaudeCodeTranslator {
 	/** The last error-ish text Claude Code printed (a signed-out CLI, a
 	 *  rate limit) — what a run that never completes a message reports. */
 	private lastErrorText: string | undefined;
+	/** Calls lifted out of text blocks, pending message end (salvage). */
+	private readonly textCalls: ToolCall[] = [];
 
 	constructor(
 		private readonly stream: AssistantMessageEventStream,
@@ -396,8 +413,13 @@ export class ClaudeCodeTranslator {
 			} else if (i >= 0) {
 				const block = this.blocks[i]!;
 				if (delta.type === "text_delta" && block.type === "text") {
+					// stream only what is safe to show: a text-written call
+					// never flashes on screen (it is lifted out at block end)
+					const before = visibleStreamText(block.text).length;
 					block.text += delta.text;
-					stream.push({ type: "text_delta", contentIndex: i, delta: delta.text, partial: output });
+					const shown = visibleStreamText(block.text);
+					if (shown.length > before)
+						stream.push({ type: "text_delta", contentIndex: i, delta: shown.slice(before), partial: output });
 				} else if (delta.type === "input_json_delta" && block.type === "toolCall") {
 					block.partialJson = (block.partialJson ?? "") + delta.partial_json;
 					block.arguments = parseStreamingJson(block.partialJson);
@@ -409,7 +431,16 @@ export class ClaudeCodeTranslator {
 			if (i < 0) return;
 			const block = this.blocks[i]!;
 			delete block.index;
-			if (block.type === "text") stream.push({ type: "text_end", contentIndex: i, content: block.text, partial: output });
+			if (block.type === "text") {
+				// lift text-written calls out now, so text_end and the final
+				// message carry only the prose; the calls wait for message end
+				if (CALL_START.test(block.text)) {
+					const { text, calls } = salvageTextToolCalls(block.text, this.tools);
+					block.text = text;
+					this.textCalls.push(...calls);
+				}
+				stream.push({ type: "text_end", contentIndex: i, content: block.text, partial: output });
+			}
 			else if (block.type === "thinking") stream.push({ type: "thinking_end", contentIndex: i, content: block.thinking, partial: output });
 			else if (block.type === "toolCall") {
 				Object.assign(block, parseToolCallArguments(block.partialJson));
@@ -436,24 +467,19 @@ export class ClaudeCodeTranslator {
 		}
 	}
 
-	/** A turn with no native call but a call WRITTEN as text: recover the
-	 *  calls into real toolCall blocks (the streamed text stays as it was;
-	 *  the final message — what the record keeps — loses the fake). */
+	/** A turn with no native call but calls WRITTEN as text (already lifted
+	 *  out of the prose at their block's end): they become real toolCall
+	 *  blocks, announced like streamed ones. A turn that also called
+	 *  natively keeps only the native calls — the text copies were noise. */
 	private salvage(): void {
-		if (this.blocks.some((b) => b.type === "toolCall")) return;
-		const recovered: ToolCall[] = [];
-		const content: Block[] = [];
-		for (const block of this.blocks) {
-			if (block.type !== "text" || !/<(?:tool_call|invoke)\b/.test(block.text)) {
-				content.push(block);
-				continue;
-			}
-			const { text, calls } = salvageTextToolCalls(block.text, this.tools);
-			recovered.push(...calls);
-			if (text) content.push({ ...block, text });
+		const recovered = this.textCalls.splice(0);
+		if (recovered.length === 0 || this.blocks.some((b) => b.type === "toolCall")) return;
+		for (const call of recovered) {
+			this.blocks.push(call);
+			const i = this.blocks.length - 1;
+			this.stream.push({ type: "toolcall_start", contentIndex: i, partial: this.output });
+			this.stream.push({ type: "toolcall_end", contentIndex: i, toolCall: call, partial: this.output });
 		}
-		if (recovered.length === 0) return;
-		this.output.content = [...content, ...recovered];
 		this.output.stopReason = "toolUse";
 	}
 
