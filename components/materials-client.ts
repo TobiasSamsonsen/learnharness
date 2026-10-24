@@ -45,8 +45,14 @@ export function useDraftMaterials(): DraftMaterial[] {
 let seq = 0;
 export const draftKey = () => `d${++seq}`;
 
+/** A material owner's endpoint: a course's curriculum ("course_…" ids —
+ *  fork addition, docs/courses.md) or a lesson's source material. Pure. */
+export function materialsPath(ownerId: string): string {
+	return ownerId.startsWith("course_") ? `/api/courses/${ownerId}/materials` : `/api/chats/${ownerId}/materials`;
+}
+
 export async function fetchMaterials(chatId: string, fetchLike: typeof fetch = fetch): Promise<LessonMaterial[]> {
-	const res = await fetchLike(`/api/chats/${chatId}/materials`);
+	const res = await fetchLike(materialsPath(chatId));
 	if (!res.ok) return [];
 	return ((await res.json()) as { materials?: LessonMaterial[] }).materials ?? [];
 }
@@ -56,13 +62,13 @@ export async function uploadFiles(chatId: string, files: readonly File[], fetchL
 	if (files.length === 0) return null;
 	const form = new FormData();
 	for (const f of files) form.append("file", f, f.name);
-	const res = await fetchLike(`/api/chats/${chatId}/materials`, { method: "POST", body: form });
+	const res = await fetchLike(materialsPath(chatId), { method: "POST", body: form });
 	if (res.ok) return null;
 	return ((await res.json().catch(() => ({}))) as { error?: string }).error ?? `upload failed (${res.status})`;
 }
 
 export async function addLink(chatId: string, url: string, fetchLike: typeof fetch = fetch): Promise<string | null> {
-	const res = await fetchLike(`/api/chats/${chatId}/materials`, {
+	const res = await fetchLike(materialsPath(chatId), {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ url }),

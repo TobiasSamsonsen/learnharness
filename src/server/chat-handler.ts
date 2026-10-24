@@ -50,6 +50,7 @@ import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.
 import { emit } from "../core/events.ts";
 import { resolveLessonLanguage } from "../core/language.ts";
 import { materialsForTurn } from "./materials.ts";
+import { courseForTurn } from "./courses.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
 import {
@@ -390,6 +391,7 @@ export async function handleChatInput(
 		commitStaged: () => { stores.chatStore.saveMessages(chatId, merged); persistBaseCount = merged.length; },
 		restoreAutomatic: (automaticIds, retainedIds) => restoreUncommittedAutomatic(chatId, constructed, automaticIds, retainedIds),
 	});
+	const course = courseForTurn(chatId);
 	const agentOpts: AgentBuildOptions = {
 		engine,
 		callPurpose,
@@ -410,6 +412,9 @@ export async function handleChatInput(
 		// The lesson's source material (fork addition): profiles in the
 		// prompt + the lookup tools; absent when the lesson has none.
 		materials: materialsForTurn(chatId),
+		// The course section (fork addition — docs/courses.md §4): a course
+		// session's per-turn rules; absent for other sessions.
+		...(course ? { course: { section: course.section } } : {}),
 	};
 	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
 	// session builds the practitioner from turn 1 — no prober→teacher
@@ -439,6 +444,9 @@ export async function handleChatInput(
 							searchAvailable,
 						},
 						...(graphToolsEnabled(effective) ? { graph: { chatStore: stores.chatStore, graphStore: stores.graphStore } } : {}),
+						// COURSE SESSIONS (docs/courses.md §1.4): the problem tool
+						// tags the session's skills — the boxes' evidence.
+						...(course?.skills ? { courseSkills: course.skills } : {}),
 					},
 					agentOpts,
 				)

@@ -2,6 +2,7 @@ import { abortExtraction, extractionStatuses } from "../agent/subagents/extracti
 import { coverageOf } from "../core/coverage.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
 import { titleFromPrompt } from "../core/contracts.ts";
+import { DEFAULT_LESSON_LANGUAGE } from "../core/language.ts";
 import { graphRevision } from "./graph.ts";
 import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
@@ -21,6 +22,31 @@ import { isTurnRunning } from "./turn-liveness.ts";
 export const { createChat, getChat, listChats } = stores.chatStore;
 export { titleFromPrompt };
 export type { ChatDeleteMode, ChatDeletionStats } from "../core/graph-deletion.ts";
+
+/**
+ * The newborn's birth stamp (moved verbatim from POST /api/chats so course
+ * sessions get the same one). PER-SESSION MODELS (owner, 2026-09-28): a
+ * session owns its model + thinking level from birth — stamped verbatim
+ * from the STRONG slot, the new-session default. From here the strong
+ * slot never reaches this session again: in-session picks write the
+ * session's own record (PUT /api/chats/:id/settings). No strong slot
+ * configured (fresh BYOK boot) → no stamp; the turn gate's 503
+ * models_not_configured envelope refuses honestly until the setup flow
+ * fills the slot. The lesson's language rides the same birth stamp (fork
+ * addition): the default language, factory English — stamped even without
+ * a model, so a lesson's language never drifts with later defaults.
+ */
+export function stampNewSession(chatId: string): void {
+	const record = stores.settingsStore.readSettings();
+	const strong = record?.models?.strong;
+	const language = record?.general?.language ?? DEFAULT_LESSON_LANGUAGE;
+	stores.chatStore.saveSettings(chatId, {
+		...(strong?.model
+			? { model: { provider: strong.model.provider, id: strong.model.id }, thinkingLevel: strong.thinkingLevel }
+			: {}),
+		language,
+	});
+}
 
 /** How long the wind-down wait may take before the caller gets a retryable
  *  503 (an aborted extraction ends at its next model-call boundary —

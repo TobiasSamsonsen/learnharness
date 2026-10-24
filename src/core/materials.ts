@@ -91,7 +91,7 @@ export const MATERIAL_RULES = `The learner attached the source material below. I
 - LOOK IT UP: the profiles below are summaries. Before quoting a definition, a theorem or an exercise, check the exact wording with material_search / material_read. For math-heavy or diagram pages of a PDF, dispatch a pdf job on its stored path to have the pages read visually.`;
 
 /** One material's block in the system prompt. Pure. */
-function materialBlock(m: LessonMaterial, path: string): string {
+export function materialBlock(m: LessonMaterial, path: string): string {
 	const kind = m.kind === "pdf" ? `PDF${m.pages ? `, ${m.pages} pages` : ""}` : m.kind === "web" ? `web page, ${m.url}` : m.kind;
 	const head = `<material id="${m.id}" name="${m.name}" kind="${kind}" path="${path}"${m.addedMidLesson ? ' added="during the lesson"' : ""}>`;
 	const body =

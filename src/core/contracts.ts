@@ -16,3 +16,5 @@ export * from "./contracts/chat.ts";
 export * from "./contracts/jobs.ts";
 export * from "./contracts/probe.ts";
 export * from "./contracts/models.ts";
+// Courses + skills (fork addition, 2026-10-24 — docs/courses.md).
+export * from "./contracts/course.ts";

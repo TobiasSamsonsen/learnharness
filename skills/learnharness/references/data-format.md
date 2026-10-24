@@ -18,12 +18,20 @@ graph/sources.json        Imported-note source metadata, keyed by source ID
 graph/format.json         Graph-family format stamp: {"version": 1}
 graph/sessions.jsonl       Extraction checkpoints, NOT the session index
 graph/coverage.jsonl       Extraction fingerprints, NOT learner assessment
+graph/skills.jsonl         Course skills (abilities, not propositions); IDs can repeat —
+                           the first line defines name/statement, later lines add
+                           requires (skill IDs) and restsOn (proposition IDs)
 graph/positions.json      Canvas layout, not semantic relationships
 graph/render-settings.json  Presentation preferences, not learning evidence
 jobs/<job-id>.json        Background work records; delivered artifacts also appear in sessions
 models/stt/…              Downloaded local dictation models (binary), NOT learning data
 materials/<chat-id>/      A lesson's source material: index.json (name, kind, status, the
                           model-written profile) + one folder per item with its stored copy
+materials/<course-id>/    A course's curriculum, same layout
+courses/<course-id>.json  A course: title, status, the approved skill IDs, a pending draft.
+                          How well a skill is known is NOT stored: it is folded from the
+                          practice sessions whose record carries `course` (problem `skills`
+                          tags + conclude outcomes; box 3+ of 5 = known)
 ```
 
 `settings.json`, downloaded models, caches, and provider debug logs are not needed

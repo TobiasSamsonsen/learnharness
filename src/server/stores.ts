@@ -11,6 +11,8 @@ import { graphStore } from "../store/graph.ts";
 import { jobStore } from "../store/jobs.ts";
 import { settingsStore } from "../store/settings.ts";
 import { materialStore } from "../store/materials.ts";
+import { skillStore } from "../store/skills.ts";
+import { courseStore } from "../store/courses.ts";
 import { resolveSettings, type EffectiveSettings } from "../core/settings-resolution.ts";
 /** The wired adapters. Satisfies core/graph.ts's GraphDeps structurally. */
 export const stores = {
@@ -20,6 +22,9 @@ export const stores = {
 	settingsStore,
 	// Lesson source material (fork addition, 2026-10-24).
 	materialStore,
+	// Courses + the graph's skill ledger (fork addition — docs/courses.md).
+	skillStore,
+	courseStore,
 };
 
 export type Stores = typeof stores;

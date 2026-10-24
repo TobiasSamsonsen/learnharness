@@ -62,6 +62,12 @@ export * from "./language.ts";
 export * from "./upstream.ts";
 // Lesson source material (fork addition, 2026-10-24).
 export * from "./materials.ts";
+// Courses: skills, the Leitner stand-in for "known", draft checks
+// (fork addition, 2026-10-24 — docs/courses.md).
+export * from "./skills.ts";
+export * from "./mastery.ts";
+export * from "./course-draft.ts";
+export * from "./course-session.ts";
 // The Claude-subscription preset (fork addition, 2026-10-24).
 export * from "./presets.ts";
 // graph-deletion.ts (wave 6): the whole module is PURE but storage-port

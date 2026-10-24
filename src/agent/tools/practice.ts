@@ -44,6 +44,11 @@ export interface PracticeToolContext {
 	 *  Each absent context (tests) = absent from the registry. */
 	graph?: GraphToolContext;
 	jobs?: JobToolContext;
+	/** COURSE SESSIONS (fork addition — docs/courses.md §1.4): the
+	 *  session's skills. Present → the problem tool carries a `skills`
+	 *  field, validated against exactly these (names normalize to ids).
+	 *  Absent → the field does not exist. */
+	courseSkills?: () => ReadonlyArray<{ id: string; name: string }>;
 }
 
 /** TURN-SCOPED GATE STATE (the BKT incident, 2026-10-05): the gates used
@@ -94,10 +99,32 @@ export const problemInputObject = Type.Object({
 
 export type ProblemInput = Static<typeof problemInputObject>;
 
+/** The course-session pose (docs/courses.md §1.4): the same problem plus
+ *  the skills it tests — the evidence the course's boxes fold over. */
+export const courseProblemInputObject = Type.Object({
+	...problemInputObject.properties,
+	skills: Type.Array(Type.String(), {
+		minItems: 1,
+		description:
+			"REQUIRED in a course session — the skill id(s) this problem tests, from the session context's skill list. " +
+			"Only the skills solving it genuinely requires; the outcome you conclude with moves exactly these skills' review boxes.",
+	}),
+});
+
+/** A skill reference → its id: an exact id, else a case-insensitive name. */
+function resolveSkillId(ref: string, skills: ReadonlyArray<{ id: string; name: string }>): string | null {
+	const trimmed = ref.trim();
+	if (skills.some((s) => s.id === trimmed)) return trimmed;
+	const byName = skills.filter((s) => s.name.toLowerCase() === trimmed.toLowerCase());
+	return byName.length === 1 ? byName[0]!.id : null;
+}
+
 export function problemTool(
 	gate: PracticeGate,
 	graphNodes?: PracticeToolContext["graphNodes"],
+	courseSkills?: PracticeToolContext["courseSkills"],
 ): AgentTool<typeof problemInputObject> {
+	const parameters = courseSkills ? courseProblemInputObject : problemInputObject;
 	return {
 		name: "problem",
 		label: "problem",
@@ -106,10 +133,10 @@ export function problemTool(
 			"traces and answer commits arrive back as labeled messages. The modelSolution rides this call's " +
 			"arguments and stays hidden from the learner until you conclude (conclude shows it verbatim — the " +
 			"reveal needs no new field). Only one problem may be active — conclude it before posing the next.",
-		parameters: problemInputObject,
+		parameters: parameters as typeof problemInputObject,
 		executionMode: "sequential",
 		prepareArguments: (args: unknown) => {
-			const healed = healEncodedArguments(args, problemInputObject);
+			const healed = withSkillIds(healEncodedArguments(args, parameters), courseSkills);
 			// TARGET NORMALIZATION (owner round 9): names silently become ids —
 			// the RECORD carries canonical ids (the mastery trace groups on
 			// them); unresolvable strings pass through for execute to reject.
@@ -139,6 +166,21 @@ export function problemTool(
 					"a problem is already active — call conclude on it before posing the next one",
 				]);
 			}
+			// SKILL VALIDATION (course sessions): every tag must be one of
+			// the session's skills — the boxes fold over exactly these.
+			if (courseSkills) {
+				const tags = (input as { skills?: unknown }).skills;
+				const list = courseSkills();
+				const unknown = Array.isArray(tags) ? tags.filter((t) => typeof t !== "string" || resolveSkillId(t, list) === null) : [];
+				if (!Array.isArray(tags) || tags.length === 0) {
+					return invalidInputResult("problem", ["skills is required in a course session — tag the skill id(s) this problem tests"]);
+				}
+				if (unknown.length > 0) {
+					return invalidInputResult("problem", [
+						`skills ${JSON.stringify(unknown)} are not this session's skills — use ids from the session context's skill list: ${list.map((s) => s.id).join(", ")}`,
+					]);
+				}
+			}
 			// TARGET VALIDATION (owner round 9, round 12): against the WHOLE
 			// graph, and ONLY when targets are present — absent means an
 			// untagged problem (topic sessions, owner round 12), which poses
@@ -158,6 +200,18 @@ export function problemTool(
 			return problemResult();
 		},
 	};
+}
+
+/** Normalize skill names to ids at the seam (the target-normalization
+ *  idiom): the RECORD carries canonical ids — the box fold groups on
+ *  them. Unresolvable entries pass through for execute to reject. */
+function withSkillIds(healed: unknown, courseSkills: PracticeToolContext["courseSkills"]): unknown {
+	if (!courseSkills) return healed;
+	const skills = (healed as { skills?: unknown }).skills;
+	if (!Array.isArray(skills)) return healed;
+	const list = courseSkills();
+	const normalized = [...new Set(skills.map((s) => (typeof s === "string" ? (resolveSkillId(s, list) ?? s) : s)))];
+	return { ...(healed as Record<string, unknown>), skills: normalized };
 }
 
 // ─── conclude: the end of a problem ──────────────────────────────────────────
@@ -236,7 +290,7 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AgentToo
 	// keep their own (target-normalizing) prepareArguments as the composed
 	// inner pass; the double heal is idempotent by construction.
 	return healToolRecord({
-		problem: problemTool(gate, ctx.graphNodes),
+		problem: problemTool(gate, ctx.graphNodes, ctx.courseSkills),
 		conclude: concludeTool(gate),
 		read: readTool,
 		ls: lsTool,

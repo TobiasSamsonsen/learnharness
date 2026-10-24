@@ -15,6 +15,7 @@ import { profileMaterial } from "../agent/subagents/material-profiler.ts";
 import { withBgLlmSlot } from "../agent/subagents/bg-llm-semaphore.ts";
 import { fetchAndExtract } from "../agent/tools/web.ts";
 import { materialTools } from "../agent/tools/materials.ts";
+import type { MaterialStore } from "../core/ports.ts";
 import { stores } from "./stores.ts";
 
 /**
@@ -26,6 +27,10 @@ import { stores } from "./stores.ts";
  *
  * Crash safety: a material left "reading" by a dead process has no live
  * run — any read of the lesson's materials restarts it.
+ *
+ * OWNERS (courses, fork addition — docs/courses.md §1.2): material
+ * belongs to a lesson (a chat id) or to a course (a course id). A course
+ * session sees its course's material beside its own (sessionMaterials).
  */
 
 type Result<T> = { ok: true; value: T } | { ok: false; status: number; error: string };
@@ -44,6 +49,11 @@ const runKey = (chatId: string, id: string) => `${chatId}/${id}`;
 
 /** How long a turn waits for profiles still being read. */
 const TURN_WAIT_MS = 180_000;
+
+/** A material owner exists: a lesson, or a course. */
+function ownerExists(ownerId: string): boolean {
+	return stores.chatStore.getChat(ownerId) !== null || stores.courseStore.getCourse(ownerId) !== null;
+}
 
 function lessonStarted(chatId: string): boolean {
 	return (stores.chatStore.getChat(chatId)?.messages ?? []).some((m) => (m as { role?: string }).role === "assistant");
@@ -110,7 +120,7 @@ export function addUploadedMaterial(
 	chatId: string,
 	file: { name: string; type: string; bytes: Uint8Array },
 ): Result<LessonMaterial> {
-	if (!stores.chatStore.getChat(chatId)) return { ok: false, status: 404, error: "Unknown chat" };
+	if (!ownerExists(chatId)) return { ok: false, status: 404, error: "Unknown chat or course" };
 	const kind = materialKindFor(file.name, file.type);
 	if (!kind) return { ok: false, status: 415, error: `Unsupported file type: ${file.name} (PDF, text, Markdown or an image)` };
 	if (file.bytes.byteLength === 0) return { ok: false, status: 400, error: `${file.name} is empty` };
@@ -131,7 +141,7 @@ export function addUploadedMaterial(
 
 /** Add a web page: fetched once, stored as its extracted Markdown. */
 export async function addLinkMaterial(chatId: string, url: string): Promise<Result<LessonMaterial>> {
-	if (!stores.chatStore.getChat(chatId)) return { ok: false, status: 404, error: "Unknown chat" };
+	if (!ownerExists(chatId)) return { ok: false, status: 404, error: "Unknown chat or course" };
 	if (!isMaterialUrl(url)) return { ok: false, status: 400, error: "The link must be an http(s) address" };
 	let markdown: string;
 	try {
@@ -171,16 +181,34 @@ export async function waitForMaterials(chatId: string, timeoutMs = TURN_WAIT_MS)
 	await Promise.race([Promise.allSettled(pending), new Promise((resolve) => setTimeout(resolve, timeoutMs))]);
 }
 
+/** A session's material store: the lesson's own, plus — for a course
+ *  session — its course's, routed by material id (ids are unique). Only
+ *  the reads the lookup tools use are routed; writes go to the lesson. */
+export function sessionMaterials(chatId: string): MaterialStore {
+	const base = stores.materialStore;
+	const courseId = stores.chatStore.getChat(chatId)?.course?.courseId;
+	if (!courseId || !stores.courseStore.getCourse(courseId)) return base;
+	const ownerOf = (id: string) => (base.list(courseId).some((m) => m.id === id) ? courseId : chatId);
+	return {
+		...base,
+		list: () => [...listMaterials(courseId), ...listMaterials(chatId)],
+		filePath: (_owner, m) => base.filePath(ownerOf(m.id), m),
+		auxPath: (_owner, id, name) => base.auxPath(ownerOf(id), id, name),
+	};
+}
+
 /** A turn's view of the lesson's material: the prompt section and the
- *  lookup tools; undefined when the lesson has none. */
+ *  lookup tools; undefined when the lesson has none. A course session
+ *  also sees its course's material. */
 export function materialsForTurn(chatId: string): { section: string; tools: AgentTool<any>[] } | undefined {
-	const materials = listMaterials(chatId);
+	const store = sessionMaterials(chatId);
+	const materials = store === stores.materialStore ? listMaterials(chatId) : store.list(chatId);
 	// the teacher's last message: material newer than it is announced once
 	const messages = stores.chatStore.getChat(chatId)?.messages ?? [];
 	const lastAssistant = [...messages].reverse().find((m) => (m as { role?: string }).role === "assistant") as
 		| { timestamp?: number }
 		| undefined;
-	const section = materialsPromptSection(materials, (m) => stores.materialStore.filePath(chatId, m), lastAssistant?.timestamp);
+	const section = materialsPromptSection(materials, (m) => store.filePath(chatId, m), lastAssistant?.timestamp);
 	if (!section) return undefined;
-	return { section, tools: Object.values(materialTools({ chatId, store: stores.materialStore })) };
+	return { section, tools: Object.values(materialTools({ chatId, store })) };
 }
