@@ -138,6 +138,22 @@ function resolveEngine(role: ModelRole): PiEngine | undefined {
 
 setJobRespawn((jobId) => void jobRunner.runJob(jobId));
 
+/** The planning turn's engine (fork addition): the teacher's first turn —
+ *  the probe is done, no plan exists yet — runs on agent.models.planner
+ *  when that override names a model (the place a stronger model pays off
+ *  most: the whole lesson follows the plan). Undefined = the lesson's own
+ *  model; so is a planner whose provider key is missing or unknown. */
+function planningEngine(teaching: boolean, record: { tree?: unknown; kind?: string }): PiEngine | undefined {
+	if (!teaching || record.tree || record.kind === "practice") return undefined;
+	const override = stores.settingsStore.readSettings()?.agent?.models?.planner;
+	if (!override?.model || !providerKeyPresent(override.model.provider)) return undefined;
+	try {
+		return piEngineForSpec({ ...override.model, thinkingLevel: override.thinkingLevel });
+	} catch {
+		return undefined; // an id the catalog no longer knows
+	}
+}
+
 /** The route-facing entry: parse {chatId, input} and run one turn. */
 export async function handleChatRequest(
 	req: Request,
@@ -328,7 +344,7 @@ export async function handleChatInput(
 	// turn gate above (chat.model override → strong slot → refused) — the
 	// engine build is pure from here; thinking levels clamp natively.
 	// (Built once above the compaction gate; reused verbatim.)
-	const engine = conversationEngine;
+	const engine = planningEngine(teaching, record) ?? conversationEngine;
 	// Provider-qualified stamp (model slots wave): matches the price table's
 	// provider:id keys.
 	const modelId = `${engine.model.provider}:${engine.model.id}`;

@@ -58,7 +58,10 @@ export type ModelRole =
 	| "visualMaker"
 	| "pdfReader"
 	| "extractor"
-	| "auditor";
+	| "auditor"
+	/** The teacher's PLANNING turn (fork addition): its own model only
+	 *  when agent.models.planner overrides it — otherwise the lesson's. */
+	| "planner";
 
 /**
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction

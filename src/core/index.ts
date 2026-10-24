@@ -60,6 +60,8 @@ export * from "./language.ts";
 export * from "./upstream.ts";
 // Lesson source material (fork addition, 2026-10-24).
 export * from "./materials.ts";
+// The Claude-subscription preset (fork addition, 2026-10-24).
+export * from "./presets.ts";
 // graph-deletion.ts (wave 6): the whole module is PURE but storage-port
 // driven — the deletion RUNS server-side only. The shell needs exactly one
 // two type-only things from it: the ChatDeleteMode union (the delete

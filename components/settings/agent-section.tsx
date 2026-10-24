@@ -288,6 +288,10 @@ function MenuTrigger({
  * viewport cap and auto-flip. data-lh-menu rides the shell — the
  * outside-click contract's exemption mark. */
 
+/** The preset row's description (fork addition) — src/core/presets.ts. */
+export const CLAUDE_PRESET_HINT =
+	"Usage-efficient routing for a Claude plan: Sonnet teaches, Opus plans each lesson, Haiku extracts and researches; bigger extraction batches, compaction at 100k tokens";
+
 export function AgentSection({
 	agent,
 	models,
@@ -296,6 +300,7 @@ export function AgentSection({
 	onSectionChange,
 	onModelsChange,
 	onCompactionChange,
+	onApplyClaudePreset,
 }: {
 	agent: AgentSettings | undefined;
 	/** The `models` section (slot pins — engine-level, PUT /api/settings/models). */
@@ -313,6 +318,9 @@ export function AgentSection({
 	onModelsChange: (next: ModelsSettings) => void;
 	/** Writes the whole compaction section (replace-PUT discipline). */
 	onCompactionChange: (next: CompactionSettings) => void;
+	/** Apply the Claude-subscription preset (fork addition): resolves to an
+	 *  error message, or null once the dialog holds the new record. */
+	onApplyClaudePreset?: () => Promise<string | null>;
 }) {
 	const [catalog, setCatalog] = useState<ModelCatalogEntry[] | null>(null);
 	/** The three tiers' resolved pins — GET /api/models `slots`. The rows'
@@ -323,6 +331,9 @@ export function AgentSection({
 	/** Which search engines have a key (/api/keys) — the no-keys-anywhere
 	 *  state grays the row; per-engine marks ride the menu rows. */
 	const [engineKeys, setEngineKeys] = useState<Partial<Record<(typeof SEARCH_ENGINES)[number], boolean>>>({});
+	/** The claude CLI is installed: the subscription preset row shows. */
+	const [claudeCode, setClaudeCode] = useState(false);
+	const [presetNote, setPresetNote] = useState<string | null>(null);
 	const [prompts, setPrompts] = useState<{ prober: SegmentInfo[]; teacher: SegmentInfo[] } | null>(null);
 	const [openSegment, setOpenSegment] = useState<string | null>(null);
 	const [segmentDraft, setSegmentDraft] = useState<Record<string, string>>({});
@@ -384,7 +395,8 @@ export function AgentSection({
 			.catch(() => setPrompts(null));
 		fetch("/api/keys")
 			.then((r) => r.json())
-			.then((body: { keys: { id: string; present: boolean }[] }) => {
+			.then((body: { keys: { id: string; present: boolean }[]; claudeCode?: boolean }) => {
+				setClaudeCode(body.claudeCode === true);
 				const present: Partial<Record<(typeof SEARCH_ENGINES)[number], boolean>> = {};
 				for (const id of SEARCH_ENGINES) {
 					const envVar = id === "tavily" ? "TAVILY_API_KEY" : "BRAVE_API_KEY";
@@ -619,6 +631,26 @@ export function AgentSection({
 	return (
 		<>
 			<SettingsGroup label="Models" testid="group-models">
+				{claudeCode && onApplyClaudePreset && (
+					<SettingsRow
+						label="Claude subscription preset"
+						hint={presetNote ?? CLAUDE_PRESET_HINT}
+						testid="row-claude-preset"
+					>
+						<button
+							type="button"
+							data-testid="apply-claude-preset"
+							onClick={async () => {
+								setPresetNote("Applying…");
+								const err = await onApplyClaudePreset();
+								setPresetNote(err ?? "Applied — new lessons use it; running lessons keep their model");
+							}}
+							className="shrink-0 rounded-md border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
+						>
+							Apply
+						</button>
+					</SettingsRow>
+				)}
 				{MODEL_SLOTS.map((slot) => {
 					const override = models?.[slot];
 					const modelId = override?.model?.id ?? "";

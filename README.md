@@ -84,11 +84,21 @@ This fork can run every agent on your Claude Pro/Max subscription instead of an 
 
 1. Install Claude Code and run `claude` once to sign in with your Claude account.
 2. Start LearnHarness. When the `claude` CLI is found, **Claude Code (subscription)** appears under Settings → Keys as a detected provider; no key is needed.
-3. In the model pickers, choose the `claude-code` models (e.g. `claude-sonnet-5-5` for the strong slot, `claude-haiku-5-5` for the cheap slot).
+3. Choose **Use recommended** in the setup dialog, or later **Settings → Agent → Claude subscription preset → Apply**. You can also pick the `claude-code` models yourself.
 
-How it works: each model turn runs `claude -p` with Claude Code's own prompt, tools, settings, and MCP servers switched off. The app's tools are declared to the model through a do-nothing MCP stub, so its tool calls come back to LearnHarness, which runs them as it does for any provider. Claude Code owns the sign-in. LearnHarness never sees or stores a credential, and `ANTHROPIC_API_KEY` is stripped from the CLI's environment so turns bill the subscription, not a key.
+How it works: each conversation keeps one live `claude -p` process with Claude Code's own prompt, built-in tools, settings and MCP servers switched off. The app's tools are declared through a small MCP bridge. When the model calls one, the bridge hands the call to LearnHarness, which runs the real tool and passes the result back, so Claude Code keeps the true conversation and its own prompt caching. New learner messages go in on the open stdin. If the app's history no longer continues what the process has seen (compaction, a changed system prompt, a restart), a fresh process starts from the replayed transcript. Claude Code owns the sign-in. LearnHarness never sees or stores a credential, and `ANTHROPIC_API_KEY` is stripped from the CLI's environment so turns bill the subscription, not a key. `LH_CLAUDE_CODE_DEBUG=1` logs whether each model call continued a live process or started fresh.
 
-Trade-offs: each turn starts a CLI process (a few seconds of overhead), the conversation is replayed as one transcript per turn, and usage counts against your plan's limits. The cost meter shows $0 for these models because they aren't billed per token.
+**Usage on a Claude plan.** The preset routes work by how much a stronger model helps:
+
+| Work | Model | Effort |
+| --- | --- | --- |
+| Probing, teaching, practice | Sonnet 5.5 | medium |
+| Planning each lesson (one turn) | Opus 5.5 | medium |
+| Research, graph extraction and its audit | Haiku 5.5 | low |
+| Interactive demos | Sonnet 5.5 | low |
+| Figures, PDF reading, source-material profiles | Sonnet 5.5 | low |
+
+It also extracts the graph in 12k-token batches and compacts the context at 100k tokens. Measured on a Team plan: a 20-step lesson with graph extraction used about 4% of the 5-hour window and under 1% of the week. Each model call read the conversation from cache and wrote only the new part, about 6× less input-side usage than replaying the transcript every call. The **Plan** pill under the composer shows the 5-hour window, with the week in its tooltip, as Claude Code last reported it. The cost meter shows $0 for these models because they aren't billed per token.
 
 Options: `LH_CLAUDE_CODE_BIN=/path/to/claude` pins the executable (useful when a GUI-launched app's `PATH` misses it), and `LH_CLAUDE_CODE=0` turns the provider off.
 

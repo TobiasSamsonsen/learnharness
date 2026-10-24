@@ -43,7 +43,7 @@ export * from "./compaction.ts";
 export { runPiTurn, piTurnResponse, type PiTurnHandle, type PiTurnSpec } from "./pi/ui-stream.ts";
 export * from "./observability.ts";
 export * from "./model-catalog.ts";
-export { claudeCodeAvailable } from "../agent/claude-code.ts";
+export { claudeCodeAvailable, claudePlanUsage } from "../agent/claude-code.ts";
 export { localSttStatuses, prepareLocalStt, transcribeLocal } from "./stt-local.ts";
 export { dismissUpstreamVersion, launchClaudeUpdate, upstreamStatus } from "./upstream.ts";
 export { addLinkMaterial, addUploadedMaterial, listMaterials, removeMaterial } from "./materials.ts";

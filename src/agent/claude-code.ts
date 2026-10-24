@@ -2,7 +2,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import * as net from "node:net";
 import {
 	calculateCost,
 	createAssistantMessageEventStream,
@@ -139,7 +140,7 @@ export interface ClaudeCodeRequest {
 }
 
 const TRANSPORT_NOTE = `<harness_transport>
-This conversation runs through Claude Code. Everything said so far arrives as one transcript in the user message, made of <user>, <assistant> and <tool_result> elements; your own earlier tool calls appear in it as <tool_call> records, their string arguments shown verbatim (unescaped). Those records are history, not a format to write: writing one as text does nothing. Write only the assistant's next message. The tools named in these instructions are available to you with the ${TOOL_PREFIX} prefix (for example, a tool called "plan" is ${TOOL_PREFIX}plan). To use one, call it with your tool-calling ability — never write a <tool_call> element yourself. Each tool's result arrives in a later turn.
+This conversation runs through Claude Code. When a conversation is (re)started, what was said so far may arrive as one transcript in the user message, made of <user>, <assistant> and <tool_result> elements; your own earlier tool calls appear in it as <tool_call> records, their string arguments shown verbatim (unescaped). Those records are history, not a format to write: writing one as text does nothing. Write only the assistant's next message. The tools named in these instructions are available to you with the ${TOOL_PREFIX} prefix (for example, a tool called "plan" is ${TOOL_PREFIX}plan). To use one, call it with your tool-calling ability — never write a <tool_call> element yourself. Each tool's result arrives in a later turn.
 </harness_transport>`;
 
 /** One earlier tool call as the transcript records it: a <parameter>
@@ -498,14 +499,63 @@ export class ClaudeCodeTranslator {
 	}
 }
 
-// ─── the process ─────────────────────────────────────────────────────────────
+// ─── the process: live sessions ──────────────────────────────────────────────
+//
+// USAGE (fork, 2026-10-24 — measured through a logging proxy): a fresh
+// `claude -p` per model call wrote the WHOLE transcript to the prompt
+// cache on every call and never read it back (Claude Code ends each
+// request with an environment message carrying the cache breakpoint, so a
+// grown transcript is never a prefix of the last request), and a stub that
+// answered tool calls itself let Claude Code fire follow-up requests
+// before the kill landed. Now ONE Claude Code process lives per
+// conversation and keeps the real history itself:
+//
+//   - its tool calls go to a BRIDGE: the stub MCP server forwards each
+//     tools/call to this process over loopback TCP and waits; the app's
+//     agent loop runs the real tool, and the next model call hands the
+//     result back through the waiting call — Claude Code continues its own
+//     loop, with its own cache breakpoints (each call reads the history
+//     from cache and writes only the new part);
+//   - a new learner message is written to the still-open stdin;
+//   - anything else (the app's history no longer extends what the process
+//     has seen: compaction, a steer, a salvaged text call, a changed system
+//     prompt, a restart) starts a fresh process from the replayed
+//     transcript, which then lives on.
+//
+// A session is reused only for an exact continuation (message
+// fingerprints), so a mismatch costs one cache write, never a wrong
+// conversation.
 
-/** The do-nothing MCP server (newline-delimited JSON-RPC over stdio):
- *  it only declares the tools; calls are never awaited by the app. */
+/** The bridge stub (newline-delimited JSON-RPC over stdio): declares the
+ *  tools and forwards every tools/call to the app, answering with the
+ *  app's reply. Exits with its parent or the app. */
 const MCP_STUB = `import { readFileSync } from "node:fs";
+import net from "node:net";
 const tools = JSON.parse(readFileSync(process.argv[2], "utf8"));
-let buf = "";
 const send = (msg) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...msg }) + "\\n");
+const bridge = net.connect(Number(process.env.LH_BRIDGE_PORT), "127.0.0.1", () => {
+	bridge.write(JSON.stringify({ token: process.env.LH_BRIDGE_TOKEN }) + "\\n");
+});
+bridge.setEncoding("utf8");
+let back = "";
+bridge.on("data", (chunk) => {
+	back += chunk;
+	let nl;
+	while ((nl = back.indexOf("\\n")) >= 0) {
+		const line = back.slice(0, nl);
+		back = back.slice(nl + 1);
+		if (line) process.stdout.write(line + "\\n");
+	}
+});
+// Losing the app must stop the conversation, not fail the held tool call:
+// a failed call would let the model carry on by itself, on the user's plan.
+const orphaned = () => {
+	try { process.kill(process.ppid); } catch {}
+	process.exit(0);
+};
+bridge.on("error", orphaned);
+bridge.on("close", orphaned);
+let buf = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("end", () => process.exit(0));
 process.stdin.on("data", (chunk) => {
@@ -521,16 +571,23 @@ process.stdin.on("data", (chunk) => {
 		if (msg.method === "initialize")
 			send({ id: msg.id, result: { protocolVersion: msg.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "learnharness", version: "1" } } });
 		else if (msg.method === "tools/list") send({ id: msg.id, result: { tools } });
-		else if (msg.method === "tools/call") send({ id: msg.id, result: { content: [{ type: "text", text: "Handled by LearnHarness." }] } });
+		else if (msg.method === "tools/call") bridge.write(line + "\\n");
 		else send({ id: msg.id, error: { code: -32601, message: "method not found" } });
 	}
 });
 `;
 
 const WORK_ROOT = path.join(os.tmpdir(), "learnharness-claude-code");
+/** One stable working directory: Claude Code's environment message names
+ *  it, and a stable request keeps the cache stable. */
+const CWD = path.join(WORK_ROOT, "cwd");
+/** Live processes kept at most (each holds a model conversation). */
+const MAX_SESSIONS = 6;
+/** An idle session dies after this — inside the 1-hour prompt cache. */
+const IDLE_MS = 40 * 60_000;
 
 function stubPath(): string {
-	const file = path.join(WORK_ROOT, "mcp-stub.mjs");
+	const file = path.join(WORK_ROOT, "mcp-bridge-stub.mjs");
 	fs.mkdirSync(WORK_ROOT, { recursive: true });
 	if (!fs.existsSync(file) || fs.readFileSync(file, "utf8") !== MCP_STUB) fs.writeFileSync(file, MCP_STUB);
 	return file;
@@ -538,9 +595,10 @@ function stubPath(): string {
 
 /** The child's env: the app's own Anthropic credentials stripped, so the
  *  CLI bills the subscription and not a key the user saved for the
- *  plain Anthropic provider; nested-session markers dropped. */
+ *  plain Anthropic provider; nested-session markers dropped. A held tool
+ *  call may wait for a learner's answer for a long time. */
 function childEnv(): NodeJS.ProcessEnv {
-	const env = { ...process.env };
+	const env: NodeJS.ProcessEnv = { ...process.env, MCP_TOOL_TIMEOUT: String(24 * 60 * 60_000) };
 	for (const name of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"]) delete env[name];
 	return env;
 }
@@ -558,23 +616,268 @@ function spawnClaude(bin: string, args: string[], cwd: string): ChildProcess {
 	});
 }
 
-function streamClaudeCode(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
-	const stream = createAssistantMessageEventStream();
-	const bin = claudeCodeBin();
-	const request = renderClaudeCodeRequest(context);
-	const translator = new ClaudeCodeTranslator(stream, model, request.tools);
-	if (!bin) {
-		translator.fail("Claude Code CLI not found — install it and run `claude` once to sign in, or set LH_CLAUDE_CODE_BIN");
-		return stream;
-	}
-	if (options?.signal?.aborted) {
-		translator.fail("Request was aborted", "aborted");
-		return stream;
-	}
+// ─── fingerprints (pure) ─────────────────────────────────────────────────────
 
-	const workDir = path.join(WORK_ROOT, randomUUID());
-	fs.mkdirSync(workDir, { recursive: true });
-	const systemFile = path.join(workDir, "system-prompt.md");
+/** A message's identity for continuation checks: what the model saw of it. */
+export function messageFingerprint(m: Message): string {
+	const img = (b: { data: string; mimeType: string }) => ({ img: createHash("sha1").update(b.data).digest("hex"), t: b.mimeType });
+	let shape: unknown;
+	if (m.role === "user") {
+		shape = ["u", typeof m.content === "string" ? m.content : m.content.map((b) => (b.type === "text" ? b.text : img(b)))];
+	} else if (m.role === "assistant") {
+		shape = ["a", m.content.map((b) => (b.type === "text" ? b.text : b.type === "thinking" ? ["th", b.thinking] : ["tc", b.id, b.name, b.arguments]))];
+	} else if (m.role === "toolResult") {
+		shape = ["r", m.toolCallId, m.isError, m.content.map((b) => (b.type === "text" ? b.text : img(b)))];
+	} else {
+		shape = ["s"];
+	}
+	return createHash("sha1").update(JSON.stringify(shape)).digest("hex");
+}
+
+/** Is `prefix` a prefix of `all`? Pure. */
+export function isPrefixOf(prefix: readonly string[], all: readonly string[]): boolean {
+	return prefix.length <= all.length && prefix.every((f, i) => all[i] === f);
+}
+
+/** How a live session continues with these new messages, or null when it
+ *  cannot (start fresh). Pure.
+ *   awaiting-tools: exactly one result per pending tool call, nothing else
+ *   idle:           only learner messages */
+export function continuation(
+	state: "awaiting-tools" | "idle",
+	pendingToolIds: readonly string[],
+	delta: readonly Message[],
+): "results" | "user" | null {
+	if (delta.length === 0) return null;
+	if (state === "awaiting-tools") {
+		const ids = delta.map((m) => (m.role === "toolResult" ? m.toolCallId : null));
+		const ok =
+			ids.every((id) => id !== null && pendingToolIds.includes(id)) &&
+			new Set(ids).size === pendingToolIds.length &&
+			ids.length === pendingToolIds.length;
+		return ok ? "results" : null;
+	}
+	return delta.every((m) => m.role === "user") ? "user" : null;
+}
+
+/** A tool result as the MCP reply Claude Code is waiting for. Pure. */
+export function mcpResult(m: Extract<Message, { role: "toolResult" }>): Record<string, unknown> {
+	const content = m.content.map((b) =>
+		b.type === "text" ? { type: "text", text: b.text } : { type: "image", data: b.data, mimeType: b.mimeType },
+	);
+	return { content: content.length ? content : [{ type: "text", text: "" }], ...(m.isError ? { isError: true } : {}) };
+}
+
+/** A learner message as Claude Code's stream-json input content. Pure. */
+function userContent(messages: readonly Message[]): ClaudeCodeInputBlock[] {
+	const out: ClaudeCodeInputBlock[] = [];
+	for (const m of messages) {
+		if (m.role !== "user") continue;
+		if (typeof m.content === "string") out.push({ type: "text", text: m.content });
+		else
+			for (const b of m.content)
+				out.push(b.type === "text" ? { type: "text", text: b.text } : { type: "image", source: { type: "base64", media_type: b.mimeType, data: b.data } });
+	}
+	return out;
+}
+
+// ─── the bridge ──────────────────────────────────────────────────────────────
+
+interface HeldCall {
+	rpcId: unknown;
+	name: string;
+	args: unknown;
+	/** The tool_use it answers, once matched. */
+	toolUseId?: string;
+}
+
+interface LiveSession {
+	key: string;
+	token: string;
+	child: ChildProcess;
+	socket: net.Socket | null;
+	state: "streaming" | "awaiting-tools" | "idle" | "dead";
+	/** Fingerprints of every message this process has seen, its own replies included. */
+	fed: string[];
+	/** The last reply's tool calls, waiting for their results. */
+	toolUses: ToolCall[];
+	held: HeldCall[];
+	/** This round's tool uses already answered. */
+	answered: Set<string>;
+	/** A reply ended the run (no tool calls): Claude Code's closing
+	 *  `result` line for it is still to come, and must not be read as the
+	 *  NEXT call's failure. */
+	resultOwed: boolean;
+	/** Results known before Claude Code asked for them (toolUseId → reply). */
+	ready: Map<string, Record<string, unknown>>;
+	translator: ClaudeCodeTranslator | null;
+	endCall: (() => void) | null;
+	lastUsed: number;
+	stderr: string;
+	dir: string;
+}
+
+const STATE_KEY = Symbol.for("lh.claudeCodeLive");
+interface LiveState {
+	sessions: Map<string, LiveSession>;
+	byToken: Map<string, LiveSession>;
+	bridge: Promise<number> | null;
+	sweeper: ReturnType<typeof setInterval> | null;
+}
+function live(): LiveState {
+	const g = globalThis as Record<symbol, LiveState | undefined>;
+	g[STATE_KEY] ??= { sessions: new Map(), byToken: new Map(), bridge: null, sweeper: null };
+	return g[STATE_KEY];
+}
+
+/** Canonical JSON (sorted keys) — tool arguments compared structurally. */
+function canonical(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+	if (value && typeof value === "object")
+		return `{${Object.keys(value as object)
+			.sort()
+			.map((k) => `${JSON.stringify(k)}:${canonical((value as Record<string, unknown>)[k])}`)
+			.join(",")}}`;
+	return JSON.stringify(value);
+}
+
+function reply(s: LiveSession, call: HeldCall, result: Record<string, unknown>): void {
+	s.socket?.write(JSON.stringify({ jsonrpc: "2.0", id: call.rpcId, result }) + "\n");
+	s.held = s.held.filter((h) => h !== call);
+	if (call.toolUseId) s.answered.add(call.toolUseId);
+}
+
+/** Match each unmatched held call to a tool use of this round (same name
+ *  and arguments, else the first free one with that name), and answer the
+ *  ones whose result is already in. A call can arrive (socket) BEFORE its
+ *  reply's end (stdout) — it waits unmatched until settle() knows the
+ *  reply's tool uses, then matches here. */
+function matchHeld(s: LiveSession): void {
+	for (const call of s.held) {
+		if (call.toolUseId) continue;
+		const taken = new Set([...s.answered, ...s.held.map((h) => h.toolUseId).filter((id): id is string => !!id)]);
+		const free = s.toolUses.filter((t) => !taken.has(t.id) && t.name === call.name);
+		call.toolUseId = (free.find((t) => canonical(t.arguments) === canonical(call.args)) ?? free[0])?.id;
+	}
+	for (const call of [...s.held]) {
+		const result = call.toolUseId ? s.ready.get(call.toolUseId) : undefined;
+		if (result) {
+			s.ready.delete(call.toolUseId!);
+			reply(s, call, result);
+		}
+	}
+}
+
+function onToolCall(s: LiveSession, rpc: { id: unknown; params?: { name?: string; arguments?: unknown } }): void {
+	s.held.push({ rpcId: rpc.id, name: rpc.params?.name ?? "", args: rpc.params?.arguments ?? {} });
+	matchHeld(s);
+}
+
+function ensureBridge(): Promise<number> {
+	const st = live();
+	st.bridge ??= new Promise<number>((resolve, reject) => {
+		const server = net.createServer((socket) => {
+			socket.setEncoding("utf8");
+			let buf = "";
+			let session: LiveSession | undefined;
+			socket.on("error", () => {});
+			socket.on("data", (chunk: string) => {
+				buf += chunk;
+				let nl: number;
+				while ((nl = buf.indexOf("\n")) >= 0) {
+					const line = buf.slice(0, nl).trim();
+					buf = buf.slice(nl + 1);
+					if (!line) continue;
+					let msg: Record<string, unknown>;
+					try {
+						msg = JSON.parse(line);
+					} catch {
+						continue;
+					}
+					if (!session) {
+						session = st.byToken.get(String(msg.token ?? ""));
+						if (!session) return socket.destroy(); // not ours
+						session.socket = socket;
+						continue;
+					}
+					if (msg.method === "tools/call") onToolCall(session, msg as never);
+				}
+			});
+		});
+		server.on("error", reject);
+		server.listen(0, "127.0.0.1", () => resolve((server.address() as net.AddressInfo).port));
+		server.unref();
+	});
+	// the server going down takes its live processes with it (a hard kill
+	// skips this; the bridge stubs then end their Claude Code themselves)
+	if (!st.sweeper) {
+		process.once("exit", () => [...live().sessions.values()].forEach(kill));
+		// folders a hard-killed server left behind
+		const sessionsDir = path.join(WORK_ROOT, "sessions");
+		for (const name of fs.existsSync(sessionsDir) ? fs.readdirSync(sessionsDir) : []) {
+			fs.rm(path.join(sessionsDir, name), { recursive: true, force: true }, () => {});
+		}
+	}
+	st.sweeper ??= setInterval(() => {
+		for (const s of live().sessions.values()) if (s.state !== "streaming" && Date.now() - s.lastUsed > IDLE_MS) kill(s);
+	}, 60_000);
+	st.sweeper.unref?.();
+	return st.bridge;
+}
+
+function kill(s: LiveSession): void {
+	if (s.state === "dead") return;
+	s.state = "dead";
+	const st = live();
+	if (st.sessions.get(s.key) === s) st.sessions.delete(s.key);
+	st.byToken.delete(s.token);
+	s.socket?.destroy();
+	if (s.child.exitCode === null && !s.child.killed) s.child.kill();
+	fs.rm(s.dir, { recursive: true, force: true }, () => {});
+}
+
+/** Keep at most MAX_SESSIONS: the least recently used non-streaming go. */
+function evict(): void {
+	const st = live();
+	const idle = [...st.sessions.values()].filter((s) => s.state !== "streaming").sort((a, b) => a.lastUsed - b.lastUsed);
+	while (st.sessions.size >= MAX_SESSIONS && idle.length) kill(idle.shift()!);
+}
+
+/** One reply finished: record it and set what the session waits for. */
+function settle(s: LiveSession, output: AssistantMessage): void {
+	s.translator = null;
+	s.endCall?.();
+	s.endCall = null;
+	s.lastUsed = Date.now();
+	const calls = output.content.filter((b): b is ToolCall => b.type === "toolCall");
+	// a call recovered from text is not in Claude Code's own history
+	if (output.stopReason === "error" || output.stopReason === "aborted" || calls.some((c) => c.id.startsWith("toolu_cc_"))) {
+		kill(s);
+		return;
+	}
+	s.fed.push(messageFingerprint(output));
+	s.toolUses = calls;
+	s.answered = new Set();
+	s.ready.clear();
+	s.state = calls.length > 0 ? "awaiting-tools" : "idle";
+	if (calls.length === 0) s.resultOwed = true;
+	matchHeld(s); // calls that arrived before this reply's end
+}
+
+function startSession(
+	key: string,
+	bin: string,
+	model: Model<Api>,
+	request: ClaudeCodeRequest,
+	effort: string | undefined,
+	port: number,
+): LiveSession {
+	evict();
+	const token = randomUUID();
+	const dir = path.join(WORK_ROOT, "sessions", token);
+	fs.mkdirSync(dir, { recursive: true });
+	fs.mkdirSync(CWD, { recursive: true });
+	const systemFile = path.join(dir, "system-prompt.md");
 	fs.writeFileSync(systemFile, request.systemPrompt);
 	const args = [
 		"-p",
@@ -590,15 +893,14 @@ function streamClaudeCode(model: Model<Api>, context: TranscriptContext, options
 		"--system-prompt-file", systemFile,
 		"--model", model.id,
 	];
-	const effort = claudeCodeEffort(model, options?.reasoning);
 	if (effort) args.push("--effort", effort);
 	if (request.tools.length > 0) {
-		const toolsFile = path.join(workDir, "tools.json");
+		const toolsFile = path.join(dir, "tools.json");
 		fs.writeFileSync(
 			toolsFile,
 			JSON.stringify(request.tools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.parameters }))),
 		);
-		const mcpFile = path.join(workDir, "mcp.json");
+		const mcpFile = path.join(dir, "mcp.json");
 		fs.writeFileSync(
 			mcpFile,
 			JSON.stringify({
@@ -607,26 +909,35 @@ function streamClaudeCode(model: Model<Api>, context: TranscriptContext, options
 						command: process.execPath,
 						args: [stubPath(), toolsFile],
 						// process.execPath is Electron in the packaged app
-						env: { ELECTRON_RUN_AS_NODE: "1" },
+						env: { ELECTRON_RUN_AS_NODE: "1", LH_BRIDGE_PORT: String(port), LH_BRIDGE_TOKEN: token },
 					},
 				},
 			}),
 		);
-		args.push("--mcp-config", mcpFile);
+		args.push("--mcp-config", mcpFile, "--allowedTools", `mcp__${MCP_SERVER}`);
 	}
-
-	const child = spawnClaude(bin, args, workDir);
-	let stderr = "";
-	const cleanup = () => {
-		options?.signal?.removeEventListener("abort", onAbort);
-		if (child.exitCode === null && !child.killed) child.kill();
-		fs.rm(workDir, { recursive: true, force: true }, () => {});
+	const child = spawnClaude(bin, args, CWD);
+	const s: LiveSession = {
+		key,
+		token,
+		child,
+		socket: null,
+		state: "streaming",
+		fed: [],
+		toolUses: [],
+		held: [],
+		answered: new Set(),
+		resultOwed: false,
+		ready: new Map(),
+		translator: null,
+		endCall: null,
+		lastUsed: Date.now(),
+		stderr: "",
+		dir,
 	};
-	const onAbort = () => {
-		translator.fail("Request was aborted", "aborted");
-		cleanup();
-	};
-	options?.signal?.addEventListener("abort", onAbort, { once: true });
+	const st = live();
+	st.sessions.set(key, s);
+	st.byToken.set(token, s);
 
 	let buffer = "";
 	child.stdout!.setEncoding("utf8");
@@ -643,34 +954,156 @@ function streamClaudeCode(model: Model<Api>, context: TranscriptContext, options
 			} catch {
 				continue; // non-JSON noise (a CLI banner) is not part of the protocol
 			}
-			translator.push(parsed);
-			if (translator.finished) {
-				cleanup();
-				return;
+			if (parsed.type === "rate_limit_event") recordPlanUsage(parsed.rate_limit_info);
+			if (parsed.type === "result" && s.resultOwed) {
+				s.resultOwed = false; // the closing line of the run that already settled
+				continue;
+			}
+			const t = s.translator;
+			if (!t) continue;
+			t.push(parsed);
+			if (t.finished) settle(s, t.output);
+			// a run that ended without completing a message (an API error)
+			else if (parsed.type === "result") {
+				t.fail("Claude Code ended the turn without a reply");
+				settle(s, t.output);
 			}
 		}
 	});
 	child.stderr!.setEncoding("utf8");
 	child.stderr!.on("data", (chunk: string) => {
-		stderr = (stderr + chunk).slice(-4000);
+		s.stderr = (s.stderr + chunk).slice(-4000);
 	});
-	child.on("error", (err) => {
-		translator.fail(`Could not start Claude Code (${bin}): ${err.message}`);
-		cleanup();
-	});
+	const died = (why: string) => {
+		const t = s.translator;
+		if (t && !t.finished) t.fail(why);
+		s.endCall?.();
+		kill(s);
+	};
+	child.on("error", (err) => died(`Could not start Claude Code (${bin}): ${err.message}`));
 	child.on("close", (code) => {
-		if (!translator.finished) {
-			const tail = stderr.trim().split("\n").slice(-3).join(" ").trim();
-			translator.fail(`Claude Code exited (code ${code ?? "?"}) before finishing the turn${tail ? ` — ${tail}` : ""}`);
-		}
-		cleanup();
+		const tail = s.stderr.trim().split("\n").slice(-3).join(" ").trim();
+		died(`Claude Code exited (code ${code ?? "?"}) before finishing the turn${tail ? ` — ${tail}` : ""}`);
 	});
-
 	child.stdin!.on("error", () => {}); // a CLI that dies early closes the pipe; close reports it
-	child.stdin!.end(
-		JSON.stringify({ type: "user", message: { role: "user", content: request.content } }) + "\n",
-	);
+	return s;
+}
+
+function writeUser(s: LiveSession, content: ClaudeCodeInputBlock[]): void {
+	s.child.stdin!.write(JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n");
+}
+
+/** Bind one model call to a session: its translator, abort, and end. */
+function bindCall(s: LiveSession, translator: ClaudeCodeTranslator, signal: AbortSignal | undefined): void {
+	s.state = "streaming";
+	s.translator = translator;
+	s.lastUsed = Date.now();
+	const onAbort = () => {
+		translator.fail("Request was aborted", "aborted");
+		kill(s); // an in-flight request only stops with its process
+	};
+	signal?.addEventListener("abort", onAbort, { once: true });
+	s.endCall = () => signal?.removeEventListener("abort", onAbort);
+}
+
+/** The session identity: conversation, prompt, tools, model, effort, and
+ *  the conversation's first message (background jobs share a chat id). */
+function sessionKey(sessionId: string | undefined, request: ClaudeCodeRequest, modelId: string, effort: string | undefined, first: string | undefined): string {
+	return createHash("sha1")
+		.update(JSON.stringify([sessionId ?? "", request.systemPrompt, canonical(request.tools), modelId, effort ?? "", first ?? ""]))
+		.digest("hex");
+}
+
+/** LH_CLAUDE_CODE_DEBUG=1: one line per model call — live or fresh, and why. */
+function debug(line: string): void {
+	if (process.env.LH_CLAUDE_CODE_DEBUG === "1") console.info(`[claude-code] ${line}`);
+}
+
+function streamClaudeCode(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
+	const stream = createAssistantMessageEventStream();
+	const bin = claudeCodeBin();
+	const request = renderClaudeCodeRequest(context);
+	const translator = new ClaudeCodeTranslator(stream, model, request.tools);
+	if (!bin) {
+		translator.fail("Claude Code CLI not found — install it and run `claude` once to sign in, or set LH_CLAUDE_CODE_BIN");
+		return stream;
+	}
+	if (options?.signal?.aborted) {
+		translator.fail("Request was aborted", "aborted");
+		return stream;
+	}
+	const messages = (context.messages as Message[]).filter((m) => m.role !== "system");
+	const fps = messages.map(messageFingerprint);
+	const effort = claudeCodeEffort(model, options?.reasoning);
+	const key = sessionKey(options?.sessionId, request, model.id, effort, fps[0]);
+
+	void ensureBridge()
+		.then((port) => {
+			if (options?.signal?.aborted) return translator.fail("Request was aborted", "aborted");
+			const existing = live().sessions.get(key);
+			if (existing && (existing.state === "awaiting-tools" || existing.state === "idle") && isPrefixOf(existing.fed, fps)) {
+				const delta = messages.slice(existing.fed.length);
+				const how = continuation(existing.state, existing.toolUses.map((t) => t.id), delta);
+				if (how === "results") {
+					debug(`live: ${delta.length} tool result(s) → ${model.id}`);
+					bindCall(existing, translator, options?.signal);
+					existing.fed = [...fps];
+					// results wait in `ready` until Claude Code's call for them is matched
+					for (const m of delta as Extract<Message, { role: "toolResult" }>[]) existing.ready.set(m.toolCallId, mcpResult(m));
+					matchHeld(existing);
+					return;
+				}
+				if (how === "user") {
+					debug(`live: learner message → ${model.id}`);
+					bindCall(existing, translator, options?.signal);
+					existing.fed = [...fps];
+					writeUser(existing, userContent(delta));
+					return;
+				}
+			}
+			debug(
+				`fresh: ${model.id}, ${messages.length} message(s) — ${
+					!existing ? "new conversation" : existing.state === "streaming" ? "session busy" : !isPrefixOf(existing.fed, fps) ? "history changed" : "not a continuation"
+				}`,
+			);
+			if (existing) kill(existing); // not a continuation: this conversation starts over
+			const s = startSession(key, bin, model, request, effort, port);
+			bindCall(s, translator, options?.signal);
+			s.fed = [...fps];
+			writeUser(s, request.content);
+		})
+		.catch((err) => translator.fail(`Claude Code bridge failed: ${err instanceof Error ? err.message : String(err)}`));
 	return stream;
+}
+
+// ─── plan usage ──────────────────────────────────────────────────────────────
+
+/** The Claude plan's usage as Claude Code last reported it (every API
+ *  response carries a rate_limit_event): utilization 0..1 per window. */
+export interface ClaudePlanUsage {
+	fiveHour?: { utilization: number; resetsAt: number };
+	sevenDay?: { utilization: number; resetsAt: number };
+	/** When this was reported (ms). */
+	at: number;
+}
+
+const PLAN_KEY = Symbol.for("lh.claudePlanUsage");
+
+function recordPlanUsage(info: unknown): void {
+	const windows = (info as { unifiedWindows?: Record<string, { utilization?: number; resetsAt?: number }> } | undefined)?.unifiedWindows;
+	if (!windows) return;
+	const pick = (w?: { utilization?: number; resetsAt?: number }) =>
+		w && typeof w.utilization === "number" ? { utilization: w.utilization, resetsAt: (w.resetsAt ?? 0) * 1000 } : undefined;
+	(globalThis as Record<symbol, ClaudePlanUsage | undefined>)[PLAN_KEY] = {
+		fiveHour: pick(windows.five_hour),
+		sevenDay: pick(windows.seven_day),
+		at: Date.now(),
+	};
+}
+
+/** The last reported plan usage; null before any Claude Code call. */
+export function claudePlanUsage(): ClaudePlanUsage | null {
+	return (globalThis as Record<symbol, ClaudePlanUsage | undefined>)[PLAN_KEY] ?? null;
 }
 
 /** The pi-ai provider. Auth is "configured" exactly when the CLI is

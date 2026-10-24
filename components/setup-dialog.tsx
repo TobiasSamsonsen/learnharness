@@ -392,6 +392,27 @@ export function SetupDialog({
 		onDone(models);
 	}
 
+	/** The Claude-subscription preset (fork addition): all three tiers plus
+	 *  the planner/demo-builder overrides and the volume settings at once. */
+	async function applyClaudePreset() {
+		if (saving) return;
+		setSaving(true);
+		setError(null);
+		const res = await fetch("/api/settings/preset", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ name: "claude-subscription" }),
+		}).catch(() => null);
+		const stored = res?.ok ? ((await res.json().catch(() => null)) as { settings?: { models?: ModelsSettings } } | null)?.settings : null;
+		if (!stored?.models) {
+			setSaving(false);
+			setError("Could not apply the preset. Check that Claude Code is installed and try again.");
+			return;
+		}
+		for (const section of ["models", "agent", "graph", "compaction"] as const) notifySettingsSaved(section);
+		onDone(stored.models);
+	}
+
 	return createPortal(
 		<div
 			className="fixed inset-0 z-50 flex items-center justify-center bg-background/80"
@@ -449,6 +470,24 @@ export function SetupDialog({
 					</div>
 				) : (
 					<div className="flex flex-col gap-4 overflow-y-auto px-6 py-5" data-testid="setup-stage-pickers">
+						{body?.providers.some((p) => p.id === "claude-code" && p.keyPresent) && (
+							// fork addition: one click to the usage-efficient routing
+							<div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5" data-testid="setup-claude-preset">
+								<span className="text-xs text-muted-foreground">
+									<span className="block text-sm text-foreground">Use my Claude subscription</span>
+									Sonnet teaches, Opus plans each lesson, Haiku handles background work — tuned for plan usage limits.
+								</span>
+								<button
+									type="button"
+									disabled={saving}
+									onClick={() => void applyClaudePreset()}
+									data-testid="setup-claude-preset-apply"
+									className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium transition-colors hover:bg-accent/80 disabled:opacity-50"
+								>
+									Use recommended
+								</button>
+							</div>
+						)}
 						<p className="text-xs text-muted-foreground">
 							Pick the model for each tier. All three are required before chats can start.
 						</p>

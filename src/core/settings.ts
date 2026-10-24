@@ -54,6 +54,12 @@ export const BACKGROUND_MODEL_ROLES = [
 	"visualMaker",
 	"extractor",
 	"auditor",
+	// Fork addition (2026-10-24): not a background job — the teacher's
+	// PLANNING turn (the first teaching turn, before a plan exists). It
+	// rides this table for the override schema and parser; it runs on its
+	// override ONLY (the chat-handler reads the raw override), else on the
+	// lesson's own model.
+	"planner",
 ] as const;
 
 export type BackgroundModelRole = (typeof BACKGROUND_MODEL_ROLES)[number];
@@ -234,6 +240,7 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	auditor: "cheap",
 	visualMaker: "vision",
 	pdfReader: "vision",
+	planner: "strong",
 };
 
 /** General settings — app-level behavior. Version DISPLAY and plans login

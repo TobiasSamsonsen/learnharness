@@ -222,6 +222,22 @@ export function SettingsDialogBody({
 		return () => document.removeEventListener("keydown", onKey);
 	}, [onClose]);
 
+	/** The Claude-subscription preset (fork addition): one server write over
+	 *  several sections; the dialog takes the stored record back and every
+	 *  affected surface hears about it. */
+	const applyClaudePreset = useCallback(async (): Promise<string | null> => {
+		const res = await fetch("/api/settings/preset", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ name: "claude-subscription" }),
+		}).catch(() => null);
+		if (!res?.ok) return ((await res?.json().catch(() => ({}))) as { error?: string } | undefined)?.error ?? "Could not apply the preset";
+		const stored = ((await res.json().catch(() => null)) as { settings?: UserSettings } | null)?.settings;
+		if (stored) setRecord(stored);
+		for (const section of ["models", "agent", "graph", "compaction"] as const) notifySettingsSaved(section);
+		return null;
+	}, []);
+
 	/** ONE writer for the whole dialog: PUT the whole section, keep the
 	 *  record mirror in sync, surface route errors inline (a 400 is a
 	 *  schema mistake caught by the validation surface). */
@@ -405,6 +421,7 @@ export function SettingsDialogBody({
 										onCompactionChange={(next: CompactionSettings) =>
 											void write("compaction", next)
 										}
+										onApplyClaudePreset={applyClaudePreset}
 									/>
 								</SettingsSection>
 							)}

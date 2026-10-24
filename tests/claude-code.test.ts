@@ -297,3 +297,39 @@ test("subagent traffic (parent_tool_use_id set) is ignored", async () => {
 	assert.equal(message.stopReason, "stop");
 	assert.deepEqual(message.content, [{ type: "text", text: "hi" }]);
 });
+
+// ─── live sessions (pure halves) ─────────────────────────────────────────────
+
+test("fingerprints identify what the model saw, not record bookkeeping", async () => {
+	const { messageFingerprint } = await import("../src/agent/claude-code.ts");
+	const user = { role: "user" as const, content: "hi", timestamp: 1 };
+	assert.equal(messageFingerprint(user), messageFingerprint({ ...user, timestamp: 2 }), "timestamps don't count");
+	assert.notEqual(messageFingerprint(user), messageFingerprint({ ...user, content: "hi!" }));
+	const result = { role: "toolResult" as const, toolCallId: "t1", toolName: "probe", content: [{ type: "text" as const, text: "ok" }], isError: false, timestamp: 1 };
+	assert.notEqual(messageFingerprint(result), messageFingerprint({ ...result, isError: true }));
+});
+
+test("a live session continues only with exactly the results it waits for, or learner messages", async () => {
+	const { continuation, isPrefixOf } = await import("../src/agent/claude-code.ts");
+	const r = (id: string) => ({ role: "toolResult" as const, toolCallId: id, toolName: "x", content: [], isError: false, timestamp: 1 });
+	const u = { role: "user" as const, content: "next", timestamp: 1 };
+	assert.equal(continuation("awaiting-tools", ["a", "b"], [r("a"), r("b")]), "results");
+	assert.equal(continuation("awaiting-tools", ["a", "b"], [r("a")]), null, "a missing result");
+	assert.equal(continuation("awaiting-tools", ["a"], [r("a"), u]), null, "a message after the results: start fresh");
+	assert.equal(continuation("awaiting-tools", ["a"], [r("z")]), null, "an unknown id (a salvaged call)");
+	assert.equal(continuation("idle", [], [u]), "user");
+	assert.equal(continuation("idle", [], [r("a")]), null);
+	assert.equal(continuation("idle", [], []), null);
+	assert.equal(isPrefixOf(["1", "2"], ["1", "2", "3"]), true);
+	assert.equal(isPrefixOf(["1", "x"], ["1", "2", "3"]), false, "history changed (compaction): start fresh");
+});
+
+test("tool results become the MCP reply Claude Code waits for", async () => {
+	const { mcpResult } = await import("../src/agent/claude-code.ts");
+	const base = { role: "toolResult" as const, toolCallId: "t", toolName: "x", timestamp: 1 };
+	assert.deepEqual(mcpResult({ ...base, content: [{ type: "text", text: "ok" }], isError: false }), { content: [{ type: "text", text: "ok" }] });
+	assert.deepEqual(mcpResult({ ...base, content: [{ type: "image", data: "AA", mimeType: "image/png" }], isError: true }), {
+		content: [{ type: "image", data: "AA", mimeType: "image/png" }],
+		isError: true,
+	});
+});
