@@ -177,8 +177,11 @@ publish:
   # from a private repo are impossible, and a token baked into the app
   # would be a leak. desktop:dist passes no --publish flag, so builds never
   # upload; publishing happens at release time (GH_TOKEN + --publish).
+  # Fork (2026-10-24): the feed is THIS fork's releases. Pointing at
+  # upstream would "update" an installed fork to upstream's build and drop
+  # the fork's features (Claude Code provider, languages, local dictation).
   - provider: github
-    owner: amosblomqvist
+    owner: TobiasSamsonsen
     repo: learnharness
     # All three CI jobs contribute assets; only the owner publishes it.
     releaseType: draft

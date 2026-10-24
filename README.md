@@ -52,6 +52,21 @@ Add your provider API key and choose your models, then start a session with what
 
 All three platforms support in-app updates.
 
+### Install this fork on Windows
+
+The upstream download is upstream's build. To get this fork's features, build the installer yourself on the Windows machine (Node 24+ and Git):
+
+```sh
+git clone https://github.com/TobiasSamsonsen/learnharness.git
+cd learnharness
+npm ci
+npm run desktop:dist:win
+```
+
+Then run `dist\LearnHarness-<version>-x64-setup.exe`. It installs per user (no administrator rights) into `%LOCALAPPDATA%\Programs\LearnHarness`, with Start menu and desktop shortcuts. The installer is unsigned, so Windows SmartScreen shows "Windows protected your PC": choose **More info → Run anyway**. Uninstall from Settings → Apps. Your lessons and settings live in `%APPDATA%\LearnHarness` and survive reinstalls.
+
+In-app updates check this fork's GitHub Releases, so an installed copy never "updates" to upstream's build. Until the fork publishes a release, the update check finds nothing and the app keeps running as is.
+
 ### Use your Claude subscription (Claude Code)
 
 This fork can run every agent on your Claude Pro/Max subscription instead of an API key, by routing model turns through your locally installed [Claude Code](https://claude.com/claude-code) CLI.
