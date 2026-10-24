@@ -47,4 +47,16 @@ export { claudeCodeAvailable, claudePlanUsage } from "../agent/claude-code.ts";
 export { localSttStatuses, prepareLocalStt, transcribeLocal } from "./stt-local.ts";
 export { dismissUpstreamVersion, launchClaudeUpdate, upstreamStatus } from "./upstream.ts";
 export { addLinkMaterial, addUploadedMaterial, listMaterials, removeMaterial } from "./materials.ts";
+// Courses (fork addition — docs/courses.md).
+export {
+	approveCourse,
+	courseDrafting,
+	courseView,
+	createCourse,
+	createCourseSession,
+	deleteCourse,
+	listCourseSummaries,
+	renameCourse,
+	startCourseDraft,
+} from "./courses.ts";
 export { sessionCost } from "./pricing.ts";

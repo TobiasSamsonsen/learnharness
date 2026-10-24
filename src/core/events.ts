@@ -48,6 +48,10 @@ export interface ServerEvents {
 	 *  the chat; the client mirrors it by disabling the composer/dock
 	 *  submit. */
 	"compaction-changed": { chatId: string; running: boolean };
+	/** A course record changed (create, rename, drafting, approval,
+	 *  delete) — fork addition, docs/courses.md §5. Course pages and the
+	 *  sidebar's Courses section refetch. */
+	"courses-changed": Record<string, never>;
 }
 
 export type ServerEventType = keyof ServerEvents;
@@ -63,6 +67,7 @@ export const SERVER_EVENT_TYPES = [
 	"chats-changed",
 	"record-changed",
 	"compaction-changed",
+	"courses-changed",
 ] as const satisfies readonly ServerEventType[];
 
 /** One notification: the type discriminates the payload. */

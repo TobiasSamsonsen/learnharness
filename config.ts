@@ -35,6 +35,9 @@ export const PATHS = {
 	/** Lesson source material (fork addition): data/materials/<chatId>/ —
 	 *  index.json plus one folder per material (src/store/materials.ts). */
 	materials: path.join(DATA_ROOT, "materials"),
+	/** Courses (fork addition — docs/courses.md): one JSON record per
+	 *  course (src/store/courses.ts). */
+	courses: path.join(DATA_ROOT, "courses"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────
@@ -61,7 +64,10 @@ export type ModelRole =
 	| "auditor"
 	/** The teacher's PLANNING turn (fork addition): its own model only
 	 *  when agent.models.planner overrides it — otherwise the lesson's. */
-	| "planner";
+	| "planner"
+	/** The course planner (fork addition — docs/courses.md §3): drafts a
+	 *  course's skill map from its curriculum. */
+	| "coursePlanner";
 
 /**
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction
@@ -76,6 +82,10 @@ export const LEDGER_FILES = {
 	 *  the checkpoint's replacement for chat extractions — notes keep
 	 *  sessions.jsonl, whole-file as they are). */
 	coverage: path.join(PATHS.graph, "coverage.jsonl"),
+	/** Skills — the graph's second node kind (fork addition —
+	 *  docs/courses.md §1.1). Written only by course approval
+	 *  (src/store/skills.ts). */
+	skills: path.join(PATHS.graph, "skills.jsonl"),
 } as const;
 
 /**

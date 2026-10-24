@@ -133,6 +133,7 @@ const catalog = (strongProvider: string | null, ...keyedProviders: string[]): Mo
 		auditor: null,
 		planner: null,
 		pdfReader: null,
+		coursePlanner: null,
 	},
 	slots: {
 		strong: strongProvider

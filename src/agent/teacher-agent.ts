@@ -127,6 +127,10 @@ export interface AgentBuildOptions {
 	 *  section (core/materials.ts materialsPromptSection) and the lookup
 	 *  tools (tools/materials.ts), added to every conversation agent. */
 	materials?: { section: string; tools: AgentTool<any>[] };
+	/** The course section (fork addition — docs/courses.md §4): a course
+	 *  session's per-turn rules (core/course-session.ts), appended after
+	 *  the material. */
+	course?: { section: string };
 	/** Native conversation identity: the existing persisted chat id, reused
 	 * across reconstructed prober, teacher, and practice Agents.
 	 * Debug: when set AND LH_PROVIDER_EVENTS=1, raw provider stream events
@@ -184,9 +188,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const stopper = makeQuestionStopper();
 	const composed = opts.promptSwitches ? composeInstructions(kind, opts.promptSwitches) : composedInstructions[kind]!;
 	const systemPrompt = withLanguageDirective(
-		opts.materials ? `${composed}
-
-${opts.materials.section}` : composed,
+		[composed, opts.materials?.section, opts.course?.section].filter(Boolean).join("\n\n"),
 		opts.language ?? DEFAULT_LESSON_LANGUAGE,
 		"conversation",
 	);

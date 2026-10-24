@@ -28,6 +28,7 @@ import type {
 	NotesSource,
 } from "./contracts.ts";
 import type { UserSettings } from "./settings.ts";
+import type { ChatCourseLink, CourseRecord, SkillLine } from "./contracts/course.ts";
 
 // ─── ChatStore — the session record's home (data/chats) ─────────────────────
 
@@ -35,7 +36,7 @@ export interface ChatStore {
 	/** Create a session record (persisted immediately). */
 	/** Create a session record; kind "practice" marks a practice session
 	 *  (absent = teach, the default). */
-	createChat(title: string, kind?: "practice"): ChatRecord;
+	createChat(title: string, kind?: "practice", course?: ChatCourseLink): ChatRecord;
 	/** The full record, or null if unknown id / corrupt file. */
 	getChat(id: string): ChatRecord | null;
 	/** All sessions, newest activity first (the sidebar's list view). */
@@ -127,6 +128,34 @@ export interface GraphStore {
 		coverage?: CoverageEntry[];
 		checkpoints?: SessionCheckpoint[];
 	}): void;
+}
+
+// ─── SkillStore — the graph's skill ledger (data/graph/skills.jsonl) ─────────
+// Fork addition (docs/courses.md §1.1). Append-only; readers merge lines
+// by id (core/skills.ts mergeSkillLines). Course approval is the ONLY
+// writer.
+
+export interface SkillStore {
+	/** Raw skill lines in append order. */
+	readSkillLines(): SkillLine[];
+	/** Append lines (one write per line, in order). */
+	appendSkillLines(lines: readonly SkillLine[]): void;
+}
+
+// ─── CourseStore — course records (data/courses) ─────────────────────────────
+// Fork addition (docs/courses.md §1.2). Whole-file read-modify-write JSON,
+// like chats.
+
+export interface CourseStore {
+	createCourse(title: string): CourseRecord;
+	/** The record, or null (unknown id, corrupt, or newer-stamped file). */
+	getCourse(id: string): CourseRecord | null;
+	/** Every course, newest activity first. */
+	listCourses(): CourseRecord[];
+	/** Merge fields into the record (id/createdAt immutable); bumps
+	 *  updatedAt. Null when unknown. */
+	updateCourse(id: string, patch: Partial<Omit<CourseRecord, "id" | "createdAt">>): CourseRecord | null;
+	deleteCourse(id: string): boolean;
 }
 
 // ─── JobStore — background sub-agent jobs (data/jobs) ─────────────────────────

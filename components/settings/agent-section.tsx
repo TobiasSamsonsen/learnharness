@@ -87,9 +87,11 @@ const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
 /** The per-role rows (fork addition, 2026-10-24): every model role a user
  *  can point at its own model. `slot` = what the role follows when it has
  *  no override (null: the planner follows the LESSON's model). Order:
- *  conversation first, then the cheap tier's roles, then vision. */
+ *  conversation first (and the strong-tier course planner), then the
+ *  cheap tier's roles, then vision. */
 export const ROLE_ROWS: readonly { role: BackgroundModelRole; label: string; hint: string; slot: ModelSlotName | null }[] = [
 	{ role: "planner", label: "Planner", hint: "Plans each lesson — one turn, and the whole lesson follows it", slot: null },
+	{ role: "coursePlanner", label: "Course planner", hint: "Turns a course's curriculum into its skill map", slot: "strong" },
 	{ role: "researcher", label: "Researcher", hint: "Researches questions in the background", slot: "cheap" },
 	{ role: "demoBuilder", label: "Demo builder", hint: "Writes the interactive demos", slot: "cheap" },
 	{ role: "extractor", label: "Extractor", hint: "Turns lessons into knowledge-graph ideas", slot: "cheap" },

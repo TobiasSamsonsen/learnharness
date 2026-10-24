@@ -120,6 +120,16 @@ A lesson can carry source material: **PDFs** (textbooks, slides, past exams), **
 - To quote exactly, the teacher looks passages up in the material itself (`material_search`, `material_read`); math-heavy PDF pages can be read visually.
 - Material added mid-lesson is announced to the teacher once, so it can adjust the plan. Removing an item takes effect from the next turn.
 
+### Courses: a curriculum to learn in full
+
+A **course** turns a curriculum into a map of skills and tracks how much of it you know. Create one with **Courses → New** in the sidebar.
+
+1. **Add the curriculum** (PDFs, notes, a syllabus, links) with the Sources pill on the course page, then **Draft skill map**. The course planner reads it and drafts specific, checkable skills ("Differentiate a composition with the chain rule"), with the prerequisites between them. It reuses skills other courses already have, and links each skill to what your knowledge graph already holds.
+2. **Review the draft.** Ask for changes in your own words, or **Approve**: the skills join your knowledge graph, shared with every course that needs them.
+3. **Follow the route.** The course page shows **Next up** (skills whose prerequisites you know), **Locked** skills and what they need, **Known** skills, and skills **due for review**. Start a **Learn** lesson on one skill, **Practice** one or all of next up, **Review** what's due, or run a **Placement check** to find out what you already know.
+
+**Known** is measured by spaced practice, in Leitner boxes 0–5. In course practice sessions every problem is tagged with the skills it tests. A hint-free solve moves the skill up a box, but only once it is due again (1, 3, 7, 16, 35 days). A hinted solve leaves it where it is, and giving up drops it to box 1. A skill is known from box 3. In a placement check, a clean solve marks the skill and all its prerequisites as known straight away.
+
 ### Local dictation
 
 Dictation is transcribed **on your machine** with Whisper (transformers.js + onnxruntime, CPU). It's free, works offline after a one-time model download, and audio never leaves the computer. Each language has its own model, chosen by benchmark on FLEURS:

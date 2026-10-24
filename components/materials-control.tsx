@@ -10,6 +10,7 @@ import {
 	draftKey,
 	draftMaterials,
 	fetchMaterials,
+	materialsPath,
 	uploadFiles,
 	useDraftMaterials,
 	type DraftMaterial,
@@ -25,6 +26,9 @@ import {
  *   draft mode          what the new-lesson screen will attach: held in the
  *                       draft store and uploaded right after the lesson is
  *                       created (materials-client.ts).
+ *   course mode         a course's curriculum (courseId — fork addition,
+ *                       docs/courses.md): the chat mode against the course's
+ *                       endpoint; `onChange` tells the course page.
  */
 
 /** One row's status line. Pure — exported for pins. */
@@ -48,7 +52,18 @@ function KindIcon({ kind }: { kind: LessonMaterial["kind"] | "file" | "link" }) 
 	return <FileTextIcon className={cls} />;
 }
 
-export function MaterialsControl({ chatId }: { chatId?: string }) {
+export function MaterialsControl({
+	chatId: lessonId,
+	courseId,
+	onChange,
+}: {
+	chatId?: string;
+	courseId?: string;
+	/** Course mode: the materials as read, after every refresh. */
+	onChange?: (materials: LessonMaterial[]) => void;
+}) {
+	// One owner id for the requests: the course's, else the lesson's.
+	const chatId = courseId ?? lessonId;
 	const draft = useDraftMaterials();
 	const [materials, setMaterials] = useState<LessonMaterial[]>([]);
 	const [open, setOpen] = useState(false);
@@ -59,8 +74,14 @@ export function MaterialsControl({ chatId }: { chatId?: string }) {
 	const fileRef = useRef<HTMLInputElement>(null);
 
 	const read = useCallback(() => {
-		if (chatId) void fetchMaterials(chatId).then(setMaterials).catch(() => {});
-	}, [chatId]);
+		if (chatId)
+			void fetchMaterials(chatId)
+				.then((list) => {
+					setMaterials(list);
+					onChange?.(list);
+				})
+				.catch(() => {});
+	}, [chatId, onChange]);
 	useEffect(read, [read]);
 	// poll while anything is still being read
 	const reading = materials.filter((m) => m.status === "reading").length;
@@ -131,14 +152,14 @@ export function MaterialsControl({ chatId }: { chatId?: string }) {
 			draftMaterials.remove(id);
 			return;
 		}
-		await fetch(`/api/chats/${chatId}/materials/${id}`, { method: "DELETE" }).catch(() => {});
+		await fetch(`${materialsPath(chatId)}/${id}`, { method: "DELETE" }).catch(() => {});
 		read();
 	};
 
 	const count = chatId ? materials.length : draft.length;
 	return (
 		<div ref={containerRef} className="relative flex items-center" data-testid="materials-control">
-			<Hint label={chatId ? "This lesson's source material" : "Source material for the new lesson"} side="bottom">
+			<Hint label={courseId ? "This course's curriculum" : chatId ? "This lesson's source material" : "Source material for the new lesson"} side="bottom">
 				<button
 					type="button"
 					data-testid="stats-materials"
@@ -170,11 +191,13 @@ export function MaterialsControl({ chatId }: { chatId?: string }) {
 				<MenuShell
 					anchorRef={containerRef}
 					testid="materials-menu"
-					preferredSide="up"
+					preferredSide={courseId ? "down" : "up"}
 					menuClass="flex w-80 flex-col gap-1 rounded-xl border bg-card p-2 text-xs shadow-xl"
 				>
 					<div className="px-1 pb-1 text-[11px] text-muted-foreground/80">
-						The material sets the lesson&apos;s target; teaching uses its definitions, notation and terms and cites it.
+						{courseId
+							? "The curriculum: everything the course should teach. The course planner turns it into the skill map; every course session can read it."
+							: "The material sets the lesson's target; teaching uses its definitions, notation and terms and cites it."}
 					</div>
 					{chatId
 						? materials.map((m) => (

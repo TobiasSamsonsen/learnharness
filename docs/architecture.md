@@ -392,6 +392,14 @@ Practice turns the graph into problem sets the learner reasons through out loud.
 
 **Model wiring.** Three roles — `partitioner`, `problemGenerator`, `grader` — all pinned to the **strong** slot (quality-critical, one settings edit from cheap) and in `BACKGROUND_MODEL_ROLES` (per-role overrides). The stage agents are single-submit loops on the shared `runSubmitAgent` seam (`submit-agent.ts`, extracted from extraction for exactly this): a `validate` hook turns a bad submit into a tool-input error the model retries against, within `maxTurns 4`; exhaustion fails the stage honestly (the set says so, the chains re-run cleanly on a new set).
 
+### 7.1 Courses — curriculum → skills → known (fork addition, 2026-10-24)
+
+Spec and owner decisions: [`courses.md`](courses.md). A course turns a curriculum into **skills** — the graph's second node kind, in their own append-only ledger `data/graph/skills.jsonl` (`SkillStore` port, `src/store/skills.ts`; first line defines, later lines link-append `requires`/`restsOn`; merged in `core/skills.ts`). Course records live in `data/courses/*.json` (`CourseStore`, `src/store/courses.ts`); a course's curriculum rides the existing `materialStore` keyed by the course id.
+
+- **Writers.** Course approval (`src/server/courses.ts approveCourse`) is the skills ledger's ONLY writer; the extraction pipeline stays the sole writer of nodes/chains/coverage. The course planner (`src/agent/subagents/course-planner.ts`, role `coursePlanner`, strong slot) only drafts — its output is parked on the course record until the owner approves.
+- **Known is derived, never stored.** `core/mastery.ts` folds every course practice session's concluded problems (the `problem` call's `skills` tags + the `conclude` outcome) into Leitner boxes 0–5; known = box ≥ 3. This deliberately extends §7's "strengthening, not assessment" stance **for course sessions only**: ordinary practice still moves nothing.
+- **Sessions.** `ChatRecord.course` (`{courseId, mode, skillIds}`) is stamped at birth; message[0] is a graph-context marker carrying the skills; each turn appends the per-mode course section (`core/course-session.ts`) after the material section, and course sessions see their course's material beside their own (`server/materials.ts sessionMaterials`).
+
 ---
 
 ## 8. Process boundaries (the machine room)
@@ -479,6 +487,7 @@ Before 2026-10-02 the client discovered server-side change by polling: a lattice
 | `jobs-changed` | `{chatId}` | every job-store write (create/update/delete-that-removed) |
 | `activity-changed` | `{}` | extraction `setPhase`/`finishExtraction`; practice `registerRow`/phase-writes/`finishPractice` |
 | `chats-changed` | `{}` | list-shape writes only: chat create/rename/delete-that-removed |
+| `courses-changed` | `{}` | every course-store write (create/update/delete-that-removed) — fork addition, §7.1 |
 
 ### 10.3 Emitter laws
 
