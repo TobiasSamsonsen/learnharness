@@ -47,3 +47,4 @@ export { claudeCodeAvailable, claudePlanUsage } from "../agent/claude-code.ts";
 export { localSttStatuses, prepareLocalStt, transcribeLocal } from "./stt-local.ts";
 export { dismissUpstreamVersion, launchClaudeUpdate, upstreamStatus } from "./upstream.ts";
 export { addLinkMaterial, addUploadedMaterial, listMaterials, removeMaterial } from "./materials.ts";
+export { sessionCost } from "./pricing.ts";

@@ -9,8 +9,11 @@
  *   1. clean dist/ and the previous standalone tree
  *   2. make sure Electron's binary is present (installs that skipped the
  *      download, e.g. ELECTRON_SKIP_BINARY_DOWNLOAD=1, lack it)
- *   3. next build → 4. build-server.mjs → 5. smoke-server.mjs --electron
- *   6. electron-builder --win --x64 --publish never
+ *   3. next build → 4. smoke-provider-runtime.mjs (the fresh trace)
+ *   5. build-server.mjs → 6. smoke-server.mjs --electron
+ *   7. electron-builder --win --x64 --publish never
+ *   8. smoke-provider-runtime.mjs on dist/win-unpacked, under host Node
+ *      and under the packaged LearnHarness.exe
  *
  * The result is the unsigned per-user NSIS installer
  * dist/LearnHarness-<version>-x64-setup.exe. Never cross-build: the
@@ -46,9 +49,16 @@ if (!fs.existsSync(path.join(ROOT, "node_modules", "electron", "dist", "electron
 }
 
 run("build", "npx", ["next", "build"]);
+// Check the fresh trace before any static copying/curation.
+run("initialize providers offline (fresh trace)", "node", [path.join("scripts", "smoke-provider-runtime.mjs")]);
 run("curate the server payload", "node", [path.join("scripts", "build-server.mjs")]);
 run("smoke-boot the server in Electron's Node", "node", [path.join("scripts", "smoke-server.mjs"), "--electron"]);
 run("package", "npx", ["electron-builder", "--win", "--x64", "--publish", "never"]);
+
+const unpacked = path.join("dist", "win-unpacked");
+const payload = path.join(unpacked, "resources", "server", "standalone");
+run("initialize packaged providers offline (host Node)", "node", [path.join("scripts", "smoke-provider-runtime.mjs"), "--standalone", payload]);
+run("initialize packaged providers offline (packaged Electron Node)", "node", [path.join("scripts", "smoke-provider-runtime.mjs"), "--standalone", payload, "--runtime", path.join(unpacked, "LearnHarness.exe")]);
 
 const { version } = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
 const installer = path.join(ROOT, "dist", `LearnHarness-${version}-x64-setup.exe`);
