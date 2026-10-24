@@ -115,6 +115,17 @@ describe("dictation helpers", () => {
 		assert.equal(localStopLabel(undefined), "Transcribing");
 	});
 
+	test("the worklet's Int16Array frames join as their raw bytes (live regression: 'you')", () => {
+		// the real shape: the worklet posts Int16Array frames, not ArrayBuffers
+		const frames = [new Int16Array([1000, -1000, 32767]), new Int16Array([-32768, 7])];
+		const clip = joinFrames(frames);
+		assert.equal(clip.byteLength, 10, "2 bytes per sample, no zero-padded tail");
+		assert.deepEqual([...new Int16Array(clip.buffer)], [1000, -1000, 32767, -32768, 7], "samples survive exactly");
+		// a view into a larger buffer contributes only its own bytes
+		const big = new Int16Array([9, 9, 42, 43, 9]);
+		assert.deepEqual([...new Int16Array(joinFrames([big.subarray(2, 4)]).buffer)], [42, 43]);
+	});
+
 	test("a run's frames join in order into one clip", () => {
 		const a = new Int16Array([1, 2]).buffer;
 		const b = new Int16Array([3]).buffer;

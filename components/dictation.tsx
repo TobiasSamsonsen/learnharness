@@ -155,14 +155,19 @@ export function localStopLabel(status: LocalSttStatus | undefined): string {
 	return "Transcribing";
 }
 
-/** Join a run's Int16 frames into one clip body. Pure. */
-export function joinFrames(frames: readonly ArrayBuffer[]): Uint8Array<ArrayBuffer> {
-	const total = frames.reduce((n, f) => n + f.byteLength, 0);
-	const out = new Uint8Array(total);
+/** Join a run's Int16 frames into one clip body — their raw BYTES. The
+ *  worklet posts each frame as an Int16Array (its field is named
+ *  `buffer`, but it is the typed array): `new Uint8Array(int16Array)`
+ *  would convert every sample to one truncated byte and leave half the
+ *  clip zeros — Whisper then hears noise and answers "you". Views over the
+ *  same bytes, never element conversion. Pure. */
+export function joinFrames(frames: readonly (ArrayBuffer | ArrayBufferView)[]): Uint8Array<ArrayBuffer> {
+	const bytes = frames.map((f) => (f instanceof ArrayBuffer ? new Uint8Array(f) : new Uint8Array(f.buffer, f.byteOffset, f.byteLength)));
+	const out = new Uint8Array(bytes.reduce((n, b) => n + b.byteLength, 0));
 	let at = 0;
-	for (const f of frames) {
-		out.set(new Uint8Array(f), at);
-		at += f.byteLength;
+	for (const b of bytes) {
+		out.set(b, at);
+		at += b.byteLength;
 	}
 	return out;
 }
@@ -367,7 +372,7 @@ export function useDictation({ append, chatId }: { append: (text: string) => voi
 	const configRef = useRef<DictationConfig>({ engine: DEFAULT_DICTATION_ENGINE, language: DEFAULT_LESSON_LANGUAGE });
 	const runConfigRef = useRef<DictationConfig>(configRef.current);
 	/** The local engine's recording: every frame of the run, posted at stop. */
-	const localFramesRef = useRef<ArrayBuffer[]>([]);
+	const localFramesRef = useRef<(ArrayBuffer | ArrayBufferView)[]>([]);
 	const refreshConfig = useCallback(() => {
 		void readDictationConfig(chatId).then((c) => {
 			configRef.current = c;
@@ -570,6 +575,7 @@ export function useDictation({ append, chatId }: { append: (text: string) => voi
 			const worklet = new AudioWorkletNode(ctx, "pcm-capture");
 			workletRef.current = worklet;
 			worklet.port.onmessage = (e) => {
+				// `buffer` is the worklet's Int16Array frame (ArrayBuffer-compatible for ws.send)
 				const msg = e.data as { type: string; rms?: number; buffer?: ArrayBuffer };
 				if (msg.type === "level") {
 					levelRef.current = msg.rms ?? 0; // never reset to zero (dictate pattern)
