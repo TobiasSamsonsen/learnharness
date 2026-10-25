@@ -24,6 +24,7 @@ import {
 	type Tool,
 	type ToolCall,
 	type TranscriptContext,
+	validateToolCall,
 } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 
@@ -33,21 +34,22 @@ import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
  * subscription — the CLI's own sign-in — pays for them instead of an API
  * key. The app never sees or stores a credential; Claude Code owns auth.
  *
- * One pi-ai turn = one `claude -p` process:
+ * One `claude -p` process lives per conversation (see "the process: live
+ * sessions" below for the full lifecycle):
  *   - the replayed system prompt (+ a short transport note) goes in via
  *     --system-prompt-file; Claude Code's own prompt and built-in tools
  *     are off (--tools "", --setting-sources "", --strict-mcp-config);
  *   - the app's tools are declared to the model through a stub MCP server
- *     whose calls do nothing — the model's tool_use blocks are captured
- *     from the stream and handed back to pi's agent loop, which runs the
- *     real tools exactly as it does for every other provider;
- *   - the transcript so far is ONE user message (stream-json input, so
- *     images ride inline as real image blocks) — Claude Code cannot replay
- *     a foreign assistant history natively;
- *   - the first API message's raw stream events map 1:1 onto pi's event
- *     protocol (the same mapping pi-ai's anthropic-messages adapter uses);
- *     at its message_stop the turn is complete and the process is killed
- *     before Claude Code's own loop would run anything.
+ *     that BRIDGES each call back to this process and holds it open; the
+ *     model's tool_use blocks are handed to pi's agent loop, which runs the
+ *     real tools exactly as for every other provider, and the next model
+ *     call answers the held call — Claude Code continues its own loop
+ *     (cache kept, its own thinking and real tool results in context);
+ *   - a process starts from the transcript so far as ONE user message
+ *     (stream-json input, so images ride inline as real image blocks) —
+ *     Claude Code cannot replay a foreign assistant history natively;
+ *   - each API message's raw stream events map 1:1 onto pi's event
+ *     protocol (the same mapping pi-ai's anthropic-messages adapter uses).
  *
  * The catalog mirrors pi-ai's Anthropic models (context windows, thinking
  * maps) at ZERO cost — subscription turns are not billed per token; usage
@@ -75,16 +77,24 @@ function fallbackBins(): string[] {
 	];
 }
 
+/** The CLI on PATH. On Windows the native `claude.exe` wins over an npm
+ *  `claude.cmd` shim wherever each sits on PATH (PR #61's ordering): a
+ *  shim only runs through the shell. Then the native installer's usual
+ *  locations, and a shim only as the last resort. */
 function findOnPath(): string | undefined {
-	const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD").split(";").filter(Boolean) : [""];
-	for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
-		if (!dir) continue;
-		for (const ext of exts) {
-			const candidate = path.join(dir, `claude${ext.toLowerCase()}`);
-			if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
-		}
-	}
-	return fallbackBins().find((p) => fs.existsSync(p));
+	const dirs = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+	const isFile = (p: string) => fs.existsSync(p) && fs.statSync(p).isFile();
+	const first = (names: readonly string[]) => {
+		for (const dir of dirs) for (const name of names) if (isFile(path.join(dir, name))) return path.join(dir, name);
+		return undefined;
+	};
+	if (process.platform !== "win32") return first(["claude"]) ?? fallbackBins().find((p) => fs.existsSync(p));
+	const shims = (process.env.PATHEXT ?? ".EXE;.CMD")
+		.split(";")
+		.filter(Boolean)
+		.map((ext) => `claude${ext.toLowerCase()}`)
+		.filter((name) => name !== "claude.exe");
+	return first(["claude.exe"]) ?? fallbackBins().find((p) => fs.existsSync(p)) ?? first(shims);
 }
 
 let resolvedBin: { value: string | undefined } | undefined;
@@ -710,8 +720,17 @@ interface LiveSession {
 	resultOwed: boolean;
 	/** Results known before Claude Code asked for them (toolUseId → reply). */
 	ready: Map<string, Record<string, unknown>>;
+	/** The tools declared to this process (constant: part of the session key). */
+	tools: Tool[];
+	/** This message's tool uses Claude Code already answered ITSELF (an
+	 *  argument its own schema check rejected, an unknown tool) — they never
+	 *  reach the bridge, so the process must not wait on them. */
+	selfAnswered: Set<string>;
 	translator: ClaudeCodeTranslator | null;
 	endCall: (() => void) | null;
+	/** While a continuation call is bound: start it over on a fresh process
+	 *  (Claude Code moved on without one of our results). */
+	onLost: (() => void) | null;
 	lastUsed: number;
 	stderr: string;
 	dir: string;
@@ -828,12 +847,19 @@ function ensureBridge(): Promise<number> {
 function kill(s: LiveSession): void {
 	if (s.state === "dead") return;
 	s.state = "dead";
+	s.translator = null; // nothing from a dying process reaches a turn
 	const st = live();
 	if (st.sessions.get(s.key) === s) st.sessions.delete(s.key);
 	st.byToken.delete(s.token);
 	s.socket?.destroy();
 	if (s.child.exitCode === null && !s.child.killed) s.child.kill();
 	fs.rm(s.dir, { recursive: true, force: true }, () => {});
+}
+
+/** End every live Claude Code process (tests; a server that shuts down
+ *  without exiting). Idle sessions otherwise live on for IDLE_MS. */
+export function closeClaudeCodeSessions(): void {
+	for (const s of [...live().sessions.values()]) kill(s);
 }
 
 /** Keep at most MAX_SESSIONS: the least recently used non-streaming go. */
@@ -843,15 +869,68 @@ function evict(): void {
 	while (st.sessions.size >= MAX_SESSIONS && idle.length) kill(idle.shift()!);
 }
 
+/** Would Claude Code itself accept this call — a declared tool, with
+ *  arguments its schema check passes? (pi's own validation, which also
+ *  converts types — the self-answered guard below catches the rest.) Pure. */
+export function cliWouldRunCall(tools: readonly Tool[], call: ToolCall): boolean {
+	try {
+		validateToolCall(tools as Tool[], call);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** The tool_use ids a top-level stream-json `user` line answers. Pure. */
+export function answeredToolUseIds(line: Record<string, unknown>): string[] {
+	if (line.type !== "user" || line.parent_tool_use_id) return [];
+	const content = (line.message as { content?: unknown } | undefined)?.content;
+	if (!Array.isArray(content)) return [];
+	return content.flatMap((b: { type?: unknown; tool_use_id?: unknown }) =>
+		b?.type === "tool_result" && typeof b.tool_use_id === "string" ? [b.tool_use_id] : [],
+	);
+}
+
+/** Claude Code answered tool calls by itself (PR #61's guard). For the
+ *  message still streaming: remember them — settle starts over. For the
+ *  previous round (it moved on without our results): the process is no
+ *  longer the conversation the app is having — a bound continuation
+ *  starts over on a fresh process, a waiting session just ends. */
+function selfAnswered(s: LiveSession, ids: readonly string[]): void {
+	const previousRound = ids.some((id) => s.toolUses.some((t) => t.id === id));
+	if (!previousRound && s.translator) {
+		for (const id of ids) s.selfAnswered.add(id);
+		return;
+	}
+	const restart = s.onLost;
+	debug(`lost: Claude Code answered ${ids.length} call(s) itself${restart ? " → fresh process" : ""}`);
+	s.endCall?.();
+	s.endCall = null;
+	s.onLost = null;
+	kill(s);
+	restart?.();
+}
+
 /** One reply finished: record it and set what the session waits for. */
 function settle(s: LiveSession, output: AssistantMessage): void {
 	s.translator = null;
 	s.endCall?.();
 	s.endCall = null;
+	s.onLost = null;
 	s.lastUsed = Date.now();
 	const calls = output.content.filter((b): b is ToolCall => b.type === "toolCall");
 	// a call recovered from text is not in Claude Code's own history
 	if (output.stopReason === "error" || output.stopReason === "aborted" || calls.some((c) => c.id.startsWith("toolu_cc_"))) {
+		kill(s);
+		return;
+	}
+	// a call Claude Code rejects itself never reaches the bridge: a process
+	// waiting on it would hang the next turn (PR #61) — the app's loop runs
+	// it (and reports the error) and the next call starts fresh
+	const rejected = calls.filter((c) => s.selfAnswered.has(c.id) || !cliWouldRunCall(s.tools, c));
+	s.selfAnswered.clear();
+	if (rejected.length > 0) {
+		debug(`fresh next: ${rejected.map((c) => c.name).join(", ")} rejected by Claude Code itself`);
 		kill(s);
 		return;
 	}
@@ -929,8 +1008,11 @@ function startSession(
 		answered: new Set(),
 		resultOwed: false,
 		ready: new Map(),
+		tools: request.tools,
+		selfAnswered: new Set(),
 		translator: null,
 		endCall: null,
+		onLost: null,
 		lastUsed: Date.now(),
 		stderr: "",
 		dir,
@@ -944,7 +1026,7 @@ function startSession(
 	child.stdout!.on("data", (chunk: string) => {
 		buffer += chunk;
 		let nl: number;
-		while ((nl = buffer.indexOf("\n")) >= 0) {
+		while (s.state !== "dead" && (nl = buffer.indexOf("\n")) >= 0) {
 			const line = buffer.slice(0, nl).trim();
 			buffer = buffer.slice(nl + 1);
 			if (!line) continue;
@@ -955,6 +1037,11 @@ function startSession(
 				continue; // non-JSON noise (a CLI banner) is not part of the protocol
 			}
 			if (parsed.type === "rate_limit_event") recordPlanUsage(parsed.rate_limit_info);
+			const own = answeredToolUseIds(parsed).filter((id) => !s.answered.has(id));
+			if (own.length > 0) {
+				selfAnswered(s, own);
+				continue;
+			}
 			if (parsed.type === "result" && s.resultOwed) {
 				s.resultOwed = false; // the closing line of the run that already settled
 				continue;
@@ -994,9 +1081,10 @@ function writeUser(s: LiveSession, content: ClaudeCodeInputBlock[]): void {
 }
 
 /** Bind one model call to a session: its translator, abort, and end. */
-function bindCall(s: LiveSession, translator: ClaudeCodeTranslator, signal: AbortSignal | undefined): void {
+function bindCall(s: LiveSession, translator: ClaudeCodeTranslator, signal: AbortSignal | undefined, onLost: (() => void) | null = null): void {
 	s.state = "streaming";
 	s.translator = translator;
+	s.onLost = onLost;
 	s.lastUsed = Date.now();
 	const onAbort = () => {
 		translator.fail("Request was aborted", "aborted");
@@ -1019,7 +1107,8 @@ function debug(line: string): void {
 	if (process.env.LH_CLAUDE_CODE_DEBUG === "1") console.info(`[claude-code] ${line}`);
 }
 
-function streamClaudeCode(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
+/** The provider's stream function (exported for the fake-CLI tests). */
+export function streamClaudeCode(model: Model<Api>, context: TranscriptContext, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	const stream = createAssistantMessageEventStream();
 	const bin = claudeCodeBin();
 	const request = renderClaudeCodeRequest(context);
@@ -1040,13 +1129,20 @@ function streamClaudeCode(model: Model<Api>, context: TranscriptContext, options
 	void ensureBridge()
 		.then((port) => {
 			if (options?.signal?.aborted) return translator.fail("Request was aborted", "aborted");
+			/** Start this call on a fresh process from the replayed transcript. */
+			const fresh = () => {
+				const s = startSession(key, bin, model, request, effort, port);
+				bindCall(s, translator, options?.signal);
+				s.fed = [...fps];
+				writeUser(s, request.content);
+			};
 			const existing = live().sessions.get(key);
 			if (existing && (existing.state === "awaiting-tools" || existing.state === "idle") && isPrefixOf(existing.fed, fps)) {
 				const delta = messages.slice(existing.fed.length);
 				const how = continuation(existing.state, existing.toolUses.map((t) => t.id), delta);
 				if (how === "results") {
 					debug(`live: ${delta.length} tool result(s) → ${model.id}`);
-					bindCall(existing, translator, options?.signal);
+					bindCall(existing, translator, options?.signal, fresh);
 					existing.fed = [...fps];
 					// results wait in `ready` until Claude Code's call for them is matched
 					for (const m of delta as Extract<Message, { role: "toolResult" }>[]) existing.ready.set(m.toolCallId, mcpResult(m));
@@ -1067,10 +1163,7 @@ function streamClaudeCode(model: Model<Api>, context: TranscriptContext, options
 				}`,
 			);
 			if (existing) kill(existing); // not a continuation: this conversation starts over
-			const s = startSession(key, bin, model, request, effort, port);
-			bindCall(s, translator, options?.signal);
-			s.fed = [...fps];
-			writeUser(s, request.content);
+			fresh();
 		})
 		.catch((err) => translator.fail(`Claude Code bridge failed: ${err instanceof Error ? err.message : String(err)}`));
 	return stream;
