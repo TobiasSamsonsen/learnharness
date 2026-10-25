@@ -5,7 +5,7 @@ Fork feature, owner design round 2026-10-26. Questions and lessons could show on
 ## Phases
 
 1. **Done** — shared infrastructure, ` ```plot ` and ` ```blocks ` (block diagrams, simulatable). Kyb Intro.
-2. Circuits (netlist + direction hints, lcapy-style) and a DC + RC/RL transient solver behind `figureCheck`. ADE.
+2. **Done** — ` ```circuit `: an lcapy-style netlist with drawing directions (European symbols), solved by modified nodal analysis — DC, equivalent resistance, transients after switches move at t = 0 — behind `figureCheck`, the `circuit_solve` tool and a plot `transient` line. ADE.
 3. Logic (signal-flow gates and flip-flops, simulatable) and WaveDrom timing diagrams. ADE.
 
 ## Decisions (owner)
@@ -26,8 +26,9 @@ Fork feature, owner design round 2026-10-26. Questions and lessons could show on
 | Block diagrams: parse, validate, simulate (RK4) | `src/core/figures/blocks.ts` |
 | Plots: parse, compute | `src/core/figures/plot.ts` |
 | Response metrics | `src/core/figures/metrics.ts` |
+| Circuits: parse, grid layout, MNA solver, quantities | `src/core/figures/circuit.ts` |
 | Question gate, `figureCheck`, label numbers, facts | `src/core/figures/figure-check.ts` |
-| The guide tool | `src/agent/tools/figures.ts` |
+| The guide and circuit_solve tools | `src/agent/tools/figures.ts` |
 | Server key check | `src/server/question-check.ts` |
 | Rendering (ELK layout, KaTeX labels, plots) | `components/figures/` |
 | Fence dispatch | `components/md-blocks.tsx` `MarkdownCode` |
@@ -37,3 +38,5 @@ Fork feature, owner design round 2026-10-26. Questions and lessons could show on
 
 - In integrator-chain diagrams, feedback gains are placed to the right of the forward path rather than underneath it (ELK cannot flip a block's direction).
 - Tick labels use a decimal point.
+- Circuits: diodes are drawn, not solved; transistors and op-amps are not drawn yet. Node 0 is ground and gets a symbol at every connection; every other node must land on one grid point (loops have to close).
+- Transients use backward Euler with 4000 steps (≈0.1 % error at τ for a 10τ window).

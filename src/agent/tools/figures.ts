@@ -1,5 +1,6 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
+import { circuitQuantity, FigureError, formatSI, parseCircuit } from "../../core/figures/index.ts";
 
 /**
  * figure_guide (figures phase 1, owner 2026-10-26): the full syntax of
@@ -77,6 +78,7 @@ The first line is \`axes\`; then one line per curve. A trailing "…" is the cur
 | \`curve y = 1 - exp(-t/2) "T = 2"\` | An expression in the x variable. Name it — checks refer to curves by name. |
 | \`ode x' = -x/T + K/T*u, x(0) = 0, u = step(t) "K = 2"\` | An ODE solved from 0 (RK4). Several states: \`ode x' = v, v' = -k*x - d*v, x(0) = 1\`; the FIRST state is drawn. Helper definitions like \`u = step(t)\` are allowed; a missing x(0) is 0. |
 | \`response loop1 y to step r "closed loop"\` | The simulated response of signal y of the ${FENCE}blocks id=loop1 diagram in the same question/message (a practice problem's statement and solution are separate — repeat the diagram where needed). Excitations: \`step r\`, \`step(2) r\`, \`ramp r\`, \`impulse r\`, \`sine(0.5) r\` (Hz). Its curve name is \`loop1.y\`. |
+| \`transient c1 V(c) "$v_C(t)$"\` | The transient of a ${FENCE}circuit id=c1 in the same question/message after its switches move at t = 0: V(node), V(a,b) or I(element). Its curve name is \`c1.V(c)\`. |
 | \`samples sin(2*pi*3*t), fs = 8 "sampled"\` | Stems at t = k/fs over the faint continuous signal (sampling, aliasing). |
 | \`mark t = 2 "T"\` / \`mark y = 0.63\` / \`mark point (2, 0.63) "63 %"\` | Dashed markers and points. |
 
@@ -95,21 +97,112 @@ Example — diagrams as answer options: put the diagram in the stem (id=loop1) a
 
 In a quiz, \`figureCheck: {figure: "<plot id>", quantity: "tau(y2)"}\` verifies a number read off a named curve (give the plot fence an id: ${FENCE}plot id=p1).`;
 
-export const FIGURE_GUIDES: Record<"blocks" | "plot", string> = { blocks: BLOCKS_GUIDE, plot: PLOT_GUIDE };
+const CIRCUIT_GUIDE = `# ${FENCE}circuit — schematics (European symbols; solvable)
+
+A netlist: one element per line, \`<name> <node> <node> [value]; <direction> [length], [options]\`. The element is drawn FROM its first node TO its second in the given direction (right, left, up, down; length in grid units, default 1). Node \`0\` is ground: every connection to it gets its own ground symbol, so a loop never has to close through ground — all other nodes must land consistently (a loop that does not close is refused with its line). A trailing "…" is the element's label (LaTeX allowed), drawn instead of its name and value.
+
+| Element | Line | Notes |
+|---|---|---|
+| Resistor | \`R1 a b 2k; right\` | Values take SI prefixes: p n u (µ) m k M (meg) G — m is milli, M is mega. Units may follow: 2kΩ, 10uF, 5V. |
+| Capacitor | \`C1 b 0 10u; down\` | Option \`ic=2V\`: its voltage (first node − second) just before t = 0. |
+| Inductor | \`L1 b c 5m; right\` | Option \`ic=…\`: its current (first → second) just before t = 0. |
+| Voltage source | \`V1 a 0 5V; down\` | The FIRST node is + : V(a) − V(0) = 5 V. |
+| Current source | \`I1 0 a 2mA; up\` | Drives the current from the first node to the second through the source — out of the second node. |
+| Diode / LED | \`D1 a b; right\` / \`D1 a b; right, led\` | Anode first. Drawn, not solved. |
+| Switch | \`S1 a b closes; right\` | open, closed, opens (at t = 0) or closes (at t = 0). |
+| Wire | \`W a b; up\` | Name optional (\`W\`), no value. |
+| Terminal pair | \`P1 a b; down\` | Open terminals (klemmer) between a and b, e.g. for Thévenin. |
+| VCVS / VCCS | \`E1 o 0 a 0 20; down\` / \`G1 o 0 a 0 2m; down\` | Output nodes, then the controlling pair, then the gain: V(o) = 20·V(a, 0), or a current 2 mS·V(a, 0). |
+
+Options after the direction: \`v=U_R\` (a voltage label across it, + at the first node), \`i=I_1\` (a current arrow, first → second node). Extra lines: \`nodes a, b\` labels those nodes in the drawing; \`sim 0..5m\` sets the transient time (seconds) for values in time.
+
+Give the fence an id when a plot or a figureCheck refers to it: ${FENCE}circuit id=c1
+
+Example — a voltage divider with the output terminals marked:
+
+${FENCE}circuit id=div
+V1 a 0 12V; down
+R1 a b 4k; right, v=U_1
+R2 b 0 2k; down, i=I_2
+W b c; right
+P1 c 0; down
+nodes a, b
+${FENCE}
+
+Example — an RC circuit charged when the switch closes:
+
+${FENCE}circuit id=rc
+V1 a 0 5V; down
+S1 a b closes; right
+R1 b c 1k; right
+C1 c 0 1u; down, v=v_C
+sim 0..10m
+${FENCE}
+
+Solving: \`circuit_solve\` computes quantities while you author; \`figureCheck\` checks a key: V(b), V(a,b), I(R1), P(R1), R(a,b) (sources zeroed — Thévenin), V(c, t=1m), I(C1, t=2m), tau(V(c)), steady(…), rise(…), settling(…). Currents run first node → second THROUGH the element (a source delivering power has a negative current). DC values use the switches' t ≥ 0 state; transients start from the t < 0 steady state. Give a transient at least ~7τ of sim time.`;
+
+export const FIGURE_GUIDES: Record<"blocks" | "plot" | "circuit", string> = { blocks: BLOCKS_GUIDE, plot: PLOT_GUIDE, circuit: CIRCUIT_GUIDE };
 
 const figureGuideInput = Type.Object({
-	family: Type.Union([Type.Literal("blocks"), Type.Literal("plot")], { description: "Which figure family's syntax to return." }),
+	family: Type.Union([Type.Literal("blocks"), Type.Literal("plot"), Type.Literal("circuit")], { description: "Which figure family's syntax to return." }),
 });
 
 export const figureGuideTool: AgentTool<typeof figureGuideInput> = {
 	name: "figure_guide",
 	label: "figure_guide",
 	description:
-		"Returns the full syntax, rules and examples of one figure family (```blocks block diagrams, ```plot graphs). " +
+		"Returns the full syntax, rules and examples of one figure family (```blocks block diagrams, ```plot graphs, ```circuit schematics). " +
 		"Call it before writing your first figure of a family in this session.",
 	parameters: figureGuideInput,
 	execute: async (_toolCallId, input) => ({
 		content: [{ type: "text", text: FIGURE_GUIDES[input.family] }],
 		details: { family: input.family },
 	}),
+};
+
+const circuitSolveInput = Type.Object({
+	circuit: Type.String({ description: "The netlist — the body of a ```circuit fence, without the fence." }),
+	quantities: Type.Array(Type.String(), {
+		minItems: 1,
+		description: "What to compute: V(b), V(a,b), I(R1), P(R1), R(a,b), V(c, t=1m), I(C1, t=2m), tau(V(c)), steady(I(L1)), …",
+	}),
+});
+
+/** The unit a circuit quantity is measured in. */
+function quantityUnit(q: string): string {
+	const head = q.trim().split("(")[0]!;
+	if (head === "overshoot") return "%";
+	if (["tau", "rise", "settling", "peaktime"].includes(head)) return "s";
+	const inner = ["steady", "peak"].includes(head) ? q.trim().slice(head.length + 1, 2 + head.length) : head;
+	return inner === "V" ? "V" : inner === "I" ? "A" : inner === "P" ? "W" : inner === "R" ? "Ω" : "";
+}
+
+/**
+ * circuit_solve (figures phase 2, owner 2026-10-26): solve while authoring
+ * — "solve it before you write a single option" for circuits. The same
+ * solver checks figureCheck keys before a question is posed.
+ */
+export const circuitSolveTool: AgentTool<typeof circuitSolveInput> = {
+	name: "circuit_solve",
+	label: "circuit_solve",
+	description:
+		"Solve a ```circuit netlist: DC node voltages, element currents and powers, equivalent resistance, and transient values after " +
+		"its switches move at t = 0. Use it to compute a question's answer before you write the options.",
+	parameters: circuitSolveInput,
+	execute: async (_toolCallId, input) => {
+		let text: string;
+		try {
+			const c = parseCircuit(input.circuit);
+			text = input.quantities
+				.map((q) => {
+					const v = circuitQuantity(c, q);
+					const unit = quantityUnit(q);
+					return typeof v === "string" ? `${q}: ${v}` : `${q} = ${unit === "%" ? `${Number(v.toPrecision(4))} %` : formatSI(v, unit)}`;
+				})
+				.join("\n");
+		} catch (err) {
+			text = err instanceof FigureError ? `line ${err.line}: ${err.message}` : err instanceof Error ? err.message : String(err);
+		}
+		return { content: [{ type: "text", text }], details: { quantities: input.quantities } };
+	},
 };

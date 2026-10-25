@@ -17,10 +17,11 @@ import { evaluate, parseExpr } from "./expr.ts";
 import { notSimulatable, parseBlocks, parseExcitation, simulate, type BlockDiagram, type Excitation } from "./blocks.ts";
 import { computePlot, parsePlot, type DiagramScope } from "./plot.ts";
 import { FigureError } from "./lines.ts";
+import { circuitFacts, circuitQuantity, parseCircuit } from "./circuit.ts";
 import { METRICS, metric, valueAt, type Metric, type Series } from "./metrics.ts";
 
-export type FigureLang = "plot" | "blocks";
-export const FIGURE_LANGS: readonly FigureLang[] = ["plot", "blocks"];
+export type FigureLang = "plot" | "blocks" | "circuit";
+export const FIGURE_LANGS: readonly FigureLang[] = ["plot", "blocks", "circuit"];
 
 export interface FigureFence {
 	lang: FigureLang;
@@ -33,7 +34,7 @@ export function figureFences(text: string): FigureFence[] {
 	const out: FigureFence[] = [];
 	// a fence opens and closes at the start of a line (markdown's rule) — a
 	// ```plot mentioned inside prose is not a figure
-	for (const m of text.matchAll(/(?:^|\n)[ \t]*```(plot|blocks)([^\n`]*)\r?\n([\s\S]*?)\r?\n[ \t]*```/g)) {
+	for (const m of text.matchAll(/(?:^|\n)[ \t]*```(plot|blocks|circuit)([^\n`]*)\r?\n([\s\S]*?)\r?\n[ \t]*```/g)) {
 		const id = /\bid\s*=\s*([A-Za-z0-9_-]+)/.exec(m[2]!)?.[1];
 		out.push({ lang: m[1] as FigureLang, source: m[3]!, ...(id ? { id } : {}) });
 	}
@@ -45,10 +46,10 @@ export function fenceId(meta: string): string | undefined {
 	return /\bid\s*=\s*([A-Za-z0-9_-]+)/.exec(meta)?.[1];
 }
 
-/** The diagrams of a set of texts, by id. */
-export function diagramScope(texts: readonly string[]): Map<string, string> {
-	const scope = new Map<string, string>();
-	for (const f of texts.flatMap(figureFences)) if (f.lang === "blocks" && f.id) scope.set(f.id, f.source);
+/** The figures a plot may reference (diagrams, circuits), by id. */
+export function diagramScope(texts: readonly string[]): Map<string, { lang: FigureLang; source: string }> {
+	const scope = new Map<string, { lang: FigureLang; source: string }>();
+	for (const f of texts.flatMap(figureFences)) if (f.lang !== "plot" && f.id) scope.set(f.id, { lang: f.lang, source: f.source });
 	return scope;
 }
 
@@ -57,6 +58,7 @@ const where = (f: FigureFence, i: number) => `Figure ${i + 1} (\`\`\`${f.lang}${
 /** Parse (and compute) one figure; throws FigureError. */
 export function checkFigure(f: FigureFence, scope: DiagramScope): void {
 	if (f.lang === "blocks") parseBlocks(f.source);
+	else if (f.lang === "circuit") parseCircuit(f.source);
 	else computePlot(parsePlot(f.source), scope);
 }
 
@@ -148,6 +150,15 @@ function excitationFor(d: BlockDiagram, input?: string): Excitation | string {
 /** A quantity's value: `metric(name)` or `name(<x>=<value>)`. */
 export function figureQuantity(texts: readonly string[], check: FigureCheck): number | string {
 	const q = check.quantity.trim();
+	// a circuit answers circuit quantities (V(b), I(R1), R(a,b), tau(V(c)), …)
+	const fig = texts.flatMap(figureFences).find((f) => f.id === check.figure);
+	if (fig?.lang === "circuit") {
+		try {
+			return circuitQuantity(parseCircuit(fig.source), q);
+		} catch (err) {
+			return `the circuit ${check.figure} does not parse: ${err instanceof Error ? err.message : String(err)}`;
+		}
+	}
 	const mm = /^([a-z]+)\(\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*\)$/.exec(q);
 	const vm = /^([A-Za-z_][A-Za-z0-9_.-]*)\(\s*[A-Za-z_][A-Za-z0-9_]*\s*=\s*(-?\d*\.?\d+(?:[eE][+-]?\d+)?)\s*\)$/.exec(q);
 	if (mm && METRICS.includes(mm[1] as Metric)) {
@@ -165,8 +176,11 @@ export function figureQuantity(texts: readonly string[], check: FigureCheck): nu
 
 /** The numbers an option label states (LaTeX understood: {,} decimal
  *  comma, \frac, \sqrt, \pi, \cdot; subscripts ignored; % dropped). */
+// as powers of ten — the number scanner below reads digits, operators and parentheses only
+const SI_SCALE: Record<string, string> = { p: "10^(-12)", n: "10^(-9)", u: "10^(-6)", "µ": "10^(-6)", "μ": "10^(-6)", m: "10^(-3)", k: "10^3", M: "10^6", G: "10^9" };
+
 export function labelNumbers(label: string): number[] {
-	let s = label.replace(/\$+/g, " ").replace(/\\(?:left|right)\b/g, "");
+	let s = label.replace(/\$+/g, " ").replace(/\\(?:left|right)\b/g, "").replace(/\\Omega\b/g, "Ω").replace(/\\(?:mu|micro)\b/g, "µ");
 	s = s.replace(/\{,\}/g, ".").replace(/(\d),(\d)/g, "$1.$2");
 	s = s.replace(/_\{[^{}]*\}|_[A-Za-z0-9]/g, "");
 	s = s.replace(/\\[,;:! ]/g, "").replace(/\\(?:cdot|times)/g, "*").replace(/\\pi\b/g, "pi");
@@ -175,6 +189,8 @@ export function labelNumbers(label: string): number[] {
 		s = s.replace(/\\sqrt\{([^{}]*)\}/g, "sqrt($1)").replace(/\\[dt]?frac\{([^{}]*)\}\{([^{}]*)\}/g, "(($1)/($2))").replace(/\^\{([^{}]*)\}/g, "^($1)");
 	}
 	s = s.replace(/\\?%/g, " ").replace(/\\[A-Za-z]+/g, " ").replace(/[{}]/g, "");
+	// a number with an SI prefix before a unit counts scaled: 2.5 mA → (2.5*1e-3)
+	s = s.replace(/(\d+(?:\.\d+)?)\s*(p|n|u|µ|μ|m|k|M|G)(?=\s*(?:V|A|Ω|F|H|W|Hz|s|ohm)(?![A-Za-z]))/g, (_m, n: string, p: string) => `(${n}*${SI_SCALE[p]})`);
 	s = s.replace(/(\d|\))\s*(?=sqrt|pi|\()/g, "$1*");
 	const out: number[] = [];
 	for (const m of s.matchAll(/[-+]?\s*(?:\d|\.\d|\(|pi|sqrt)(?:[\d.+\-*/^()\s]|pi|sqrt)*/g)) {
@@ -241,7 +257,9 @@ export function figureFacts(fields: readonly string[]): string[] {
 	const scope = diagramScope(fields);
 	fields.flatMap(figureFences).forEach((f, i) => {
 		try {
-			if (f.lang === "blocks") {
+			if (f.lang === "circuit") {
+				for (const fact of circuitFacts(parseCircuit(f.source))) facts.push(`${where(f, i)} ${fact}.`);
+			} else if (f.lang === "blocks") {
 				const d = parseBlocks(f.source);
 				if (notSimulatable(d)) return;
 				const ex = excitationFor(d, undefined);

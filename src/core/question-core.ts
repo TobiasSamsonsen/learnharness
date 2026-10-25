@@ -183,11 +183,12 @@ export const quizInputBase = Type.Object({
 	figureCheck: Type.Optional(
 		Type.Object(
 			{
-				figure: Type.String({ description: "The id of a ```blocks or ```plot figure in this question (its fence: ```blocks id=loop1)." }),
+				figure: Type.String({ description: "The id of a ```blocks, ```plot or ```circuit figure in this question (its fence: ```blocks id=loop1)." }),
 				quantity: Type.String({
 					description:
 						"What the key is, read off that figure: steady(y), overshoot(y) (in %), peak(y), peaktime(y), settling(y) (2 % band), " +
-						"rise(y) (10–90 %), tau(y) (63 %), or y(t=2). y is a diagram signal, or a plot curve's name (loop1.y for a response).",
+						"rise(y) (10–90 %), tau(y) (63 %), or y(t=2). y is a diagram signal, or a plot curve's name (loop1.y for a response). " +
+						"For a circuit: V(b), V(a,b), I(R1), P(R1), R(a,b), V(c, t=1m), tau(V(c)), … (SI units: V, A, W, Ω, s).",
 				}),
 				input: Type.Optional(Type.String({ description: 'Diagrams only: the excitation, e.g. "step r" or "step(2) d". Default: a unit step on the first input.' })),
 			},

@@ -3,18 +3,19 @@
 import { useEffect, useRef, useState } from "react";
 import { MaximizeIcon } from "lucide-react";
 import { useIsCodeFenceIncomplete } from "streamdown";
-import { computePlot, FigureError, parseBlocks, parsePlot, type FigureLang } from "@/src/core";
+import { computePlot, FigureError, parseBlocks, parseCircuit, parsePlot, type FigureLang } from "@/src/core";
 import { MermaidError } from "@/components/mermaid-error";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { chartSize, useSessionMermaid } from "@/components/session-overlay";
 import { Hint } from "@/components/ui/hint";
 import { renderBlocksSvg } from "@/components/figures/blocks-svg";
 import { renderPlotSvg } from "@/components/figures/plot-svg";
+import { renderCircuitSvg } from "@/components/figures/circuit-svg";
 import { withInk } from "@/components/figures/figure-label";
 import { useFigureScope } from "@/components/figures/figure-scope";
 
 /**
- * A ```blocks / ```plot figure in the message flow (figures phase 1,
+ * A ```blocks / ```plot / ```circuit figure in the message flow (figures phase 1,
  * owner 2026-10-26) — the MermaidInline pattern: a quiet skeleton while
  * the fence streams, the house error card when it does not parse, the
  * hover corner with copy + full-screen. The figure is drawn at the
@@ -37,7 +38,14 @@ export function FigureInline({ lang, source, copy }: { lang: FigureLang; source:
 		const fontPx = Number.parseFloat(getComputedStyle(holderRef.current ?? document.body).fontSize) || 15;
 		(async () => {
 			try {
-				const out = lang === "blocks" ? await renderBlocksSvg(parseBlocks(source), fontPx) : renderPlotSvg(computePlot(parsePlot(source), scope), fontPx);
+				// measure labels with KaTeX's real fonts, not the fallback
+				await document.fonts?.ready;
+				const out =
+					lang === "blocks"
+						? await renderBlocksSvg(parseBlocks(source), fontPx)
+						: lang === "circuit"
+							? renderCircuitSvg(parseCircuit(source), fontPx)
+							: renderPlotSvg(computePlot(parsePlot(source), scope), fontPx);
 				if (!cancelled) setSvg(out);
 			} catch (err) {
 				if (!cancelled) setError(err instanceof FigureError ? `line ${err.line}: ${err.message}` : err instanceof Error ? err.message : String(err));

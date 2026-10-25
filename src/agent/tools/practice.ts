@@ -25,7 +25,7 @@ import { jobTools, type JobToolContext } from "./jobs.ts";
 import { proberGraphTools, type GraphToolContext } from "./graph.ts";
 import { activeProblemOf } from "../../core/native-messages.ts";
 import { figureInputProblems } from "../../core/figures/index.ts";
-import { figureGuideTool } from "./figures.ts";
+import { circuitSolveTool, figureGuideTool } from "./figures.ts";
 import type { LhMessage } from "../../core/native-messages.ts";
 import { concludeResult, invalidInputResult, problemResult } from "../tool-execute.ts";
 import { healEncodedArguments, healToolRecord } from "./heal.ts";
@@ -300,6 +300,7 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AgentToo
 		problem: problemTool(gate, ctx.graphNodes, ctx.courseSkills),
 		conclude: concludeTool(gate),
 		figure_guide: figureGuideTool,
+		circuit_solve: circuitSolveTool,
 		read: readTool,
 		ls: lsTool,
 		find: findTool,
