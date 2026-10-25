@@ -12,14 +12,20 @@
  *     free, and the parent can kill this process when idle to hand the
  *     model's memory (~1 GB) back.
  *
- * Protocol (IPC, advanced serialization):
- *   parent → { id, op: "prepare", repo }
- *            { id, op: "transcribe", repo, whisper, pcm: Uint8Array (Int16 LE, 16 kHz mono) }
+ * Protocol (IPC, advanced serialization) — a model spec is
+ * { repo, dtype: "q8"|"q4"|"fp16", device: "webgpu"|"cpu" } (core/language.ts):
+ *   parent → { id, op: "prepare", model, fallback }
+ *            { id, op: "transcribe", model, fallback, whisper, pcm: Uint8Array (Int16 LE, 16 kHz mono) }
  *   worker → { op: "progress", repo, progress: 0..1 }   (downloads)
  *            { op: "loaded", repo }                     (model warm)
- *            { id, ok: true, text? } | { id, ok: false, error }
+ *            { id, ok: true, text?, ranOn: "gpu"|"cpu-fallback" } | { id, ok: false, error }
+ *
+ * THE GPU PATH (owner, 2026-10-25): `model` runs on the GPU, `fallback`
+ * (the small CPU model) when it cannot — engine.mjs owns that choice.
  */
 import { register } from "node:module";
+import { toFloat } from "./pcm.mjs";
+import { createEngine } from "./engine.mjs";
 
 // sharp → a stub that throws if anything ever asks it for an image:
 // transformers.js only needs the import to be truthy at load.
@@ -38,17 +44,18 @@ const { pipeline, env } = await import("@huggingface/transformers");
 env.cacheDir = process.env.LH_STT_CACHE_DIR;
 env.allowLocalModels = false; // repo ids always mean the Hub (cached after the first download)
 
-/** repo → Promise<pipeline>: each model loads once per worker lifetime. */
+/** repo|dtype|device → Promise<pipeline>: each model loads once per worker lifetime. */
 const pipelines = new Map();
 
-function load(repo) {
-	let p = pipelines.get(repo);
+function load({ repo, dtype, device }) {
+	const key = `${repo}|${dtype}|${device}`;
+	let p = pipelines.get(key);
 	if (!p) {
 		const files = new Map(); // file → { loaded, total }
 		let last = -1;
 		p = pipeline("automatic-speech-recognition", repo, {
-			dtype: { encoder_model: "q8", decoder_model_merged: "q8" },
-			device: "cpu",
+			dtype: { encoder_model: dtype, decoder_model_merged: dtype },
+			device,
 			progress_callback: (info) => {
 				if (info.status !== "progress" || !info.total) return;
 				files.set(info.file, { loaded: info.loaded, total: info.total });
@@ -71,11 +78,11 @@ function load(repo) {
 				return asr;
 			},
 			(err) => {
-				pipelines.delete(repo); // a failed load (offline, disk) retries next time
+				pipelines.delete(key); // a failed load (offline, disk) retries next time
 				throw err;
 			},
 		);
-		pipelines.set(repo, p);
+		pipelines.set(key, p);
 	}
 	return p;
 }
@@ -84,40 +91,29 @@ function load(repo) {
  *  silence ("Takk for at du så på!"), so silence transcribes to nothing. */
 const SILENCE_PEAK = 0.01;
 
-function toFloat(pcm) {
-	const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.byteLength / 2));
-	const out = new Float32Array(samples.length);
-	let peak = 0;
-	for (let i = 0; i < samples.length; i++) {
-		const v = samples[i] / 32768;
-		out[i] = v;
-		const a = v < 0 ? -v : v;
-		if (a > peak) peak = a;
-	}
-	return { audio: out, peak };
+const engine = createEngine({
+	load,
+	onGpuFailed: (why) => console.error(`[stt] GPU model unusable — using the CPU fallback until restart: ${why}`),
+});
+
+async function run(asr, audio, whisper) {
+	const out = await asr(audio, { language: whisper, task: "transcribe", chunk_length_s: 30, stride_length_s: 5 });
+	return (Array.isArray(out) ? out.map((o) => o.text).join(" ") : out.text).trim();
 }
 
 process.on("message", async (msg) => {
 	const reply = (body) => process.send?.({ id: msg.id, ...body });
 	try {
 		if (msg.op === "prepare") {
-			await load(msg.repo);
-			reply({ ok: true });
+			reply({ ok: true, ranOn: await engine.prepare(msg.model, msg.fallback) });
 		} else if (msg.op === "transcribe") {
-			const asr = await load(msg.repo);
 			const { audio, peak } = toFloat(msg.pcm);
 			if (audio.length < 1600 || peak < SILENCE_PEAK) {
 				reply({ ok: true, text: "" }); // < 0.1 s, or silence
 				return;
 			}
-			const out = await asr(audio, {
-				language: msg.whisper,
-				task: "transcribe",
-				chunk_length_s: 30,
-				stride_length_s: 5,
-			});
-			const text = (Array.isArray(out) ? out.map((o) => o.text).join(" ") : out.text).trim();
-			reply({ ok: true, text });
+			const { text, ranOn } = await engine.transcribe(msg.model, msg.fallback, (asr) => run(asr, audio, msg.whisper));
+			reply({ ok: true, text, ranOn });
 		} else {
 			reply({ ok: false, error: `unknown op ${msg.op}` });
 		}

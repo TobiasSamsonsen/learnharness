@@ -16,6 +16,8 @@ const ORT_BIN = path.join("node_modules", "onnxruntime-node", "bin", "napi-v6");
 const OTHER_PLATFORM = process.platform === "win32" ? "linux" : "win32";
 const STT_REPO_FILES = [
 	path.join("src", "server", "stt", "worker.mjs"),
+	path.join("src", "server", "stt", "pcm.mjs"),
+	path.join("src", "server", "stt", "engine.mjs"),
 	path.join("node_modules", "@huggingface", "transformers", "package.json"),
 	path.join("node_modules", "@huggingface", "transformers", "dist", "transformers.node.mjs"),
 	path.join("node_modules", "@huggingface", "transformers", "dist", "transformers.web.js"),
@@ -110,6 +112,8 @@ describe("desktop standalone payload", () => {
 			assert.equal(result.status, 0, String(result.stderr));
 			const out = (rel: string) => fs.existsSync(path.join(root, STANDALONE, rel));
 			assert.ok(out(path.join("src", "server", "stt", "worker.mjs")));
+			assert.ok(out(path.join("src", "server", "stt", "pcm.mjs")), "the worker's PCM module rides along");
+			assert.ok(out(path.join("src", "server", "stt", "engine.mjs")), "the worker's engine module rides along");
 			assert.ok(out(path.join("node_modules", "@huggingface", "transformers", "dist", "transformers.node.mjs")));
 			assert.ok(out(path.join(ORT_BIN, process.platform, process.arch, "onnxruntime_binding.node")));
 			assert.equal(out(path.join(ORT_BIN, OTHER_PLATFORM)), false, "foreign platform binaries pruned");

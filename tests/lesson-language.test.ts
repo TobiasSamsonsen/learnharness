@@ -12,6 +12,7 @@ import {
 	LESSON_LANGUAGES,
 	LOCAL_STT_MODELS,
 	languageDirective,
+	sttModelFiles,
 	resolveLessonLanguage,
 	withLanguageDirective,
 } from "../src/core/language.ts";
@@ -48,7 +49,26 @@ describe("the language core", () => {
 			assert.ok(LOCAL_STT_MODELS[l.id].repo);
 			assert.ok(l.whisper && l.deepgram && l.short);
 		}
-		assert.equal(LOCAL_STT_MODELS.nb.repo, "onnx-community/nb-whisper-small-ONNX");
+		// owner, 2026-10-25: the large models on the GPU, the small q8 ones as the CPU fallback
+		assert.deepEqual(
+			[LOCAL_STT_MODELS.nb.repo, LOCAL_STT_MODELS.nb.dtype, LOCAL_STT_MODELS.nb.device],
+			["Hjertelig/nb-whisper-large-ONNX", "q4", "webgpu"],
+		);
+		assert.deepEqual(
+			[LOCAL_STT_MODELS.en.repo, LOCAL_STT_MODELS.en.dtype, LOCAL_STT_MODELS.en.device],
+			["onnx-community/whisper-large-v3-turbo", "fp16", "webgpu"],
+		);
+		for (const l of LESSON_LANGUAGES) {
+			assert.equal(LOCAL_STT_MODELS[l.id].fallback.device, "cpu");
+			assert.equal(LOCAL_STT_MODELS[l.id].fallback.dtype, "q8");
+		}
+		assert.equal(LOCAL_STT_MODELS.nb.fallback.repo, "onnx-community/nb-whisper-small-ONNX");
+	});
+
+	test("a model's files on disk follow transformers.js's naming by dtype", () => {
+		assert.deepEqual(sttModelFiles("q8"), ["onnx/encoder_model_quantized.onnx", "onnx/decoder_model_merged_quantized.onnx", "tokenizer.json"]);
+		assert.deepEqual(sttModelFiles("q4").slice(0, 2), ["onnx/encoder_model_q4.onnx", "onnx/decoder_model_merged_q4.onnx"]);
+		assert.deepEqual(sttModelFiles("fp16").slice(0, 2), ["onnx/encoder_model_fp16.onnx", "onnx/decoder_model_merged_fp16.onnx"]);
 	});
 });
 
@@ -133,11 +153,71 @@ describe("dictation helpers", () => {
 		assert.equal(joinFrames([]).byteLength, 0);
 	});
 
+	test("the worker decodes a clip at an ODD byte offset (live regression: 'start offset of Int16Array')", async () => {
+		const { toFloat } = (await import("../src/server/stt/pcm.mjs")) as { toFloat: (pcm: Uint8Array) => { audio: Float32Array; peak: number } };
+		// IPC hands the clip over as a view into its message buffer — here at offset 3
+		const samples = new Int16Array([16384, -32768, 0]);
+		const message = new Uint8Array(3 + samples.byteLength);
+		message.set(new Uint8Array(samples.buffer), 3);
+		const view = message.subarray(3);
+		assert.equal(view.byteOffset % 2, 1, "the fixture really is unaligned");
+		const { audio, peak } = toFloat(view);
+		assert.deepEqual([...audio], [0.5, -1, 0]);
+		assert.equal(peak, 1);
+		// an aligned view decodes the same, without a copy
+		assert.deepEqual([...toFloat(new Uint8Array(samples.buffer)).audio], [0.5, -1, 0]);
+	});
+
+	test("the speech engine: the GPU model unless it failed; then the CPU fallback, for the clip and until restart", async () => {
+		const { createEngine } = (await import("../src/server/stt/engine.mjs")) as {
+			createEngine: (deps: { load: (spec: { repo: string }) => Promise<unknown>; onGpuFailed?: (m: string) => void }) => {
+				prepare: (m: object, f: object) => Promise<string>;
+				transcribe: (m: object, f: object, run: (asr: unknown) => Promise<string>) => Promise<{ text: string; ranOn: string }>;
+				gpuBroken: string | null;
+			};
+		};
+		const gpu = { repo: "big" }, cpu = { repo: "small" };
+		const loads: string[] = [];
+		const ok = createEngine({ load: async (s) => (loads.push(s.repo), s.repo) });
+		assert.equal(await ok.prepare(gpu, cpu), "gpu");
+		assert.deepEqual(await ok.transcribe(gpu, cpu, async (asr) => `by ${asr}`), { text: "by big", ranOn: "gpu" });
+		assert.deepEqual(loads, ["big", "big"], "the fallback is never loaded while the GPU works");
+
+		// no adapter: the load fails → the fallback, and it stays there
+		const failures: string[] = [];
+		const noGpu = createEngine({
+			load: async (s) => {
+				if (s.repo === "big") throw new Error("no WebGPU adapter");
+				return s.repo;
+			},
+			onGpuFailed: (m) => failures.push(m),
+		});
+		assert.deepEqual(await noGpu.transcribe(gpu, cpu, async (asr) => `by ${asr}`), { text: "by small", ranOn: "cpu-fallback" });
+		assert.equal(await noGpu.prepare(gpu, cpu), "cpu-fallback");
+		assert.deepEqual(failures, ["no WebGPU adapter"], "reported once; not retried until restart");
+
+		// the GPU fails mid-clip: the SAME clip is retried on the fallback
+		let calls = 0;
+		const midClip = createEngine({ load: async (s) => s.repo });
+		const out = await midClip.transcribe(gpu, cpu, async (asr) => {
+			calls++;
+			if (asr === "big") throw new Error("device lost");
+			return "recovered";
+		});
+		assert.deepEqual(out, { text: "recovered", ranOn: "cpu-fallback" });
+		assert.equal(calls, 2);
+		assert.equal(midClip.gpuBroken, "device lost");
+		// a CPU failure is a real failure — no loop
+		await assert.rejects(noGpu.transcribe(gpu, cpu, async () => { throw new Error("bad audio"); }), /bad audio/);
+	});
+
 	test("the settings row describes each model state", () => {
 		const base = { language: "en" as const, repo: "r", sizeMb: 250 };
 		assert.equal(localModelLine({ ...base, state: "absent" }), "not downloaded · 250 MB");
 		assert.equal(localModelLine({ ...base, state: "downloading", progress: 0.5 }), "downloading 50%");
 		assert.equal(localModelLine({ ...base, state: "cached" }), "downloaded");
 		assert.equal(localModelLine({ ...base, state: "error", error: "offline" }), "failed — offline");
+		assert.equal(localModelLine({ ...base, state: "ready", ranOn: "gpu" }), "ready · GPU");
+		assert.equal(localModelLine({ ...base, state: "cached", ranOn: "cpu-fallback" }), "downloaded · GPU unavailable, using the small CPU model");
 	});
 });

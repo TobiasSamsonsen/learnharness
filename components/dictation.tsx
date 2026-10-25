@@ -5,6 +5,7 @@ import { Loader2Icon, MicIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
 import { useSettingsSaved } from "@/components/settings-signal";
+import { createPieceQueue, createSegmenter, withdrawDictation, type PieceQueue, type PieceResult, type Segmenter } from "@/components/dictation-live";
 import {
 	DEFAULT_DICTATION_ENGINE,
 	DEFAULT_LESSON_LANGUAGE,
@@ -179,6 +180,22 @@ export const METER_TICK_MS = 60;
 /** Rolling history: 48 cells × 60ms ≈ 2.9s of recent loudness. */
 export const METER_CELLS = 48;
 
+/** POST one piece of a local run (16 kHz Int16 LE) and read its text. */
+async function postLocalPiece(piece: Uint8Array<ArrayBuffer>, language: LessonLanguage): Promise<PieceResult> {
+	try {
+		const res = await fetch(`/api/stt/local?language=${language}`, {
+			method: "POST",
+			headers: { "Content-Type": "application/octet-stream" },
+			body: piece,
+		});
+		const body = (await res.json().catch(() => ({}))) as { text?: string; error?: string };
+		if (!res.ok) return { ok: false, error: body.error ? `Local dictation failed: ${body.error}` : `Local dictation failed (${res.status})` };
+		return { ok: true, text: body.text ?? "" };
+	} catch {
+		return { ok: false, error: "Local dictation: server unreachable" };
+	}
+}
+
 /** The Deepgram key's id in the keys store (the env-var name — the Keys
  *  section's openRow state and the PUT /api/keys/:id seam). */
 export const DEEPGRAM_KEY_ID = "DEEPGRAM_API_KEY";
@@ -278,7 +295,7 @@ export function rmsToMeter(rms: number): number {
  * sibling subtree far from the hook's owner, and there is exactly one
  * window, one pending question, one target at a time.
  */
-let questionTarget: ((text: string) => void) | null = null;
+let questionTarget: DictationAppend | null = null;
 
 /* Is a dictation run live on this page? The Esc chain (keyboard wave A,
  * components/keyboard-shortcuts.tsx) needs a SYNCHRONOUS answer — the
@@ -301,17 +318,23 @@ export function finishDictation(): Promise<void> {
 	return dictationFinisher ? dictationFinisher() : Promise.resolve();
 }
 
-/** Join a dictated final onto the current text (shared separator rule). */
-export function joinDictation(current: string, final: string): string {
+/** Join a dictated final onto the current text (shared separator rule).
+ *  `withdraw` takes a piece back out instead (Esc on a live run — owner,
+ *  2026-10-25): the last occurrence, if the field still holds it. */
+export function joinDictation(current: string, final: string, withdraw = false): string {
+	if (withdraw) return withdrawDictation(current, final);
 	return current ? current.replace(/\s+$/, "") + " " + final : final;
 }
+
+/** A dictation target: adds a piece — or, with `withdraw`, takes one back. */
+export type DictationAppend = (text: string, withdraw?: boolean) => void;
 
 /**
  * Claim the dictation target while mounted (and `claimed` is true). The
  * unmount guard is identity-based so dev-mode double-invoked effects
  * can't clear another claimant.
  */
-export function useDictationTarget(append: (text: string) => void, claimed: boolean) {
+export function useDictationTarget(append: DictationAppend, claimed: boolean) {
 	useEffect(() => {
 		if (!claimed) return;
 		questionTarget = append;
@@ -356,6 +379,11 @@ export type Dictation = {
 	 * the keyless click leaves for Settings and the surface must come
 	 * back clean. */
 	clearError: () => void;
+	/** Re-send the last local recording whose transcription failed (owner,
+	 *  2026-10-25: a failure must not cost the learner the dictation);
+	 *  null when there is no such clip. A new recording or a success
+	 *  discards it. */
+	retry: (() => void) | null;
 };
 
 /**
@@ -363,7 +391,7 @@ export type Dictation = {
  * composer fallback; the mounted question form's claim wins while a
  * question waits.
  */
-export function useDictation({ append, chatId }: { append: (text: string) => void; chatId?: string }): Dictation {
+export function useDictation({ append, chatId }: { append: DictationAppend; chatId?: string }): Dictation {
 	const [phase, setPhase] = useState<DictationPhase>("idle");
 	const [error, setError] = useState<string | null>(null);
 	const [stopLabel, setStopLabel] = useState<string | null>(null);
@@ -371,8 +399,16 @@ export function useDictation({ append, chatId }: { append: (text: string) => voi
 	 *  a run keeps the config it STARTED with (runConfigRef). */
 	const configRef = useRef<DictationConfig>({ engine: DEFAULT_DICTATION_ENGINE, language: DEFAULT_LESSON_LANGUAGE });
 	const runConfigRef = useRef<DictationConfig>(configRef.current);
-	/** The local engine's recording: every frame of the run, posted at stop. */
-	const localFramesRef = useRef<(ArrayBuffer | ArrayBufferView)[]>([]);
+	/** The local engine's LIVE run (owner, 2026-10-25 — dictation-live.ts):
+	 *  the segmenter cuts the recording at pauses, the queue transcribes each
+	 *  piece while the learner keeps talking, and every delivered piece is
+	 *  remembered with the field it went to (Esc takes them back out). */
+	const segmenterRef = useRef<Segmenter | null>(null);
+	const queueRef = useRef<PieceQueue | null>(null);
+	const deliveredRef = useRef<Array<{ text: string; target: DictationAppend }>>([]);
+	/** The last local clip whose transcription failed — kept for retry. */
+	const failedClipRef = useRef<{ clip: Uint8Array<ArrayBuffer>; language: LessonLanguage } | null>(null);
+	const [canRetry, setCanRetry] = useState(false);
 	const refreshConfig = useCallback(() => {
 		void readDictationConfig(chatId).then((c) => {
 			configRef.current = c;
@@ -402,7 +438,7 @@ export function useDictation({ append, chatId }: { append: (text: string) => voi
 	/** Frames captured before the socket is OPEN (mitigation A): flushed in
 	 *  order on open; capped at 256 frames (≈32s) with the oldest dropped;
 	 *  cleared at teardown so a dead run's audio can't leak into the next. */
-	const pendingRef = useRef<ArrayBuffer[]>([]);
+	const pendingRef = useRef<Int16Array<ArrayBuffer>[]>([]);
 	const genRef = useRef(0); // stale-handler guard (dictate pattern)
 	const safetyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const reconnectsRef = useRef(0);
@@ -433,7 +469,10 @@ export function useDictation({ append, chatId }: { append: (text: string) => voi
 			safetyRef.current = null;
 		}
 		pendingRef.current = [];
-		localFramesRef.current = [];
+		queueRef.current?.cancel(); // a finished run's queue is drained; an aborted one's late pieces go nowhere
+		queueRef.current = null;
+		segmenterRef.current = null;
+		deliveredRef.current = [];
 		setStopLabel(null);
 		for (const track of streamRef.current?.getTracks() ?? []) track.stop();
 		streamRef.current = null;
@@ -527,14 +566,31 @@ export function useDictation({ append, chatId }: { append: (text: string) => voi
 	const start = useCallback(async () => {
 		dictationActiveFlag = true;
 		setError(null);
+		// a new recording replaces a failed one's retry
+		failedClipRef.current = null;
+		setCanRetry(false);
 		setPhase("connecting");
 		reconnectsRef.current = 0;
 		bufferRef.current = []; // fresh run, fresh buffer (round 2)
 		pendingRef.current = []; // fresh run, fresh queue (mitigation A)
-		localFramesRef.current = [];
 		const gen = ++genRef.current;
 		const config = (runConfigRef.current = configRef.current);
 		const local = config.engine === "local";
+		if (local) {
+			// live: each piece is transcribed while the learner keeps talking,
+			// and lands in whichever field holds the dictation claim right then
+			deliveredRef.current = [];
+			segmenterRef.current = createSegmenter();
+			queueRef.current = createPieceQueue({
+				transcribe: (piece) => postLocalPiece(piece, config.language),
+				deliver: (text) => {
+					if (gen !== genRef.current) return;
+					const target = questionTarget ?? appendRef.current;
+					target(text);
+					deliveredRef.current.push({ text, target });
+				},
+			});
+		}
 		// Local: warm the language's model while the learner speaks (the
 		// first run also downloads it); failures surface at stop.
 		if (local) {
@@ -576,12 +632,14 @@ export function useDictation({ append, chatId }: { append: (text: string) => voi
 			workletRef.current = worklet;
 			worklet.port.onmessage = (e) => {
 				// `buffer` is the worklet's Int16Array frame (ArrayBuffer-compatible for ws.send)
-				const msg = e.data as { type: string; rms?: number; buffer?: ArrayBuffer };
+				const msg = e.data as { type: string; rms?: number; buffer?: Int16Array<ArrayBuffer> };
 				if (msg.type === "level") {
 					levelRef.current = msg.rms ?? 0; // never reset to zero (dictate pattern)
 				} else if (msg.type === "audio") {
 					if (local) {
-						localFramesRef.current.push(msg.buffer!); // the recording (local engine)
+						// a pause after enough speech ends a piece: off to the GPU now
+						const piece = segmenterRef.current?.push(msg.buffer!);
+						if (piece) queueRef.current?.add(piece);
 						return;
 					}
 					const ws = wsRef.current;
@@ -632,14 +690,19 @@ export function useDictation({ append, chatId }: { append: (text: string) => voi
 		openSocket(gen, token);
 	}, [openSocket, cleanup]);
 
-	/** The local engine's stop: post the run's recording as one clip, show
-	 *  the model/transcription progress meanwhile, flush the text through
-	 *  the same deferred path a Deepgram final takes. */
+	/** The local engine's stop (live, owner 2026-10-25): the last piece joins
+	 *  the queue, the bar shows the model/transcription state until every
+	 *  piece has landed, then the run ends. A failure keeps the audio from
+	 *  the failed piece on, and the error offers Retry. A retry posts that
+	 *  audio as one clip and lands it through the deferred buffer. */
 	const transcribeLocalRun = useCallback(
-		async (gen: number) => {
-			const clip = joinFrames(localFramesRef.current);
-			localFramesRef.current = [];
-			const { language } = runConfigRef.current;
+		async (gen: number, retried?: { clip: Uint8Array<ArrayBuffer>; language: LessonLanguage }) => {
+			const language = retried?.language ?? runConfigRef.current.language;
+			const keepForRetry = (error: string, clip: Uint8Array<ArrayBuffer>) => {
+				setError(error);
+				failedClipRef.current = { clip, language };
+				setCanRetry(true);
+			};
 			setStopLabel(localStopLabel(undefined));
 			const poll = setInterval(() => {
 				fetch("/api/stt/local")
@@ -650,17 +713,20 @@ export function useDictation({ append, chatId }: { append: (text: string) => voi
 					.catch(() => {});
 			}, 1000);
 			try {
-				const res = await fetch(`/api/stt/local?language=${language}`, {
-					method: "POST",
-					headers: { "Content-Type": "application/octet-stream" },
-					body: clip,
-				});
-				const body = (await res.json().catch(() => ({}))) as { text?: string; error?: string };
-				if (gen !== genRef.current) return; // cancelled meanwhile: discard
-				if (!res.ok) setError(body.error ? `Local dictation failed: ${body.error}` : `Local dictation failed (${res.status})`);
-				else if (body.text) bufferRef.current.push(body.text);
-			} catch {
-				if (gen === genRef.current) setError("Local dictation: server unreachable");
+				if (retried) {
+					const result = await postLocalPiece(retried.clip, language);
+					if (gen !== genRef.current) return; // cancelled meanwhile: discard
+					if (!result.ok) keepForRetry(result.error, retried.clip);
+					else if (result.text) bufferRef.current.push(result.text);
+				} else {
+					const queue = queueRef.current;
+					const last = segmenterRef.current?.flush();
+					if (queue && last) queue.add(last);
+					await queue?.drain();
+					if (gen !== genRef.current) return; // cancelled meanwhile
+					const failed = queue?.failed();
+					if (failed) keepForRetry(failed.error, failed.clip);
+				}
 			} finally {
 				clearInterval(poll);
 			}
@@ -712,6 +778,11 @@ export function useDictation({ append, chatId }: { append: (text: string) => voi
 		// buffer makes that flush a no-op. Also kills a "stopping" run: the
 		// flush already underway is abandoned (its timer is cleared inside).
 		bufferRef.current = [];
+		// A live run (owner, 2026-10-25): nothing more lands, and the pieces
+		// it already added are taken back out, newest first, from the field
+		// each one went to (an edited-away piece stays as the learner left it).
+		queueRef.current?.cancel();
+		for (const { text, target } of deliveredRef.current.splice(0).reverse()) target(text, true);
 		cleanup();
 	}, [phase, cleanup]);
 
@@ -735,6 +806,19 @@ export function useDictation({ append, chatId }: { append: (text: string) => voi
 			if (dictationFinisher === finish) dictationFinisher = null;
 		};
 	}, [finish]);
+
+	/** Re-send the failed clip through the same stop path a fresh run takes. */
+	const retry = useCallback(() => {
+		const failed = failedClipRef.current;
+		if (phase !== "idle" || !failed) return;
+		failedClipRef.current = null;
+		setCanRetry(false);
+		dictationActiveFlag = true;
+		setError(null);
+		bufferRef.current = [];
+		setPhase("stopping");
+		void transcribeLocalRun(++genRef.current, failed);
+	}, [phase, transcribeLocalRun]);
 
 	const toggle = useCallback(() => {
 		if (phase === "idle") void start();
@@ -766,6 +850,7 @@ export function useDictation({ append, chatId }: { append: (text: string) => voi
 		finish,
 		cancel,
 		clearError: () => setError(null),
+		retry: canRetry && phase === "idle" ? retry : null,
 	};
 }
 
@@ -779,9 +864,14 @@ export function useDictation({ append, chatId }: { append: (text: string) => voi
  *             meter (no interim text ever shifts it). Spinner while
  *             Deepgram flushes the last final.
  *   error     the wide button again, label swapped for the failure reason
- *             (full text in the tooltip), cleared on the next click.
+ *             (full text in the tooltip), cleared on the next click; a
+ *             failed local clip adds Retry (owner, 2026-10-25).
+ *
+ * `compact` (owner, 2026-10-25 — the composer shell's bottom edge): idle
+ * is a quiet mic icon instead of the wide strip; recording still unfurls
+ * the meter across whatever width the edge has free.
  */
-export function DictationBar({ dictation }: { dictation: Dictation }) {
+export function DictationBar({ dictation, compact = false }: { dictation: Dictation; compact?: boolean }) {
 	const { phase, error, levelRef, toggle, active, clearError } = dictation;
 	const { open: openSettings } = useSettingsDialog();
 	/** The keyless click (zero-keys wave, owner dictation trio): the errored
@@ -832,7 +922,8 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 	}, [active]);
 
 	if (!active) {
-		return (
+		const retry = dictation.retry;
+		const toggleButton = (
 			<Hint
 				// Errored: the button span truncates the line — the tooltip is its
 				// full reveal (the keyless line KEEPS "Deepgram" — owner overrule:
@@ -854,14 +945,34 @@ export function DictationBar({ dictation }: { dictation: Dictation }) {
 					}}
 					aria-label={error ? `Dictation failed: ${error}` : "Start dictation"}
 					data-testid="dictation-toggle"
-				// Same blurring as the floating chrome (owner, fix wave round 3),
-			// but lower opacity — the mic stays quieter than the model pills.
-			className="flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-border/50 bg-card/50 text-xs text-muted-foreground/70 shadow-lg backdrop-blur transition-colors hover:border-border hover:text-muted-foreground"
-			>
-					<MicIcon className="size-3.5" />
-					<span className="max-w-full truncate">{error ?? "Dictate"}</span>
+					className={
+						compact
+							? error
+								? "flex h-7 min-w-0 max-w-72 items-center gap-1.5 rounded-md px-2 text-xs text-destructive transition-colors hover:bg-muted"
+								: "flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+							: // Same blurring as the floating chrome (owner, fix wave round 3),
+								// but lower opacity — the mic stays quieter than the model pills.
+								"flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-border/50 bg-card/50 text-xs text-muted-foreground/70 shadow-lg backdrop-blur transition-colors hover:border-border hover:text-muted-foreground"
+					}
+				>
+					<MicIcon className={compact && !error ? "size-4" : "size-3.5"} />
+					{(!compact || error) && <span className="max-w-full truncate">{error ?? "Dictate"}</span>}
 				</button>
 			</Hint>
+		);
+		if (!retry) return toggleButton;
+		return (
+			<div className={`flex min-w-0 items-center gap-1.5 ${compact ? "" : "w-full"}`}>
+				{toggleButton}
+				<button
+					type="button"
+					data-testid="dictation-retry"
+					onClick={retry}
+					className="flex h-7 shrink-0 items-center rounded-md border border-border px-2 text-xs text-foreground transition-colors hover:bg-muted"
+				>
+					Retry
+				</button>
+			</div>
 		);
 	}
 
