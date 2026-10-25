@@ -26,6 +26,13 @@ import { SettingsGroup, SettingsRow, ThinSelect } from "@/components/settings/co
 
 /** A model row's status line. Pure — exported for pins. */
 export function localModelLine(status: LocalSttStatus): string {
+	// where the last dictation ran (owner, 2026-10-25): the GPU model, or
+	// the small CPU fallback when the GPU path could not run
+	const where = status.ranOn === "gpu" ? " · GPU" : status.ranOn === "cpu-fallback" ? " · GPU unavailable, using the small CPU model" : "";
+	return modelState(status) + where;
+}
+
+function modelState(status: LocalSttStatus): string {
 	switch (status.state) {
 		case "absent":
 			return `not downloaded · ${status.sizeMb} MB`;

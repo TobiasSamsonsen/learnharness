@@ -1,5 +1,6 @@
 import type { Usage } from "@earendil-works/pi-ai";
 import {
+	createPlacementAgent,
 	createPracticeAgent,
 	createProberAgent,
 	createTeacherAgent,
@@ -51,6 +52,7 @@ import { emit } from "../core/events.ts";
 import { resolveLessonLanguage } from "../core/language.ts";
 import { materialsForTurn } from "./materials.ts";
 import { courseForTurn } from "./courses.ts";
+import { finishLessonTool } from "../agent/tools/course.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
 import {
@@ -413,8 +415,16 @@ export async function handleChatInput(
 		// prompt + the lookup tools; absent when the lesson has none.
 		materials: materialsForTurn(chatId),
 		// The course section (fork addition — docs/courses.md §4): a course
-		// session's per-turn rules; absent for other sessions.
-		...(course ? { course: { section: course.section } } : {}),
+		// session's per-turn rules; absent for other sessions. A Learn
+		// session's teacher also gets finish_lesson (owner, 2026-10-25).
+		...(course
+			? {
+					course: {
+						section: course.section,
+						...(course.mode === "learn" && teaching ? { tools: [finishLessonTool({ chatId, chatStore: stores.chatStore })] } : {}),
+					},
+				}
+			: {}),
 	};
 	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
 	// session builds the practitioner from turn 1 — no prober→teacher
@@ -423,6 +433,8 @@ export async function handleChatInput(
 	// uniform across kinds).
 	const constructed: TeachingAgent = buildAgent
 		? buildAgent({ ...agentOpts, teaching })
+		: course?.mode === "placement" && course.skills
+			? createPlacementAgent({ skills: course.skills }, agentOpts)
 		: record.kind === "practice"
 			? createPracticeAgent(
 					{
@@ -548,7 +560,9 @@ export async function handleChatInput(
 				// PRACTICE (owner, 2026-10-04): practice sessions write nothing —
 				// no extraction, no graph, no coverage (v1: the session itself
 				// is the deliverable).
-				if ((!requestCycle || requestCycle.dispatched) && record.kind !== "practice" && extractionEnabled(effective.graph)) {
+				// PLACEMENT (owner, 2026-10-25): the test writes nothing either —
+				// its answers are course evidence, not lesson content.
+				if ((!requestCycle || requestCycle.dispatched) && record.kind !== "practice" && record.course?.mode !== "placement" && extractionEnabled(effective.graph)) {
 					// Fresh per-turn read of the graph section's chunk budget
 					// (extraction-UX redesign, 2026-09-24): the trigger compares
 					// against it and the pipeline's batches share it.

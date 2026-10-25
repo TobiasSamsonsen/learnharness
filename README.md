@@ -126,20 +126,25 @@ A **course** turns a curriculum into a map of skills and tracks how much of it y
 
 1. **Add the curriculum** (PDFs, notes, a syllabus, links) with the Sources pill on the course page, then **Draft skill map**. The course planner reads it and drafts specific, checkable skills ("Differentiate a composition with the chain rule"), with the prerequisites between them. It reuses skills other courses already have, and links each skill to what your knowledge graph already holds.
 2. **Review the draft.** Ask for changes in your own words, or **Approve**: the skills join your knowledge graph, shared with every course that needs them.
-3. **Follow the route.** The course page shows **Next up** (skills whose prerequisites you know), **Locked** skills and what they need, **Known** skills, and skills **due for review**. Start a **Learn** lesson on one skill, **Practice** one or all of next up, **Review** what's due, or run a **Placement check** to find out what you already know.
+3. **Find your starting point.** Right after approval the course offers a quick **placement test**: about one multiple-choice question per skill, hardest first. A confident correct answer marks the skill and everything it requires as known, so you start at your weak spots instead of the most basic skill.
+4. **Follow the route.** The course page shows **Next up** (skills whose prerequisites you have learned), **Learning** (learned, not yet known), **Locked** skills and what they need, **Known** skills, and skills **due for review**. Start a **Learn** lesson on one skill, **Practice** what you are learning, or **Review** what's due. A lesson ends with **Finish lesson** (top bar), or when the teacher sees you can do it: the skill is then learned, and the skills that build on it unlock.
 
-**Known** is measured by spaced practice, in Leitner boxes 0–5. In course practice sessions every problem is tagged with the skills it tests. A hint-free solve moves the skill up a box, but only once it is due again (1, 3, 7, 16, 35 days). A hinted solve leaves it where it is, and giving up drops it to box 1. A skill is known from box 3. In a placement check, a clean solve marks the skill and all its prerequisites as known straight away.
+**Known** is measured by spaced practice, in Leitner boxes 0–5. A finished lesson puts a skill in box 1 (learned). In course practice sessions every problem is tagged with the skills it tests. A hint-free solve moves the skill up a box, but only once it is due again (1, 3, 7, 16, 35 days). A hinted solve leaves it where it is, and giving up drops a learned skill back to box 1. A skill is known from box 3. In the placement test, a correct answer at confidence 70 or more marks the skill and all its prerequisites as known; a less sure correct answer marks it learned; a wrong answer changes nothing.
 
 ### Local dictation
 
-Dictation is transcribed **on your machine** with Whisper (transformers.js + onnxruntime, CPU). It's free, works offline after a one-time model download, and audio never leaves the computer. Each language has its own model, chosen by benchmark on FLEURS:
+Dictation is transcribed **on your machine** with Whisper (transformers.js + onnxruntime). It's free, works offline after a one-time model download, and audio never leaves the computer. It runs on the **GPU** through WebGPU (on a laptop with two GPUs, the discrete one). Each language has its own model, chosen by benchmark on 99 s of FLEURS speech on an RTX 5060 laptop:
 
-| Language | Model | Download | Word error rate* |
-| --- | --- | --- | --- |
-| English | `onnx-community/whisper-small` (q8) | ~250 MB | ~5% |
-| Norwegian | `onnx-community/nb-whisper-small-ONNX` (q8), the National Library's Norwegian Whisper | ~410 MB | ~6% |
+| Language | Model (GPU) | Download | Speed | Word error rate* |
+| --- | --- | --- | --- | --- |
+| English | `onnx-community/whisper-large-v3-turbo` (fp16) | ~1.6 GB | ~12× real time | large-model English |
+| Norwegian | `Hjertelig/nb-whisper-large-ONNX` (q4), the National Library's Norwegian Whisper, large | ~1.3 GB | ~5× real time | 5.7% |
 
-\*Measured on a handful of clips; a laptop CPU transcribes 10 s of speech in about 2 s.
+\*Norwegian, measured on FLEURS nb_no. The small model used before was 8.0%.
+
+Dictation is **live**: the recording is cut at natural pauses (after at least 8 s of speech, never past 25 s), and each piece is transcribed while you keep talking, so its text appears in the field a few seconds behind your voice. At stop only the last piece is left: on a 3.6-minute recording the text was complete 1.2 s after stop, against 44 s when the whole recording was transcribed at the end, with fewer word errors too (6.8% vs 12.8%). Esc throws a dictation away, including the pieces it already added.
+
+If the GPU path can't run (no WebGPU adapter, a driver error), dictation falls back to the small models on the CPU (`whisper-small` and `nb-whisper-small-ONNX`, q8, ~6× real time), and Settings → General shows that it did. A transcription that fails on the GPU is retried on the CPU, so a recording is never lost; a failed transcription keeps the recording, and **Retry** sends it again.
 
 The model for a lesson's language downloads the first time you dictate in that language. The dictation bar shows the progress, or you can download in advance under Settings → General → Dictation. Models are stored in the app's data folder under `models/stt`. Transcription runs in a separate worker process that exits after 10 idle minutes to free its memory (~1 GB).
 

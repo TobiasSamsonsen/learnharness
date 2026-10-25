@@ -3,6 +3,7 @@
 import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/ui/hint";
+import { ComposerEdge } from "@/components/composer-edge";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -49,6 +50,7 @@ export function Composer({
 	placeholder = "Ask, answer, or steer the lesson…",
 	nextProblem = false,
 	onNext,
+	edge,
 }: {
 	busy: boolean;
 	value: string;
@@ -74,6 +76,10 @@ export function Composer({
 	/** The signal's dispatcher (send({type:"next"})) — the chip and the
 	 *  empty-Enter share it. */
 	onNext?: () => void;
+	/** The shell's bottom edge (owner, 2026-10-25 — composer-edge.tsx):
+	 *  present → the textarea takes the full width and the edge row below
+	 *  it carries sources, language, the mic, and the send button. */
+	edge?: { chatId?: string; mic?: React.ReactNode };
 }) {
 	const act = () => {
 		const action = enterAction({ busy, canSend, nextProblem });
@@ -81,10 +87,35 @@ export function Composer({
 		else if (action === "send") onSend();
 		else if (action === "next") onNext?.();
 	};
+	const submit = nextProblem && !busy && !canSend ? (
+		<button
+			type="submit"
+			data-testid="next-problem-button"
+			aria-label="Next problem"
+			className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-green-600 px-4 font-ui text-xs font-medium uppercase tracking-wide text-white transition-colors hover:bg-green-500"
+		>
+			Next problem
+			<ArrowRightIcon className="size-4" />
+		</button>
+	) : (
+		<button
+			type="submit"
+			aria-label={busy && !canSend ? "Stop" : "Send"}
+			disabled={!busy && !canSend}
+			className={cn(
+				"flex size-10 shrink-0 items-center justify-center rounded-[10px] transition-colors",
+				busy && !canSend
+					? "bg-secondary text-foreground hover:bg-accent"
+					: "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40",
+			)}
+		>
+			{busy && !canSend ? <SquareIcon className="size-4" /> : <CornerDownLeftIcon className="size-5" />}
+		</button>
+	);
 	return (
 		<form
 			data-testid="composer"
-			className="flex items-end gap-1.5 p-1.5"
+			className={edge ? "flex flex-col gap-0.5 p-1.5" : "flex items-end gap-1.5 p-1.5"}
 			onSubmit={(e) => {
 				e.preventDefault();
 				act();
@@ -116,7 +147,10 @@ export function Composer({
 				placeholder={placeholder}
 				autoFocus={autoFocus}
 				rows={1}
-				className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
+				className={cn(
+					"field-sizing-content lh-input max-h-48 min-h-10 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground",
+					edge ? "w-full" : "flex-1",
+				)}
 			/>
 			{/* The button follows the text (owner report 2026-10-03): while
 				 a turn runs WITH text typed it stays the SEND affordance
@@ -132,31 +166,7 @@ export function Composer({
 				 (click and Enter share one lane), and typing anything
 				 returns the regular send. The green is the app's correct-
 				 answer register (answered-card's green-500/600). */}
-				{nextProblem && !busy && !canSend ? (
-					<button
-						type="submit"
-						data-testid="next-problem-button"
-						aria-label="Next problem"
-						className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-green-600 px-4 font-ui text-xs font-medium uppercase tracking-wide text-white transition-colors hover:bg-green-500"
-					>
-						Next problem
-						<ArrowRightIcon className="size-4" />
-					</button>
-				) : (
-					<button
-						type="submit"
-						aria-label={busy && !canSend ? "Stop" : "Send"}
-						disabled={!busy && !canSend}
-						className={cn(
-							"flex size-10 shrink-0 items-center justify-center rounded-[10px] transition-colors",
-							busy && !canSend
-								? "bg-secondary text-foreground hover:bg-accent"
-								: "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40",
-						)}
-					>
-						{busy && !canSend ? <SquareIcon className="size-4" /> : <CornerDownLeftIcon className="size-5" />}
-					</button>
-				)}
+				{edge ? <ComposerEdge chatId={edge.chatId} mic={edge.mic} trailing={submit} /> : submit}
 		</form>
 	);
 }

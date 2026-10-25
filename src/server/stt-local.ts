@@ -6,8 +6,10 @@ import {
 	LESSON_LANGUAGES,
 	LOCAL_STT_MODELS,
 	lessonLanguageInfo,
+	sttModelFiles,
 	type LessonLanguage,
 	type LocalSttStatus,
+	type SttModelSpec,
 } from "../core/language.ts";
 
 /**
@@ -21,15 +23,16 @@ import {
  * Dictation is DEFERRED (components/dictation.tsx): the browser records
  * the whole utterance and posts it once, at stop — so a batch Whisper
  * call is the natural fit; there is no streaming to emulate.
+ *
+ * Each language has a GPU model and a small CPU fallback (core/language.ts,
+ * owner 2026-10-25); the worker picks (stt/engine.mjs) and reports which
+ * one ran — the status's `ranOn`.
  */
 
 const WORKER = path.join(PATHS.root, "src", "server", "stt", "worker.mjs");
 const CACHE_DIR = path.join(PATHS.models, "stt");
 const IDLE_MS = 10 * 60_000;
-/** The files a q8 model needs on disk (the worker's dtype choice). */
-const MODEL_FILES = ["onnx/encoder_model_quantized.onnx", "onnx/decoder_model_merged_quantized.onnx", "tokenizer.json"];
-
-type Reply = { ok: true; text?: string } | { ok: false; error: string };
+type Reply = { ok: true; text?: string; ranOn?: LocalSttStatus["ranOn"] } | { ok: false; error: string };
 type WorkerMessage =
 	| ({ id: number } & Reply)
 	| { op: "progress"; repo: string; progress: number }
@@ -42,18 +45,21 @@ interface LocalSttState {
 	idle: ReturnType<typeof setTimeout> | null;
 	/** repo → live state; absent = derive from disk */
 	models: Map<string, { state: LocalSttStatus["state"]; progress?: number; error?: string }>;
+	/** language → where its last run went (the GPU model or the CPU fallback) */
+	ranOn: Map<LessonLanguage, NonNullable<LocalSttStatus["ranOn"]>>;
 }
 
 // globalThis: one worker per server process, even across dev HMR re-imports
 const KEY = Symbol.for("lh.localStt");
 function shared(): LocalSttState {
 	const g = globalThis as Record<symbol, LocalSttState | undefined>;
-	g[KEY] ??= { worker: null, nextId: 1, pending: new Map(), idle: null, models: new Map() };
+	g[KEY] ??= { worker: null, nextId: 1, pending: new Map(), idle: null, models: new Map(), ranOn: new Map() };
+	g[KEY].ranOn ??= new Map(); // a state object from before the field (dev HMR)
 	return g[KEY];
 }
 
-function onDisk(repo: string): boolean {
-	return MODEL_FILES.every((f) => fs.existsSync(path.join(CACHE_DIR, repo, f)));
+function onDisk(model: SttModelSpec): boolean {
+	return sttModelFiles(model.dtype).every((f) => fs.existsSync(path.join(CACHE_DIR, model.repo, f)));
 }
 
 function startWorker(s: LocalSttState): ChildProcess {
@@ -107,11 +113,30 @@ function request(op: "prepare" | "transcribe", body: Record<string, unknown>): P
 	});
 }
 
-function markRun(repo: string, reply: Reply): Reply {
+function markRun(language: LessonLanguage, reply: Reply): Reply {
 	const s = shared();
-	if (reply.ok) s.models.set(repo, { state: "ready" });
-	else s.models.set(repo, { state: "error", error: reply.error });
+	const { repo } = LOCAL_STT_MODELS[language];
+	if (!reply.ok) s.models.set(repo, { state: "error", error: reply.error });
+	else if (reply.ranOn) {
+		s.ranOn.set(language, reply.ranOn);
+		// the fallback ran: the GPU model is not what is warm
+		if (reply.ranOn === "gpu") s.models.set(repo, { state: "ready" });
+		else if (s.models.get(repo)?.state !== "error") s.models.delete(repo);
+	}
 	return reply;
+}
+
+/** Mark a language's GPU model as loading (or downloading) until it replies. */
+function markLoading(language: LessonLanguage): void {
+	const s = shared();
+	const model = LOCAL_STT_MODELS[language];
+	if (s.models.get(model.repo)?.state !== "ready") s.models.set(model.repo, { state: onDisk(model) ? "loading" : "downloading", progress: 0 });
+}
+
+/** A language's two models, as the worker protocol carries them. */
+function specs(language: LessonLanguage): { model: SttModelSpec; fallback: SttModelSpec } {
+	const { repo, dtype, device, sizeMb, fallback } = LOCAL_STT_MODELS[language];
+	return { model: { repo, dtype, device, sizeMb }, fallback };
 }
 
 /** Every language's local model, with its live (or on-disk) state. */
@@ -120,30 +145,28 @@ export function localSttStatuses(): LocalSttStatus[] {
 	return LESSON_LANGUAGES.map(({ id }) => {
 		const model = LOCAL_STT_MODELS[id];
 		const live = s.models.get(model.repo);
-		const state = live?.state ?? (onDisk(model.repo) ? "cached" : "absent");
+		const state = live?.state ?? (onDisk(model) ? "cached" : "absent");
+		const ranOn = s.ranOn.get(id);
 		return {
 			language: id,
 			repo: model.repo,
 			sizeMb: model.sizeMb,
-			state: state === "downloading" && onDisk(model.repo) ? "loading" : state,
+			state: state === "downloading" && onDisk(model) ? "loading" : state,
 			...(live?.progress !== undefined && state === "downloading" ? { progress: live.progress } : {}),
 			...(live?.error ? { error: live.error } : {}),
+			...(ranOn ? { ranOn } : {}),
 		};
 	});
 }
 
 /** Download (first time) and load a language's model. Resolves when warm. */
 export async function prepareLocalStt(language: LessonLanguage): Promise<Reply> {
-	const { repo } = LOCAL_STT_MODELS[language];
-	const s = shared();
-	if (s.models.get(repo)?.state !== "ready") s.models.set(repo, { state: onDisk(repo) ? "loading" : "downloading", progress: 0 });
-	return markRun(repo, await request("prepare", { repo }));
+	markLoading(language);
+	return markRun(language, await request("prepare", specs(language)));
 }
 
 /** Transcribe one utterance: 16 kHz mono Int16 little-endian PCM. */
 export async function transcribeLocal(language: LessonLanguage, pcm: Uint8Array): Promise<Reply> {
-	const { repo } = LOCAL_STT_MODELS[language];
-	const s = shared();
-	if (s.models.get(repo)?.state !== "ready") s.models.set(repo, { state: onDisk(repo) ? "loading" : "downloading", progress: 0 });
-	return markRun(repo, await request("transcribe", { repo, whisper: lessonLanguageInfo(language).whisper, pcm }));
+	markLoading(language);
+	return markRun(language, await request("transcribe", { ...specs(language), whisper: lessonLanguageInfo(language).whisper, pcm }));
 }

@@ -38,7 +38,9 @@ export function planUsageHint(u: Usage, now = Date.now()): string {
 	return `Claude plan usage — ${parts.join(" · ")}`;
 }
 
-export function PlanUsage() {
+/** `pill`: the floating chrome · `text`: one quiet segment of the stats
+ *  summary beneath the composer (owner, 2026-10-25 — the declutter). */
+export function PlanUsage({ variant = "pill", separated = false }: { variant?: "pill" | "text"; separated?: boolean }) {
 	const [usage, setUsage] = useState<Usage | null>(null);
 	useEffect(() => {
 		const read = () =>
@@ -52,14 +54,27 @@ export function PlanUsage() {
 	}, []);
 	if (!usage?.fiveHour) return null;
 	const high = Math.max(usage.fiveHour.utilization, usage.sevenDay?.utilization ?? 0) >= 0.8;
-	return (
+	const pill = (
 		<Hint label={planUsageHint(usage)} side="bottom">
 			<span
 				data-testid="plan-usage"
-				className={`rounded-full border bg-card/85 px-2 py-1 font-mono text-[11px] shadow-lg backdrop-blur ${high ? "text-red-500" : "text-muted-foreground"}`}
+				className={
+					variant === "text"
+						? `tabular-nums ${high ? "text-red-500" : ""}`
+						: `rounded-full border bg-card/85 px-2 py-1 font-mono text-[11px] shadow-lg backdrop-blur ${high ? "text-red-500" : "text-muted-foreground"}`
+				}
 			>
-				Plan {pct(usage.fiveHour)}
+				{variant === "text" ? "plan" : "Plan"} {pct(usage.fiveHour)}
 			</span>
 		</Hint>
+	);
+	// `separated`: the "·" joining it to the session summary before it
+	return separated ? (
+		<span className="-ml-1.5 flex items-center gap-1.5">
+			<span aria-hidden>·</span>
+			{pill}
+		</span>
+	) : (
+		pill
 	);
 }

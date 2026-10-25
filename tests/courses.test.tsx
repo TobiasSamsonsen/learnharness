@@ -30,10 +30,15 @@ const { subscribe } = await import("../src/core/events.ts");
 const courses = await import("../src/server/courses.ts");
 const { sessionMaterials } = await import("../src/server/materials.ts");
 const { practiceTools, problemTool } = await import("../src/agent/tools/practice.ts");
+const { finishLessonTool, placementProbeTool } = await import("../src/agent/tools/course.ts");
+const { composeInstructions, createPlacementAgent } = await import("../src/agent/teacher-agent.ts");
+const { inputAppends } = await import("../src/core/input-events.ts");
 const { draftCourse } = await import("../src/agent/subagents/course-planner.ts");
 const { CourseRow, courseMeta } = await import("../components/courses-section.tsx");
 const { CourseBody, courseProgress, skillStateLabel } = await import("../components/course-page.tsx");
 const { GraphContextCard } = await import("../components/graph-context-card.tsx");
+const { FinishLessonButton, LessonFinishedLine, courseOfView } = await import("../components/lesson-finish.tsx");
+const { DictationBar } = await import("../components/dictation.tsx");
 const { LEDGER_FILES, PATHS } = await import("../config.ts");
 
 import type { ChatCourseLink, CourseDraft, GraphNode, Skill, SkillLine } from "../src/core/contracts.ts";
@@ -139,7 +144,49 @@ describe("known — the box fold (core/mastery.ts)", () => {
 			],
 		);
 		assert.equal(events[0]!.at, T0 + 1, "the conclude's timestamp");
-		assert.deepEqual(mastery.skillEventsOf(messages, practiceLink(["a"], "learn")), [], "Learn sessions carry no box evidence");
+		assert.deepEqual(mastery.skillEventsOf(messages, practiceLink(["a"], "learn")), [], "an unfinished Learn session carries no evidence");
+	});
+
+	it("a finished Learn session is evidence — the learner's marker or the teacher's clean finish_lesson, first one wins", () => {
+		const learn = practiceLink(["a"], "learn");
+		const marker = { ...session.newLessonFinishedMarker(), timestamp: T0 + 5 } as LhMessage;
+		assert.deepEqual(mastery.skillEventsOf([marker], learn).map((e) => [e.skillId, e.outcome, e.at]), [["a", "finished", T0 + 5]]);
+		const f = `f${++seq}`;
+		const byTeacher = [assistant([{ id: f, name: session.FINISH_LESSON_TOOL, args: { summary: "s" } }], T0 + 2), result(f, session.FINISH_LESSON_TOOL, T0 + 2), marker];
+		assert.deepEqual(session.lessonFinishOf(byTeacher), { at: T0 + 2, by: "teacher" });
+		assert.equal(mastery.skillEventsOf(byTeacher, learn).length, 1, "finished once");
+		const refused = [assistant([{ id: f, name: session.FINISH_LESSON_TOOL, args: {} }], T0), result(f, session.FINISH_LESSON_TOOL, T0, true)];
+		assert.equal(session.lessonFinishOf(refused), null, "a failed call never finished anything");
+	});
+
+	it("the placement test reads graded probe answers: confident → known, unsure → learned, wrong → miss", () => {
+		const probe = (id: string, skill: string) => assistant([{ id, name: "probe", args: { skill, question: "Q" } }], T0);
+		const answer = (id: string, at: number, a: Record<string, unknown>) =>
+			({ ...result(id, "probe", at), details: { kind: "quiz", dontKnow: false, answers: [], answeredAt: "t", ...a } }) as LhMessage;
+		const messages = [
+			probe("q1", "c"),
+			answer("q1", T0 + 1, { correct: true, confidence: 70 }),
+			probe("q2", "b"),
+			answer("q2", T0 + 2, { correct: true, confidence: 50 }),
+			probe("q3", "a"),
+			answer("q3", T0 + 3, { correct: false, confidence: 90 }),
+			probe("q4", "a"),
+			answer("q4", T0 + 4, { dontKnow: true }),
+			probe("q5", "a"),
+			answer("q5", T0 + 5, { dismissed: true }),
+		];
+		assert.deepEqual(
+			mastery.skillEventsOf(messages, practiceLink(["a", "b", "c"], "placement")).map((e) => [e.skillId, e.outcome]),
+			[
+				["c", "placementKnown"],
+				["b", "placementUnsure"],
+				["a", "placementMiss"],
+				["a", "placementMiss"],
+			],
+			"a dismissal is no answer",
+		);
+		assert.equal(mastery.placementGrade({ dontKnow: false, correct: true, confidence: session.PLACEMENT_KNOWN_CONFIDENCE }), "placementKnown");
+		assert.equal(mastery.placementGrade({ dontKnow: false, correct: true }), "placementUnsure", "no confidence = not sure");
 	});
 
 	it("a dismissal ends the active problem without an outcome", () => {
@@ -152,7 +199,7 @@ describe("known — the box fold (core/mastery.ts)", () => {
 		assert.deepEqual(mastery.skillEventsOf(messages, practiceLink(["a"])), []);
 	});
 
-	it("a clean solve promotes only when due; hints stay; misses reset to box 1", () => {
+	it("a clean solve promotes only when due; hints stay; misses reset to box 1 — but never make a skill learned", () => {
 		const ev = (outcome: string, at: number) => ({ skillId: "a", outcome: outcome as never, at, placement: false });
 		const boxAfter = (...events: ReturnType<typeof ev>[]) => mastery.foldBoxes(events, none).get("a")!.box;
 		assert.equal(boxAfter(ev("solved", T0)), 1, "box 0 is always due");
@@ -161,7 +208,7 @@ describe("known — the box fold (core/mastery.ts)", () => {
 		assert.equal(boxAfter(ev("solved", T0), ev("solved", T0 + DAY), ev("solved", T0 + 4 * DAY)), 3, "known after three spaced solves");
 		assert.equal(boxAfter(ev("solved", T0), ev("solvedWithHints", T0 + 5 * DAY)), 1, "with hints: nothing");
 		assert.equal(boxAfter(ev("solved", T0), ev("solved", T0 + DAY), ev("surrendered", T0 + DAY + 5)), 1);
-		assert.equal(boxAfter(ev("movedOn", T0)), 1, "a miss on box 0 still lands in box 1");
+		assert.equal(mastery.foldBoxes([ev("movedOn", T0)], none).get("a")!.box, 0, "a miss on box 0 stays unlearned (2026-10-25: a miss never unlocks)");
 		assert.equal(mastery.foldBoxes([ev("dismissed", T0)], none).get("a"), undefined, "dismissed is ignored");
 		// events arrive in any order
 		assert.equal(boxAfter(ev("solved", T0 + DAY), ev("solved", T0)), 2);
@@ -192,16 +239,39 @@ describe("known — the box fold (core/mastery.ts)", () => {
 		assert.equal(boxes.get("a")!.box, 4, "never lowered");
 	});
 
-	it("placement: with hints → at least box 1; a miss → box 1", () => {
+	it("legacy placement problems: with hints → at least box 1; a miss → nothing (never lowers, never learned)", () => {
 		const boxes = mastery.foldBoxes(
 			[
 				{ skillId: "x", outcome: "solvedWithHints", at: T0, placement: true },
 				{ skillId: "y", outcome: "surrendered", at: T0, placement: true },
+				{ skillId: "z", outcome: "solved", at: T0, placement: false },
+				{ skillId: "z", outcome: "solved", at: T0 + DAY, placement: false },
+				{ skillId: "z", outcome: "movedOn", at: T0 + DAY + 1, placement: true },
 			],
 			none,
 		);
 		assert.equal(boxes.get("x")!.box, 1);
-		assert.equal(boxes.get("y")!.box, 1);
+		assert.equal(boxes.get("y")!.box, 0);
+		assert.equal(boxes.get("z")!.box, 2, "a placement miss never lowers");
+	});
+
+	it("finished lessons and placement answers: finished/unsure lift to box 1, known credits prerequisites, a miss does nothing", () => {
+		const req: Record<string, string[]> = { c: ["b"], b: ["a"], a: [] };
+		const boxes = mastery.foldBoxes(
+			[
+				{ skillId: "d", outcome: "finished", at: T0, placement: false },
+				{ skillId: "d", outcome: "finished", at: T0 + DAY, placement: false },
+				{ skillId: "c", outcome: "placementKnown", at: T0, placement: false },
+				{ skillId: "e", outcome: "placementUnsure", at: T0, placement: false },
+				{ skillId: "f", outcome: "placementMiss", at: T0, placement: false },
+			],
+			(id) => req[id] ?? [],
+		);
+		assert.deepEqual(boxes.get("d"), { box: 1, lastMove: T0 }, "a second finish moves nothing");
+		assert.equal(boxes.get("c")!.box, 3);
+		assert.equal(boxes.get("a")!.box, 3, "credited through b");
+		assert.equal(boxes.get("e")!.box, 1);
+		assert.equal(boxes.get("f"), undefined);
 	});
 
 	it("due dates follow the box intervals", () => {
@@ -212,19 +282,22 @@ describe("known — the box fold (core/mastery.ts)", () => {
 		assert.equal(mastery.isDue({ box: 3, lastMove: T0 }, T0 + 7 * DAY), true);
 	});
 
-	it("partitions a course: review, next up, locked (with what is missing), known", () => {
-		const skills = new Map<string, Skill>(mergeSkillLines([line("a"), line("b", ["a"]), line("c", ["b"]), line("d")]).map((s) => [s.id, s]));
+	it("partitions a course: review, next up, learning, locked (with what is missing), known — learned unlocks", () => {
+		const skills = new Map<string, Skill>(
+			mergeSkillLines([line("a"), line("b", ["a"]), line("c", ["b"]), line("d"), line("e", ["d"]), line("f", ["e"])]).map((s) => [s.id, s]),
+		);
 		const boxes = new Map([
 			["a", { box: 3, lastMove: T0 }],
 			["d", { box: 1, lastMove: T0 }],
 		]);
-		const p = mastery.partitionSkills(["c", "b", "a", "d", "ghost"], skills, boxes, T0 + 2 * DAY);
-		assert.deepEqual(p.order, ["b", "a", "d", "c"].sort((x, y) => p.order.indexOf(x) - p.order.indexOf(y)));
+		const p = mastery.partitionSkills(["c", "b", "a", "d", "e", "f", "ghost"], skills, boxes, T0 + 2 * DAY);
 		assert.ok(p.order.indexOf("a") < p.order.indexOf("b") && p.order.indexOf("b") < p.order.indexOf("c"), "prerequisites first");
 		assert.deepEqual(p.known, ["a"]);
-		assert.deepEqual(p.nextUp.sort(), ["b", "d"]);
-		assert.deepEqual(p.locked, ["c"]);
+		assert.deepEqual(p.learning, ["d"], "learned, not known");
+		assert.deepEqual(p.nextUp.sort(), ["b", "e"], "e unlocks: its prerequisite d is learned, not known");
+		assert.deepEqual(p.locked.sort(), ["c", "f"]);
 		assert.deepEqual(p.states.get("c")!.missing, ["b"]);
+		assert.equal(p.states.get("d")!.learned, true);
 		assert.deepEqual(p.review, ["d"], "box ≥ 1 and due (a is known but not due for 7 days)");
 	});
 });
@@ -308,7 +381,7 @@ describe("course sessions (core/course-session.ts)", () => {
 		});
 		assert.equal(m.customType, "graph-context");
 		assert.match(m.content, /course "Calc" \(Learn\)/);
-		assert.match(m.content, /\[sk_b\] SK_B: Do sk_b · learning \(box 1 of 5\)/);
+		assert.match(m.content, /\[sk_b\] SK_B: Do sk_b · learned, not yet known \(box 1 of 5\)/);
 		assert.match(m.content, /prerequisite skills[\s\S]*\[sk_a\] SK_A: Do sk_a · known \(box 4 of 5\)/);
 		assert.match(m.content, /\[n1\] Chain rule/);
 		assert.match(m.content, /- A → B/);
@@ -324,19 +397,23 @@ describe("course sessions (core/course-session.ts)", () => {
 		assert.equal(session.courseSessionTitle("review", "Calc", []), "Review: Calc");
 		assert.equal(session.courseSessionTitle("placement", "Calc", []), "Placement: Calc");
 		assert.equal(session.courseFirstMessage("learn", "Calc", [{ name: "A", statement: "Do a" }]), "I want to learn to: Do a");
-		assert.equal(session.courseFirstMessage("placement", "Calc", []), "Placement check for Calc");
+		assert.equal(session.courseFirstMessage("placement", "Calc", []), "Placement test for Calc");
 	});
 
-	it("the prompt section: Learn targets one skill; practice modes carry the tagging law", () => {
+	it("the prompt section: Learn targets one skill and finishes; practice modes carry the tagging law; the placement test grades", () => {
 		const learn = session.coursePromptSection("learn", "Calc", [sk("sk_a")]);
 		assert.match(learn, /^<course>\n/);
 		assert.match(learn, /ONE skill/);
 		assert.match(learn, /SK_A: Do sk_a/);
+		assert.match(learn, /call `finish_lesson`/);
 		assert.doesNotMatch(learn, /`skills` field/);
-		for (const mode of ["practice", "review", "placement"] as const) {
+		for (const mode of ["practice", "review"] as const) {
 			assert.match(session.coursePromptSection(mode, "Calc", [sk("sk_a")]), /`skills` field MUST name them/);
 		}
-		assert.match(session.coursePromptSection("placement", "Calc", []), /PLACEMENT CHECK[\s\S]*most advanced skills/);
+		const placement = session.coursePromptSection("placement", "Calc", []);
+		assert.match(placement, /PLACEMENT TEST[\s\S]*`probe`[\s\S]*set `skill`[\s\S]*most advanced skills/);
+		assert.match(placement, /confidence ≥ 70 → known/);
+		assert.doesNotMatch(placement, /`skills` field/, "no problem tagging law in a quiz test");
 		assert.match(session.coursePromptSection("review", "Calc", []), /due for review/);
 	});
 });
@@ -481,22 +558,61 @@ describe("the course service (src/server/courses.ts)", () => {
 		assert.ok(record.settings?.language, "the birth stamp ran");
 	});
 
-	it("practice sessions move boxes; placement credits prerequisites; the route follows", () => {
+	it("the placement test: a conversation session whose confident answers credit prerequisites; the route follows", () => {
 		const { courseId, a, b, c } = approvedCourse();
 		const placement = courses.createCourseSession(courseId, "placement");
 		assert.ok(placement.ok);
+		assert.equal(placement.value.prompt, "Placement test for Calc");
 		const record = chatStore.getChat(placement.value.id)!;
-		assert.equal(record.kind, "practice");
+		assert.equal(record.kind, undefined, "the placement tester is a conversation agent, not practice");
 		assert.deepEqual(record.course!.skillIds, [a, b, c]);
-		// the learner cleanly solves B in placement → A and B are known
-		chatStore.saveMessages(placement.value.id, [...record.messages, ...problem([b], "solved", Date.now() - 1000)]);
+		assert.deepEqual(courses.courseForTurn(placement.value.id)!.skills!().map((s) => s.id), [a, b, c], "the probe may tag every course skill");
+		// a confident correct answer on B → A and B are known
+		const at = Date.now() - 1000;
+		chatStore.saveMessages(placement.value.id, [
+			...record.messages,
+			assistant([{ id: "pq1", name: "probe", args: { skill: b, question: "Q" } }], at),
+			{ ...result("pq1", "probe", at), details: { kind: "quiz", dontKnow: false, answers: [], answeredAt: "t", correct: true, confidence: 90 } } as LhMessage,
+		]);
 		const view = courses.courseView(courseId)!;
 		assert.deepEqual(view.known, [a, b]);
 		assert.deepEqual(view.nextUp, [c]);
 		assert.deepEqual(view.locked, []);
+		const none = courses.createCourseSession(courseId, "practice");
+		assert.ok(!none.ok && none.status === 409, "practice all = the learning group, empty here");
+	});
+
+	it("finishing a Learn session makes its skill learned and unlocks what builds on it; practice all = learning", () => {
+		const { courseId, a, b } = approvedCourse();
+		const learn = courses.createCourseSession(courseId, "learn", a);
+		assert.ok(learn.ok);
+		const record = chatStore.getChat(learn.value.id)!;
+		// the learner's Finish lesson, through the input-event seam
+		const appends = inputAppends(record, { type: "finish" });
+		assert.equal((appends[0] as { customType?: string }).customType, "lesson-finished");
+		chatStore.saveMessages(learn.value.id, [...record.messages, ...appends]);
+		const view = courses.courseView(courseId)!;
+		assert.deepEqual(view.learning, [a]);
+		assert.equal(view.skills.find((s) => s.id === a)!.learned, true);
+		assert.deepEqual(view.nextUp, [b], "b unlocks on a learned prerequisite");
+		assert.equal(view.sessions.find((s) => s.id === learn.value.id)!.finished, true);
+		assert.throws(() => inputAppends(chatStore.getChat(learn.value.id)!, { type: "finish" }), /already finished/);
 		const practice = courses.createCourseSession(courseId, "practice");
 		assert.ok(practice.ok);
-		assert.deepEqual(chatStore.getChat(practice.value.id)!.course!.skillIds, [c], "practice all = next up");
+		assert.deepEqual(chatStore.getChat(practice.value.id)!.course!.skillIds, [a], "practice all = learning");
+	});
+
+	it("finish is a course-lesson affordance, never over an open question", () => {
+		const { courseId, a } = approvedCourse();
+		const plain = chatStore.createChat("plain");
+		assert.throws(() => inputAppends(chatStore.getChat(plain.id)!, { type: "finish" }), /course-lesson affordance/);
+		const practice = courses.createCourseSession(courseId, "practice", a);
+		assert.ok(practice.ok);
+		assert.throws(() => inputAppends(chatStore.getChat(practice.value.id)!, { type: "finish" }), /course-lesson affordance/);
+		const learn = courses.createCourseSession(courseId, "learn", a);
+		assert.ok(learn.ok);
+		const open = [...chatStore.getChat(learn.value.id)!.messages, assistant([{ id: "oq", name: "quiz", args: {} }], Date.now())];
+		assert.throws(() => inputAppends({ messages: open, course: { mode: "learn" } }, { type: "finish" }), /no open question/);
 	});
 
 	it("propositions extracted from a Learn session rest on its skill (derived)", () => {
@@ -510,13 +626,14 @@ describe("the course service (src/server/courses.ts)", () => {
 		assert.deepEqual(props[0]!.sessions, [{ id: learn.value.id, title: "Learn: C" }]);
 	});
 
-	it("each turn: Learn gets the section only; practice modes get the taggable skills", () => {
+	it("each turn: Learn gets the section and its mode; practice modes get the taggable skills", () => {
 		const { courseId, a } = approvedCourse();
 		const learn = courses.createCourseSession(courseId, "learn", a);
 		const practice = courses.createCourseSession(courseId, "practice", a);
 		assert.ok(learn.ok && practice.ok);
 		const l = courses.courseForTurn(learn.value.id)!;
 		assert.match(l.section, /ONE skill/);
+		assert.equal(l.mode, "learn");
 		assert.equal(l.skills, undefined);
 		const p = courses.courseForTurn(practice.value.id)!;
 		assert.deepEqual(p.skills!(), [{ id: a, name: "A" }]);
@@ -555,6 +672,50 @@ describe("the course service (src/server/courses.ts)", () => {
 		assert.equal(courseStore.getCourse(courseId), null);
 		assert.equal(mergeSkillLines(skillStore.readSkillLines()).length, 3);
 		assert.ok(chatStore.getChat(learn.value.id));
+	});
+});
+
+// ─── the course tools (finish_lesson, the placement probe) ───────────────────
+
+describe("the course tools", () => {
+	const text = (r: unknown) => (r as { content: { text: string }[] }).content.map((c) => c.text).join("");
+	const skills = () => [{ id: "sk_a", name: "Chain rule" }];
+	const quiz = {
+		question: "Q?",
+		explanation: "Because.",
+		options: [
+			{ label: "Yes", value: "y" },
+			{ label: "No", value: "n" },
+		],
+		correctAnswer: "y",
+	};
+
+	it("the placement probe leads with `skill`, refuses an unknown one, and poses a valid one", async () => {
+		const tool = placementProbeTool(skills);
+		assert.equal(tool.name, "probe", "the dock renders it unchanged");
+		assert.equal(Object.keys((tool.parameters as { properties: object }).properties)[0], "skill");
+		const bad = await tool.execute("t1", { ...quiz, skill: "Chain rule" } as never);
+		assert.equal((bad as { isError?: boolean }).isError, true);
+		assert.match(text(bad), /not one of this course's skill ids[\s\S]*sk_a/);
+		const good = await tool.execute("t2", { ...quiz, skill: "sk_a" } as never);
+		assert.doesNotMatch(text(good), /not one of/);
+	});
+
+	it("the placement tester: its own prompt (craft + voice, no teaching base) and a probe + ask registry", () => {
+		const prompt = composeInstructions("placement");
+		assert.match(prompt, /placement tester/);
+		assert.match(prompt, /Solve it before you write a single option/, "the shared question craft composes");
+		assert.doesNotMatch(prompt, /# Teach — one step at a time/, "no teaching doctrine");
+		const agent = createPlacementAgent({ skills }, { engine: { model: {} as never, streamFn: (() => {}) as never } });
+		assert.deepEqual(agent.state.tools.map((t) => t.name).sort(), ["ask_user_question", "probe"]);
+	});
+
+	it("finish_lesson logs once, then says it already did", async () => {
+		const learn = chatStore.createChat("Learn: A", undefined, { courseId: "course_x", mode: "learn", skillIds: ["sk_a"] });
+		const tool = finishLessonTool({ chatId: learn.id, chatStore });
+		assert.match(text(await tool.execute("f1", { summary: "s" })), /Logged: the lesson is finished/);
+		chatStore.saveMessages(learn.id, [session.newLessonFinishedMarker()]);
+		assert.match(text(await tool.execute("f2", { summary: "s" })), /already finished/);
 	});
 });
 
@@ -662,6 +823,7 @@ describe("the UI", () => {
 		statement: `Do ${id}`,
 		requires: [] as string[],
 		box: 0,
+		learned: false,
 		known: false,
 		due: true,
 		dueAt: null,
@@ -671,9 +833,10 @@ describe("the UI", () => {
 	});
 	const payload = (over: Partial<CoursePayload> = {}): CoursePayload => ({
 		course: { id: "course_a", title: "Calc", createdAt: "t", updatedAt: "t", status: "active", skills: ["a", "b"] },
-		skills: [skillView("a", { box: 3, known: true, due: false, dueAt: "2099-01-01T00:00:00Z" }), skillView("b", { requires: ["a"] })],
+		skills: [skillView("a", { box: 3, learned: true, known: true, due: false, dueAt: "2099-01-01T00:00:00Z" }), skillView("b", { requires: ["a"] })],
 		review: [],
 		nextUp: ["b"],
+		learning: [],
 		locked: [],
 		known: ["a"],
 		sessions: [{ id: "chat_1", title: "Learn: A", mode: "learn", updatedAt: "t" }],
@@ -681,9 +844,18 @@ describe("the UI", () => {
 		drafting: false,
 		...over,
 	});
-	const body = (data: CoursePayload) =>
+	const body = (data: CoursePayload, placementSkipped = false) =>
 		renderToStaticMarkup(
-			<CourseBody data={data} busy={false} error={null} onDraft={() => {}} onApprove={() => {}} onStart={() => {}} materialCount={1} />,
+			<CourseBody
+				data={data}
+				busy={false}
+				error={null}
+				onDraft={() => {}}
+				onApprove={() => {}}
+				onStart={() => {}}
+				materialCount={1}
+				placementSkipped={placementSkipped}
+			/>,
 		);
 
 	it("an active course shows the map, next up with Learn/Practice, known and sessions", () => {
@@ -695,6 +867,32 @@ describe("the UI", () => {
 		assert.match(html, /Learn: A/);
 		assert.doesNotMatch(html, /course-draft"/);
 		assert.equal(courseProgress(payload()), "1/2 known · 50%");
+		assert.doesNotMatch(html, /placement-offer/, "a course with sessions offers no placement");
+	});
+
+	it("learned skills sit in Learning with Practice and Learn again; a finished lesson is marked", () => {
+		const data = payload({
+			skills: [skillView("a", { box: 1, learned: true, due: false, dueAt: "2099-01-01T00:00:00Z" }), skillView("b", { requires: ["a"] }), skillView("c", { box: 2, learned: true })],
+			nextUp: ["b"],
+			learning: ["a", "c"],
+			known: [],
+			sessions: [{ id: "chat_1", title: "Learn: A", mode: "learn", updatedAt: "t", finished: true }],
+		});
+		const html = body(data);
+		assert.match(html, /data-testid="course-learning"[\s\S]*Learning · 2[\s\S]*data-testid="practice-all"/);
+		assert.match(html, /data-testid="practice-a"[\s\S]*Learn again/);
+		assert.match(html, /Learned · box 1\/5/);
+		assert.match(html, /Learn · finished/);
+	});
+
+	it("right after approval the placement test is offered first — until skipped or a session exists", () => {
+		const fresh = payload({ sessions: [], known: [], nextUp: ["a"], skills: [skillView("a"), skillView("b", { requires: ["a"], missing: ["a"] })], locked: ["b"] });
+		const html = body(fresh);
+		assert.match(html, /data-testid="placement-offer"[\s\S]*Find your starting point[\s\S]*about one question per skill \(2 skills\)/);
+		assert.ok(html.indexOf("placement-offer") < html.indexOf("course-map"), "before the map");
+		assert.match(html, /data-testid="placement-take"/);
+		assert.match(html, /data-testid="placement-skip"[^>]*>Start from the beginning/);
+		assert.doesNotMatch(body(fresh, true), /placement-offer/);
 	});
 
 	it("a draft shows its skills, reused marks, and the review controls", () => {
@@ -738,10 +936,33 @@ describe("the UI", () => {
 	});
 
 	it("skill state words", () => {
-		assert.equal(skillStateLabel({ box: 4, known: true, missing: [] }), "Known · box 4/5");
-		assert.equal(skillStateLabel({ box: 0, known: false, missing: ["x"] }), "Locked");
-		assert.equal(skillStateLabel({ box: 0, known: false, missing: [] }), "Not started");
-		assert.equal(skillStateLabel({ box: 2, known: false, missing: [] }), "Learning · box 2/5");
+		assert.equal(skillStateLabel({ box: 4, learned: true, known: true, missing: [] }), "Known · box 4/5");
+		assert.equal(skillStateLabel({ box: 0, learned: false, known: false, missing: ["x"] }), "Locked");
+		assert.equal(skillStateLabel({ box: 0, learned: false, known: false, missing: [] }), "Not started");
+		assert.equal(skillStateLabel({ box: 2, learned: true, known: false, missing: [] }), "Learned · box 2/5");
+		assert.equal(skillStateLabel({ box: 1, learned: true, known: false, missing: ["x"] }), "Learned · box 1/5", "learned outranks locked");
+	});
+
+	it("Finish lesson: the button, its blocked state, the finished chip, and the divider", () => {
+		const open = renderToStaticMarkup(<FinishLessonButton finished={false} blocked={null} onFinish={() => {}} />);
+		assert.match(open, /data-testid="finish-lesson"/);
+		assert.doesNotMatch(open.match(/<button[^>]*>/)![0], /disabled=""/);
+		const blocked = renderToStaticMarkup(<FinishLessonButton finished={false} blocked="Answer first" onFinish={() => {}} />);
+		assert.match(blocked.match(/<button[^>]*>/)![0], /disabled=""/);
+		assert.match(renderToStaticMarkup(<FinishLessonButton finished blocked={null} onFinish={() => {}} />), /data-testid="lesson-finished-chip"[\s\S]*Finished/);
+		assert.match(renderToStaticMarkup(<LessonFinishedLine skill="Chain rule" />), /Lesson finished · Chain rule learned/);
+		const view = [{ id: "m0", role: "user" as const, parts: [{ type: "data-graph-context", id: "gc", data: { propositions: [], chains: [], course: { title: "C", mode: "learn", skills: [{ id: "a", name: "A", statement: "s" }] } } }] }];
+		assert.equal(courseOfView(view as never)?.skills[0]?.name, "A");
+	});
+
+	it("dictation: a failed local clip offers Retry; the compact idle mic is an icon", () => {
+		const base = { phase: "idle" as const, stopLabel: null, levelRef: { current: 0 }, active: false, toggle() {}, stop() {}, finish: async () => {}, cancel() {}, clearError() {} };
+		const failed = renderToStaticMarkup(<DictationBar dictation={{ ...base, error: "Local dictation failed: x", retry: () => {} }} compact />);
+		assert.match(failed, /Local dictation failed: x[\s\S]*data-testid="dictation-retry"[^>]*>Retry/);
+		const idle = renderToStaticMarkup(<DictationBar dictation={{ ...base, error: null, retry: null }} compact />);
+		assert.match(idle, /aria-label="Start dictation"/);
+		assert.doesNotMatch(idle, />Dictate</, "icon only");
+		assert.doesNotMatch(idle, /dictation-retry/);
 	});
 
 	it("the transcript card leads with the course and counts its skills", () => {

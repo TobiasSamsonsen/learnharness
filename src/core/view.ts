@@ -419,6 +419,17 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			});
 			return;
 		}
+		case "lesson-finished": {
+			// The learner's Finish lesson (owner, 2026-10-25): the same
+			// centered divider the teacher's finish_lesson call renders —
+			// chrome, never the model-facing content.
+			out.push({
+				id: marker.id,
+				role: "user",
+				parts: [{ type: "data-lesson-finished", id: `lf_${marker.id}`, data: null }],
+			});
+			return;
+		}
 		case "problem-dismissed":
 			// UI-only (the ask-style dismissal): the synthesized conclude
 			// pair — which rides the NEXT input — carries the record's face.

@@ -83,6 +83,8 @@ for (const extra of ["dist", path.join("node_modules", "electron")]) {
 // sharp is NOT copied: the worker stubs it out (src/server/stt/worker.mjs).
 const sttFiles = [
 	path.join("src", "server", "stt", "worker.mjs"),
+	path.join("src", "server", "stt", "pcm.mjs"),
+	path.join("src", "server", "stt", "engine.mjs"),
 	path.join("node_modules", "@huggingface", "transformers", "package.json"),
 	path.join("node_modules", "@huggingface", "transformers", "dist", "transformers.node.mjs"),
 	path.join("node_modules", "@huggingface", "tokenizers"),

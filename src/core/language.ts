@@ -83,22 +83,60 @@ export function isDictationEngine(value: unknown): value is DictationEngine {
 	return value === "local" || value === "deepgram";
 }
 
-/** The local speech-to-text model per language — chosen by benchmark on
- *  FLEURS (2026-10-24): the National Library's nb-whisper is ~6× more
- *  accurate on Norwegian than multilingual whisper-small (6% vs 36% WER),
- *  which in turn is far better on English. Both quantized (q8), ~2s per
- *  10s of speech on a laptop CPU. */
-export interface LocalSttModel {
-	language: LessonLanguage;
+/** How a local speech model's weights are stored — transformers.js picks
+ *  the ONNX files by it (sttModelFiles). */
+export type SttDtype = "q8" | "q4" | "fp16";
+
+/** One runnable local speech model: weights + where they run. */
+export interface SttModelSpec {
 	repo: string;
+	dtype: SttDtype;
+	/** webgpu: the GPU (onnxruntime-node's WebGPU provider — on a hybrid
+	 *  laptop it takes the discrete GPU) · cpu: the processor. */
+	device: "webgpu" | "cpu";
 	/** Download size, for the settings row. */
 	sizeMb: number;
 }
 
+/** The local speech-to-text models per language (owner, 2026-10-25 —
+ *  benchmarked on 99 s of FLEURS nb_no on an RTX 5060 laptop): the
+ *  National Library's NB-Whisper LARGE on the GPU has ~30% fewer word
+ *  errors than the small model (5.7% vs 8.0% WER) at about the small
+ *  model's old CPU speed; English gets Whisper large-v3-turbo (a large
+ *  encoder with a 4-layer decoder) on the GPU. When the GPU path cannot
+ *  run, the worker falls back to the previous small q8 models on the CPU
+ *  (~17 s per 100 s of speech). The top-level fields are the GPU model. */
+export interface LocalSttModel extends SttModelSpec {
+	language: LessonLanguage;
+	fallback: SttModelSpec;
+}
+
 export const LOCAL_STT_MODELS: Record<LessonLanguage, LocalSttModel> = {
-	en: { language: "en", repo: "onnx-community/whisper-small", sizeMb: 250 },
-	nb: { language: "nb", repo: "onnx-community/nb-whisper-small-ONNX", sizeMb: 410 },
+	en: {
+		language: "en",
+		repo: "onnx-community/whisper-large-v3-turbo",
+		dtype: "fp16",
+		device: "webgpu",
+		sizeMb: 1620,
+		fallback: { repo: "onnx-community/whisper-small", dtype: "q8", device: "cpu", sizeMb: 250 },
+	},
+	nb: {
+		language: "nb",
+		repo: "Hjertelig/nb-whisper-large-ONNX",
+		dtype: "q4",
+		device: "webgpu",
+		sizeMb: 1260,
+		fallback: { repo: "onnx-community/nb-whisper-small-ONNX", dtype: "q8", device: "cpu", sizeMb: 410 },
+	},
 };
+
+const DTYPE_SUFFIX: Record<SttDtype, string> = { q8: "_quantized", q4: "_q4", fp16: "_fp16" };
+
+/** The files a model needs on disk (transformers.js's naming by dtype). */
+export function sttModelFiles(dtype: SttDtype): string[] {
+	const s = DTYPE_SUFFIX[dtype];
+	return [`onnx/encoder_model${s}.onnx`, `onnx/decoder_model_merged${s}.onnx`, "tokenizer.json"];
+}
 
 /** One local model's state, as GET /api/stt/local reports it. */
 export interface LocalSttStatus {
@@ -111,4 +149,7 @@ export interface LocalSttStatus {
 	state: "absent" | "downloading" | "loading" | "cached" | "ready" | "error";
 	progress?: number;
 	error?: string;
+	/** Where the last transcription or warm-up ran: the GPU model, or the
+	 *  CPU fallback. Absent until one has run in this server process. */
+	ranOn?: "gpu" | "cpu-fallback";
 }

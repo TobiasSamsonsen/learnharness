@@ -25,8 +25,9 @@ import { cn } from "@/lib/utils";
  * The course page (fork addition, 2026-10-24 — docs/courses.md §6): the
  * curriculum, the planner's draft for review (ask for changes / approve),
  * and once approved the skill map, how much of it is known, and the route
- * — Review / Next up / Locked / Known — with a button for every session a
- * course can start. Everything shown is derived server-side (GET
+ * — Review / Next up / Learning / Locked / Known — with a button for every
+ * session a course can start (2026-10-25: the placement test offered first,
+ * finished lessons unlock what builds on them). Everything shown is derived server-side (GET
  * /api/courses/:id); the page refetches on courses-changed and on every
  * turn settle (a concluded practice problem moves a box).
  */
@@ -34,17 +35,59 @@ import { cn } from "@/lib/utils";
 export type CoursePayload = CourseView & { drafting: boolean };
 
 /** A skill's state word. Pure — exported for render tests. */
-export function skillStateLabel(skill: Pick<CourseSkillView, "box" | "known" | "missing">): string {
+export function skillStateLabel(skill: Pick<CourseSkillView, "box" | "learned" | "known" | "missing">): string {
 	if (skill.known) return `Known · box ${skill.box}/${MAX_BOX}`;
+	if (skill.learned) return `Learned · box ${skill.box}/${MAX_BOX}`;
 	if (skill.missing.length > 0) return "Locked";
-	if (skill.box === 0) return "Not started";
-	return `Learning · box ${skill.box}/${MAX_BOX}`;
+	return "Not started";
 }
 
-/** The skill map's node look: known white, next up white, locked gray. */
+/** The skill map's node look: known, learned and next up white; locked gray. */
 function diagramStatus(skill: CourseSkillView): PlanNodeStatus {
 	if (skill.known) return "visited";
-	return skill.missing.length > 0 ? "upcoming" : "current";
+	return skill.learned || skill.missing.length === 0 ? "current" : "upcoming";
+}
+
+/** Has the learner skipped the placement offer for this course? Per-viewer
+ *  convenience (localStorage) — the offer also leaves once any session exists. */
+function placementSkipKey(courseId: string): string {
+	return `lh:placement-skipped:${courseId}`;
+}
+function readPlacementSkipped(courseId: string): boolean {
+	try {
+		return window.localStorage.getItem(placementSkipKey(courseId)) === "1";
+	} catch {
+		return false;
+	}
+}
+function writePlacementSkipped(courseId: string): void {
+	try {
+		window.localStorage.setItem(placementSkipKey(courseId), "1");
+	} catch {
+		/* the offer just comes back next visit */
+	}
+}
+
+/** The first step after approval (owner, 2026-10-25): find the starting
+ *  point with the quick placement test, or start from the beginning. */
+function PlacementOffer({ total, busy, onTake, onSkip }: { total: number; busy: boolean; onTake: () => void; onSkip: () => void }) {
+	return (
+		<section data-testid="placement-offer" className="rounded-lg border border-border bg-card/60 px-4 py-3">
+			<div className="font-prose text-(length:--lh-prose-size) font-medium">Find your starting point</div>
+			<p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+				A quick multiple-choice test — about one question per skill ({total} skills), hardest first. What you already know is credited, so
+				you start at your weak spots instead of the most basic skill.
+			</p>
+			<div className="mt-2.5 flex flex-wrap items-center gap-2">
+				<button type="button" className={cn(BTN, "border-foreground/40 text-foreground")} disabled={busy} data-testid="placement-take" onClick={onTake}>
+					Take the placement test
+				</button>
+				<button type="button" className={BTN} disabled={busy} data-testid="placement-skip" onClick={onSkip}>
+					Start from the beginning
+				</button>
+			</div>
+		</section>
+	);
 }
 
 function dueLine(skill: CourseSkillView, now = Date.now()): string | null {
@@ -210,6 +253,8 @@ export function CourseBody({
 	onStart,
 	onMaterials,
 	materialCount,
+	placementSkipped = false,
+	onSkipPlacement,
 }: {
 	data: CoursePayload;
 	busy: boolean;
@@ -219,6 +264,9 @@ export function CourseBody({
 	onStart: (mode: CourseMode, skillId?: string) => void;
 	onMaterials?: (materials: LessonMaterial[]) => void;
 	materialCount: number;
+	/** The learner chose "Start from the beginning" (per-viewer). */
+	placementSkipped?: boolean;
+	onSkipPlacement?: () => void;
 }) {
 	const markerId = useId().replace(/[^a-zA-Z0-9-]/g, "");
 	const { course, skills } = data;
@@ -265,6 +313,10 @@ export function CourseBody({
 
 			{skills.length > 0 && (
 				<>
+					{data.sessions.length === 0 && !placementSkipped && (
+						<PlacementOffer total={skills.length} busy={busy} onTake={() => onStart("placement")} onSkip={() => onSkipPlacement?.()} />
+					)}
+
 					<section data-testid="course-map">
 						<div className={SECTION_HEAD}>Skill map</div>
 						<PlanDiagram
@@ -277,7 +329,7 @@ export function CourseBody({
 							markerId={markerId}
 							pad={GRAPH_PAD}
 						/>
-						<p className="mt-1 text-[11px] text-muted-foreground/80">White: known or next up · gray: locked behind a prerequisite.</p>
+						<p className="mt-1 text-[11px] text-muted-foreground/80">White: known, learned or next up · gray: locked behind a prerequisite.</p>
 					</section>
 
 					{data.review.length > 0 && (
@@ -295,14 +347,11 @@ export function CourseBody({
 					<section data-testid="course-next">
 						<div className="mb-2 flex items-center justify-between">
 							<span className={cn(SECTION_HEAD, "mb-0")}>Next up · {data.nextUp.length}</span>
-							{data.nextUp.length > 1 && (
-								<button type="button" className={BTN} disabled={busy} data-testid="practice-all" onClick={() => onStart("practice")}>
-									Practice all
-								</button>
-							)}
 						</div>
 						{data.nextUp.length === 0 ? (
-							<p className="text-xs text-muted-foreground">{data.known.length === skills.length ? "Every skill is known." : "Nothing is next up."}</p>
+							<p className="text-xs text-muted-foreground">
+								{data.known.length === skills.length ? "Every skill is known." : data.locked.length === 0 ? "Every skill is learned — practice makes them known." : "Nothing is next up."}
+							</p>
 						) : (
 							<div className="space-y-1.5">
 								{list(data.nextUp).map((s) => (
@@ -325,6 +374,38 @@ export function CourseBody({
 							</div>
 						)}
 					</section>
+
+					{data.learning.length > 0 && (
+						<section data-testid="course-learning">
+							<div className="mb-2 flex items-center justify-between">
+								<span className={cn(SECTION_HEAD, "mb-0")}>Learning · {data.learning.length}</span>
+								{data.learning.length > 1 && (
+									<button type="button" className={BTN} disabled={busy} data-testid="practice-all" onClick={() => onStart("practice")}>
+										Practice all
+									</button>
+								)}
+							</div>
+							<div className="space-y-1.5">
+								{list(data.learning).map((s) => (
+									<SkillRow
+										key={s.id}
+										skill={s}
+										names={names}
+										actions={
+											<>
+												<button type="button" className={BTN} disabled={busy} data-testid={`practice-${s.id}`} onClick={() => onStart("practice", s.id)}>
+													Practice
+												</button>
+												<button type="button" className={BTN} disabled={busy} data-testid={`learn-${s.id}`} onClick={() => onStart("learn", s.id)}>
+													Learn again
+												</button>
+											</>
+										}
+									/>
+								))}
+							</div>
+						</section>
+					)}
 
 					{data.locked.length > 0 && (
 						<section data-testid="course-locked">
@@ -350,7 +431,10 @@ export function CourseBody({
 							<li key={s.id}>
 								<Link href={`/chat/${s.id}`} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-accent">
 									<span className="min-w-0 flex-1 truncate font-prose">{s.title}</span>
-									<span className="shrink-0 text-xs text-muted-foreground">{COURSE_MODE_LABEL[s.mode]}</span>
+									<span className="shrink-0 text-xs text-muted-foreground">
+										{COURSE_MODE_LABEL[s.mode]}
+										{s.finished ? " · finished" : ""}
+									</span>
 								</Link>
 							</li>
 						))}
@@ -374,6 +458,8 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 	const [error, setError] = useState<string | null>(null);
 	const [title, setTitle] = useState(initial.course.title);
 	const [materialCount, setMaterialCount] = useState(0);
+	const [placementSkipped, setPlacementSkipped] = useState(false);
+	useEffect(() => setPlacementSkipped(readPlacementSkipped(courseId)), [courseId]);
 
 	const refresh = useCallback(async () => {
 		try {
@@ -482,7 +568,7 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 				{hasSkills && (
 					<span className="lh-no-drag flex shrink-0 items-center gap-1.5">
 						<button type="button" className={BTN} disabled={busy} data-testid="course-placement" onClick={() => void onStart("placement")}>
-							Placement check
+							Placement test
 						</button>
 						<button
 							type="button"
@@ -506,6 +592,11 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 					onStart={(mode, skillId) => void onStart(mode, skillId)}
 					onMaterials={onMaterials}
 					materialCount={materialCount}
+					placementSkipped={placementSkipped}
+					onSkipPlacement={() => {
+						writePlacementSkipped(courseId);
+						setPlacementSkipped(true);
+					}}
 				/>
 				<div className="mt-12 border-t border-border/60 pt-4">
 					<button
@@ -517,7 +608,8 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 						Delete course…
 					</button>
 					<p className="mt-1 text-[11px] text-muted-foreground/60">
-						Known means box {KNOWN_BOX} or higher: three clean solves on spaced days (or a clean placement solve).
+						Learned: a finished lesson or a placement credit — it unlocks the skills that build on it. Known: box {KNOWN_BOX} or higher — clean
+						solves on spaced days, or a confident correct answer in the placement test.
 					</p>
 				</div>
 			</div>

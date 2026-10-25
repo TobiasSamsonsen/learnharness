@@ -12,6 +12,7 @@ import {
 } from "@/src/core";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
+import { CONTROL_CLASS, type ControlVariant } from "@/components/control-variant";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 
 /**
@@ -29,7 +30,7 @@ import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-sig
  * Both writes announce themselves ("lesson" / "general") so the model
  * control and the dictation hook re-read.
  */
-export function LanguageControl({ chatId }: { chatId?: string }) {
+export function LanguageControl({ chatId, variant = "pill" }: { chatId?: string; variant?: ControlVariant }) {
 	const [session, setSession] = useState<ChatSettings | undefined>(undefined);
 	const [general, setGeneral] = useState<GeneralSettings | undefined>(undefined);
 	const [open, setOpen] = useState(false);
@@ -119,7 +120,7 @@ export function LanguageControl({ chatId }: { chatId?: string }) {
 						setOpen((o) => !o);
 						setError(null);
 					}}
-					className="flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted"
+					className={CONTROL_CLASS[variant]}
 				>
 					<span className="text-card-foreground">{lessonLanguageInfo(current).short}</span>
 					<span aria-hidden className="text-xs text-muted-foreground">▾</span>

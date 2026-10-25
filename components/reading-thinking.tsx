@@ -39,8 +39,8 @@ export function ReadingThinkingField({
 }) {
 	useDictationTarget(
 		useCallback(
-			(t: string) => {
-				onChange(joinDictation(value, t));
+			(t: string, withdraw?: boolean) => {
+				onChange(joinDictation(value, t, withdraw));
 			},
 			[value, onChange],
 		),

@@ -5,6 +5,7 @@ import { FileTextIcon, ImageIcon, LinkIcon, Loader2Icon, PaperclipIcon, XIcon } 
 import { MATERIAL_ACCEPT, isMaterialUrl, type LessonMaterial } from "@/src/core";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
+import { CONTROL_CLASS, type ControlVariant } from "@/components/control-variant";
 import {
 	addLink,
 	draftKey,
@@ -56,11 +57,15 @@ export function MaterialsControl({
 	chatId: lessonId,
 	courseId,
 	onChange,
+	variant = "pill",
 }: {
 	chatId?: string;
 	courseId?: string;
 	/** Course mode: the materials as read, after every refresh. */
 	onChange?: (materials: LessonMaterial[]) => void;
+	/** pill: the floating chrome (the course page) · edge: the quiet
+	 *  button on the composer shell's bottom edge (owner, 2026-10-25). */
+	variant?: ControlVariant;
 }) {
 	// One owner id for the requests: the course's, else the lesson's.
 	const chatId = courseId ?? lessonId;
@@ -168,7 +173,7 @@ export function MaterialsControl({
 						setOpen((o) => !o);
 						setError(null);
 					}}
-					className="flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted"
+					className={CONTROL_CLASS[variant]}
 				>
 					{reading > 0 ? <Loader2Icon className="size-3.5 animate-spin" /> : <PaperclipIcon className="size-3.5 text-muted-foreground" />}
 					<span className="text-card-foreground">{sourcesLabel(count, chatId ? reading : 0)}</span>
