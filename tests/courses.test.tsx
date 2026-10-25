@@ -831,7 +831,7 @@ describe("the course tools", () => {
 		assert.match(prompt, /Solve it before you write a single option/, "the shared question craft composes");
 		assert.doesNotMatch(prompt, /# Teach — one step at a time/, "no teaching doctrine");
 		const agent = createPlacementAgent({ skills }, { engine: { model: {} as never, streamFn: (() => {}) as never } });
-		assert.deepEqual(agent.state.tools.map((t) => t.name).sort(), ["ask_user_question", "probe"]);
+		assert.deepEqual(agent.state.tools.map((t) => t.name).sort(), ["ask_user_question", "figure_guide", "probe"]);
 	});
 
 	it("finish_lesson logs once, then says it already did", async () => {

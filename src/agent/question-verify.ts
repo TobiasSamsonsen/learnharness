@@ -10,6 +10,7 @@
  */
 
 import { coerceCorrectAnswer } from "../core/question-core.ts";
+import type { FigureCheck } from "../core/figures/index.ts";
 
 /** A question as the tools validated it. */
 export interface QuizKeyInput {
@@ -20,6 +21,10 @@ export interface QuizKeyInput {
 	multiSelect?: boolean;
 	/** An optional Python program that prints the correct option's label. */
 	verify?: string;
+	/** The worked solution — it may carry figures the question references. */
+	explanation?: string;
+	/** An optional figure quantity the correct option states (core/figures). */
+	figureCheck?: FigureCheck;
 }
 
 /** The input resolved the way grading resolves it: option keys (value, or

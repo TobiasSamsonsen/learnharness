@@ -6,6 +6,7 @@ import { GlyphMark } from "@/components/ui/glyph-mark";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { cn } from "@/lib/utils";
 import { MessageResponse } from "@/components/ai-elements/message";
+import { FigureScope } from "@/components/figures/figure-scope";
 import type { QuestionAnswerData } from "@/src/core";
 import { parseAskInput, parseQuizInput } from "@/src/core";
 
@@ -44,7 +45,8 @@ export function AnsweredCard({ answer, input }: { answer: QuestionAnswerData; in
 	const descByIndex = new Map((askInput?.options ?? []).map((o, i) => [i + 1, o.description]));
 
 	return (
-		<>
+		// one figure scope for the whole card (figures, 2026-10-26)
+		<FigureScope texts={[answer.questionText, parsedDetails, answer.explanation, ...(answer.options ?? []).map((o) => o.label)]}>
 		{/* The reading channel LIFTED (owner round, 2026-10-05): thoughts
 		    captured while reading are chronologically PRIOR to the question —
 		    rendered as its own user-side block ABOVE the card, the unified
@@ -229,6 +231,6 @@ export function AnsweredCard({ answer, input }: { answer: QuestionAnswerData; in
 				</div>
 			)}
 		</div>
-		</>
+		</FigureScope>
 	);
 }
