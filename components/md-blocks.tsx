@@ -39,6 +39,7 @@ import {
 import type { ExtraProps } from "streamdown";
 import { MERMAID_FONT_SIZE, renderMermaid } from "@/components/mermaid-render";
 import { MermaidError } from "@/components/mermaid-error";
+import { FigureInline } from "@/components/figures/figure-block";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { chartSize, useSessionMermaid } from "@/components/session-overlay";
 import { Hint } from "@/components/ui/hint";
@@ -251,6 +252,10 @@ export function MarkdownCode(props: ComponentProps<"code"> & ExtraProps) {
 	const source = codeSource(children);
 
 	if (language === "mermaid") return <MermaidInline chart={source} />;
+	// Figures (owner, 2026-10-26): text-described diagrams the app draws.
+	if (language === "plot" || language === "blocks") {
+		return <FigureInline lang={language} source={source} copy={<CopyCorner getText={() => source} label="Copy figure source" />} />;
+	}
 
 	const startMatch = /startLine=(\d+)/.exec(meta);
 	const startLine = startMatch ? Number.parseInt(startMatch[1]!, 10) : undefined;

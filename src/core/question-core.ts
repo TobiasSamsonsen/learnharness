@@ -180,6 +180,24 @@ export const quizInputBase = Type.Object({
 				"of the question's own code block (that block is run automatically) — a blank to fill, a value after a loop, a raised error, a numeric result.",
 		}),
 	),
+	figureCheck: Type.Optional(
+		Type.Object(
+			{
+				figure: Type.String({ description: "The id of a ```blocks or ```plot figure in this question (its fence: ```blocks id=loop1)." }),
+				quantity: Type.String({
+					description:
+						"What the key is, read off that figure: steady(y), overshoot(y) (in %), peak(y), peaktime(y), settling(y) (2 % band), " +
+						"rise(y) (10–90 %), tau(y) (63 %), or y(t=2). y is a diagram signal, or a plot curve's name (loop1.y for a response).",
+				}),
+				input: Type.Optional(Type.String({ description: 'Diagrams only: the excitation, e.g. "step r" or "step(2) d". Default: a unit step on the first input.' })),
+			},
+			{
+				description:
+					"Optional, never shown: when the correct option is a number read off a figure, name the figure and the quantity. " +
+					"The app computes it before the question is posed and returns the call to you when the correct option's number disagrees.",
+			},
+		),
+	),
 	options: Type.Array(Type.Object(quizOptionProps), {
 		minItems: 2,
 		description:

@@ -164,6 +164,18 @@ describe("render smoke tests", () => {
 		assert.match(html, /data-testid="confidence-value"[^>]*>—</, "no number shown until chosen");
 	});
 
+	it("a ```plot / ```blocks fence in a stem mounts the figure holder, never a code block (figures, 2026-10-26)", () => {
+		const input = {
+			...quizInput,
+			question: "Les av:\n\n```blocks id=loop1\ninput r\nsum e = r - y\nint y = e\noutput y\n```\n\n```plot\naxes t 0..5, y\nresponse loop1 y to step r\n```",
+		};
+		const html = renderDock({ toolName: "quiz", toolCallId: "q1", input: input as never });
+		assert.equal((html.match(/data-testid="md-figure"/g) ?? []).length, 2);
+		assert.match(html, /data-figure="blocks"/);
+		assert.match(html, /data-figure="plot"/);
+		assert.ok(!html.includes('data-testid="md-code"'), "not rendered as a code block");
+	});
+
 	it("QuizCard never leaks the explanation or the correct answer before submit", () => {
 		const html = renderDock({ toolName: "quiz", toolCallId: "q1", input: quizInput as never });
 		assert.ok(!html.includes("innermost"), "explanation must not render pre-answer");

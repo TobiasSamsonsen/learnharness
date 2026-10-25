@@ -12,6 +12,8 @@ import {
 	quizInputObject,
 	quizInputProblems,
 } from "../core/question-core.ts";
+import { figureInputProblems } from "../core/figures/index.ts";
+import { figureGuideTool } from "./tools/figures.ts";
 import { filterEnabledTools, type EnabledTools } from "../core/pending.ts";
 import type { JobRecord } from "../core/contracts.ts";
 import type { JobStore } from "../core/ports.ts";
@@ -89,7 +91,7 @@ export const askUserQuestionTool: AgentTool<typeof askInputSchema> = {
 	prepareArguments: prepareQuestionArguments,
 	executionMode: "sequential",
 	execute: async (_toolCallId, input) => {
-		const problems = askOptionProblems(input.options ?? []);
+		const problems = [...askOptionProblems(input.options ?? []), ...figureInputProblems(input)];
 		if (problems.length > 0) return invalidInputResult("ask_user_question", problems);
 		return questionResult();
 	},
@@ -212,7 +214,7 @@ export const probeQuizTool: AgentTool<typeof probeQuizInputSchema> = {
 	prepareArguments: prepareQuestionArguments,
 	executionMode: "sequential",
 	execute: async (_toolCallId, input, signal) => {
-		const problems = quizInputProblems(input);
+		const problems = [...quizInputProblems(input), ...figureInputProblems(input)];
 		if (problems.length > 0) return invalidInputResult("probe", problems);
 		const wrong = await verifyQuestion(input, signal);
 		if (wrong.length > 0) return invalidInputResult("probe", wrong);
@@ -233,7 +235,7 @@ export function teachExplainToolFor(
 		prepareArguments: prepareQuestionArguments,
 		executionMode: "sequential",
 		execute: async (_toolCallId, input) => {
-			const problems = [...explainInputProblems(input)];
+			const problems = [...explainInputProblems(input), ...figureInputProblems(input)];
 			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
 			if (nodeIdProblemText) problems.push(nodeIdProblemText);
 			if (problems.length > 0) return invalidInputResult("explain", problems);
@@ -258,7 +260,7 @@ export const probeExplainTool: AgentTool<typeof explainInputBase> = {
 	prepareArguments: prepareQuestionArguments,
 	executionMode: "sequential",
 	execute: async (_toolCallId, input) => {
-		const problems = explainInputProblems(input);
+		const problems = [...explainInputProblems(input), ...figureInputProblems(input)];
 		if (problems.length > 0) return invalidInputResult("recall", problems);
 		return questionResult();
 	},
@@ -326,6 +328,7 @@ export function createProberTools(
 				// The learner-filesystem set is always-on (user-decided 2026-09,
 				// sources v1): the prober inspects and LOCATES learner-referenced
 				// files while assessing the edge. Read-only by construction.
+				figure_guide: figureGuideTool,
 				read: readTool,
 				ls: lsTool,
 				find: findTool,
@@ -385,7 +388,7 @@ export function teachQuizToolFor(ctx: Pick<PlanToolContext, "chatId" | "chatStor
 		prepareArguments: prepareQuestionArguments,
 		executionMode: "sequential",
 		execute: async (_toolCallId, input, signal) => {
-			const problems = [...quizInputProblems(input)];
+			const problems = [...quizInputProblems(input), ...figureInputProblems(input)];
 			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
 			if (nodeIdProblemText) problems.push(nodeIdProblemText);
 			if (problems.length > 0) return invalidInputResult("quiz", problems);
@@ -459,6 +462,7 @@ export function createTeacherTools(
 			// sources v1): the teacher locates and reads learner-referenced
 			// files on its own terms — nothing auto-injects. Read-only by
 			// construction (fs-shared.ts).
+			figure_guide: figureGuideTool,
 			read: readTool,
 			ls: lsTool,
 			find: findTool,

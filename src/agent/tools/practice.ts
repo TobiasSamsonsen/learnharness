@@ -24,6 +24,8 @@ import { grepTool } from "./grep.ts";
 import { jobTools, type JobToolContext } from "./jobs.ts";
 import { proberGraphTools, type GraphToolContext } from "./graph.ts";
 import { activeProblemOf } from "../../core/native-messages.ts";
+import { figureInputProblems } from "../../core/figures/index.ts";
+import { figureGuideTool } from "./figures.ts";
 import type { LhMessage } from "../../core/native-messages.ts";
 import { concludeResult, invalidInputResult, problemResult } from "../tool-execute.ts";
 import { healEncodedArguments, healToolRecord } from "./heal.ts";
@@ -196,6 +198,11 @@ export function problemTool(
 					]);
 				}
 			}
+			// FIGURES (owner, 2026-10-26): every ```plot / ```blocks in the
+			// statement or solution parses before the learner sees it — each
+			// field on its own (they render as separate cards).
+			const figures = figureInputProblems(input, { perField: true });
+			if (figures.length > 0) return invalidInputResult("problem", figures);
 			gate.problemActive = true;
 			return problemResult();
 		},
@@ -292,6 +299,7 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AgentToo
 	return healToolRecord({
 		problem: problemTool(gate, ctx.graphNodes, ctx.courseSkills),
 		conclude: concludeTool(gate),
+		figure_guide: figureGuideTool,
 		read: readTool,
 		ls: lsTool,
 		find: findTool,

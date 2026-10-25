@@ -73,8 +73,8 @@ describe("the schema's argument order (reasoning before the pick)", () => {
 				`explanation must precede options and correctAnswer in the emitted schema (got: ${keys.join(", ")})`,
 			);
 			assert.deepEqual(keys, schema === quizInputSchema
-				? ["type", "nodeId", "question", "explanation", "verify", "options", "multiSelect", "correctAnswer", "details"]
-				: ["question", "explanation", "verify", "options", "multiSelect", "correctAnswer", "details"]);
+				? ["type", "nodeId", "question", "explanation", "verify", "figureCheck", "options", "multiSelect", "correctAnswer", "details"]
+				: ["question", "explanation", "verify", "figureCheck", "options", "multiSelect", "correctAnswer", "details"]);
 		}
 	});
 });

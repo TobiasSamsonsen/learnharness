@@ -34,6 +34,7 @@ import {
   type PluginConfig,
 } from "streamdown";
 import { mdComponents } from "@/components/md-blocks";
+import { FigureScope } from "@/components/figures/figure-scope";
 import { transformMathDelimiters } from "@/src/core";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
@@ -365,20 +366,24 @@ export const MessageResponse = memo(
         ? transformMathDelimiters(children)
         : children;
 
+    // The figure scope (2026-10-26): a ```plot in this text may reference
+    // a ```blocks diagram of the same text by its id.
     return (
-      <Streamdown
-        className={cn(
-          // Source Sans 3 + emphasis-color tokens on every markdown surface
-          // (labels stay JetBrains Mono). Unlayered plain CSS wins over text-sm.
-          "lh-prose size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-          className
-        )}
-        components={mdComponents}
-        plugins={streamdownPlugins}
-        {...props}
-      >
-        {content}
-      </Streamdown>
+      <FigureScope texts={typeof children === "string" ? [children] : []}>
+        <Streamdown
+          className={cn(
+            // Source Sans 3 + emphasis-color tokens on every markdown surface
+            // (labels stay JetBrains Mono). Unlayered plain CSS wins over text-sm.
+            "lh-prose size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+            className
+          )}
+          components={mdComponents}
+          plugins={streamdownPlugins}
+          {...props}
+        >
+          {content}
+        </Streamdown>
+      </FigureScope>
     );
   },
   (prevProps, nextProps) =>

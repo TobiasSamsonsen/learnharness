@@ -1,4 +1,5 @@
 import { judgeChecker, judgeQuestionRun, judgeVerifyRun, pythonBlocks, unsafePythonReason } from "../core/answer-check.ts";
+import { figureFacts, judgeFigureCheck } from "../core/figures/index.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { piEngineForSpec } from "../agent/models.ts";
 import { checkQuestion } from "../agent/subagents/answer-checker.ts";
@@ -34,6 +35,15 @@ export async function checkQuizKey(q: ResolvedQuiz, signal?: AbortSignal): Promi
 	if (process.env.LH_ANSWER_CHECK === "0" || q.correct.length === 0) return [];
 	const multi = q.multiSelect === true;
 	const facts: string[] = [];
+	// Figures (owner, 2026-10-26): a stated figure quantity is computed and
+	// compared first — a match proves the key; every figure's computed
+	// response becomes a fact for the second model.
+	const texts = [q.question, q.details ?? "", q.explanation ?? "", ...q.keyed.map((o) => o.label)];
+	if (q.figureCheck) {
+		const verdict = judgeFigureCheck(texts, q.keyed, q.correct, q.figureCheck);
+		if (verdict.problems.length > 0 || verdict.verified) return verdict.problems;
+	}
+	facts.push(...figureFacts(texts));
 
 	if (q.verify?.trim()) {
 		const unsafe = unsafePythonReason(q.verify);

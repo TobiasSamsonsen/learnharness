@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { MessageResponse } from "@/components/ai-elements/message";
+import { FigureScope } from "@/components/figures/figure-scope";
 import { cn } from "@/lib/utils";
 import {
 	buildAnswer,
@@ -545,6 +546,9 @@ function QuestionDockForm({
 	}, [kbdIdx]);
 
 	return (
+		// one figure scope for the whole question: an option's plot may
+		// reference the stem's diagram (figures, 2026-10-26)
+		<FigureScope texts={[qd.question, qd.context, ...qd.options.flatMap((o) => [o.label, o.description])]}>
 		<div ref={rootRef} data-testid="question-dock">
 			{/* Question area — scrolls internally if very tall; the bottom row stays put.
 			    Capped by the measured column (--dock-max-h; the old fixed 55dvh cut
@@ -919,5 +923,6 @@ function QuestionDockForm({
 				</div>
 			</form>
 		</div>
+		</FigureScope>
 	);
 }

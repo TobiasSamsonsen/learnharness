@@ -17,6 +17,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ChatStore } from "../../core/ports.ts";
 import { FINISH_LESSON_TOOL, FINISH_SESSION_TOOL, sessionFinishOf } from "../../core/course-session.ts";
 import { quizInputBase, quizInputProblems } from "../../core/question-core.ts";
+import { figureInputProblems } from "../../core/figures/index.ts";
 import { invalidInputResult, questionResult, serverExecute } from "../tool-execute.ts";
 import { verifyQuestion } from "../question-verify.ts";
 
@@ -92,7 +93,7 @@ export function placementProbeTool(skills: () => ReadonlyArray<{ id: string; nam
 		parameters: placementProbeInput,
 		executionMode: "sequential",
 		execute: async (_toolCallId, input, signal) => {
-			const problems = [...quizInputProblems(input)];
+			const problems = [...quizInputProblems(input), ...figureInputProblems(input)];
 			const list = skills();
 			if (!list.some((s) => s.id === input.skill)) {
 				problems.push(`skill "${input.skill}" is not one of this course's skill ids — copy one exactly: ${list.map((s) => s.id).join(", ")}`);
