@@ -13,7 +13,7 @@ import {
 	quizInputProblems,
 } from "../core/question-core.ts";
 import { figureInputProblems } from "../core/figures/index.ts";
-import { figureGuideTool } from "./tools/figures.ts";
+import { circuitSolveTool, figureGuideTool } from "./tools/figures.ts";
 import { filterEnabledTools, type EnabledTools } from "../core/pending.ts";
 import type { JobRecord } from "../core/contracts.ts";
 import type { JobStore } from "../core/ports.ts";
@@ -329,6 +329,7 @@ export function createProberTools(
 				// sources v1): the prober inspects and LOCATES learner-referenced
 				// files while assessing the edge. Read-only by construction.
 				figure_guide: figureGuideTool,
+				circuit_solve: circuitSolveTool,
 				read: readTool,
 				ls: lsTool,
 				find: findTool,
@@ -463,6 +464,7 @@ export function createTeacherTools(
 			// files on its own terms — nothing auto-injects. Read-only by
 			// construction (fs-shared.ts).
 			figure_guide: figureGuideTool,
+			circuit_solve: circuitSolveTool,
 			read: readTool,
 			ls: lsTool,
 			find: findTool,

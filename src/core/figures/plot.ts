@@ -16,11 +16,13 @@
 import { evaluate, freeVars, isReservedName, parseExpr, type Expr } from "./expr.ts";
 import { FigureError, onLine, parseRange, splitTopLevel, statements } from "./lines.ts";
 import { notSimulatable, parseBlocks, parseExcitation, simulate, type BlockDiagram } from "./blocks.ts";
+import { parseCircuit, transientSeries } from "./circuit.ts";
 
 export type PlotItem =
 	| { kind: "curve"; name: string; expr: Expr; line: number; label?: string }
 	| { kind: "ode"; states: Array<{ name: string; rhs: Expr; init: Expr }>; aux: Array<{ name: string; expr: Expr }>; line: number; label?: string }
 	| { kind: "response"; figure: string; signal: string; excitation: string; line: number; label?: string }
+	| { kind: "transient"; figure: string; what: string; line: number; label?: string }
 	| { kind: "samples"; expr: Expr; fs: number; line: number; label?: string }
 	| { kind: "mark"; axis: "x" | "y" | "point"; at: [number, number] | number; line: number; label?: string };
 
@@ -31,7 +33,7 @@ export interface PlotSpec {
 	items: PlotItem[];
 }
 
-const PLOT_KEYWORDS = ["axes", "xlabel", "param", "curve", "ode", "response", "samples", "mark"];
+const PLOT_KEYWORDS = ["axes", "xlabel", "param", "curve", "ode", "response", "transient", "samples", "mark"];
 
 export function parsePlot(source: string): PlotSpec {
 	const sts = statements(source);
@@ -103,6 +105,12 @@ export function parsePlot(source: string): PlotSpec {
 				items.push({ kind: "response", figure: m[1]!, signal: m[2]!, excitation: m[3]!, line: st.line, ...label });
 				break;
 			}
+			case "transient": {
+				const m = /^([A-Za-z_][A-Za-z0-9_-]*)\s+((?:V|I)\(.+\))$/.exec(body);
+				if (!m) throw new FigureError(st.line, 'transient must be "transient <circuit id> V(node)" (or V(a,b), I(element)), e.g. "transient c1 V(c)"');
+				items.push({ kind: "transient", figure: m[1]!, what: m[2]!.replace(/\s+/g, ""), line: st.line, ...label });
+				break;
+			}
 			case "samples": {
 				const parts = splitTopLevel(body);
 				const fs = parts.length === 2 ? /^fs\s*=\s*(\d*\.?\d+)$/.exec(parts[1]!) : null;
@@ -165,8 +173,9 @@ export interface PlotData {
 	marks: Array<Extract<PlotItem, { kind: "mark" }>>;
 }
 
-/** Block diagrams a plot can reference, by id (same question/message). */
-export type DiagramScope = ReadonlyMap<string, string>;
+/** Figures a plot can reference, by id (same question/message): block
+ *  diagrams (response) and circuits (transient). */
+export type DiagramScope = ReadonlyMap<string, { lang: string; source: string }>;
 
 const CURVE_POINTS = 600;
 const ODE_STEPS = 4000;
@@ -245,8 +254,9 @@ export function computePlot(spec: PlotSpec, scope: DiagramScope = new Map()): Pl
 			finite(drawn.y, it.line);
 			lines.push({ name: it.states[0]!.name, style: "line", ...drawn, ...label(it) });
 		} else if (it.kind === "response") {
-			const src = scope.get(it.figure);
-			if (src === undefined) throw new FigureError(it.line, `no block diagram with id=${it.figure} in this question — give the diagram's fence "id=${it.figure}"`);
+			const ref = scope.get(it.figure);
+			if (ref === undefined || ref.lang !== "blocks") throw new FigureError(it.line, `no block diagram with id=${it.figure} in this question — give the diagram's fence "id=${it.figure}"`);
+			const src = ref.source;
 			let d: BlockDiagram;
 			try {
 				d = parseBlocks(src);
@@ -268,6 +278,20 @@ export function computePlot(spec: PlotSpec, scope: DiagramScope = new Map()): Pl
 			const drawn = thin(sim.t, sim.signals[it.signal]!, a, b);
 			finite(drawn.y, it.line);
 			lines.push({ name: `${it.figure}.${it.signal}`, style: "line", ...drawn, ...label(it) });
+		} else if (it.kind === "transient") {
+			const ref = scope.get(it.figure);
+			if (ref === undefined || ref.lang !== "circuit") throw new FigureError(it.line, `no circuit with id=${it.figure} in this question — give the circuit's fence "id=${it.figure}"`);
+			if (a < 0) throw new FigureError(it.line, "a transient starts at 0 — the x range cannot start below 0");
+			let series;
+			try {
+				series = transientSeries(parseCircuit(ref.source), it.what, b);
+			} catch (err) {
+				throw new FigureError(it.line, `the circuit ${it.figure}: ${err instanceof Error ? err.message : String(err)}`);
+			}
+			if (typeof series === "string") throw new FigureError(it.line, series);
+			const drawn = thin(series.t, series.y, a, b);
+			finite(drawn.y, it.line);
+			lines.push({ name: `${it.figure}.${it.what}`, style: "line", ...drawn, ...label(it) });
 		}
 	}
 	return { spec, lines, marks: spec.items.filter((i): i is Extract<PlotItem, { kind: "mark" }> => i.kind === "mark") };

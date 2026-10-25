@@ -172,7 +172,7 @@ describe("plots", () => {
 	});
 
 	it("a response resolves a diagram from the scope", () => {
-		const scope = new Map([["loop1", "param K = 2, T = 4, K_p = 1.5\ninput r\nsum e = r - y\ngain u = K_p * e\ntf y = K/(T*s + 1) * u\noutput y"]]);
+		const scope = new Map([["loop1", { lang: "blocks", source: "param K = 2, T = 4, K_p = 1.5\ninput r\nsum e = r - y\ngain u = K_p * e\ntf y = K/(T*s + 1) * u\noutput y" }]]);
 		const data = computePlot(parsePlot("axes t 0..8, y\nresponse loop1 y to step r"), scope);
 		const l = data.lines[0]!;
 		assert.equal(l.name, "loop1.y");

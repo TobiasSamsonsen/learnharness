@@ -19,7 +19,7 @@ import { placementProbeTool } from "./tools/course.ts";
 import { healToolRecord } from "./tools/heal.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { figureInputProblems } from "../core/figures/index.ts";
-import { figureGuideTool } from "./tools/figures.ts";
+import { circuitSolveTool, figureGuideTool } from "./tools/figures.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
 import { toLlmMessages, nativeInputCause } from "../core/native-messages.ts";
 import { PROSE_GATE_REASON, proseGateBlocks } from "../core/prose-gate.ts";
@@ -339,6 +339,7 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
 		quiz,
 		ask_user_question: askUserQuestionTool,
 		figure_guide: figureGuideTool,
+		circuit_solve: circuitSolveTool,
 	});
 }
 
@@ -365,7 +366,7 @@ export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOp
  * course section. The answers are the evidence (core/mastery.ts).
  */
 export function createPlacementAgent(ctx: { skills: () => ReadonlyArray<{ id: string; name: string }> }, opts: AgentBuildOptions = {}) {
-	const tools = opts.tools ?? healToolRecord({ probe: placementProbeTool(ctx.skills), ask_user_question: askUserQuestionTool, figure_guide: figureGuideTool });
+	const tools = opts.tools ?? healToolRecord({ probe: placementProbeTool(ctx.skills), ask_user_question: askUserQuestionTool, figure_guide: figureGuideTool, circuit_solve: circuitSolveTool });
 	return baseAgentOptions("placement", opts, Object.values(tools));
 }
 

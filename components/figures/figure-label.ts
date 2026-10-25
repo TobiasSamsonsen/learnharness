@@ -45,7 +45,8 @@ export function measure(html: string, fontPx: number): Label {
 /** A label placed as a foreignObject with its top-left at (x, y). */
 export function labelSvg(l: Label, x: number, y: number, fontPx: number, extraStyle = ""): string {
 	return (
-		`<foreignObject x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${l.w}" height="${l.h}">` +
+		// overflow visible: a label a little wider than measured is never clipped
+		`<foreignObject x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${l.w}" height="${l.h}" overflow="visible">` +
 		`<div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fontPx}px;line-height:1.2;white-space:nowrap;color:inherit;${extraStyle}">${l.html}</div>` +
 		`</foreignObject>`
 	);
