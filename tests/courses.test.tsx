@@ -153,10 +153,10 @@ describe("known — the box fold (core/mastery.ts)", () => {
 		assert.deepEqual(mastery.skillEventsOf([marker], learn).map((e) => [e.skillId, e.outcome, e.at]), [["a", "finished", T0 + 5]]);
 		const f = `f${++seq}`;
 		const byTeacher = [assistant([{ id: f, name: session.FINISH_LESSON_TOOL, args: { summary: "s" } }], T0 + 2), result(f, session.FINISH_LESSON_TOOL, T0 + 2), marker];
-		assert.deepEqual(session.lessonFinishOf(byTeacher), { at: T0 + 2, by: "teacher" });
+		assert.deepEqual(session.sessionFinishOf(byTeacher), { at: T0 + 2, by: "agent" });
 		assert.equal(mastery.skillEventsOf(byTeacher, learn).length, 1, "finished once");
 		const refused = [assistant([{ id: f, name: session.FINISH_LESSON_TOOL, args: {} }], T0), result(f, session.FINISH_LESSON_TOOL, T0, true)];
-		assert.equal(session.lessonFinishOf(refused), null, "a failed call never finished anything");
+		assert.equal(session.sessionFinishOf(refused), null, "a failed call never finished anything");
 	});
 
 	it("the placement test reads graded probe answers: confident → known, unsure → learned, wrong → miss", () => {
@@ -272,6 +272,24 @@ describe("known — the box fold (core/mastery.ts)", () => {
 		assert.equal(boxes.get("a")!.box, 3, "credited through b");
 		assert.equal(boxes.get("e")!.box, 1);
 		assert.equal(boxes.get("f"), undefined);
+	});
+
+	it("placement: a direct miss blocks inferred credit, whichever came first", () => {
+		const req: Record<string, string[]> = { c: ["b"], b: ["a"], a: [], y: ["x"], x: [] };
+		const boxes = mastery.foldBoxes(
+			[
+				{ skillId: "b", outcome: "placementMiss", at: T0, placement: false },
+				{ skillId: "c", outcome: "placementKnown", at: T0 + 1, placement: false },
+				{ skillId: "y", outcome: "placementKnown", at: T0, placement: false },
+				{ skillId: "x", outcome: "placementMiss", at: T0 + 1, placement: false },
+			],
+			(id) => req[id] ?? [],
+		);
+		assert.equal(boxes.get("c")!.box, 3, "the skill answered directly is still known");
+		assert.equal(boxes.get("b")?.box ?? 0, 0, "missed before the credit: not credited");
+		assert.equal(boxes.get("a")!.box, 3, "a prerequisite below the miss is still credited");
+		assert.equal(boxes.get("y")!.box, 3);
+		assert.equal(boxes.get("x")?.box ?? 0, 0, "missed after the credit: not credited either");
 	});
 
 	it("due dates follow the box intervals", () => {
@@ -410,9 +428,12 @@ describe("course sessions (core/course-session.ts)", () => {
 		for (const mode of ["practice", "review"] as const) {
 			assert.match(session.coursePromptSection(mode, "Calc", [sk("sk_a")]), /`skills` field MUST name them/);
 		}
-		const placement = session.coursePromptSection("placement", "Calc", []);
-		assert.match(placement, /PLACEMENT TEST[\s\S]*`probe`[\s\S]*set `skill`[\s\S]*most advanced skills/);
-		assert.match(placement, /confidence ≥ 70 → known/);
+		const placement = session.coursePromptSection("placement", "Calc", Array.from({ length: 32 }, (_, i) => sk(`sk_${i}`)));
+		assert.match(placement, /PLACEMENT TEST[\s\S]*`probe`[\s\S]*set `skill`[\s\S]*Hardest technical skills first[\s\S]*Judgment skills last/);
+		assert.match(placement, /about 11 questions/, "a third of the skills, rounded");
+		assert.match(placement, /never ask about a credited skill again/);
+		assert.match(placement, /confidence ≥ 70 → known[\s\S]*a direct miss always wins/);
+		assert.doesNotMatch(placement, /Roughly one question per skill/);
 		assert.doesNotMatch(placement, /`skills` field/, "no problem tagging law in a quiz test");
 		assert.match(session.coursePromptSection("review", "Calc", []), /due for review/);
 	});
@@ -602,13 +623,84 @@ describe("the course service (src/server/courses.ts)", () => {
 		assert.deepEqual(chatStore.getChat(practice.value.id)!.course!.skillIds, [a], "practice all = learning");
 	});
 
-	it("finish is a course-lesson affordance, never over an open question", () => {
+	it("a skill had from another course: offered a context check (never forced), skipped by placement, cleared by one problem here", () => {
+		const { courseId, a } = approvedCourse();
+		const learn = courses.createCourseSession(courseId, "learn", a);
+		assert.ok(learn.ok);
+		const lesson = chatStore.getChat(learn.value.id)!;
+		chatStore.saveMessages(learn.value.id, [...lesson.messages, ...inputAppends(lesson, { type: "finish" })]);
+		// a second course reuses A and builds D on it
+		const second = courseStore.createCourse("Physics");
+		courseStore.updateCourse(second.id, {
+			status: "draft",
+			draft: {
+				createdAt: "t",
+				summary: "s",
+				skills: [
+					{ key: "s1", reuse: a, name: "A", statement: "Do a", requires: [], restsOn: [] },
+					{ key: "s2", name: "D", statement: "Do d", requires: ["s1"], restsOn: [] },
+				],
+			},
+		});
+		assert.ok(courses.approveCourse(second.id).ok);
+		const d = mergeSkillLines(skillStore.readSkillLines()).find((s) => s.name === "D")!.id;
+
+		const view = courses.courseView(second.id)!;
+		assert.deepEqual(view.contextCheck, [a]);
+		assert.deepEqual(view.learning, [a], "still learned — the count and the unlock read it");
+		assert.deepEqual(view.nextUp, [d], "nothing is locked behind the check");
+		assert.deepEqual(courses.courseView(courseId)!.contextCheck, [], "the course it was learned in owes no check");
+
+		const placement = courses.createCourseSession(second.id, "placement");
+		assert.ok(placement.ok);
+		assert.deepEqual(chatStore.getChat(placement.value.id)!.course!.skillIds, [d], "placement spends no question on A");
+		chatStore.deleteChat(placement.value.id);
+
+		assert.equal(courses.createCourseSession(second.id, "check").ok, false, "a check needs a skill");
+		const unlearned = courses.createCourseSession(second.id, "check", d);
+		assert.ok(!unlearned.ok && unlearned.status === 409, "only for skills the learner has");
+		const check = courses.createCourseSession(second.id, "check", a);
+		assert.ok(check.ok);
+		assert.equal(check.value.title, "Context check: A");
+		assert.match(check.value.prompt, /already know this from another course[\s\S]*Physics: Do a/);
+		const record = chatStore.getChat(check.value.id)!;
+		assert.equal(record.kind, "practice", "a short practice session");
+		assert.match(courses.courseForTurn(check.value.id)!.section, /CONTEXT CHECK[\s\S]*one problem \(two at most\)[\s\S]*Never re-teach/);
+
+		// one concluded problem in THIS course clears the offer
+		const at = Date.now() - 1000;
+		chatStore.saveMessages(check.value.id, [
+			...record.messages,
+			assistant([{ id: "p1", name: "problem", args: { skills: [a], statement: "S", modelSolution: "M" } }], at),
+			result("p1", "problem", at),
+			assistant([{ id: "c1", name: "conclude", args: { outcome: "solved" } }], at + 1),
+			result("c1", "conclude", at + 1),
+		]);
+		assert.deepEqual(courses.courseView(second.id)!.contextCheck, []);
+
+		const overview = courses.skillsOverview();
+		assert.deepEqual(overview.known, []);
+		assert.deepEqual(overview.learning.map((s) => [s.name, [...s.courses].sort()]), [["A", ["Calc", "Physics"]]]);
+	});
+
+	it("finish is a course-session affordance — any mode, once, never over an open question or a live problem", () => {
 		const { courseId, a } = approvedCourse();
 		const plain = chatStore.createChat("plain");
-		assert.throws(() => inputAppends(chatStore.getChat(plain.id)!, { type: "finish" }), /course-lesson affordance/);
+		assert.throws(() => inputAppends(chatStore.getChat(plain.id)!, { type: "finish" }), /course-session affordance/);
 		const practice = courses.createCourseSession(courseId, "practice", a);
 		assert.ok(practice.ok);
-		assert.throws(() => inputAppends(chatStore.getChat(practice.value.id)!, { type: "finish" }), /course-lesson affordance/);
+		const record = chatStore.getChat(practice.value.id)!;
+		const at = Date.now() - 1000;
+		const live = [...record.messages, assistant([{ id: "lp", name: "problem", args: { skills: [a], statement: "S", modelSolution: "M" } }], at), result("lp", "problem", at)];
+		assert.throws(() => inputAppends({ ...record, messages: live }, { type: "finish" }), /no active problem/);
+		const appends = inputAppends(record, { type: "finish" });
+		assert.match((appends.at(-1) as { content: string }).content, /SESSION FINISHED[\s\S]*pose nothing more/, "a practice session gets the session wording, not the lesson's");
+		chatStore.saveMessages(practice.value.id, [...record.messages, ...appends]);
+		assert.throws(() => inputAppends(chatStore.getChat(practice.value.id)!, { type: "finish" }), /already finished/);
+		assert.equal(courses.courseView(courseId)!.sessions.find((s) => s.id === practice.value.id)!.finished, true);
+		assert.equal(chatStore.listChats().find((c) => c.id === practice.value.id)!.finished, true, "the sidebar row knows");
+		assert.equal(chatStore.listChats().find((c) => c.id === plain.id)!.finished, undefined);
+		assert.equal(courses.courseView(courseId)!.learning.length, 0, "finishing a practice session credits no skill");
 		const learn = courses.createCourseSession(courseId, "learn", a);
 		assert.ok(learn.ok);
 		const open = [...chatStore.getChat(learn.value.id)!.messages, assistant([{ id: "oq", name: "quiz", args: {} }], Date.now())];
@@ -839,6 +931,7 @@ describe("the UI", () => {
 		learning: [],
 		locked: [],
 		known: ["a"],
+		contextCheck: [],
 		sessions: [{ id: "chat_1", title: "Learn: A", mode: "learn", updatedAt: "t" }],
 		reused: {},
 		drafting: false,
@@ -876,23 +969,57 @@ describe("the UI", () => {
 			nextUp: ["b"],
 			learning: ["a", "c"],
 			known: [],
-			sessions: [{ id: "chat_1", title: "Learn: A", mode: "learn", updatedAt: "t", finished: true }],
+			sessions: [
+				{ id: "chat_2", title: "Practice: A", mode: "practice", updatedAt: "t" },
+				{ id: "chat_1", title: "Learn: A", mode: "learn", updatedAt: "t", finished: true },
+			],
 		});
 		const html = body(data);
 		assert.match(html, /data-testid="course-learning"[\s\S]*Learning · 2[\s\S]*data-testid="practice-all"/);
 		assert.match(html, /data-testid="practice-a"[\s\S]*Learn again/);
 		assert.match(html, /Learned · box 1\/5/);
-		assert.match(html, /Learn · finished/);
+		assert.match(html, /data-testid="course-sessions-open"[\s\S]*Practice: A[\s\S]*aria-expanded="false"[^>]*data-testid="course-sessions-finished-toggle"[^>]*>[\s\S]*Finished · 1/);
+		assert.doesNotMatch(html, /data-testid="course-sessions-finished"/, "finished sessions fold away until opened");
+		const allDone = body({ ...data, sessions: [data.sessions[1]!] });
+		assert.match(allDone, /No session in progress/);
 	});
 
 	it("right after approval the placement test is offered first — until skipped or a session exists", () => {
 		const fresh = payload({ sessions: [], known: [], nextUp: ["a"], skills: [skillView("a"), skillView("b", { requires: ["a"], missing: ["a"] })], locked: ["b"] });
 		const html = body(fresh);
-		assert.match(html, /data-testid="placement-offer"[\s\S]*Find your starting point[\s\S]*about one question per skill \(2 skills\)/);
+		assert.match(html, /data-testid="placement-offer"[\s\S]*Find your starting point[\s\S]*about one short question for 2 skills/);
 		assert.ok(html.indexOf("placement-offer") < html.indexOf("course-map"), "before the map");
 		assert.match(html, /data-testid="placement-take"/);
 		assert.match(html, /data-testid="placement-skip"[^>]*>Start from the beginning/);
 		assert.doesNotMatch(body(fresh, true), /placement-offer/);
+	});
+
+	it("skills from another course get their own section with Quick check — shown once, never locked, and the placement offer counts without them", () => {
+		const data = payload({
+			skills: [skillView("a", { box: 3, learned: true, known: true, due: false }), skillView("b", { requires: ["a"] })],
+			known: ["a"],
+			nextUp: ["b"],
+			contextCheck: ["a"],
+			sessions: [],
+		});
+		const html = body(data);
+		assert.match(html, /data-testid="course-context-check"[\s\S]*From another course · 1[\s\S]*optional, nothing is locked[\s\S]*data-testid="check-a"[^>]*>Quick check/);
+		assert.doesNotMatch(html, /data-testid="course-known"/, "A shows once — in its own section");
+		assert.match(html, /about one short question for 1 skill,/);
+		assert.doesNotMatch(body({ ...data, skills: [skillView("a", { box: 3, learned: true, known: true })], nextUp: [] }), /placement-offer/, "nothing left to place");
+	});
+
+	it("the home's skills card: known first, then learning; nothing at all when there is nothing", async () => {
+		const { SkillsCardBody } = await import("../components/skills-card.tsx");
+		const held = (id: string, box: number, courses: string[]) => ({ id, name: id.toUpperCase(), statement: `Do ${id}`, box, due: box === 1, courses });
+		const html = renderToStaticMarkup(
+			<SkillsCardBody data={{ known: [held("a", 4, ["Calc"])], learning: [held("b", 1, ["Calc", "Physics"])] }} collapsed={false} onToggle={() => {}} />,
+		);
+		assert.match(html, /Skills you know · 1[\s\S]*1 learning[\s\S]*held-skill-a[\s\S]*box 4\/5 · Calc[\s\S]*Learning[\s\S]*held-skill-b[\s\S]*box 1\/5 · due · Calc, Physics/);
+		const closed = renderToStaticMarkup(<SkillsCardBody data={{ known: [held("a", 4, [])], learning: [] }} collapsed onToggle={() => {}} />);
+		assert.match(closed, /aria-expanded="false"/);
+		assert.doesNotMatch(closed, /held-skill-a/);
+		assert.equal(renderToStaticMarkup(<SkillsCardBody data={{ known: [], learning: [] }} collapsed={false} onToggle={() => {}} />), "");
 	});
 
 	it("a draft shows its skills, reused marks, and the review controls", () => {

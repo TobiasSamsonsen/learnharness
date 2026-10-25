@@ -52,7 +52,7 @@ import { emit } from "../core/events.ts";
 import { resolveLessonLanguage } from "../core/language.ts";
 import { materialsForTurn } from "./materials.ts";
 import { courseForTurn } from "./courses.ts";
-import { finishLessonTool } from "../agent/tools/course.ts";
+import { finishLessonTool, finishSessionTool } from "../agent/tools/course.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages } from "../core/native-messages.ts";
 import {
@@ -63,6 +63,13 @@ import {
 } from "../core/input-events.ts";
 import { steerDelivered } from "../core/contracts.ts";
 import type {CallUsage, SteerMessage} from "../core/contracts.ts";
+import { installQuestionVerifier } from "../agent/question-verify.ts";
+import { checkQuizKey } from "./question-check.ts";
+
+// The answer-key check (owner, 2026-10-25): every multiple-choice question
+// is run / solved by a second model before it is posed. Tests drive the
+// tools against scripted engines — no Python, no second model there.
+if (process.env.NODE_ENV !== "test") installQuestionVerifier(checkQuizKey);
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
@@ -416,12 +423,17 @@ export async function handleChatInput(
 		materials: materialsForTurn(chatId),
 		// The course section (fork addition — docs/courses.md §4): a course
 		// session's per-turn rules; absent for other sessions. A Learn
-		// session's teacher also gets finish_lesson (owner, 2026-10-25).
+		// session's teacher also gets finish_lesson; every other course
+		// session's agent gets finish_session (owner, 2026-10-25).
 		...(course
 			? {
 					course: {
 						section: course.section,
-						...(course.mode === "learn" && teaching ? { tools: [finishLessonTool({ chatId, chatStore: stores.chatStore })] } : {}),
+						...(course.mode === "learn"
+							? teaching
+								? { tools: [finishLessonTool({ chatId, chatStore: stores.chatStore })] }
+								: {}
+							: { tools: [finishSessionTool({ chatId, chatStore: stores.chatStore })] }),
 					},
 				}
 			: {}),

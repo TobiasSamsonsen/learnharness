@@ -100,10 +100,13 @@ export const CURRENT_COURSE_VERSION = 1;
 // ─── The session's course link (ChatRecord.course) ──────────────────────────
 
 /** learn: a teach session aimed at one skill · practice/review/placement:
- *  practice sessions whose concluded problems move the skills' boxes. */
-export type CourseMode = "learn" | "practice" | "review" | "placement";
+ *  practice sessions whose concluded problems move the skills' boxes ·
+ *  check: the context check (owner, 2026-10-25) — a SHORT practice session
+ *  on a skill the learner already has from another course, confirming it
+ *  works in this one. */
+export type CourseMode = "learn" | "practice" | "review" | "placement" | "check";
 
-export const COURSE_MODES: readonly CourseMode[] = ["learn", "practice", "review", "placement"];
+export const COURSE_MODES: readonly CourseMode[] = ["learn", "practice", "review", "placement", "check"];
 
 /** Stamped at creation by the course-session route; never changed. */
 export interface ChatCourseLink {
@@ -125,6 +128,25 @@ export interface CourseSummary {
 	known: number;
 	/** Skills due for review now. */
 	due: number;
+}
+
+/** One skill the learner has, for the home's skills card (owner,
+ *  2026-10-25 — "the skills you know in the main view"). */
+export interface HeldSkill {
+	id: string;
+	name: string;
+	statement: string;
+	box: number;
+	due: boolean;
+	/** The courses whose skill maps hold it (titles). */
+	courses: string[];
+}
+
+/** GET /api/skills — every skill the learner has, across all courses:
+ *  known (box ≥ 3) and learned-but-not-known-yet (box 1–2). */
+export interface SkillsOverview {
+	known: HeldSkill[];
+	learning: HeldSkill[];
 }
 
 /** One skill's state in a course view. */
@@ -159,6 +181,10 @@ export interface CourseView {
 	learning: string[];
 	locked: string[];
 	known: string[];
+	/** Learned or known from ANOTHER course, never yet shown in this one —
+	 *  offered a short context check, never forced (they also stay in
+	 *  `known` / `learning`, which the counts read). */
+	contextCheck: string[];
 	/** Course sessions, newest first. `finished`: a Learn session's finish. */
 	sessions: Array<{ id: string; title: string; mode: CourseMode; updatedAt: string; finished?: boolean }>;
 	/** Existing skills a draft reuses, by id (to show their names). */

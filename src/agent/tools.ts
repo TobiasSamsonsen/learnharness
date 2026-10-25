@@ -24,6 +24,7 @@ import { lsTool } from "./tools/ls.ts";
 import { findTool } from "./tools/find.ts";
 import { grepTool } from "./tools/grep.ts";
 import { healToolRecord } from "./tools/heal.ts";
+import { verifyQuestion } from "./question-verify.ts";
 import type { GraphStore } from "../core/ports.ts";
 
 export { jobTools };
@@ -210,9 +211,11 @@ export const probeQuizTool: AgentTool<typeof probeQuizInputSchema> = {
 	parameters: probeQuizInputSchema,
 	prepareArguments: prepareQuestionArguments,
 	executionMode: "sequential",
-	execute: async (_toolCallId, input) => {
+	execute: async (_toolCallId, input, signal) => {
 		const problems = quizInputProblems(input);
 		if (problems.length > 0) return invalidInputResult("probe", problems);
+		const wrong = await verifyQuestion(input, signal);
+		if (wrong.length > 0) return invalidInputResult("probe", wrong);
 		return questionResult();
 	},
 };
@@ -381,11 +384,13 @@ export function teachQuizToolFor(ctx: Pick<PlanToolContext, "chatId" | "chatStor
 		parameters: quizInputObject,
 		prepareArguments: prepareQuestionArguments,
 		executionMode: "sequential",
-		execute: async (_toolCallId, input) => {
+		execute: async (_toolCallId, input, signal) => {
 			const problems = [...quizInputProblems(input)];
 			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
 			if (nodeIdProblemText) problems.push(nodeIdProblemText);
 			if (problems.length > 0) return invalidInputResult("quiz", problems);
+			const wrong = await verifyQuestion(input, signal);
+			if (wrong.length > 0) return invalidInputResult("quiz", wrong);
 			return questionResult();
 		},
 	};

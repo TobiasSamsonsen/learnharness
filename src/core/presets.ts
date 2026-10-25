@@ -13,6 +13,9 @@ import type { UserSettings } from "./settings.ts";
  *   cheap (researcher, extractor,       Haiku, low — summarizing and
  *          auditor)                     structuring, the most frequent calls
  *   demoBuilder                         Sonnet, low — it writes working code
+ *   checker (answer keys)               follows strong (Sonnet) — Opus would
+ *                                       catch more, but it runs on every
+ *                                       question; set it per role if wanted
  *   vision (visual maker, PDF reader,   Sonnet, low — math pages and figures
  *           source-material profiles)
  *

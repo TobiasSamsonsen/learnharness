@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
-import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { CheckIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoursesSection } from "@/components/courses-section";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
@@ -266,6 +266,7 @@ function sessionMeta(chat: ChatListItem): string {
 		return `Problem waiting · ${timeAgo(chat.updatedAt)}`;
 	}
 	if (chat.busy) return "Working…";
+	if (chat.finished) return `Finished · ${timeAgo(chat.updatedAt)}`;
 	return timeAgo(chat.updatedAt);
 }
 
@@ -325,6 +326,7 @@ export function SessionRow({
 			{(chat.kind ?? "teach") === "practice" && (
 				<DumbbellIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Practice session" />
 			)}
+			{chat.finished && <CheckIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Finished" data-testid="session-finished" />}
 		</button>
 	);
 }

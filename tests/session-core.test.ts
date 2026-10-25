@@ -25,6 +25,7 @@ import { absorbed, pendingCallTool, SessionModel } from "../components/session-c
 import type { ChatInput } from "../src/core/input-events.ts";
 import type { LhMessage } from "../src/core/native-messages.ts";
 import { newUserMessage, newAnswerResult, newThinkingMessage, needsContinuation, endsInDismissal } from "../src/core/native-messages.ts";
+import { ANSWER_NEXT_TEXT } from "../src/core/prose-gate.ts";
 import { projectView } from "../src/core/index.ts";
 import { dismissedAnswer } from "../src/core/question-core.ts";
 import { buildAnswer, type QuestionData } from "../src/core/question-core.ts";
@@ -1005,6 +1006,7 @@ describe("newAnswerResult two audiences", () => {
 			correct: true,
 			confidence: 70,
 			thinking: "guessed",
+			next: ANSWER_NEXT_TEXT,
 		});
 		assert.equal(msg.details, full, "details is the full QuestionAnswerData verbatim");
 		assert.equal((msg.details as { questionText?: string }).questionText, "Which planet is closest to the Sun?");

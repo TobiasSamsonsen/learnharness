@@ -71,7 +71,7 @@ import {
 	activeProblemOf,
 	dismissedAnswer,
 	findPendingToolCall,
-	lessonFinishOf,
+	sessionFinishOf,
 	phaseAt3,
 	phaseTimeline,
 	teachStepIndex,
@@ -465,11 +465,13 @@ export function Chat({
 	const busy = localStream || turnInFlight;
 	const busyRef = useRef(busy);
 	busyRef.current = busy;
-	// The session's course link (fork addition — docs/courses.md): a Learn
-	// session carries Finish lesson; the placement test its own tag.
+	// The session's course link (fork addition — docs/courses.md): every
+	// course session carries Finish (Finish lesson in Learn); the placement
+	// test its own tag.
 	const course = useMemo(() => courseOfView(messages), [messages]);
-	const lessonSkill = course?.mode === "learn" ? course.skills[0]?.name : undefined;
-	const lessonFinished = course?.mode === "learn" && lessonFinishOf(nativeMessages) !== null;
+	const isLesson = course?.mode === "learn";
+	const lessonSkill = isLesson ? course.skills[0]?.name : undefined;
+	const sessionFinished = course !== undefined && sessionFinishOf(nativeMessages) !== null;
 
 	// The attach handoff (stream-reattach wave): the moment a resumed
 	// stream takes over the rendering — the SDK left "ready", so
@@ -1310,10 +1312,19 @@ export function Chat({
 				    practice never extracts, so an ever-filling ring with no
 				    run behind it would lie. */}
 					{kind !== "practice" && course?.mode !== "placement" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
-					{course?.mode === "learn" && (
+					{course && (
 						<FinishLessonButton
-							finished={lessonFinished}
-							blocked={pending ? "Answer or dismiss the open question first" : busy ? "Wait for the teacher's turn to end" : null}
+							lesson={isLesson}
+							finished={sessionFinished}
+							blocked={
+								pending
+									? "Answer or dismiss the open question first"
+									: activeProblem
+										? "Finish or dismiss the open problem first"
+										: busy
+											? `Wait for the ${isLesson ? "teacher" : "agent"}'s turn to end`
+											: null
+							}
 							onFinish={() => void send({ type: "finish" })}
 						/>
 					)}
@@ -1408,7 +1419,7 @@ export function Chat({
 													</div>
 												);
 											case "data-lesson-finished":
-												return <LessonFinishedLine key={pi} skill={lessonSkill} />;
+												return <LessonFinishedLine key={pi} skill={lessonSkill} lesson={isLesson} />;
 											default:
 												return null;
 										}
@@ -1534,9 +1545,10 @@ export function Chat({
 															/>
 														);
 													case "tool-finish_lesson":
-														// The teacher's finish (owner, 2026-10-25): the same
+													case "tool-finish_session":
+														// The agent's finish (owner, 2026-10-25): the same
 														// divider as the learner's button, once it went through.
-														return part.state === "output-available" ? <LessonFinishedLine key={pi} skill={lessonSkill} /> : null;
+														return part.state === "output-available" ? <LessonFinishedLine key={pi} skill={lessonSkill} lesson={isLesson} /> : null;
 													case "tool-quiz":
 													case "tool-probe":
 													case "tool-ask_user_question":

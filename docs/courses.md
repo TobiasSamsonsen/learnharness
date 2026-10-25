@@ -33,10 +33,14 @@ between questions. Decided:
 | What finishing does | The skill becomes **learned** (box ≥ 1). |
 | The unlock rule | **Learned unlocks**: a skill is next up once every prerequisite is learned (box ≥ 1). Known (box ≥ 3) stays the progress number, earned by spaced practice and review. |
 | Learned, not known | A new **Learning** group (box 1–2) on the course page, with Practice and Learn again. **Practice all** practices this group. |
-| The curriculum test | A **quick multiple-choice placement test** (about one question per skill, top-down), offered first after approval ("Find your starting point", with "Start from the beginning"). It replaces the problem-based placement check. |
-| Placement grading | **Confidence-weighted**: correct with confidence ≥ 70 → known (box 3) plus every transitive prerequisite; correct but less sure → learned (box 1); wrong or "I don't know" → nothing (never lowers, never counts as learned). |
+| The curriculum test | A **quick multiple-choice placement test** (a soft target of about a third of the skill count; the hardest technical skills first, judgment skills last, credited skills never re-asked), offered first after approval ("Find your starting point", with "Start from the beginning"). It replaces the problem-based placement check. |
+| Placement grading | **Confidence-weighted**: correct with confidence ≥ 70 → known (box 3) plus every transitive prerequisite; correct but less sure → learned (box 1); wrong or "I don't know" → nothing (never lowers, never counts as learned). **A direct miss beats inferred credit:** a skill missed directly is never credited as someone else's prerequisite, whichever answer came first (owner, 2026-10-25). |
 | A miss in practice | Back to box 1 — but a skill at box 0 stays there: a miss never counts as learned (follows from "learned unlocks"). |
-| Wrong answer keys | **Solve first**: the quiz schema emits the worked `explanation` before the `options`; the options are built around the answer it reaches. |
+| Wrong answer keys | **Solve first**: the quiz schema emits the worked `explanation` before the `options`; the options are built around the answer it reaches. **Then checked before posing** (all three multiple-choice tools): the question's one python block is run (its printed output, when it is an option, must be the key); an optional `verify` program must print the correct label; anything Python did not settle is solved blind by the `checker` role, which never sees the key (`core/answer-check.ts`, `server/question-check.ts`). A checker disagreement refuses once; the same call sent again unchanged goes through. |
+| Skills had from another course | **A context check, never a course**: a course skill learned or known on evidence from other courses only is listed under **From another course** with **Quick check** — a short practice session (`mode: "check"`: one problem, two at most, framed in this course's terms; only what differs here is explained). Optional: the skill stays learned/known and unlocks what builds on it. The placement test skips these skills. |
+| Finishing any course session | **Every mode finishes**, not only Learn: the agent's `finish_session` (practice, review, context check, placement — when the course section says the work is done, or the learner asks) or the learner's **Finish session** button (top bar; refused over an open question or a live problem). It only marks the session done; a Learn finish still makes the skill learned. Finished sessions show **Finished** with a check in the sidebar, and fold into a collapsed **Finished** group under the course page's Sessions. |
+| The skill map's size | The map lives in a **pan/zoom viewport** that opens readable (zoom 0.9, centered on what is due or next up) instead of the whole map shrunk into the column (a 32-skill map's text had shrunk to ~5px). Drag pans, Ctrl/⌘ + wheel zooms (a plain wheel scrolls the page), buttons zoom, fit and **expand** the map to the window. A map that is readable whole shows whole. |
+| The skills you know | A card on the home's main view (top-left): every skill the learner has, known first, then learning, with its box and courses (`GET /api/skills`). |
 | No teaching between questions | **Gate + prompt**: the teacher's quiz/explain call is refused when no text has reached the learner since their last graded answer (`core/prose-gate.ts`), plus a teaching-prompt rule. |
 
 ## 1. Data
@@ -148,9 +152,9 @@ Folded in time order per skill:
 | `solvedWithHints` | nothing |
 | `movedOn` / `surrendered` | box ≥ 1 → box = 1, `lastMove = at`; box 0 stays 0 |
 | `dismissed` | ignored |
-| `placementKnown` (correct, confidence ≥ 70) | box = max(box, 3), `lastMove = at`; every transitive `requires` the same |
+| `placementKnown` (correct, confidence ≥ 70) | box = max(box, 3), `lastMove = at`; every transitive `requires` the same, except a skill with a `placementMiss` of its own |
 | `placementUnsure` (correct, < 70) | box = max(box, 1) |
-| `placementMiss` (wrong / I don't know) | nothing |
+| `placementMiss` (wrong / I don't know) | nothing to its own box; blocks its inferred credit (any order) |
 | legacy placement: solved / with hints / miss | as `placementKnown` / box = max(box, 1) / nothing |
 
 Due: box 0 is always due; otherwise `now ≥ lastMove + [—, 1, 3, 7, 16, 35][box]` days.
@@ -159,7 +163,10 @@ Due: box 0 is always due; otherwise `now ≥ lastMove + [—, 1, 3, 7, 16, 35][b
 **Views (pure functions of skills + boxes + now):** `review` = learned and due.
 `nextUp` = box 0 with every `requires` learned, in topological order.
 `learning` = box 1–2. `locked` = box 0 with some prerequisite not learned,
-listing which. `known`.
+listing which. `known`. `contextCheck` = learned, but this course has no
+evidence on it (`inCourseEvidence`: a fold of the course's own events —
+inferred placement credit included — plus any skill its sessions touched);
+it also stays in `known`/`learning`.
 
 Nothing is stored. The course API computes the fold from chat records on read,
 in line with the graph's "derive, don't store" rule.
@@ -204,7 +211,8 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
 | Learn (one skill) | teach | the skill; its prerequisites as known background | "I want to learn to: <statement>" |
 | Practice (one skill, or all of Learning) | practice | the chosen skill(s) | "Practice: <names>" |
 | Review | practice | the due skills | "Review my due skills" |
-| Placement test | conversation — the placement tester (`createPlacementAgent`) | all course skills | "Placement test for <course>" |
+| Placement test | conversation — the placement tester (`createPlacementAgent`) | all course skills except those had from another course | "Placement test for <course>" |
+| Context check (one skill had from another course) | practice | the skill | "I already know this from another course — check that I can use it in <course>: <statement>" |
 
 - **Course materials serve every course session.** `materialsForTurn` adds the
   course's materials (profiles plus lookup tools) beside the lesson's own.
@@ -236,6 +244,7 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
 - `POST /api/courses/[id]/approve`: approve the current draft.
 - `/api/courses/[id]/materials` (+ `/[materialId]`): same contract as the chat materials routes.
 - `POST /api/courses/[id]/sessions`: see §4.
+- `GET /api/skills`: every skill the learner has across all courses — `{ known, learning }`, each with box, due and course titles (the home's skills card).
 - New server event **`courses-changed`** (course record changed, or a course chat's turn settled) → the sidebar and course page refetch.
 
 ## 6. UI

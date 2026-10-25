@@ -67,6 +67,9 @@ export const BACKGROUND_MODEL_ROLES = [
 	// Fork addition (docs/courses.md §3): drafts a course's skill map
 	// from its curriculum.
 	"coursePlanner",
+	// Fork addition (2026-10-25): the answer checker — solves every
+	// multiple-choice question blind before it is posed.
+	"checker",
 ] as const;
 
 export type BackgroundModelRole = (typeof BACKGROUND_MODEL_ROLES)[number];
@@ -249,6 +252,7 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	pdfReader: "vision",
 	planner: "strong",
 	coursePlanner: "strong",
+	checker: "strong",
 };
 
 /** General settings — app-level behavior. Version DISPLAY and plans login

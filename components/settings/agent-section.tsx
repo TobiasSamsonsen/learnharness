@@ -92,6 +92,7 @@ const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
 export const ROLE_ROWS: readonly { role: BackgroundModelRole; label: string; hint: string; slot: ModelSlotName | null }[] = [
 	{ role: "planner", label: "Planner", hint: "Plans each lesson — one turn, and the whole lesson follows it", slot: null },
 	{ role: "coursePlanner", label: "Course planner", hint: "Turns a course's curriculum into its skill map", slot: "strong" },
+	{ role: "checker", label: "Answer checker", hint: "Solves every multiple-choice question on its own before you see it — a different model catches more", slot: "strong" },
 	{ role: "researcher", label: "Researcher", hint: "Researches questions in the background", slot: "cheap" },
 	{ role: "demoBuilder", label: "Demo builder", hint: "Writes the interactive demos", slot: "cheap" },
 	{ role: "extractor", label: "Extractor", hint: "Turns lessons into knowledge-graph ideas", slot: "cheap" },

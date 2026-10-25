@@ -16,8 +16,10 @@
  *   dismissed                   ignored
  *   placement test (quiz):
  *     correct, confidence ≥ 70  box ≥ 3, and every transitive prerequisite ≥ 3
+ *                               — except one the learner missed directly
  *     correct, less sure        box ≥ 1
  *     wrong / "I don't know"    nothing (never lowers, never counts as learned)
+ *                               and blocks inferred credit, in any order
  *   legacy placement check (problems, before 2026-10-25):
  *     solved ≥ 3 + prerequisites · with hints ≥ 1 · moved on / gave up nothing
  *
@@ -30,7 +32,7 @@ import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai"
 import type { ChatCourseLink, Skill } from "./contracts/course.ts";
 import type { QuestionAnswerData } from "./question-core.ts";
 import { PRACTICE_CONCLUDE_TOOL, PRACTICE_PROBLEM_TOOL, type LhMarkerMessage, type LhMessage } from "./native-messages.ts";
-import { PLACEMENT_KNOWN_CONFIDENCE, lessonFinishOf } from "./course-session.ts";
+import { PLACEMENT_KNOWN_CONFIDENCE, sessionFinishOf } from "./course-session.ts";
 import { prerequisiteClosure, topoOrder } from "./skills.ts";
 
 /** Days until a box comes due, by box (box 0 is always due). */
@@ -72,14 +74,14 @@ export function placementGrade(answer: Pick<QuestionAnswerData, "dontKnow" | "co
 }
 
 /** The skill events of ONE course session:
- *  - Learn: its finish (lessonFinishOf), once, on the session's skill.
+ *  - Learn: its finish (sessionFinishOf), once, on the session's skill.
  *  - placement: every answered placement `probe` that carried `skill`
  *    (plus a legacy placement check's concluded problems).
  *  - practice/review: every cleanly concluded problem that carried
  *    `skills`. */
 export function skillEventsOf(messages: readonly LhMessage[], link: ChatCourseLink): SkillEvent[] {
 	if (link.mode === "learn") {
-		const finish = lessonFinishOf(messages);
+		const finish = sessionFinishOf(messages);
 		return finish ? link.skillIds.map((skillId) => ({ skillId, at: finish.at, outcome: "finished" as const, placement: false })) : [];
 	}
 	const clean = new Set<string>();
@@ -168,10 +170,15 @@ export function foldBoxes(events: readonly SkillEvent[], requiresOf: (id: string
 		state.box = box;
 		state.lastMove = at;
 	};
+	/** Direct evidence beats inference (owner, 2026-10-25 — the ITGK
+	 *  placement): a prerequisite the learner missed directly is never
+	 *  credited through a skill above it, whichever came first. */
+	const missedDirectly = new Set(events.filter((e) => e.outcome === "placementMiss").map((e) => e.skillId));
 	/** A clean placement credit: the skill and every transitive
 	 *  prerequisite to KNOWN — fresh evidence, so each one's clock restarts. */
 	const credit = (skillId: string, at: number) => {
-		for (const id of [skillId, ...prerequisiteClosure(skillId, requiresOf)]) {
+		const inferred = [...prerequisiteClosure(skillId, requiresOf)].filter((id) => !missedDirectly.has(id));
+		for (const id of [skillId, ...inferred]) {
 			const s = get(id);
 			s.box = Math.max(s.box, KNOWN_BOX);
 			s.lastMove = at;
@@ -214,6 +221,16 @@ export function foldBoxes(events: readonly SkillEvent[], requiresOf: (id: string
 	return boxes;
 }
 
+/** The skills one course has evidence on: anything its own sessions
+ *  learned (inferred placement credit included — a fold of the course's
+ *  events alone) and anything they touched at all (a concluded check, a
+ *  placement miss). Dismissals do not count. */
+export function inCourseEvidence(courseEvents: readonly SkillEvent[], requiresOf: (id: string) => readonly string[]): Set<string> {
+	const out = new Set(courseEvents.filter((e) => e.outcome !== "dismissed").map((e) => e.skillId));
+	for (const [id, state] of foldBoxes(courseEvents, requiresOf)) if (state.box >= LEARNED_BOX) out.add(id);
+	return out;
+}
+
 /** A course's skills, partitioned for the route (docs/courses.md §2). */
 export interface SkillPartition {
 	/** Topological order (prerequisites first) of every course skill. */
@@ -227,6 +244,9 @@ export interface SkillPartition {
 	/** Not learned, some prerequisite not learned. */
 	locked: string[];
 	known: string[];
+	/** Learned (box ≥ 1) on evidence from OTHER courses only — the context
+	 *  check's offer (owner, 2026-10-25). Also listed in known/learning. */
+	contextCheck: string[];
 	/** Per skill: its state, and its prerequisites not learned yet. */
 	states: Map<string, { state: BoxState; learned: boolean; known: boolean; due: boolean; missing: string[] }>;
 }
@@ -236,13 +256,16 @@ export function partitionSkills(
 	skillsById: ReadonlyMap<string, Skill>,
 	boxes: ReadonlyMap<string, BoxState>,
 	now: number,
+	/** The skills THIS course has evidence on (inCourseEvidence); absent =
+	 *  no context checks. */
+	inCourse?: ReadonlySet<string>,
 ): SkillPartition {
 	const ids = courseSkillIds.filter((id) => skillsById.has(id));
 	const requiresOf = (id: string) => skillsById.get(id)?.requires ?? [];
 	const order = topoOrder(ids, requiresOf) ?? ids;
 	const stateOf = (id: string): BoxState => boxes.get(id) ?? { box: 0, lastMove: null };
 	const isLearned = (id: string) => stateOf(id).box >= LEARNED_BOX;
-	const out: SkillPartition = { order, review: [], nextUp: [], learning: [], locked: [], known: [], states: new Map() };
+	const out: SkillPartition = { order, review: [], nextUp: [], learning: [], locked: [], known: [], contextCheck: [], states: new Map() };
 	for (const id of order) {
 		const state = stateOf(id);
 		const learned = state.box >= LEARNED_BOX;
@@ -251,6 +274,7 @@ export function partitionSkills(
 		const missing = requiresOf(id).filter((req) => skillsById.has(req) && !isLearned(req));
 		out.states.set(id, { state, learned, known, due, missing });
 		if (learned && due) out.review.push(id);
+		if (learned && inCourse && !inCourse.has(id)) out.contextCheck.push(id);
 		if (known) out.known.push(id);
 		else if (learned) out.learning.push(id);
 		else if (missing.length === 0) out.nextUp.push(id);

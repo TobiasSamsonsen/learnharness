@@ -22,21 +22,33 @@ export function courseOfView(messages: readonly LhViewMessage[]): CourseContextD
 	return undefined;
 }
 
-/** The centered divider: "Lesson finished · <skill> learned". */
-export function LessonFinishedLine({ skill }: { skill?: string }) {
+/** The centered divider: "Lesson finished · <skill> learned" — or, for
+ *  every other course session (owner, 2026-10-25), "Session finished". */
+export function LessonFinishedLine({ skill, lesson = true }: { skill?: string; lesson?: boolean }) {
 	return (
 		<div
 			data-testid="lesson-finished-line"
 			className="my-4 flex items-center justify-center gap-1.5 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground"
 		>
 			<CheckIcon className="size-3" />
-			Lesson finished{skill ? ` · ${skill} learned` : ""}
+			{lesson ? `Lesson finished${skill ? ` · ${skill} learned` : ""}` : "Session finished"}
 		</div>
 	);
 }
 
-/** The top bar's button: Finish lesson, then Finished ✓ (inert). */
-export function FinishLessonButton({ finished, blocked, onFinish }: { finished: boolean; blocked: string | null; onFinish: () => void }) {
+/** The top bar's button: Finish lesson (Finish session outside Learn),
+ *  then Finished ✓ (inert). */
+export function FinishLessonButton({
+	finished,
+	blocked,
+	onFinish,
+	lesson = true,
+}: {
+	finished: boolean;
+	blocked: string | null;
+	onFinish: () => void;
+	lesson?: boolean;
+}) {
 	if (finished) {
 		return (
 			<span
@@ -49,7 +61,15 @@ export function FinishLessonButton({ finished, blocked, onFinish }: { finished: 
 		);
 	}
 	return (
-		<Hint label={blocked ?? "Log this lesson as finished — its skill becomes learned and the skills that build on it unlock"} side="bottom">
+		<Hint
+			label={
+				blocked ??
+				(lesson
+					? "Log this lesson as finished — its skill becomes learned and the skills that build on it unlock"
+					: "Mark this session as finished — what it showed stays credited")
+			}
+			side="bottom"
+		>
 			<button
 				type="button"
 				data-testid="finish-lesson"
@@ -58,7 +78,7 @@ export function FinishLessonButton({ finished, blocked, onFinish }: { finished: 
 				className="lh-no-drag flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground disabled:opacity-50 disabled:hover:border-border/80 disabled:hover:text-muted-foreground"
 			>
 				<FlagIcon className="size-3" aria-hidden />
-				Finish lesson
+				{lesson ? "Finish lesson" : "Finish session"}
 			</button>
 		</Hint>
 	);

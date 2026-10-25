@@ -214,6 +214,7 @@ describe("sanitizeUserSettings", () => {
 			"planner",
 			"pdfReader",
 			"coursePlanner",
+			"checker",
 		]);
 	});
 });
