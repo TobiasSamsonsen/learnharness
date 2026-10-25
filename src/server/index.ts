@@ -57,7 +57,7 @@ export {
 	deleteCourse,
 	listCourseSummaries,
 	renameCourse,
-	skillsOverview,
+	graphSkillLayer,
 	startCourseDraft,
 } from "./courses.ts";
 export { sessionCost } from "./pricing.ts";

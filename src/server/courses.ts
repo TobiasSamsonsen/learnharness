@@ -8,9 +8,10 @@ import type {
 	CourseSkillView,
 	CourseSummary,
 	CourseView,
-	HeldSkill,
+	GraphEdge,
+	GraphSkillLayer,
+	GraphSkillNode,
 	Skill,
-	SkillsOverview,
 } from "../core/contracts.ts";
 import { approveDraft, draftProblems, type DraftCheckContext } from "../core/course-draft.ts";
 import {
@@ -165,22 +166,46 @@ export function listCourseSummaries(): CourseSummary[] {
 	});
 }
 
-/** Every skill the learner has, across all courses (the home's skills
- *  card): strongest box first, then by name. */
-export function skillsOverview(): SkillsOverview {
+/** The knowledge graph's skills layer (owner, 2026-10-25): every skill the
+ *  learner holds (learned or known), its prerequisite arrows among the
+ *  held skills, an arrow from each proposition it rests on (the course
+ *  page's derivation), and one region per course. Undefined when nothing
+ *  is held. */
+export function graphSkillLayer(): GraphSkillLayer | undefined {
 	const ctx = readContext();
-	const coursesOf = new Map<string, string[]>();
-	for (const course of stores.courseStore.listCourses()) {
-		for (const id of course.skills) coursesOf.set(id, [...(coursesOf.get(id) ?? []), course.title]);
+	const courses = stores.courseStore.listCourses();
+	const coursesOf = new Map<string, Array<{ id: string; title: string }>>();
+	for (const course of courses) {
+		for (const id of course.skills) coursesOf.set(id, [...(coursesOf.get(id) ?? []), { id: course.id, title: course.title }]);
 	}
-	const held: HeldSkill[] = [];
+	const learnChats = learnChatsBySkill();
+	const nodes: GraphSkillNode[] = [];
 	for (const [id, state] of ctx.boxes) {
 		const skill = ctx.skills.get(id);
 		if (!skill || state.box < LEARNED_BOX) continue;
-		held.push({ id, name: skill.name, statement: skill.statement, box: state.box, due: isDue(state, ctx.now), courses: coursesOf.get(id) ?? [] });
+		nodes.push({
+			id,
+			name: skill.name,
+			statement: skill.statement,
+			box: state.box,
+			known: state.box >= KNOWN_BOX,
+			due: isDue(state, ctx.now),
+			courses: coursesOf.get(id) ?? [],
+			propositions: skillPropositionIds(skill, ctx, learnChats),
+		});
 	}
-	held.sort((a, b) => b.box - a.box || a.name.localeCompare(b.name));
-	return { known: held.filter((s) => s.box >= KNOWN_BOX), learning: held.filter((s) => s.box < KNOWN_BOX) };
+	if (nodes.length === 0) return undefined;
+	nodes.sort((a, b) => b.box - a.box || a.name.localeCompare(b.name));
+	const held = new Set(nodes.map((n) => n.id));
+	const edges: GraphEdge[] = [];
+	for (const n of nodes) {
+		for (const req of ctx.skills.get(n.id)!.requires) if (held.has(req)) edges.push({ from: req, to: n.id });
+		for (const p of n.propositions) edges.push({ from: p, to: n.id });
+	}
+	const regions = courses
+		.map((course) => ({ id: course.id, label: course.title, members: nodes.filter((n) => n.courses[0]?.id === course.id).map((n) => n.id) }))
+		.filter((r) => r.members.length > 0);
+	return { nodes, edges, regions };
 }
 
 export function courseView(courseId: string): CourseView | null {

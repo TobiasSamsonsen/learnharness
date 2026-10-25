@@ -9,7 +9,8 @@
  *                        emission, abort-partial persistence)
  *   triggerExtraction  — the graph write channel: fires the extraction
  *                        pipeline (the sole graph writer) once a chat
- *                        crosses the token-budget threshold.
+ *                        crosses the token-budget threshold, or once a
+ *                        Learn session is finished (whatever is left).
  *
  * Logs are the minimal-observability baseline: one line per failure, tagged
  * [chat <id>] — structured logging lands behind these seams later.
@@ -22,6 +23,7 @@ import { newMessageId } from "../core/native-messages.ts";
 import { QUESTION_TOOLS } from "../core/pending.ts";
 import { planBlocksFor } from "../core/plan-blocks.ts";
 import { coverageOf } from "../core/coverage.ts";
+import { sessionFinishOf } from "../core/course-session.ts";
 import type { ChatStore, GraphStore } from "../core/ports.ts";
 import type { ExtractionPipeline } from "../agent/subagents/extraction.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../core/settings.ts";
@@ -97,6 +99,15 @@ export function persistTurn(
  * trigger-agnostic. Skipped under tests: scripted chats are fixtures, not
  * knowledge (the pipeline itself is tested directly with mock models).
  */
+/** Does this chat's uncovered text warrant a run? A full batch budget —
+ *  or, once a Learn session is FINISHED (owner, 2026-10-25), anything at
+ *  all: a short lesson never reaches the budget, so it would otherwise
+ *  never reach the graph. Pure. */
+export function extractionDue(uncoveredTokens: number, chunkTokens: number, finishedLesson: boolean): boolean {
+	if (uncoveredTokens <= 0) return false;
+	return finishedLesson || uncoveredTokens >= chunkTokens;
+}
+
 export function triggerExtraction(
 	deps: { chatStore: ChatStore; graphStore: GraphStore },
 	extraction: ExtractionPipeline,
@@ -108,7 +119,8 @@ export function triggerExtraction(
 		const record = deps.chatStore.getChat(chatId);
 		if (!record) return;
 		const covered = coverageOf(record.messages, deps.graphStore.readCoverage(), chatId);
-		if (covered.uncoveredTokens < chunkTokens) return;
+		const finished = record.course?.mode === "learn" && sessionFinishOf(record.messages) !== null;
+		if (!extractionDue(covered.uncoveredTokens, chunkTokens, finished)) return;
 		void extraction.runExtraction(chatId).catch((err) => {
 			// BYOK (owner, 2026-09-22) + key presence (provider-key interlude,
 			// 2026-09-25): an unconfigured OR keyless write channel SKIPS (the

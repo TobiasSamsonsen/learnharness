@@ -67,7 +67,7 @@ import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, use
 import { NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
 import Link from "next/link";
 import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, UploadIcon, WaypointsIcon } from "lucide-react";
-import { incrementalLayout, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
+import { incrementalLayout, isSkillNodeId, MAX_BOX, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
 import { GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { useActivity } from "@/components/activity-dock";
@@ -132,6 +132,78 @@ export function isNodeVisible(node: Pick<GraphNode, "name" | "statement">, query
 	const q = query.trim().toLowerCase();
 	if (!q) return true;
 	return node.name.toLowerCase().includes(q) || node.statement.toLowerCase().includes(q);
+}
+
+/** The skill nodes' color token (owner, 2026-10-25): its own hue, so the
+ *  graph's second node kind reads apart from the propositions. */
+const SKILL_COLOR_TOKEN = "--lh-skill";
+
+/**
+ * Fold the snapshot's skills layer into the canvas image (owner,
+ * 2026-10-25 — "the skills I know should be visible in the knowledge
+ * graph"): held skills join `nodes` (as GraphNode-shaped entries), their
+ * arrows join `edges` AND `logicalEdges` (so the depth pass stacks a skill
+ * above what it rests on and its prerequisites below it), and each course
+ * becomes a region. `propositions` stays the stored truth — the chain
+ * table never sees a skill. Applied once, at fetch. Pure; exported for
+ * tests.
+ */
+export function withSkillLayer(snapshot: GraphSnapshot): GraphSnapshot {
+	const layer = snapshot.skills;
+	if (!layer || layer.nodes.length === 0) return snapshot;
+	const live = new Set(snapshot.nodes.map((n) => n.id));
+	const skillNodes: GraphNode[] = layer.nodes.map((s) => ({ id: s.id, name: s.name, statement: s.statement, aliases: [], createdAt: "", provenance: [] }));
+	for (const s of skillNodes) live.add(s.id);
+	const edges = layer.edges.filter((e) => live.has(e.from) && live.has(e.to));
+	return {
+		...snapshot,
+		nodes: [...snapshot.nodes, ...skillNodes],
+		edges: [...snapshot.edges, ...edges],
+		logicalEdges: [...snapshot.logicalEdges, ...edges],
+		clusters: [...snapshot.clusters, ...layer.regions.map((r) => ({ id: `course_${r.id}`, label: r.label, members: r.members }))],
+	};
+}
+
+/** A skill's detail card body (owner, 2026-10-25): its state, its courses
+ *  (to the course page) and the propositions it rests on. Exported for
+ *  render tests. */
+export function SkillDetail({
+	skill,
+	propositionName,
+}: {
+	skill: NonNullable<GraphSnapshot["skills"]>["nodes"][number] | undefined;
+	propositionName: (id: string) => string | undefined;
+}) {
+	if (!skill) return null;
+	const rests = skill.propositions.map((id) => propositionName(id)).filter((n): n is string => Boolean(n));
+	return (
+		<div className="mt-3 flex flex-col gap-2" data-testid="skill-detail">
+			<div className="text-xs text-muted-foreground">
+				Skill · {skill.known ? "known" : "learning"} · box {skill.box}/{MAX_BOX}
+				{skill.due ? " · due for review" : ""}
+			</div>
+			{skill.courses.length > 0 && (
+				<div className="flex flex-col gap-1">
+					<div className="text-xs text-muted-foreground">Courses</div>
+					{skill.courses.map((c) => (
+						<Link key={c.id} href={`/course/${c.id}`} className="truncate rounded-md px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-accent">
+							{c.title}
+						</Link>
+					))}
+				</div>
+			)}
+			{rests.length > 0 && (
+				<div className="flex flex-col gap-0.5">
+					<div className="text-xs text-muted-foreground">Rests on</div>
+					{rests.map((name, i) => (
+						<div key={i} className="truncate px-2 text-xs text-foreground">
+							{name}
+						</div>
+					))}
+				</div>
+			)}
+		</div>
+	);
 }
 
 /** In-place sessions patch for a live rename (rename-shuffle fix,
@@ -1085,7 +1157,7 @@ export function GraphView({
 		fetch("/api/graph")
 			.then((res) => res.json() as Promise<GraphSnapshot>)
 			.then((data) => {
-				if (!cancelled) setSnapshot(data);
+				if (!cancelled) setSnapshot(withSkillLayer(data));
 			})
 			.catch((err) => console.error("[graph] fetch failed:", err));
 		return () => {
@@ -1363,7 +1435,9 @@ export function GraphView({
 						return;
 					}
 					const node = snapshotRef.current?.nodes.find((n) => n.id === nodeId);
-					if (!node) return;
+					// Skills are the courses' to change, not the graph's
+					// Delete (it only knows propositions).
+					if (!node || isSkillNodeId(node.id)) return;
 					setCtxNode({ id: node.id, name: node.name, x: pos.x, y: pos.y });
 				},
 				// Any camera move detaches the card from its node — close
@@ -1412,13 +1486,18 @@ export function GraphView({
 		const renderer = rendererRef.current;
 		const positions = posRef.current;
 		if (!renderer || !snapshot || snapshot.nodes.length === 0 || !positions) return;
+		const skillById = new Map((snapshot.skills?.nodes ?? []).map((s) => [s.id, s]));
 		renderer.setData({
-			nodes: snapshot.nodes.map((n) => ({
-				id: n.id,
-				x: positions.get(n.id)?.x ?? 0,
-				y: positions.get(n.id)?.y ?? 0,
-				label: n.name,
-			})),
+			nodes: snapshot.nodes.map((n) => {
+				const skill = skillById.get(n.id);
+				return {
+					id: n.id,
+					x: positions.get(n.id)?.x ?? 0,
+					y: positions.get(n.id)?.y ?? 0,
+					label: n.name,
+					...(skill ? { skill: { known: skill.known, due: skill.due } } : {}),
+				};
+			}),
 			edges: snapshot.edges.map((e) => ({ from: e.from, to: e.to })),
 			logicalEdges: snapshot.logicalEdges.map((e) => ({ from: e.from, to: e.to })),
 			impLinks: snapshot.impLinks,
@@ -1428,6 +1507,7 @@ export function GraphView({
 				edge: tokenHex("--ring"),
 				label: tokenHex("--muted-foreground"),
 				hoverText: tokenHex("--foreground"),
+				skill: tokenHex(SKILL_COLOR_TOKEN),
 			},
 			// Match the app typography (Geist via the body's stack).
 			fontFamily: getComputedStyle(document.body).fontFamily,
@@ -1647,7 +1727,12 @@ export function GraphView({
 				>
 					<div className="text-sm font-medium leading-snug">{selected.node.name}</div>
 					<div className="mt-1 text-xs leading-relaxed text-muted-foreground">{selected.node.statement}</div>
-					{selected.sourceIds.length > 0 ? (
+					{isSkillNodeId(selected.node.id) ? (
+						<SkillDetail
+							skill={snapshot?.skills?.nodes.find((s) => s.id === selected.node.id)}
+							propositionName={(id) => snapshot?.nodes.find((n) => n.id === id)?.name}
+						/>
+					) : selected.sourceIds.length > 0 ? (
 						<div className="mt-3 flex flex-col gap-1">
 							<div className="text-xs text-muted-foreground">Sessions</div>
 							{selected.sourceIds.map((sourceId) => {

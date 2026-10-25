@@ -40,7 +40,8 @@ between questions. Decided:
 | Skills had from another course | **A context check, never a course**: a course skill learned or known on evidence from other courses only is listed under **From another course** with **Quick check** — a short practice session (`mode: "check"`: one problem, two at most, framed in this course's terms; only what differs here is explained). Optional: the skill stays learned/known and unlocks what builds on it. The placement test skips these skills. |
 | Finishing any course session | **Every mode finishes**, not only Learn: the agent's `finish_session` (practice, review, context check, placement — when the course section says the work is done, or the learner asks) or the learner's **Finish session** button (top bar; refused over an open question or a live problem). It only marks the session done; a Learn finish still makes the skill learned. Finished sessions show **Finished** with a check in the sidebar, and fold into a collapsed **Finished** group under the course page's Sessions. |
 | The skill map's size | The map lives in a **pan/zoom viewport** that opens readable (zoom 0.9, centered on what is due or next up) instead of the whole map shrunk into the column (a 32-skill map's text had shrunk to ~5px). Drag pans, Ctrl/⌘ + wheel zooms (a plain wheel scrolls the page), buttons zoom, fit and **expand** the map to the window. A map that is readable whole shows whole. |
-| The skills you know | A card on the home's main view (top-left): every skill the learner has, known first, then learning, with its box and courses (`GET /api/skills`). |
+| The skills you know | **In the knowledge graph**, as its second node kind: every held skill (learned or known) drawn as a rounded square in the skill color — solid when known, faint while learning, ringed when due — with arrows from its prerequisite skills and from the propositions it rests on, and one region per course. Clicking one opens its card (state, courses, what it rests on). The snapshot carries them as `skills` (`graphSkillLayer`); the canvas folds them in at fetch (`withSkillLayer`). |
+| Short lessons in the graph | **Extract on finish**: a finished Learn session extracts whatever text is left, however little (`extractionDue`); a lesson under the batch budget used to never reach the graph. |
 | No teaching between questions | **Gate + prompt**: the teacher's quiz/explain call is refused when no text has reached the learner since their last graded answer (`core/prose-gate.ts`), plus a teaching-prompt rule. |
 
 ## 1. Data
@@ -244,7 +245,7 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
 - `POST /api/courses/[id]/approve`: approve the current draft.
 - `/api/courses/[id]/materials` (+ `/[materialId]`): same contract as the chat materials routes.
 - `POST /api/courses/[id]/sessions`: see §4.
-- `GET /api/skills`: every skill the learner has across all courses — `{ known, learning }`, each with box, due and course titles (the home's skills card).
+- `GET /api/graph` also carries the skills layer (`skills`: held skills, their arrows, one region per course).
 - New server event **`courses-changed`** (course record changed, or a course chat's turn settled) → the sidebar and course page refetch.
 
 ## 6. UI

@@ -130,25 +130,6 @@ export interface CourseSummary {
 	due: number;
 }
 
-/** One skill the learner has, for the home's skills card (owner,
- *  2026-10-25 — "the skills you know in the main view"). */
-export interface HeldSkill {
-	id: string;
-	name: string;
-	statement: string;
-	box: number;
-	due: boolean;
-	/** The courses whose skill maps hold it (titles). */
-	courses: string[];
-}
-
-/** GET /api/skills — every skill the learner has, across all courses:
- *  known (box ≥ 3) and learned-but-not-known-yet (box 1–2). */
-export interface SkillsOverview {
-	known: HeldSkill[];
-	learning: HeldSkill[];
-}
-
 /** One skill's state in a course view. */
 export interface CourseSkillView {
 	id: string;

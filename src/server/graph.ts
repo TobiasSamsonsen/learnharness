@@ -12,6 +12,7 @@ import {
 import { extractionStatuses } from "../agent/subagents/extraction.ts";
 import { stores } from "./stores.ts";
 import { callCost } from "./pricing.ts";
+import { graphSkillLayer } from "./courses.ts";
 
 /**
  * Server-side graph entry for the home view (GET /api/graph). A PURE READ:
@@ -20,7 +21,11 @@ import { callCost } from "./pricing.ts";
  * reflects whatever the pipeline has merged so far.
  */
 export function graphView(): GraphSnapshot {
-	return graphSnapshot(stores);
+	const snapshot = graphSnapshot(stores);
+	// The skills layer (owner, 2026-10-25): the held skills ride the same
+	// payload — the canvas draws them beside the propositions.
+	const skills = graphSkillLayer();
+	return skills ? { ...snapshot, skills } : snapshot;
 }
 
 /** The graph view's cost surface (GET /api/graph/costs — the 2026-09 cost

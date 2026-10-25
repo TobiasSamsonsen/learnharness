@@ -678,9 +678,37 @@ describe("the course service (src/server/courses.ts)", () => {
 		]);
 		assert.deepEqual(courses.courseView(second.id)!.contextCheck, []);
 
-		const overview = courses.skillsOverview();
-		assert.deepEqual(overview.known, []);
-		assert.deepEqual(overview.learning.map((s) => [s.name, [...s.courses].sort()]), [["A", ["Calc", "Physics"]]]);
+		// the knowledge graph's skills layer: only what is held (A, learned —
+		// never D, untouched), both its courses, one region for it
+		const layer = courses.graphSkillLayer()!;
+		assert.deepEqual(layer.nodes.map((s) => [s.name, s.known, s.box, s.courses.map((c) => c.title).sort()]), [["A", false, 1, ["Calc", "Physics"]]]);
+		assert.equal(layer.regions.length, 1, "a skill sits in one course's region");
+		assert.deepEqual(layer.regions[0]!.members, [a]);
+	});
+
+	it("the graph's skills layer: held skills, prerequisite arrows among them, rests-on arrows from live propositions", () => {
+		const { courseId, a, b } = approvedCourse();
+		assert.equal(courses.graphSkillLayer(), undefined, "nothing held → no layer");
+		// a confident placement answer on B credits A and B
+		const placement = courses.createCourseSession(courseId, "placement");
+		assert.ok(placement.ok);
+		const record = chatStore.getChat(placement.value.id)!;
+		const at = Date.now() - 1000;
+		chatStore.saveMessages(placement.value.id, [
+			...record.messages,
+			assistant([{ id: "pq", name: "probe", args: { skill: b, question: "Q" } }], at),
+			{ ...result("pq", "probe", at), details: { kind: "quiz", dontKnow: false, answers: [], answeredAt: "t", correct: true, confidence: 90 } } as LhMessage,
+		]);
+		const layer = courses.graphSkillLayer()!;
+		assert.deepEqual(layer.nodes.map((s) => s.id).sort(), [a, b].sort());
+		assert.ok(layer.nodes.every((s) => s.known));
+		assert.deepEqual(
+			layer.edges.map((e) => `${e.from}->${e.to}`).sort(),
+			[`${a}->${b}`, `n1->${b}`].sort(),
+			"A → B (prerequisite) and the proposition B rests on → B",
+		);
+		assert.deepEqual(layer.nodes.find((s) => s.id === b)!.propositions, ["n1"]);
+		assert.deepEqual(layer.regions, [{ id: courseId, label: "Calc", members: layer.nodes.map((s) => s.id) }]);
 	});
 
 	it("finish is a course-session affordance — any mode, once, never over an open question or a live problem", () => {
@@ -1007,19 +1035,6 @@ describe("the UI", () => {
 		assert.doesNotMatch(html, /data-testid="course-known"/, "A shows once — in its own section");
 		assert.match(html, /about one short question for 1 skill,/);
 		assert.doesNotMatch(body({ ...data, skills: [skillView("a", { box: 3, learned: true, known: true })], nextUp: [] }), /placement-offer/, "nothing left to place");
-	});
-
-	it("the home's skills card: known first, then learning; nothing at all when there is nothing", async () => {
-		const { SkillsCardBody } = await import("../components/skills-card.tsx");
-		const held = (id: string, box: number, courses: string[]) => ({ id, name: id.toUpperCase(), statement: `Do ${id}`, box, due: box === 1, courses });
-		const html = renderToStaticMarkup(
-			<SkillsCardBody data={{ known: [held("a", 4, ["Calc"])], learning: [held("b", 1, ["Calc", "Physics"])] }} collapsed={false} onToggle={() => {}} />,
-		);
-		assert.match(html, /Skills you know · 1[\s\S]*1 learning[\s\S]*held-skill-a[\s\S]*box 4\/5 · Calc[\s\S]*Learning[\s\S]*held-skill-b[\s\S]*box 1\/5 · due · Calc, Physics/);
-		const closed = renderToStaticMarkup(<SkillsCardBody data={{ known: [held("a", 4, [])], learning: [] }} collapsed onToggle={() => {}} />);
-		assert.match(closed, /aria-expanded="false"/);
-		assert.doesNotMatch(closed, /held-skill-a/);
-		assert.equal(renderToStaticMarkup(<SkillsCardBody data={{ known: [], learning: [] }} collapsed={false} onToggle={() => {}} />), "");
 	});
 
 	it("a draft shows its skills, reused marks, and the review controls", () => {

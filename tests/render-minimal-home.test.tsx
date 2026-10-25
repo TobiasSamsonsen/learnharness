@@ -72,4 +72,12 @@ describe("KnowledgeSummary — the quiet home summary (2026-10-06)", () => {
 		const html = render();
 		assert.ok(!html.includes("Nothing here yet"));
 	});
+
+	it("held skills lead with their own block; none held → no block (2026-10-25)", () => {
+		assert.ok(!render().includes("knowledge-summary-skills"));
+		const html = render({ knownSkills: 19, learningSkills: 1 });
+		assert.match(html, /knowledge-summary-skills[\s\S]*19 skills known[\s\S]*1 skill being learned/);
+		assert.ok(html.indexOf("19 skills known") < html.indexOf("12 propositions"), "before the graph counts");
+		assert.ok(!render({ propositions: 0, chains: 0, teachSessions: 0, practiceSessions: 0, importedNotes: 0, knownSkills: 1 }).includes("Nothing here yet"), "a held skill is not an empty base");
+	});
 });
