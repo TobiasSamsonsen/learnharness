@@ -83,6 +83,11 @@ export interface CanvasNode {
 	x: number;
 	y: number;
 	label: string;
+	/** A held SKILL (owner, 2026-10-25 — the graph's second node kind):
+	 *  drawn as a rounded square in the skill color — solid when known,
+	 *  faint with an outline while still being learned, ringed when due.
+	 *  Absent = a proposition disc. */
+	skill?: { known: boolean; due: boolean };
 }
 
 /** One directed edge of the DERIVED view (chains-primary, 2026-09-30):
@@ -117,6 +122,8 @@ export interface CanvasColors {
 	edge: string;
 	label: string;
 	hoverText: string;
+	/** The skill nodes' color (optional: a caller without skills omits it). */
+	skill?: string;
 }
 
 export interface CanvasData {
@@ -495,6 +502,26 @@ export function pickNearest<T extends { id: string; x: number; y: number }>(
 // ─── Canvas text helpers (ported verbatim) ─────────────────────────────────
 
 /** "#rrggbb" + alpha → "rgba(...)". */
+/** A skill node's side, in node radii (a touch larger than the disc so
+ *  the square reads as its own kind at a glance). */
+const SKILL_SIDE = 2.3;
+/** The due ring's side, relative to the square. */
+const SKILL_DUE_RING = 1.45;
+/** A still-learning skill's fill opacity (the outline stays full). */
+const SKILL_LEARNING_ALPHA = 0.3;
+
+/** Append a rounded square centered on (x, y) to `path`. Pure geometry. */
+export function roundedSquare(path: Path2D, x: number, y: number, side: number): void {
+	const h = side / 2;
+	const r = side * 0.22;
+	path.moveTo(x - h + r, y - h);
+	path.arcTo(x + h, y - h, x + h, y + h, r);
+	path.arcTo(x + h, y + h, x - h, y + h, r);
+	path.arcTo(x - h, y + h, x - h, y - h, r);
+	path.arcTo(x - h, y - h, x + h, y - h, r);
+	path.closePath();
+}
+
 function rgbaFromHex(hex: string, alpha: number): string {
 	const r = Number.parseInt(hex.slice(1, 3), 16);
 	const g = Number.parseInt(hex.slice(3, 5), 16);
@@ -637,6 +664,7 @@ export class GraphCanvasRenderer {
 	private geoVersion = 0; // bump = geometry inputs changed
 	private builtVersion = -1; // version the cache was built at
 	private nodesPath: Path2D | null = null;
+	private skillPaths: { known: Path2D; learning: Path2D; due: Path2D } | null = null;
 	private shaftsPath: Path2D = new Path2D();
 	private headsPath: Path2D = new Path2D();
 	private regionCanvas: HTMLCanvasElement | null = null;
@@ -1238,13 +1266,25 @@ export class GraphCanvasRenderer {
 
 		// Node discs: one Path2D, one fill() per frame. Implication nodes
 		// are pure geometry — never a disc, never a label, never picked.
+		// Skills (owner, 2026-10-25) get their own paths: rounded squares,
+		// split by state so each state is one fill/stroke per frame.
 		const nodesPath = new Path2D();
+		const skillsKnown = new Path2D();
+		const skillsLearning = new Path2D();
+		const skillsDue = new Path2D();
+		const side = nodeR * SKILL_SIDE;
 		for (const n of data.nodes) {
 			if (!isVisible(n.id) || isImpNodeId(n.id)) continue;
+			if (n.skill) {
+				roundedSquare(n.skill.known ? skillsKnown : skillsLearning, n.x, n.y, side);
+				if (n.skill.due) roundedSquare(skillsDue, n.x, n.y, side * SKILL_DUE_RING);
+				continue;
+			}
 			nodesPath.moveTo(n.x + nodeR, n.y);
 			nodesPath.arc(n.x, n.y, nodeR, 0, Math.PI * 2);
 		}
 		this.nodesPath = nodesPath;
+		this.skillPaths = { known: skillsKnown, learning: skillsLearning, due: skillsDue };
 
 		// Edge shafts + arrowheads (rendering arc, owner 2026-09-30): all
 		// arrows are PLAIN single shafts — the old double-shaft glyph is
@@ -1665,6 +1705,21 @@ export class GraphCanvasRenderer {
 		ctx.fillStyle = data.colors.node;
 		ctx.fill(this.nodesPath);
 
+		// 5. Skills: known solid; learning faint with an outline; due ringed.
+		if (this.skillPaths) {
+			const color = data.colors.skill ?? data.colors.node;
+			ctx.fillStyle = color;
+			ctx.fill(this.skillPaths.known);
+			ctx.save();
+			ctx.globalAlpha = SKILL_LEARNING_ALPHA;
+			ctx.fill(this.skillPaths.learning);
+			ctx.restore();
+			ctx.strokeStyle = color;
+			ctx.lineWidth = 1.25 / k;
+			ctx.stroke(this.skillPaths.learning);
+			ctx.stroke(this.skillPaths.due);
+		}
+
 		// 6. Node labels — one global gate, faded together. World-scaled
 		// with the graph (they grow as you zoom in, Obsidian-style).
 		if (nodeAlpha > 0.01) {
@@ -1688,9 +1743,10 @@ export class GraphCanvasRenderer {
 				? null // filtered out by search — no glow on hidden nodes
 				: this.hoverNode;
 			if (n) {
+				const glowColor = n.skill ? (data.colors.skill ?? data.colors.node) : data.colors.node;
 				const glow = ctx.createRadialGradient(n.x, n.y, nodeR, n.x, n.y, glowOuter);
-				glow.addColorStop(0, rgbaFromHex(data.colors.node, GLOW_ALPHA * this.hoverFade));
-				glow.addColorStop(1, rgbaFromHex(data.colors.node, 0));
+				glow.addColorStop(0, rgbaFromHex(glowColor, GLOW_ALPHA * this.hoverFade));
+				glow.addColorStop(1, rgbaFromHex(glowColor, 0));
 				ctx.fillStyle = glow;
 				ctx.beginPath();
 				ctx.arc(n.x, n.y, glowOuter, 0, Math.PI * 2);

@@ -14,7 +14,6 @@ import { ComposerEdge } from "@/components/composer-edge";
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { StatsBar } from "@/components/stats-bar";
-import { SkillsCard } from "@/components/skills-card";
 import type { TurnUsage } from "@/src/core";
 
 /**
@@ -211,13 +210,6 @@ export function Home({
 					<SidebarToggle />
 				</div>
 			</header>
-
-			{/* The skills you know (owner, 2026-10-25): top-left, under the
-			    sidebar toggle and below the drag strip — clear of the graph
-			    chrome (top-right) and the composer dock (bottom). */}
-			<div className="lh-no-drag absolute left-3 top-14 z-10">
-				<SkillsCard />
-			</div>
 
 			{/* New session — same floating blob as the chat composer, docked
 			    OVER the graph (no gradient: the graph runs clean under it to the

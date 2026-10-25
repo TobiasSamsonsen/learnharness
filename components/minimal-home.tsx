@@ -35,17 +35,38 @@ export function KnowledgeSummary({
 	teachSessions,
 	practiceSessions,
 	importedNotes,
+	knownSkills = 0,
+	learningSkills = 0,
 }: {
 	propositions: number;
 	chains: number;
 	teachSessions: number;
 	practiceSessions: number;
 	importedNotes: number;
+	/** The skills you hold (owner, 2026-10-25 — the graph's second node
+	 *  kind): a block of its own, only once there is one. */
+	knownSkills?: number;
+	learningSkills?: number;
 }) {
 	const empty =
-		propositions === 0 && chains === 0 && teachSessions === 0 && practiceSessions === 0 && importedNotes === 0;
+		propositions === 0 && chains === 0 && teachSessions === 0 && practiceSessions === 0 && importedNotes === 0 && knownSkills === 0 && learningSkills === 0;
 	return (
 		<div data-testid="knowledge-summary" className="flex flex-col items-center text-center">
+			{knownSkills + learningSkills > 0 && (
+				<>
+					<div className="flex flex-col gap-1" data-testid="knowledge-summary-skills">
+						<p className="font-ui text-sm text-muted-foreground">
+							{knownSkills} {knownSkills === 1 ? "skill known" : "skills known"}
+						</p>
+						{learningSkills > 0 && (
+							<p className="font-ui text-sm text-muted-foreground">
+								{learningSkills} {learningSkills === 1 ? "skill" : "skills"} being learned
+							</p>
+						)}
+					</div>
+					<div className="h-4" aria-hidden="true" />
+				</>
+			)}
 			{/* Own-line law (owner, 2026-10-06): every count sits on its own
 			    row — no dot separators; the two blocks (graph, sessions)
 			    part with one empty line; the notes COUNT (never the file
@@ -152,6 +173,8 @@ export function MinimalHome({
 					teachSessions={teachSessions}
 					practiceSessions={practiceSessions}
 					importedNotes={Object.keys(snapshot?.fileSources ?? {}).length}
+					knownSkills={snapshot?.skills?.nodes.filter((s) => s.known).length ?? 0}
+					learningSkills={snapshot?.skills?.nodes.filter((s) => !s.known).length ?? 0}
 				/>
 			</div>
 

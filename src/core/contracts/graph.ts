@@ -344,7 +344,39 @@ export interface GraphSnapshot {
 	 *  exists (core/layout.ts settle writes it). Absent on a fresh graph —
 	 *  the view then falls back to its own one-shot forceAtlas2 pass. */
 	positions?: Record<string, Position>;
+	/** The skills the learner holds (owner, 2026-10-25 — "the skills I
+	 *  know should be visible in the knowledge graph"): the graph's SECOND
+	 *  node kind, drawn beside the propositions. Absent when none is held
+	 *  (or no course exists). */
+	skills?: GraphSkillLayer;
 }
+
+/** One held skill (learned or known — box ≥ 1) as the graph shows it. */
+export interface GraphSkillNode {
+	id: string;
+	name: string;
+	statement: string;
+	/** Leitner box 1–5. */
+	box: number;
+	known: boolean;
+	due: boolean;
+	/** The courses whose skill maps hold it. */
+	courses: Array<{ id: string; title: string }>;
+	/** Graph propositions it rests on (live node ids only). */
+	propositions: string[];
+}
+
+/** The skills layer: its nodes, its arrows — prerequisite skill → skill,
+ *  and proposition → the skill resting on it — and one region per course
+ *  (each skill in its first course's region). */
+export interface GraphSkillLayer {
+	nodes: GraphSkillNode[];
+	edges: GraphEdge[];
+	regions: Array<{ id: string; label: string; members: string[] }>;
+}
+
+/** Skill node ids on the canvas — the skills ledger's own prefix. */
+export const isSkillNodeId = (id: string): boolean => id.startsWith("sk_");
 
 /** A node's resting position in layout space (the positions ledger). */
 export interface Position {
