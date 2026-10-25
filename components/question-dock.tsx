@@ -11,7 +11,8 @@ import {
 	buildAnswer,
 	normalizeQuizType,
 	CONFIDENCE_STOPS,
-	DEFAULT_CONFIDENCE_INDEX,
+	nearestConfidenceStop,
+	dockSubmitGate,
 	emptyDockSelection,
 	normalizeOptions,
 	resolveCorrect,
@@ -322,11 +323,11 @@ function QuestionDockForm({
 	 * in time — submit reads these, kept current at every write site. */
 	const thinkingTextRef = useRef("");
 	const answerTextRef = useRef("");
-	// Confidence (owner, 2026-10-01): an index into CONFIDENCE_STOPS,
-	// resting at 50 — a real coin flip by definition, untouched or
-	// deliberate (the same number, the same meaning). The dock unmounts
-	// between questions, so each question starts fresh at 50.
-	const [confIdx, setConfIdx] = useState<number>(DEFAULT_CONFIDENCE_INDEX);
+	// Confidence (owner, 2026-10-01): an index into CONFIDENCE_STOPS, or
+	// null while unset — NO default (owner, 2026-10-25): a picked quiz
+	// answer cannot be sent until the learner chooses a stop. The dock
+	// unmounts between questions, so each question starts unset.
+	const [confIdx, setConfIdx] = useState<number | null>(null);
 	const selectMode: SelectMode = qd.mode === "multi-select" ? "multi-select" : "single-select";
 
 	// The PRIMARY dictation input (owner, STT round 1): while a question
@@ -359,10 +360,14 @@ function QuestionDockForm({
 
 	const toggle = (idx: number) => setSel(toggleOption(selectMode, sel, idx));
 
-	const canSubmit =
-		qd.mode === "text"
-			? text.trim().length > 0
-			: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0;
+	const { canSubmit, needsConfidence } = dockSubmitGate({
+		kind,
+		mode: qd.mode,
+		sel,
+		other,
+		text,
+		confidenceSet: confIdx !== null,
+	});
 
 	const submit = () => {
 		if (!canSubmit || compactionRunning) return;
@@ -386,9 +391,9 @@ function QuestionDockForm({
 			other: sel.otherSelected ? other : undefined,
 			text: qd.mode === "text" ? answerTextRef.current : undefined,
 			thinking: qd.mode !== "text" ? thinkingTextRef.current.trim() || undefined : undefined,
-			// Always sent on quiz answers (owner: 50 must mean 50, never
-			// "untouched"); buildAnswer drops it on "I don't know".
-			confidence: kind === "quiz" ? CONFIDENCE_STOPS[confIdx] : undefined,
+			// Always chosen on a picked quiz answer (canSubmit waits for it);
+			// buildAnswer drops it on "I don't know".
+			confidence: kind === "quiz" && confIdx !== null ? CONFIDENCE_STOPS[confIdx] : undefined,
 		};
 		onSubmit(buildAnswer(qd, req, toolName));
 	};
@@ -511,11 +516,11 @@ function QuestionDockForm({
 				// (the slider grays out and nothing is sent).
 				if (kind !== "quiz" || sel.dontKnow) return;
 				e.preventDefault();
+				// From unset, either arrow lands on 50 (the middle stop).
 				setConfIdx((i) =>
-					Math.min(
-						CONFIDENCE_STOPS.length - 1,
-						Math.max(0, i + (e.key === "ArrowRight" ? 1 : -1)),
-					),
+					i === null
+						? CONFIDENCE_STOPS.indexOf(50)
+						: Math.min(CONFIDENCE_STOPS.length - 1, Math.max(0, i + (e.key === "ArrowRight" ? 1 : -1))),
 				);
 			} else if (e.key === " ") {
 				if (kbdIdx === null) return; // plain Space keeps scrolling the page
@@ -743,6 +748,14 @@ function QuestionDockForm({
 							)}
 						>
 							Confidence
+							{confIdx === null && !sel.dontKnow && (
+								<span
+									data-testid="confidence-unset-hint"
+									className="ml-1.5 font-normal normal-case tracking-normal text-muted-foreground/70"
+								>
+									set before submitting
+								</span>
+							)}
 						</span>
 						<div
 							className={cn("relative h-4 min-w-0 flex-1", sel.dontKnow && "opacity-40")}
@@ -762,39 +775,35 @@ function QuestionDockForm({
 								aria-hidden
 								data-testid="confidence-rail"
 								className="pointer-events-none absolute top-1/2 left-2 right-2 h-1.5 -translate-y-1/2 rounded-full border border-border"
-								style={confidenceRailStyle(CONFIDENCE_STOPS[confIdx]!)}
+								// Unset paints an empty rail (a 0-width fill).
+								style={confidenceRailStyle(confIdx === null ? 0 : CONFIDENCE_STOPS[confIdx]!)}
 							/>
 							<input
 								type="range"
 								min={0}
 								max={100}
 								step={1}
-								value={CONFIDENCE_STOPS[confIdx]}
+								// Unset: the native input still needs a value — it rests,
+								// invisible, at 50.
+								value={confIdx === null ? 50 : CONFIDENCE_STOPS[confIdx]}
 								disabled={sel.dontKnow}
 								aria-label="Confidence — the probability your selected answer is correct"
-								aria-valuetext={`${CONFIDENCE_STOPS[confIdx]} percent`}
+								aria-valuetext={confIdx === null ? "not set" : `${CONFIDENCE_STOPS[confIdx]} percent`}
 								title="The probability your selected answer is correct — 50% is a coin flip. Adjust with ←/→."
 								data-testid="confidence-slider"
-								onChange={(e) => {
-									// Snap to the nearest stop; the rendered VALUE is the stop's own
-									// percent, so the thumb always rests at its true fraction (50 =
-									// halfway). Keyboard needs no handler here: the dock machine treats
-									// a focused range as non-typing (see the guard above) and its ←/→
-									// branch preventDefaults, which also cancels the native 1% step.
-									const v = Number(e.target.value);
-									let best = 0;
-									for (let i = 1; i < CONFIDENCE_STOPS.length; i++) {
-										if (Math.abs(CONFIDENCE_STOPS[i]! - v) < Math.abs(CONFIDENCE_STOPS[best]! - v)) best = i;
-									}
-									setConfIdx(best);
-								}}
-								style={{ color: CONFIDENCE_COLORS[confIdx] }}
+								onChange={(e) => setConfIdx(nearestConfidenceStop(Number(e.target.value)))}
+								// A click on the hidden resting value changes nothing, so
+								// onChange never fires: the release sets it too.
+								onPointerUp={(e) => setConfIdx(nearestConfidenceStop(Number(e.currentTarget.value)))}
+								style={{ color: confIdx === null ? undefined : CONFIDENCE_COLORS[confIdx] }}
 								className={cn(
 									"absolute inset-0 h-4 w-full cursor-pointer appearance-none bg-transparent outline-none",
 									"[&::-webkit-slider-runnable-track]:h-4 [&::-webkit-slider-runnable-track]:bg-transparent",
 									"[&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-current",
 									"[&::-moz-range-track]:h-4 [&::-moz-range-track]:bg-transparent",
 									"[&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-current",
+									confIdx === null &&
+										"[&::-webkit-slider-thumb]:opacity-0 [&::-moz-range-thumb]:opacity-0",
 								)}
 							/>
 						</div>
@@ -805,7 +814,7 @@ function QuestionDockForm({
 								sel.dontKnow && "text-muted-foreground/50",
 							)}
 						>
-							{sel.dontKnow ? "—" : `${CONFIDENCE_STOPS[confIdx]}%`}
+							{sel.dontKnow || confIdx === null ? "—" : `${CONFIDENCE_STOPS[confIdx]}%`}
 						</span>
 					</div>
 				</div>
@@ -901,6 +910,7 @@ function QuestionDockForm({
 						<Button
 							type="submit"
 							disabled={!canSubmit || compactionRunning}
+							title={needsConfidence ? "Set your confidence first" : undefined}
 							className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 						>
 							Submit answer

@@ -35,6 +35,7 @@ import { parseQuizInput } from "../src/core/tool-parts.ts";
 import { resolveTargetId } from "../src/core/chains.ts";
 import { bareQuestionTools } from "../src/agent/teacher-agent.ts";
 import { probeQuizTool } from "../src/agent/tools.ts";
+import { placementProbeInput } from "../src/agent/tools/course.ts";
 
 /** The incident's exact encoding: the value wrapped in literal quotes. */
 function QUOTED(value: string): string {
@@ -186,5 +187,54 @@ describe("the display mirror — raw records heal on read", () => {
 		assert.equal(normalizeQuizType(parsed?.type), "predict");
 		// The graded answer resolves to the option despite the recorded colon.
 		assert.deepEqual(parsed ? coerceCorrectAnswer(parsed.correctAnswer, parsed.options.map((o) => o.value ?? o.label)) : [], ["parmenides"]);
+	});
+});
+
+describe("the leaked parameter boundary (Matte 1 placement, 2026-10-25)", () => {
+	// The exact failed call: `skill` swallowed `question` behind a leaked
+	// `</parameter>\n<parameter name="question">` and validation refused it.
+	const leaked = {
+		skill: 'sk_74aa18dc0f9a</parameter>\n<parameter name="question">La $A=\begin{pmatrix}1&2\\3&k\end{pmatrix}$. For hvilken verdi av $k$?',
+		explanation: "$\det A = k-6$.",
+		options: [
+			{ label: "$k=6$", value: "a" },
+			{ label: "$k=-6$", value: "b" },
+		],
+		correctAnswer: "a",
+	};
+
+	it("splits the field back out, and the healed call passes validation", () => {
+		const healed = healEncodedArguments(leaked, placementProbeInput) as Record<string, unknown>;
+		assert.equal(healed.skill, "sk_74aa18dc0f9a");
+		assert.match(String(healed.question), /^La \$A=.*For hvilken verdi av \$k\$\?$/);
+		const call = (args: unknown) =>
+			validateToolArguments({ name: "probe", parameters: placementProbeInput } as never, {
+				id: "call_x",
+				type: "toolCall",
+				name: "probe",
+				arguments: args,
+			} as never);
+		assert.throws(() => call(leaked));
+		assert.doesNotThrow(() => call(healed));
+	});
+
+	it("strips a trailing closing tag on the split-off value", () => {
+		const healed = healEncodedArguments(
+			{ ...leaked, skill: 'sk_1</parameter>\n<parameter name="question">Q?</parameter>' },
+			placementProbeInput,
+		) as Record<string, unknown>;
+		assert.equal(healed.question, "Q?");
+	});
+
+	it("leaves well-formed args as the same reference", () => {
+		const fine = { ...leaked, skill: "sk_1", question: "Q?" };
+		assert.equal(healEncodedArguments(fine, placementProbeInput), fine);
+	});
+
+	it("leaves the call alone when the named field is unknown or already present", () => {
+		const unknown = { ...leaked, skill: 'sk_1</parameter>\n<parameter name="bogus">x' };
+		assert.equal(healEncodedArguments(unknown, placementProbeInput), unknown);
+		const present = { ...leaked, question: "Q?" };
+		assert.equal(healEncodedArguments(present, placementProbeInput), present);
 	});
 });

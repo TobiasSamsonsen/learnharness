@@ -55,6 +55,34 @@ function tryParse(raw: string): unknown {
 	}
 }
 
+/** A leaked XML parameter boundary inside a string value (2026-10-25, a
+ *  Matte 1 placement probe): the model's tool-call text format bled into
+ *  the JSON, so `skill` carried `sk_…</parameter>\n<parameter
+ *  name="question">La $A=…` and `question` was missing. */
+const LEAKED_BOUNDARY = /<\/parameter>\s*<parameter name="([^"]+)">/g;
+
+/** Split leaked boundaries back into their fields — only when every named
+ *  field is a schema property, absent from the args, and named once;
+ *  anything else stays for validation to reject honestly. */
+function healLeakedParameters(args: Record<string, unknown>, properties: Record<string, PropSchema>): Record<string, unknown> {
+	let healed: Record<string, unknown> | null = null;
+	for (const [key, raw] of Object.entries(args)) {
+		if (typeof raw !== "string" || !raw.includes("</parameter>")) continue;
+		const parts = raw.split(LEAKED_BOUNDARY); // [value, name, value, name, value, …]
+		if (parts.length < 3) continue;
+		const fields: [string, string][] = [];
+		for (let i = 1; i < parts.length; i += 2) fields.push([parts[i]!, parts[i + 1]!.replace(/\s*<\/parameter>\s*$/, "")]);
+		const names = fields.map(([name]) => name);
+		const target = healed ?? args;
+		const ok = names.every((name, i) => name in properties && !(name in target) && names.indexOf(name) === i);
+		if (!ok) continue;
+		healed ??= { ...args };
+		healed[key] = parts[0];
+		for (const [name, value] of fields) healed[name] = value;
+	}
+	return healed ?? args;
+}
+
 export function healEncodedArguments(
 	args: unknown,
 	schema: { properties?: Record<string, PropSchema> },
@@ -62,6 +90,7 @@ export function healEncodedArguments(
 	if (typeof args !== "object" || args === null || Array.isArray(args)) return args;
 	const properties = schema.properties;
 	if (!properties) return args;
+	args = healLeakedParameters(args as Record<string, unknown>, properties);
 	let healed: Record<string, unknown> | null = null;
 	for (const [key, prop] of Object.entries(properties)) {
 		const raw = (args as Record<string, unknown>)[key];

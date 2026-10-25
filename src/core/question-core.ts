@@ -503,16 +503,26 @@ export interface AnswerRequest {
 	text?: string; // ask text-mode
 	thinking?: string; // the reasoning-on-the-question channel (was `note`)
 	readingThinking?: string; // the thinking-while-reading channel (check answers)
-	confidence?: number; // quiz only: 0-100 raw probability — 50 is a real coin flip, always sent (owner, 2026-10-01)
+	confidence?: number; // quiz only: 0-100 raw probability, always chosen by the learner — the dock has no default (owner, 2026-10-25)
 }
 
 /** The confidence slider's snap stops (owner, 2026-10-01): raw probability
  *  that the selected answer is correct, uneven on purpose — resolution
  *  concentrates at the top where the calibration signal lives (90 vs 100
- *  separates knows from mastered). 50 is a genuine coin flip and the
- *  resting default — untouched and deliberate 50 are the same number. */
+ *  separates knows from mastered). 50 is a genuine coin flip. NO resting
+ *  default (owner, 2026-10-25): an untouched 50 sank three correct
+ *  placement answers below the known line, so the dock starts unset and
+ *  a picked quiz answer cannot be sent until a stop is chosen. */
 export const CONFIDENCE_STOPS: readonly number[] = [0, 30, 50, 70, 90, 100];
-export const DEFAULT_CONFIDENCE_INDEX = 2;
+
+/** The index of the stop nearest a raw slider value (0–100). */
+export function nearestConfidenceStop(value: number): number {
+	let best = 0;
+	for (let i = 1; i < CONFIDENCE_STOPS.length; i++) {
+		if (Math.abs(CONFIDENCE_STOPS[i]! - value) < Math.abs(CONFIDENCE_STOPS[best]! - value)) best = i;
+	}
+	return best;
+}
 
 // ─── dock selection (the client state machine, pure for tests) ─────────────
 
@@ -550,6 +560,25 @@ export function toggleOption(mode: SelectMode, sel: DockSelection, idx: number):
 export function toggleOther(mode: SelectMode, sel: DockSelection): DockSelection {
 	if (mode === "multi-select") return { ...sel, otherSelected: !sel.otherSelected, dontKnow: false };
 	return { selected: new Set(), otherSelected: true, dontKnow: false };
+}
+
+/** The dock's submit gate. A picked quiz answer also needs its confidence
+ *  (owner, 2026-10-25: no default); "I don't know" carries none, and
+ *  text mode needs only its text. `needsConfidence` names why a picked
+ *  answer still waits. */
+export function dockSubmitGate(s: {
+	kind: QuestionKind;
+	mode: QuestionMode;
+	sel: DockSelection;
+	other: string;
+	text: string;
+	confidenceSet: boolean;
+}): { canSubmit: boolean; needsConfidence: boolean } {
+	if (s.mode === "text") return { canSubmit: s.text.trim().length > 0, needsConfidence: false };
+	if (s.sel.dontKnow) return { canSubmit: true, needsConfidence: false };
+	const picked = (s.sel.otherSelected && s.other.trim().length > 0) || s.sel.selected.size > 0;
+	const needsConfidence = picked && s.kind === "quiz" && !s.confidenceSet;
+	return { canSubmit: picked && !needsConfidence, needsConfidence };
 }
 
 // ─── options ────────────────────────────────────────────────────────────────
@@ -779,16 +808,20 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 	if (ad.dismissed) return { kind: ad.kind, dismissed: true };
 	const out: Record<string, unknown> = { kind: ad.kind };
 	if (ad.dontKnow) out.dontKnow = true;
+	// The verdict + stated confidence are the learner's PERFORMANCE — new
+	// information the model needs for its next move. (dontKnow implies
+	// incorrect and carries no confidence: both stay implicit.) KEY ORDER
+	// IS DELIBERATE (owner, 2026-10-25): the verdict leads, the pick
+	// follows, the thinking comes last — a teacher once re-graded a
+	// correct answer from dictated thinking that read the other options
+	// aloud. JSON.stringify keeps insertion order.
+	if (ad.correct !== undefined && !ad.dontKnow) out.correct = ad.correct;
 	// Array.isArray: the seam is called with `unknown` answers (test
 	// fixtures, foreign records) — degrade to omission, never crash.
 	if (Array.isArray(ad.answers) && ad.answers.length > 0)
 		out.answers = ad.answers.map((a) => ({ index: a.index, label: a.label }));
 	if (ad.text) out.text = ad.text;
 	if (ad.other) out.other = ad.other;
-	// The verdict + stated confidence are the learner's PERFORMANCE — new
-	// information the model needs for its next move. (dontKnow implies
-	// incorrect and carries no confidence: both stay implicit.)
-	if (ad.correct !== undefined && !ad.dontKnow) out.correct = ad.correct;
 	if (ad.confidence !== undefined) out.confidence = ad.confidence;
 	// Two DISTINCT thinking channels, clearly keyed so the model never
 	// conflates them (owner 2026-10-03): reasoning on the question vs

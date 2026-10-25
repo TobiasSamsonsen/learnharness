@@ -40,7 +40,9 @@ where available, exact messages.
 
 Both teacher prose and graph content are model-authored and can be wrong. Learner
 confidence is self-reported, not an objective score. A missing confidence value is
-not zero; an unchanged and a deliberately chosen 50% are indistinguishable. Ground
+not zero. Up to 2026-10-25 the slider rested at 50%, so an unchanged and a
+deliberately chosen 50% are indistinguishable there; later answers always carry a
+chosen value. Ground
 interpretations in the dated evidence rather than turning one response into a
 permanent judgment about the person.
 

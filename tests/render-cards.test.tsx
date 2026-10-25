@@ -156,6 +156,14 @@ describe("render smoke tests", () => {
 		assert.ok(html.includes('role="radio"'), "button-based radio role present");
 	});
 
+	it("QuizCard's confidence starts unset — no default to forget (owner, 2026-10-25)", () => {
+		const html = renderDock({ toolName: "quiz", toolCallId: "q1", input: quizInput as never });
+		assert.ok(html.includes('data-testid="confidence-unset-hint"'), "the hint asks for a confidence");
+		assert.match(html, /set before submitting/);
+		assert.match(html, /aria-valuetext="not set"/);
+		assert.match(html, /data-testid="confidence-value"[^>]*>—</, "no number shown until chosen");
+	});
+
 	it("QuizCard never leaks the explanation or the correct answer before submit", () => {
 		const html = renderDock({ toolName: "quiz", toolCallId: "q1", input: quizInput as never });
 		assert.ok(!html.includes("innermost"), "explanation must not render pre-answer");

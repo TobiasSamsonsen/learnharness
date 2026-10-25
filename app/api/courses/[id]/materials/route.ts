@@ -6,7 +6,7 @@
  *   POST multipart "file" fields, or JSON { url } → { materials: [...added] }
  */
 import { addLinkMaterial, addUploadedMaterial, listMaterials, stores } from "@/src/server";
-import type { LessonMaterial } from "@/src/core";
+import { UNREADABLE_UPLOAD, type LessonMaterial } from "@/src/core";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +29,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 			: Response.json({ error: result.error }, { status: result.status });
 	}
 	const form = await req.formData().catch(() => null);
-	const files = (form?.getAll("file") ?? []).filter((f): f is File => typeof f === "object" && f !== null && "arrayBuffer" in f);
+	// Unreadable body: most likely cut off at the proxy's body limit (next.config.ts).
+	if (!form) return Response.json({ error: UNREADABLE_UPLOAD }, { status: 400 });
+	const files = form.getAll("file").filter((f): f is File => typeof f === "object" && f !== null && "arrayBuffer" in f);
 	if (files.length === 0) return Response.json({ error: 'Send the files as multipart "file" fields, or JSON {url}' }, { status: 400 });
 	const added: LessonMaterial[] = [];
 	for (const file of files) {

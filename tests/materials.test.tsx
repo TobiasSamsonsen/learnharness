@@ -24,7 +24,7 @@ const { createTeacherAgent } = await import("../src/agent/teacher-agent.ts");
 const { chatStore } = await import("../src/store/chats.ts");
 const service = await import("../src/server/materials.ts");
 const { MaterialsControl, materialStatusLine, sourcesLabel } = await import("../components/materials-control.tsx");
-const { draftMaterials } = await import("../components/materials-client.ts");
+const { draftMaterials, uploadFiles } = await import("../components/materials-client.ts");
 
 after(() => fs.rmSync(TMP_DATA, { recursive: true, force: true }));
 
@@ -212,5 +212,42 @@ describe("the Sources pill", () => {
 	it("renders in draft mode with the draft's count", () => {
 		draftMaterials.clear();
 		assert.match(renderToStaticMarkup(<MaterialsControl />), /data-testid="stats-materials"[\s\S]*Sources</);
+	});
+});
+
+describe("uploadFiles (one file per request, 2026-10-25)", () => {
+	/** A fetch fake: records each request's file names; `fail` names get a 415. */
+	function fakeFetch(fail: string[] = []) {
+		const sent: string[][] = [];
+		const fetchLike = (async (_url: string, init: { body: FormData }) => {
+			const names = init.body.getAll("file").map((f) => (f as File).name);
+			sent.push(names);
+			return names.some((n) => fail.includes(n))
+				? Response.json({ error: `${names[0]} is not a supported type` }, { status: 415 })
+				: Response.json({ materials: [] }, { status: 201 });
+		}) as unknown as typeof fetch;
+		return { sent, fetchLike };
+	}
+	const file = (name: string) => new File(["x"], name);
+
+	it("sends each file in its own request", async () => {
+		const { sent, fetchLike } = fakeFetch();
+		assert.equal(await uploadFiles("course_x", [file("a.pdf"), file("b.pdf")], fetchLike), null);
+		assert.deepEqual(sent, [["a.pdf"], ["b.pdf"]]);
+	});
+
+	it("refuses a file over the ceiling without sending it, and still sends the rest", async () => {
+		const big = file("huge.pdf");
+		Object.defineProperty(big, "size", { value: core.MATERIAL_MAX_BYTES + 1 });
+		const { sent, fetchLike } = fakeFetch();
+		assert.equal(await uploadFiles("course_x", [big, file("ok.pdf")], fetchLike), "huge.pdf is larger than 100 MB");
+		assert.deepEqual(sent, [["ok.pdf"]]);
+	});
+
+	it("reports every failure and keeps going past one", async () => {
+		const { sent, fetchLike } = fakeFetch(["a.exe", "c.exe"]);
+		const error = await uploadFiles("course_x", [file("a.exe"), file("b.pdf"), file("c.exe")], fetchLike);
+		assert.equal(error, "a.exe is not a supported type; c.exe is not a supported type");
+		assert.equal(sent.length, 3);
 	});
 });

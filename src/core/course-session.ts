@@ -206,6 +206,7 @@ export function coursePromptSection(mode: CourseMode, courseTitle: string, skill
 			`- How the course reads each answer: correct with confidence ≥ ${PLACEMENT_KNOWN_CONFIDENCE} → known (and its prerequisites with it, except any the learner missed directly — a direct miss always wins); less sure → learned; wrong or "I don't know" → not credited. Nothing you write changes this — ask questions whose answer really shows the skill.`,
 			"- Short and hard: the difficulty is the trap, not the length (the question rule below).",
 			`- When every skill is tested or credited, end with a short summary — what is solid and where to start. State only counts you actually counted. Then call \`${FINISH_SESSION_TOOL}\` and pose no further question.`,
+			`- **At about ${placementQuestionTarget(skills.length)} questions with skills still neither tested nor credited, ask ONCE with \`ask_user_question\`**: continue testing the remaining skills, or finish now — say how many remain. Continue → keep testing until every skill is tested or credited. Finish now → the summary names the untested skills plainly as not tested (never as known, never as unknown), then call \`${FINISH_SESSION_TOOL}\`.`,
 		);
 	} else {
 		body.push(`This practice session belongs to the course "${courseTitle}".`, "", TAGGING_LAW, "");
