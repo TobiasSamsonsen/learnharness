@@ -134,9 +134,10 @@ Important answer-detail fields:
 
 **Options are shuffled.** Never apply a learner's display index to the raw call's
 authored option order. Use the answer snapshot and its label/value tuples. Missing
-confidence is not zero, and no confidence is sent for don't-know. The slider's 50%
-resting value is a real recorded 50%, but the record cannot tell whether it was
-left untouched or chosen deliberately.
+confidence is not zero, and no confidence is sent for don't-know. Up to 2026-10-25
+the slider rested at 50%: such a 50% is real, but the record cannot tell whether it
+was left untouched or chosen deliberately. Later answers cannot be sent until a
+confidence is chosen, so every recorded value is deliberate.
 
 Retain incorrect responses, failed attempts, skipped questions, and don't-know;
 they are evidence, not noise to clean up. Do not invent a numeric grade for a

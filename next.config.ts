@@ -1,6 +1,16 @@
 import type { NextConfig } from "next";
+import { MATERIAL_MAX_BYTES } from "./src/core/materials.ts";
 
 const nextConfig: NextConfig = {
+	// UPLOADS (2026-10-25): proxy.ts guards every /api route, and with a
+	// proxy present Next buffers only the first proxyClientMaxBodySize
+	// bytes of a request body (default 10 MB) — a 13.9 MB PDF arrived
+	// truncated and formData() failed. One material per request (the
+	// client's uploadFiles), so the limit is the per-file ceiling plus
+	// headroom for the multipart framing.
+	experimental: {
+		proxyClientMaxBodySize: MATERIAL_MAX_BYTES + 1024 * 1024,
+	},
 	// Desktop target (Electron wrapper, 2026-09-17): standalone output = a
 	// self-contained .next/standalone/server.js the Electron shell spawns
 	// on 127.0.0.1. Harmless for plain web deploys (extra build output).

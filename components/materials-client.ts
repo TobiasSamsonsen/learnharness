@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { LessonMaterial } from "@/src/core";
+import { MATERIAL_MAX_BYTES, type LessonMaterial } from "@/src/core";
 
 /**
  * Lesson source material — the client half (fork addition, 2026-10-24):
@@ -57,14 +57,25 @@ export async function fetchMaterials(chatId: string, fetchLike: typeof fetch = f
 	return ((await res.json()) as { materials?: LessonMaterial[] }).materials ?? [];
 }
 
-/** Upload files; resolves to an error message, or null on success. */
+/** Upload files, ONE PER REQUEST (2026-10-25: the server's body limit is
+ *  per request — next.config.ts — and one bad file must not block the
+ *  rest). A file over the ceiling is refused without sending it.
+ *  Resolves to the failures joined with "; ", or null when all landed. */
 export async function uploadFiles(chatId: string, files: readonly File[], fetchLike: typeof fetch = fetch): Promise<string | null> {
-	if (files.length === 0) return null;
-	const form = new FormData();
-	for (const f of files) form.append("file", f, f.name);
-	const res = await fetchLike(materialsPath(chatId), { method: "POST", body: form });
-	if (res.ok) return null;
-	return ((await res.json().catch(() => ({}))) as { error?: string }).error ?? `upload failed (${res.status})`;
+	const errors: string[] = [];
+	for (const f of files) {
+		if (f.size > MATERIAL_MAX_BYTES) {
+			errors.push(`${f.name} is larger than ${MATERIAL_MAX_BYTES / 1024 / 1024} MB`);
+			continue;
+		}
+		const form = new FormData();
+		form.append("file", f, f.name);
+		const res = await fetchLike(materialsPath(chatId), { method: "POST", body: form }).catch(() => null);
+		if (res?.ok) continue;
+		const error = res ? ((await res.json().catch(() => ({}))) as { error?: string }).error : undefined;
+		errors.push(error ?? `${f.name}: upload failed${res ? ` (${res.status})` : ""}`);
+	}
+	return errors.length > 0 ? errors.join("; ") : null;
 }
 
 export async function addLink(chatId: string, url: string, fetchLike: typeof fetch = fetch): Promise<string | null> {

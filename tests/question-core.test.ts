@@ -15,7 +15,8 @@ import {
 	dismissedAnswer,
 	coerceCorrectAnswer,
 	CONFIDENCE_STOPS,
-	DEFAULT_CONFIDENCE_INDEX,
+	nearestConfidenceStop,
+	dockSubmitGate,
 	isCorrect,
 	normalizeOptions,
 	quizInputProblems,
@@ -442,7 +443,52 @@ function quizData(overrides?: Partial<QuestionData>): QuestionData {
 describe("confidence stops", () => {
 	it("the owner-decided grid (2026-10-01): resolution concentrates at the top", () => {
 		assert.deepEqual(CONFIDENCE_STOPS, [0, 30, 50, 70, 90, 100]);
-		assert.equal(CONFIDENCE_STOPS[DEFAULT_CONFIDENCE_INDEX], 50, "rests at a real coin flip");
+	});
+
+	it("a raw slider value snaps to the nearest stop", () => {
+		assert.equal(CONFIDENCE_STOPS[nearestConfidenceStop(50)], 50);
+		assert.equal(CONFIDENCE_STOPS[nearestConfidenceStop(14)], 0);
+		assert.equal(CONFIDENCE_STOPS[nearestConfidenceStop(81)], 90);
+		assert.equal(CONFIDENCE_STOPS[nearestConfidenceStop(100)], 100);
+	});
+});
+
+describe("dockSubmitGate (no confidence default, owner 2026-10-25)", () => {
+	const base = { mode: "single-select" as const, other: "", text: "" };
+	const picked = toggleOption("single-select", emptyDockSelection(), 1);
+
+	it("a picked quiz answer waits for its confidence", () => {
+		assert.deepEqual(dockSubmitGate({ ...base, kind: "quiz", sel: picked, confidenceSet: false }), {
+			canSubmit: false,
+			needsConfidence: true,
+		});
+		assert.deepEqual(dockSubmitGate({ ...base, kind: "quiz", sel: picked, confidenceSet: true }), {
+			canSubmit: true,
+			needsConfidence: false,
+		});
+	});
+
+	it("nothing picked: blocked, but not for want of confidence", () => {
+		assert.deepEqual(dockSubmitGate({ ...base, kind: "quiz", sel: emptyDockSelection(), confidenceSet: false }), {
+			canSubmit: false,
+			needsConfidence: false,
+		});
+	});
+
+	it("\"I don't know\" carries no confidence and submits without one", () => {
+		const idk = { ...emptyDockSelection(), dontKnow: true };
+		assert.equal(dockSubmitGate({ ...base, kind: "quiz", sel: idk, confidenceSet: false }).canSubmit, true);
+	});
+
+	it("ask answers and text mode never need a confidence", () => {
+		assert.equal(dockSubmitGate({ ...base, kind: "ask", sel: picked, confidenceSet: false }).canSubmit, true);
+		const other = toggleOther("single-select", emptyDockSelection());
+		assert.equal(dockSubmitGate({ ...base, kind: "ask", sel: other, other: " ", confidenceSet: false }).canSubmit, false);
+		assert.equal(dockSubmitGate({ ...base, kind: "ask", sel: other, other: "mine", confidenceSet: false }).canSubmit, true);
+		assert.equal(
+			dockSubmitGate({ ...base, mode: "text", kind: "explain", sel: emptyDockSelection(), text: "because", confidenceSet: false }).canSubmit,
+			true,
+		);
 	});
 });
 
@@ -529,6 +575,8 @@ describe("compactAnswerForModel", () => {
 			confidence: 70,
 			thinking: "guessed",
 		});
+		// verdict before the pick, thinking last (owner, 2026-10-25)
+		assert.deepEqual(Object.keys(compact), ["kind", "correct", "answers", "confidence", "thinking"]);
 		const raw = JSON.stringify(compact);
 		// every one of these lives in the tool CALL's arguments already
 		assert.ok(!raw.includes("Which planet"), "no questionText");

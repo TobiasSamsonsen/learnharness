@@ -434,6 +434,10 @@ describe("course sessions (core/course-session.ts)", () => {
 		assert.match(placement, /never ask about a credited skill again/);
 		assert.match(placement, /confidence ≥ 70 → known[\s\S]*a direct miss always wins/);
 		assert.doesNotMatch(placement, /Roughly one question per skill/);
+		// the soft target is a checkpoint, not a stop (owner, 2026-10-25)
+		assert.match(placement, /At about 11 questions with skills still neither tested nor credited, ask ONCE with `ask_user_question`/);
+		assert.match(placement, /Continue → keep testing until every skill is tested or credited/);
+		assert.match(placement, /untested skills plainly as not tested/);
 		assert.doesNotMatch(placement, /`skills` field/, "no problem tagging law in a quiz test");
 		assert.match(session.coursePromptSection("review", "Calc", []), /due for review/);
 	});

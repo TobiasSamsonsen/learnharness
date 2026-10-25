@@ -45,6 +45,10 @@ export interface LessonMaterial {
 /** Upload ceiling: textbooks are big, but a lesson's copy is local disk. */
 export const MATERIAL_MAX_BYTES = 100 * 1024 * 1024;
 
+/** An upload body the server could not parse — in practice one cut off at
+ *  the proxy's body limit (next.config.ts), so it names the ceiling. */
+export const UNREADABLE_UPLOAD = `The upload could not be read — it may be larger than ${MATERIAL_MAX_BYTES / 1024 / 1024} MB.`;
+
 const TEXT_EXT = new Set([".txt", ".md", ".markdown", ".text"]);
 const IMAGE_EXT: Record<string, string> = {
 	".png": "image/png",
