@@ -10,6 +10,7 @@ import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { useStrongKeyless, useZeroKeys, ZeroKeysPill } from "@/components/setup-cta";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
+import { ComposerEdge } from "@/components/composer-edge";
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
 import { StatsBar } from "@/components/stats-bar";
@@ -57,8 +58,8 @@ export function Home({
 	const dictation = useDictation({
 		// Ref-first: the join reads the mirror so the send resuming after
 		// `await finish()` sees the dictated tail.
-		append: (t) => {
-			const v = joinDictation(topicRef.current, t);
+		append: (t, withdraw) => {
+			const v = joinDictation(topicRef.current, t, withdraw);
 			topicRef.current = v;
 			setTopic(v);
 		},
@@ -247,7 +248,7 @@ export function Home({
 						)}
 					/>
 					<form
-						className="flex items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg"
+						className="flex flex-col gap-0.5 rounded-2xl border bg-card p-1.5 shadow-lg"
 					onSubmit={(e) => {
 						e.preventDefault();
 						void start();
@@ -278,25 +279,31 @@ export function Home({
 						placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
 						autoFocus
 						rows={1}
-						className="field-sizing-content lh-input max-h-48 min-h-10 flex-1 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
+						className="field-sizing-content lh-input max-h-48 min-h-10 w-full resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 					/>
-					{/* No tooltip on the start square — the ↵ glyph is the
-					    affordance (owner, subtlety round 2026-09-25). */}
-					<button
-						type="submit"
-						aria-label="Start session"
-						disabled={(!topic.trim() && !dictation.active) || busy}
-						className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
-					>
-						<CornerDownLeftIcon className="size-5" />
-					</button>
+					{/* The shell's bottom edge (owner, 2026-10-25 — composer-edge.tsx):
+					    sources, language, the mic, then the start square. No
+					    tooltip on the square — the ↵ glyph is the affordance
+					    (owner, subtlety round 2026-09-25). */}
+					<ComposerEdge
+						mic={<DictationBar dictation={dictation} compact />}
+						trailing={
+							<button
+								type="submit"
+								aria-label="Start session"
+								disabled={(!topic.trim() && !dictation.active) || busy}
+								className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
+							>
+								<CornerDownLeftIcon className="size-5" />
+							</button>
+						}
+					/>
 					</form>
 					{/* Same as the chat view's under-composer stats bar (owner) — no
 					    session yet, so the LEFT side renders nothing (wave 7 sweep)
 					    while the RIGHT keeps the strong-slot control (fix wave: the
 					    pills write /api/settings/models). */}
 					<StatsBar
-						dictationSlot={<DictationBar dictation={dictation} />}
 						turns={[] as TurnUsage[]}
 						leadingSlot={
 							<div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">

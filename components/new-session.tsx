@@ -124,7 +124,7 @@ export function DraftShell({
 		[]);
 	useFieldCycle(cycleComposer);
 	const dictation = useDictation({
-		append: (t) => onChange(joinDictation(text, t)),
+		append: (t, withdraw) => onChange(joinDictation(text, t, withdraw)),
 	});
 	// A LIVE dictation keeps the composer sendable ("nothing gets lost"
 	// round, owner 2026-10-01): the spoken text is deferred in the run's
@@ -210,12 +210,10 @@ export function DraftShell({
 										// started yet, so the composer must not read like one is in
 										// flight.
 										placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+										edge={{ mic: <DictationBar dictation={dictation} compact /> }}
 									/>
 								</div>
-								<StatsBar
-									dictationSlot={<DictationBar dictation={dictation} />}
-									turns={[]}
-								/>
+								<StatsBar turns={[]} />
 							</div>
 						</div>
 					</div>

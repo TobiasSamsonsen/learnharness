@@ -58,8 +58,8 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 
 	useDictationTarget(
 		useCallback(
-			(t: string) => {
-				const v = joinDictation(thinkingRef.current, t);
+			(t: string, withdraw?: boolean) => {
+				const v = joinDictation(thinkingRef.current, t, withdraw);
 				thinkingRef.current = v;
 				setThinking(v);
 			},

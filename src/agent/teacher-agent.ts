@@ -1,5 +1,5 @@
 import { Agent } from "@earendil-works/pi-agent-core";
-import type { AgentEvent, AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentMessage, AgentTool, BeforeToolCallContext } from "@earendil-works/pi-agent-core";
 import { invalidInputResult, questionResult } from "./tool-execute.ts";
 import { providerEventObserver } from "./provider-events.ts";
 import type { Usage } from "@earendil-works/pi-ai";
@@ -15,10 +15,12 @@ import {
 	type TeacherToolContext,
 } from "./tools.ts";
 import { practiceTools, type PracticeToolContext } from "./tools/practice.ts";
+import { placementProbeTool } from "./tools/course.ts";
 import { healToolRecord } from "./tools/heal.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
 import { toLlmMessages, nativeInputCause } from "../core/native-messages.ts";
+import { PROSE_GATE_REASON, proseGateBlocks } from "../core/prose-gate.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } from "../core/language.ts";
 
@@ -48,7 +50,7 @@ import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } f
 
 /** Which agent's prompt directory to compose. Practice (2026-10-04)
  *  composes ONLY its own directory — see prompt-segments.ts. */
-export type AgentKind = "prober" | "teacher" | "practice";
+export type AgentKind = "prober" | "teacher" | "practice" | "placement";
 
 // P2 (2026-09-19): segment discovery + override resolution live in ONE
 // canonical place now — src/store/prompt-overrides.ts (listSourceSegments
@@ -88,6 +90,7 @@ const composedInstructions: Record<AgentKind, string> = {
 	prober: composeInstructions("prober"),
 	teacher: composeInstructions("teacher"),
 	practice: composeInstructions("practice"),
+	placement: composeInstructions("placement"),
 };
 
 // Money channel (wave 4): the chat-handler passes a per-turn collector;
@@ -129,8 +132,9 @@ export interface AgentBuildOptions {
 	materials?: { section: string; tools: AgentTool<any>[] };
 	/** The course section (fork addition — docs/courses.md §4): a course
 	 *  session's per-turn rules (core/course-session.ts), appended after
-	 *  the material. */
-	course?: { section: string };
+	 *  the material, and its tools (a Learn session's finish_lesson —
+	 *  tools/course.ts), added to the registry. */
+	course?: { section: string; tools?: AgentTool<any>[] };
 	/** Native conversation identity: the existing persisted chat id, reused
 	 * across reconstructed prober, teacher, and practice Agents.
 	 * Debug: when set AND LH_PROVIDER_EVENTS=1, raw provider stream events
@@ -193,6 +197,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		"conversation",
 	);
 	if (opts.materials) tools = [...tools, ...opts.materials.tools];
+	if (opts.course?.tools) tools = [...tools, ...opts.course.tools];
 	// Debug recorder (owner, 2026-10-04): raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is
 	// the normal no-observer path (tests, env-off).
@@ -210,6 +215,18 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		},
 		streamFn: engine.streamFn,
 		...(providerEvents ? { onProviderStreamEvent: providerEvents } : {}),
+		// The prose gate (owner, 2026-10-25 — core/prose-gate.ts): the
+		// TEACHER's quiz/explain is refused when nothing visible reached the
+		// learner since his last graded answer; the refusal is an error
+		// result the model retries on, in the same turn.
+		...(kind === "teacher"
+			? {
+					beforeToolCall: async ({ assistantMessage, toolCall, context }: BeforeToolCallContext) =>
+						proseGateBlocks(context.messages, assistantMessage, toolCall.id, toolCall.name)
+							? { block: true, reason: PROSE_GATE_REASON }
+							: undefined,
+				}
+			: {}),
 		// 0.87.1: shouldStopAfterTurn → finishTurn. Same call point (after
 		// tool results attach, before turn_end) and `{ action: "end" }` still
 		// exits BEFORE the steering poll — the parked-marker stranding our
@@ -337,8 +354,21 @@ export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOp
 	return baseAgentOptions("practice", opts, Object.values(tools));
 }
 
+/**
+ * The PLACEMENT TESTER (course placement test, owner 2026-10-25): a
+ * conversation session built from turn 1 like practice — no probe→teach
+ * split, no plan. Its registry is the skill-tagged multiple-choice probe
+ * (tools/course.ts) + ask; its doctrine is prompts/placement/ plus the
+ * course section. The answers are the evidence (core/mastery.ts).
+ */
+export function createPlacementAgent(ctx: { skills: () => ReadonlyArray<{ id: string; name: string }> }, opts: AgentBuildOptions = {}) {
+	const tools = opts.tools ?? healToolRecord({ probe: placementProbeTool(ctx.skills), ask_user_question: askUserQuestionTool });
+	return baseAgentOptions("placement", opts, Object.values(tools));
+}
+
 export type ProberAgent = ReturnType<typeof createProberAgent>;
 export type TeacherAgent = ReturnType<typeof createTeacherAgent>;
 export type PracticeAgent = ReturnType<typeof createPracticeAgent>;
-export type TeachingAgent = ProberAgent | TeacherAgent | PracticeAgent;
+export type PlacementAgent = ReturnType<typeof createPlacementAgent>;
+export type TeachingAgent = ProberAgent | TeacherAgent | PracticeAgent | PlacementAgent;
 

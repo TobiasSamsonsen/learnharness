@@ -39,6 +39,7 @@ import {
 	pendingProblemDismissalOf,
 } from "./native-messages.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
+import { lessonFinishOf, newLessonFinishedMarker } from "./course-session.ts";
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
@@ -54,7 +55,11 @@ export type ChatInput =
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
 	 *  only with nothing active (mid-problem input rides the dock). */
-	| { type: "next" };
+	| { type: "next" }
+	/** The learner's Finish lesson (owner, 2026-10-25): course Learn
+	 *  sessions only — logs the lesson finished (the skill becomes
+	 *  learned) and the teacher wraps up. */
+	| { type: "finish" };
 
 /** A wake-pipeline steer delivery — same turn composition, server-origin.
  *  Wave C (2026-09-26): the idle wake carries EVERY queued marker as its
@@ -180,6 +185,8 @@ export function parseChatInput(input: unknown): ChatInput {
 			return { type: "thinking", problemCallId: i.problemCallId, text: i.text };
 		case "next":
 			return { type: "next" };
+		case "finish":
+			return { type: "finish" };
 		default:
 			throw new ChatInputError(`unknown input type: ${String(i.type)}`);
 	}
@@ -195,7 +202,7 @@ export function parseChatInput(input: unknown): ChatInput {
  * double-answering.
  */
 export function inputAppends(
-	record: { messages: LhMessage[]; kind?: string },
+	record: { messages: LhMessage[]; kind?: string; course?: { mode: string } },
 	input: ChatInput,
 ): LhMessage[] {
 	switch (input.type) {
@@ -229,6 +236,14 @@ export function inputAppends(
 				throw new ChatInputError("next input requires no active problem");
 			}
 			return [...dismissalConclusion(record), newNextMessage()];
+		}
+		case "finish": {
+			// Honest 400s: a course Learn session, finished at most once, and
+			// never over an open question (answer or dismiss it first).
+			if (record.course?.mode !== "learn") throw new ChatInputError("finish input is a course-lesson affordance");
+			if (lessonFinishOf(record.messages)) throw new ChatInputError("this lesson is already finished");
+			if (danglingQuestionOf(record.messages)) throw new ChatInputError("finish input requires no open question");
+			return [...dismissalConclusion(record), newLessonFinishedMarker()];
 		}
 	}
 }

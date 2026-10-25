@@ -21,6 +21,24 @@ the route from where you are to the whole curriculum from what you know now.
 | UI | A **Courses section in the sidebar** (above sessions) plus a **course page** `/course/[id]`. Sessions started from a course are labelled with it. |
 | Canvas | **Course page only for v1.** The home canvas is unchanged. |
 
+## Owner decisions (2026-10-25 — after the first real lesson)
+
+The first ITGK lesson showed four gaps: no way to finish a lesson (so nothing
+unlocked), a placement check nobody found, wrong answer keys, and no teaching
+between questions. Decided:
+
+| Question | Decision |
+|---|---|
+| Who finishes a Learn session | **Both**: the teacher's `finish_lesson` tool (goal demonstrated, or the learner asks) and a **Finish lesson** button on the session's top bar. Either logs it; the first one counts. The session stays open afterwards. |
+| What finishing does | The skill becomes **learned** (box ≥ 1). |
+| The unlock rule | **Learned unlocks**: a skill is next up once every prerequisite is learned (box ≥ 1). Known (box ≥ 3) stays the progress number, earned by spaced practice and review. |
+| Learned, not known | A new **Learning** group (box 1–2) on the course page, with Practice and Learn again. **Practice all** practices this group. |
+| The curriculum test | A **quick multiple-choice placement test** (about one question per skill, top-down), offered first after approval ("Find your starting point", with "Start from the beginning"). It replaces the problem-based placement check. |
+| Placement grading | **Confidence-weighted**: correct with confidence ≥ 70 → known (box 3) plus every transitive prerequisite; correct but less sure → learned (box 1); wrong or "I don't know" → nothing (never lowers, never counts as learned). |
+| A miss in practice | Back to box 1 — but a skill at box 0 stays there: a miss never counts as learned (follows from "learned unlocks"). |
+| Wrong answer keys | **Solve first**: the quiz schema emits the worked `explanation` before the `options`; the options are built around the answer it reaches. |
+| No teaching between questions | **Gate + prompt**: the teacher's quiz/explain call is refused when no text has reached the learner since their last graded answer (`core/prose-gate.ts`), plus a teaching-prompt rule. |
+
 ## 1. Data
 
 ### 1.1 Skills ledger — `data/graph/skills.jsonl` (new, append-only)
@@ -114,26 +132,34 @@ nothing is stored anywhere else.
 
 ## 2. Known — `src/core/mastery.ts` (pure, browser-safe, derived on read)
 
-**Events:** every course practice chat → every concluded problem with `skills`
-→ `{ skillId, at: conclude timestamp, outcome, placement: mode === "placement" }`.
+**Events** (`skillEventsOf`, per course chat):
+- practice / review → every concluded problem with `skills` → `{ skillId, at: conclude timestamp, outcome }`;
+- Learn → its finish (`lessonFinishOf`: the `lesson-finished` marker or a clean `finish_lesson` call, the first one) → `finished`;
+- placement test → every answered placement `probe` (its `skill` arg + the answer's `correct`/`confidence`/`dontKnow`) → `placementKnown` / `placementUnsure` / `placementMiss`;
+- legacy placement checks (problems, before 2026-10-25) keep `placement: true`.
+
 Folded in time order per skill:
 
 | Event | Effect |
 |---|---|
-| `solved`, normal, skill **due** | box + 1 (max 5), `lastMove = at` |
-| `solved`, normal, not due | nothing |
+| `finished` | box = max(box, 1) |
+| `solved`, skill **due** | box + 1 (max 5), `lastMove = at` |
+| `solved`, not due | nothing |
 | `solvedWithHints` | nothing |
-| `movedOn` / `surrendered` | box = 1, `lastMove = at` |
+| `movedOn` / `surrendered` | box ≥ 1 → box = 1, `lastMove = at`; box 0 stays 0 |
 | `dismissed` | ignored |
-| `solved`, placement | box = max(box, 3), `lastMove = at`; every transitive `requires` → max(box, 3), same `lastMove` |
-| any miss, placement | box = 1, `lastMove = at` |
+| `placementKnown` (correct, confidence ≥ 70) | box = max(box, 3), `lastMove = at`; every transitive `requires` the same |
+| `placementUnsure` (correct, < 70) | box = max(box, 1) |
+| `placementMiss` (wrong / I don't know) | nothing |
+| legacy placement: solved / with hints / miss | as `placementKnown` / box = max(box, 1) / nothing |
 
 Due: box 0 is always due; otherwise `now ≥ lastMove + [—, 1, 3, 7, 16, 35][box]` days.
-**Known = box ≥ 3.** Course progress = known / course skills.
+**Learned = box ≥ 1. Known = box ≥ 3.** Course progress = known / course skills.
 
-**Views (pure functions of skills + boxes + now):** `review` = box ≥ 1 and due.
-`nextUp` = box < 3 with every `requires` known, in topological order. `locked`
-= box < 3 with some prerequisite unknown, listing which. `known`.
+**Views (pure functions of skills + boxes + now):** `review` = learned and due.
+`nextUp` = box 0 with every `requires` learned, in topological order.
+`learning` = box 1–2. `locked` = box 0 with some prerequisite not learned,
+listing which. `known`.
 
 Nothing is stored. The course API computes the fold from chat records on read,
 in line with the graph's "derive, don't store" rule.
@@ -176,9 +202,9 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
 | Mode | Kind | Skills in context | First message |
 |---|---|---|---|
 | Learn (one skill) | teach | the skill; its prerequisites as known background | "I want to learn to: <statement>" |
-| Practice (one skill, or all of next up) | practice | the chosen skill(s) | "Practice: <names>" |
+| Practice (one skill, or all of Learning) | practice | the chosen skill(s) | "Practice: <names>" |
 | Review | practice | the due skills | "Review my due skills" |
-| Placement | practice | all course skills | "Placement check for <course>" |
+| Placement test | conversation — the placement tester (`createPlacementAgent`) | all course skills | "Placement test for <course>" |
 
 - **Course materials serve every course session.** `materialsForTurn` adds the
   course's materials (profiles plus lookup tools) beside the lesson's own.
@@ -188,6 +214,19 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
   skip a skill once a dependent has been cleanly solved (prerequisites are
   credited), with only that problem's skills tagged.
 - Titles: "Learn: <skill>", "Practice: …", "Review: <course>", "Placement: <course>".
+- **Finishing a Learn session** (2026-10-25): the teacher's `finish_lesson`
+  (`agent/tools/course.ts`, teacher phase of course Learn sessions only) or
+  the learner's `{ type: "finish" }` input event (400 outside a course
+  lesson, when already finished, or over an open question) → the
+  `lesson-finished` marker, which the model reads as "wrap up". Both render
+  the "Lesson finished · <skill> learned" divider; the top bar's button
+  turns into "Finished".
+- **The placement tester** (2026-10-25): its own prompt directory
+  (`prompts/placement/`, plus the shared voice, accuracy, question craft,
+  confidence and formatting fragments — no teaching base) and a registry of
+  `probe` (the multiple-choice quiz with a leading, validated `skill`) +
+  `ask_user_question`. It keeps the `probe` name so the question dock
+  renders it unchanged. No graph extraction runs on placement sessions.
 
 ## 5. API (thin route handlers → `src/server/courses.ts`)
 
@@ -206,10 +245,11 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
   opens its page. Session rows from a course show the course name as a small
   label.
 - **`/course/[id]`**:
-  - Header: editable title, *n/m known (p%)*, **Placement** and **Review (n)** buttons.
+  - Header: editable title, *n/m known (p%)*, **Placement test** and **Review (n)** buttons.
+  - Right after approval, while the course has no sessions: **Find your starting point** — Take the placement test / Start from the beginning (the skip is remembered per browser).
   - Curriculum: the existing Sources control (materials-control) bound to the course, plus **Draft skill map**.
   - Draft state: the draft's summary, its skills (reused ones marked, with citations and prerequisites), a feedback box with **Ask for changes**, and **Approve**.
-  - Active state: the **skill map** as a mermaid dependency diagram (the existing mermaid renderer) coloured by state (known, learning, not started, locked), then **Next up** (Learn / Practice per skill, plus Practice all), **Locked** (with the missing prerequisites), and **Known**. Each skill expands to show its statement, box, next due date and the propositions it rests on (name + statement, with links to the sessions they came from).
+  - Active state: the **skill map** as a mermaid dependency diagram (the existing mermaid renderer) coloured by state (known, learning, not started, locked), then **Next up** (Learn / Practice per skill), **Learning** (Practice / Learn again, plus Practice all), **Locked** (with the missing prerequisites), and **Known**. Each skill expands to show its statement, box, next due date and the propositions it rests on (name + statement, with links to the sessions they came from).
 - The home canvas is unchanged.
 
 ## 7. Docs and tests
@@ -235,6 +275,8 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
 - **Skill map rendering:** the app's own plan DAG renderer (`PlanDiagram`, dagre — mermaid's layout engine), with known skills white, next up white and locked gray, instead of a raw mermaid chart. Box state is shown in the lists below the map.
 - **Course context marker:** reuses the `graph-context` marker type (same flattening, neutral input cause and compaction handling) with a `course` block in its details. The transcript card shows the course, mode and skills.
 - **`courses-changed`** carries no payload (like `chats-changed`): pages refetch on it, and on every `turn-settled`.
+- **2026-10-25 — the learner marker** for Finish lesson is a new marker type (`lesson-finished`, learner cause) rather than a user message, so the transcript shows a divider and the record says exactly what happened.
+- **2026-10-25 — the placement probe's skill** must be an exact course skill id (refused otherwise, with the id list); names are not resolved, so the record always carries canonical ids.
 
 ## Not in v1
 

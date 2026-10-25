@@ -336,16 +336,16 @@ function QuestionDockForm({
 	// dictation falls back to the composer automatically.
 	useDictationTarget(
 		useCallback(
-			(t: string) => {
+			(t: string, withdraw?: boolean) => {
 				// Ref-first (see the refs block above): the join is computed from
 				// the mirror, then both mirrors agree with state — a submit
 				// resuming post-finish reads the tail, never a stale closure.
 				if (qd.mode === "text") {
-					const v = joinDictation(answerTextRef.current, t);
+					const v = joinDictation(answerTextRef.current, t, withdraw);
 					answerTextRef.current = v;
 					setText(v);
 				} else {
-					const v = joinDictation(thinkingTextRef.current, t);
+					const v = joinDictation(thinkingTextRef.current, t, withdraw);
 					thinkingTextRef.current = v;
 					setThinking(v);
 				}

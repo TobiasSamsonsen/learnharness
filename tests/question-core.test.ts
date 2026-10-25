@@ -54,7 +54,7 @@ describe("the schema's argument order (reasoning before the pick)", () => {
 	// correctAnswer. The TypeBox authoring order IS the model-facing JSON
 	// Schema property order, so this pin guards the emission end to end.
 	// All consumers read by key — the order is authoring guidance.
-	it("emits explanation immediately before correctAnswer (both agents' schemas)", () => {
+	it("emits the worked explanation before the options and correctAnswer (both agents' schemas)", () => {
 		// The 2026-09-25 ruling stands for the CONTENT fields (reasoning
 		// before the pick); the 2026-10-09 reorder adds its mirror for the
 		// teach schema — the required pair (`type`, `nodeId`) LEADS the
@@ -62,15 +62,18 @@ describe("the schema's argument order (reasoning before the pick)", () => {
 		// trailed every long content field (the tools_fails_2 drops).
 		// Models emit tool args in schema order: commit to the role and the
 		// target first, reason, then pick.
+		// 2026-10-25: the worked solution precedes the OPTIONS too — with
+		// options first, the model found its answer missing from options it
+		// had already written and committed a wrong key (the ITGK lesson).
 		for (const schema of [quizInputSchema, probeQuizInputSchema]) {
 			const keys = Object.keys((schema as { properties: Record<string, unknown> }).properties);
 			assert.ok(
-				keys.indexOf("explanation") < keys.indexOf("correctAnswer"),
-				`explanation must precede correctAnswer in the emitted schema (got: ${keys.join(", ")})`,
+				keys.indexOf("explanation") < keys.indexOf("options") && keys.indexOf("explanation") < keys.indexOf("correctAnswer"),
+				`explanation must precede options and correctAnswer in the emitted schema (got: ${keys.join(", ")})`,
 			);
 			assert.deepEqual(keys, schema === quizInputSchema
-				? ["type", "nodeId", "question", "options", "multiSelect", "explanation", "correctAnswer", "details"]
-				: ["question", "options", "multiSelect", "explanation", "correctAnswer", "details"]);
+				? ["type", "nodeId", "question", "explanation", "options", "multiSelect", "correctAnswer", "details"]
+				: ["question", "explanation", "options", "multiSelect", "correctAnswer", "details"]);
 		}
 	});
 });

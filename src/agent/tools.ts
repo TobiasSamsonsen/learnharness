@@ -121,18 +121,19 @@ export const askUserQuestionTool: AgentTool<typeof askInputSchema> = {
  *  compact applied question whose fields exercise the escaping hazards —
  *  braced commands (\frac, \cos), inline and display math, newlines —
  *  while doubling as an exemplar of good craft: uniform options, stable
- *  values, reasoning (explanation) committed before correctAnswer.
+ *  values, the worked solution (explanation) committed before the options
+ *  and the key (2026-10-25: solved first, options built around it).
  *  JSON.stringify renders the wire text, so the escaping the model sees
  *  is by construction the correct one. Exported for the description pins. */
 export const quizExampleBody = {
 	question: "A signal is $y=\\sin(2x)$ and $\\frac{dx}{dt}=3$. What is $\\frac{dy}{dt}$?",
+	explanation:
+		"The phase changes twice as fast as $x$; multiply by the sine's slope:\n$$\n\\frac{dy}{dt}=\\cos(2x)\\cdot2\\cdot3=6\\cos(2x)\n$$",
 	options: [
 		{ label: "$6\\cos(2x)$", value: "a" },
 		{ label: "$2\\cos(2x)$", value: "b" },
 		{ label: "$3\\cos(2x)$", value: "c" },
 	],
-	explanation:
-		"The phase changes twice as fast as $x$; multiply by the sine's slope:\n$$\n\\frac{dy}{dt}=\\cos(2x)\\cdot2\\cdot3=6\\cos(2x)\n$$",
 	correctAnswer: "a",
 };
 

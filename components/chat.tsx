@@ -49,7 +49,7 @@ import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
-import { ArrowRightIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
+import { ArrowRightIcon, ClipboardCheckIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
@@ -71,6 +71,7 @@ import {
 	activeProblemOf,
 	dismissedAnswer,
 	findPendingToolCall,
+	lessonFinishOf,
 	phaseAt3,
 	phaseTimeline,
 	teachStepIndex,
@@ -78,6 +79,8 @@ import {
 	questionNeedsReveal,
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
+import { FinishLessonButton, LessonFinishedLine, courseOfView } from "@/components/lesson-finish";
+import { ComposerEdge } from "@/components/composer-edge";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
 import { slotsConfigured, type ModelsSettings } from "@/src/core";
 import { useSettingsSaved } from "@/components/settings-signal";
@@ -462,6 +465,11 @@ export function Chat({
 	const busy = localStream || turnInFlight;
 	const busyRef = useRef(busy);
 	busyRef.current = busy;
+	// The session's course link (fork addition — docs/courses.md): a Learn
+	// session carries Finish lesson; the placement test its own tag.
+	const course = useMemo(() => courseOfView(messages), [messages]);
+	const lessonSkill = course?.mode === "learn" ? course.skills[0]?.name : undefined;
+	const lessonFinished = course?.mode === "learn" && lessonFinishOf(nativeMessages) !== null;
 
 	// The attach handoff (stream-reattach wave): the moment a resumed
 	// stream takes over the rendering — the SDK left "ready", so
@@ -646,7 +654,7 @@ export function Chat({
 	const dictation = useDictation({
 		// Ref-first (see textRef): the join is computed from the mirror so a
 		// send resuming after `await finish()` reads the dictated tail.
-		append: (t) => applyText(joinDictation(textRef.current, t)),
+		append: (t, withdraw) => applyText(joinDictation(textRef.current, t, withdraw)),
 		// the lesson's language picks the dictation language
 		chatId,
 	});
@@ -1301,10 +1309,27 @@ export function Chat({
 					{/* Practice (owner, 2026-10-04): the coverage ring hides —
 				    practice never extracts, so an ever-filling ring with no
 				    run behind it would lie. */}
-					{kind !== "practice" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
+					{kind !== "practice" && course?.mode !== "placement" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
+					{course?.mode === "learn" && (
+						<FinishLessonButton
+							finished={lessonFinished}
+							blocked={pending ? "Answer or dismiss the open question first" : busy ? "Wait for the teacher's turn to end" : null}
+							onFinish={() => void send({ type: "finish" })}
+						/>
+					)}
 					{/* Practice sessions: no phase arc — a quiet Practice tag
 					    instead of the phase chip. */}
-					{kind === "practice" ? (
+					{course?.mode === "placement" ? (
+						<span
+							data-testid="phase-chip"
+							data-phase="placement"
+							aria-hidden="true"
+							className="pointer-events-none flex shrink-0 select-none items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+						>
+							<ClipboardCheckIcon className="size-3" />
+							Placement test
+						</span>
+					) : kind === "practice" ? (
 						<span
 							data-testid="phase-chip"
 							data-phase="practice"
@@ -1382,6 +1407,8 @@ export function Chat({
 														Next problem
 													</div>
 												);
+											case "data-lesson-finished":
+												return <LessonFinishedLine key={pi} skill={lessonSkill} />;
 											default:
 												return null;
 										}
@@ -1506,6 +1533,10 @@ export function Chat({
 																onOpen={() => setPlanOpen(true)}
 															/>
 														);
+													case "tool-finish_lesson":
+														// The teacher's finish (owner, 2026-10-25): the same
+														// divider as the learner's button, once it went through.
+														return part.state === "output-available" ? <LessonFinishedLine key={pi} skill={lessonSkill} /> : null;
 													case "tool-quiz":
 													case "tool-probe":
 													case "tool-ask_user_question":
@@ -1616,7 +1647,7 @@ export function Chat({
 					contextTokens={contextTokens}
 					pricing={pricing}
 					onReserve={setDockReserve}
-					dictationSlot={<DictationBar dictation={dictation} />}
+					dictationSlot={<DictationBar dictation={dictation} compact />}
 					dictationCancel={dictation.cancel}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					setupCta={
@@ -1657,6 +1688,9 @@ export function Chat({
 							nextProblem={nextReady}
 							onNext={sendNext}
 							placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
+							// The shell's bottom edge (owner, 2026-10-25): sources,
+							// language and the mic ride the composer itself.
+							edge={{ chatId, mic: <DictationBar dictation={dictation} compact /> }}
 						/>
 					}
 					onSubmitAnswer={(output) => {
@@ -1882,8 +1916,9 @@ function DockOverlay({
 	plan?: React.ReactNode;
 	/** Opens the full-DAG popup (the marginalia + chip share it). */
 	onOpenPlan: () => void;
-	/** The dictation strip (STT wave): rendered in the stats bar's middle
-	 *  slot — the mic button + live meter (components/dictation.tsx). */
+	/** The dictation strip (STT wave): the mic button + live meter
+	 *  (components/dictation.tsx) — on the shell's bottom edge under a
+	 *  dock since 2026-10-25 (the composer carries its own). */
 	dictationSlot?: React.ReactNode;
 	/** Esc in a pending question's field stops dictation (the strip is the
 	 *  stats bar's; the stop belongs to the page-owned hook, threaded down). */
@@ -2336,17 +2371,20 @@ function DockOverlay({
 								composer
 							)}
 						</div>
+						{/* The shell's bottom edge under a dock (owner, 2026-10-25):
+						    the composer renders its own; a question or problem keeps
+						    the same sources/language/mic row beneath it, so the mic
+						    never moves while an answer is dictated. */}
+						{(pending || practice) && (
+							<div className="px-1.5 pb-1.5">
+								<ComposerEdge chatId={chatId} mic={dictationSlot} />
+							</div>
+						)}
 					</div>
 					{/* The stats row: beneath the composer/question shell, not
 					    flush to the screen bottom — static height, outside the
 					    morphing shell so it never joins a height animation. */}
-					<StatsBar
-						turns={turns}
-						contextTokens={contextTokens}
-						pricing={pricing}
-						dictationSlot={dictationSlot}
-						chatId={chatId}
-					/>
+					<StatsBar turns={turns} contextTokens={contextTokens} pricing={pricing} chatId={chatId} />
 					{/* The scroll-down disc (moved here from the Conversation,
 					    owner refinement round 2026-09-24): anchored to the BLOCK's
 					    top edge — above the composer shell AND the stats row, in

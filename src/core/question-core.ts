@@ -151,14 +151,25 @@ export function quizInputProblems(input: {
 // tool-call boundary in execute — TypeBox carries the structure to the
 // model, the problems function carries the refinements.
 //
-// Argument-order ruling (owner, 2026-09-25): the explanation is REASONING,
-// and reasoning happens BEFORE the answer is chosen — models emit tool
-// args in schema order, so explanation sits immediately BEFORE correctAnswer.
+// Argument-order ruling (owner, 2026-09-25; tightened 2026-10-25): the
+// explanation is REASONING, and reasoning happens BEFORE the answer is
+// chosen — models emit tool args in schema order. 2026-10-25 moved it
+// before the OPTIONS too: with options written first, the model twice
+// worked out an answer in the explanation, found it missing from the
+// options it had already written, and committed a wrong key anyway (the
+// ITGK lesson). Solved first, the options are built around the answer.
 // (All consumers read by key; the order is authoring guidance, nothing else.)
 export const quizInputBase = Type.Object({
 	question: Type.String({
 		description:
 			"The single quiz question to ask. ONE question per turn: ask, then end your turn — the answer determines the next question.",
+	}),
+	explanation: Type.String({
+		description:
+			"REQUIRED. The worked solution, written FIRST — before any option exists: reason the question all the way " +
+			"to its answer. The options are then built around the answer this reaches: the correct option states exactly " +
+			"that answer (if none would, the options are wrong — fix them, never the reasoning). Revealed AFTER the " +
+			"learner answers, whether they got it right or wrong.",
 	}),
 	options: Type.Array(Type.Object(quizOptionProps), {
 		minItems: 2,
@@ -173,12 +184,6 @@ export const quizInputBase = Type.Object({
 			description: "Set to true when more than one option is correct and the learner must select all of them.",
 		}),
 	),
-	explanation: Type.String({
-		description:
-			"REQUIRED. Explanation revealed AFTER the learner answers (shown whether they got it right or wrong). " +
-			"Use it to reinforce why the correct answer is correct. It is written BEFORE correctAnswer by design: " +
-			"reason it out first, then commit the answer the reasoning supports.",
-	}),
 	correctAnswer: Type.Union([Type.String(), Type.Array(Type.String())], {
 		description:
 			"REQUIRED. The correct answer as the option value(s) — the `value` field of the option you intend. " +

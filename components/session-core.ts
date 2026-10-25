@@ -19,6 +19,7 @@ import {
 	needsContinuation,
 	measuredContextTokens,
 	newAnswerResult,
+	newLessonFinishedMarker,
 	newNextMessage,
 	newProblemDismissedMarker,
 	newThinkingMessage,
@@ -563,6 +564,10 @@ export class SessionModel {
 			// The move-on signal (owner round 16): the NEXT PROBLEM line
 			// renders the instant the chip/Enter fires.
 			optimistic.push({ ...newNextMessage(), id: localId() });
+		} else if (input.type === "finish") {
+			// Finish lesson (owner, 2026-10-25): the divider lands the
+			// instant the button fires.
+			optimistic.push({ ...newLessonFinishedMarker(), id: localId() });
 		} else if (input.type === "answer") {
 			const tool = pendingCallTool([...this.base, ...this.tail], input.toolCallId) ?? "quiz";
 			optimistic.push({ ...newAnswerResult(input.toolCallId, tool, input.answer), id: localId() });

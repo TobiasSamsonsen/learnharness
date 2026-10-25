@@ -134,11 +134,13 @@ export interface CourseSkillView {
 	statement: string;
 	requires: string[];
 	box: number;
+	/** box ≥ 1 — a finished lesson or any credit; unlocks what builds on it. */
+	learned: boolean;
 	known: boolean;
 	due: boolean;
 	/** ISO — when the skill next comes due; null at box 0 (always due). */
 	dueAt: string | null;
-	/** The prerequisites not known yet (locked skills). */
+	/** The prerequisites not learned yet (locked skills). */
 	missing: string[];
 	/** The propositions it rests on: stored links ∪ derived from Learn sessions. */
 	propositions: Array<{ id: string; name: string; statement: string; sessions: Array<{ id: string; title: string }> }>;
@@ -151,11 +153,14 @@ export interface CourseView {
 	skills: CourseSkillView[];
 	/** Ids, topological order. */
 	review: string[];
+	/** Not learned, prerequisites learned — what to learn next. */
 	nextUp: string[];
+	/** Learned, not known yet — what to practice. */
+	learning: string[];
 	locked: string[];
 	known: string[];
-	/** Course sessions, newest first. */
-	sessions: Array<{ id: string; title: string; mode: CourseMode; updatedAt: string }>;
+	/** Course sessions, newest first. `finished`: a Learn session's finish. */
+	sessions: Array<{ id: string; title: string; mode: CourseMode; updatedAt: string; finished?: boolean }>;
 	/** Existing skills a draft reuses, by id (to show their names). */
 	reused: Record<string, { name: string; statement: string }>;
 }

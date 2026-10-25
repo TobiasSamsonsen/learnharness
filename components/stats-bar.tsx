@@ -4,8 +4,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { SessionPricing, TurnUsage } from "@/src/core";
 import { formatTokens, formatUsd, prettyModel } from "@/components/usage-format";
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
-import { LanguageControl } from "@/components/language-control";
-import { MaterialsControl } from "@/components/materials-control";
 import { PlanUsage } from "@/components/plan-usage";
 
 export function formatContextMeasurement(tokens: number | null, limit: number | null): string {
@@ -16,13 +14,17 @@ export function formatContextMeasurement(tokens: number | null, limit: number | 
 /**
  * The below-composer stats bar (wave 4 observability): the session's
  * money/context footprint as one quiet row beneath the composer —
- * LEFT-aligned: context window + session cost; RIGHT-aligned: model +
- * thinking level. Clicking the left side opens the per-turn detail popover.
+ * LEFT-aligned: context window + session cost (+ the Claude plan's usage);
+ * RIGHT-aligned: model + thinking level. Clicking the summary opens the
+ * per-turn detail popover. The declutter (owner, 2026-10-25 — "split by
+ * scope"): sources, language and the mic moved INTO the composer shell's
+ * bottom edge (composer-edge.tsx); this row keeps the session's numbers
+ * and the model.
  *
  *  Pre-chat views (home, /chat/new) render NO left side at all (owner,
  *  wave 7 sweep: the knowledge-context budget slider that used to live
  *  there died with the injection; a "— · —" summary over an empty
- *  popover is pure noise) — the dictation strip's middle simply widens.
+ *  popover is pure noise).
  *
  * Spending arrives already priced by the server through Pi's catalog and
  * calculator. Missing cost stays "—", never fake zero. Context is a separate
@@ -34,7 +36,6 @@ export function StatsBar({
 	turns,
 	contextTokens = null,
 	pricing,
-	dictationSlot,
 	chatId,
 	leadingSlot,
 }: {
@@ -46,11 +47,6 @@ export function StatsBar({
 	 *  record; absent on the draft surfaces, where it binds the strong
 	 *  slot (the new-session default). */
 	chatId?: string;
-	/** The dictation strip (STT wave, 2026-09-17): the row's middle is dead
-	 *  space between the session data and the model control — the mic
-	 *  button lives there, and while recording the meter unfurls to fill
-	 *  whatever width the row has (owner placement). */
-	dictationSlot?: ReactNode;
 	/** The row's LEFT edge (practice sessions, 2026-10-04): the home
 	 *  composer's teach | practice switch rides here — before the session
 	 *  data (which renders nothing pre-chat on that surface). */
@@ -185,23 +181,15 @@ export function StatsBar({
 				)}
 			</div>
 			)}
-			{/* The middle slot: dictation (owner, 2026-09-17). flex-1 lets the
-			    meter expand into the row's free width; justify-center keeps the
-			    lone idle mic button visually centered. */}
-			{dictationSlot && (
-				<div className="flex min-w-0 flex-1 items-center justify-center">{dictationSlot}</div>
-			)}
+			{/* The Claude plan's usage (fork addition) — one more quiet number
+			    on the left, "· plan 34%" after the summary; hidden off Claude
+			    Code. -ml-1.5 closes the row's gap-3 to the summary's own gap. */}
+			<PlanUsage variant="text" separated={Boolean(chatId || turns.length > 0)} />
+			<div className="min-w-0 flex-1" aria-hidden />
 			{/* The model + thinking control — one controller for the conversation
 			    agents (prober/teacher); the record's `turns` above still folds
 			    the ACTUAL models billed, regardless of what the picker says. */}
 			<div className="flex items-center gap-1.5">
-				{/* The lesson's language (fork addition) — same dual binding as
-				    the model control: this lesson's, or the new-lesson default. */}
-				{/* The Claude plan's usage (fork addition) — hidden off Claude Code. */}
-				<PlanUsage />
-				{/* The lesson's source material (fork addition). */}
-				<MaterialsControl chatId={chatId} />
-				<LanguageControl chatId={chatId} />
 				<ModelControl chatId={chatId} onModelChange={setSelectedModel} />
 			</div>
 		</div>

@@ -15,6 +15,7 @@ import {
 	courseFirstMessage,
 	coursePromptSection,
 	courseSessionTitle,
+	lessonFinishOf,
 	newCourseContextMessage,
 	type SessionSkill,
 } from "../core/course-session.ts";
@@ -159,6 +160,7 @@ export function courseView(courseId: string): CourseView | null {
 			statement: skill.statement,
 			requires: skill.requires.filter((r) => ctx.skills.has(r)),
 			box: s.state.box,
+			learned: s.learned,
 			known: s.known,
 			due: s.due,
 			dueAt: due === null ? null : new Date(due).toISOString(),
@@ -175,13 +177,19 @@ export function courseView(courseId: string): CourseView | null {
 	const sessions = stores.chatStore
 		.listChats()
 		.filter((c) => c.course?.courseId === courseId)
-		.map((c) => ({ id: c.id, title: c.title, mode: c.course!.mode, updatedAt: c.updatedAt }));
+		.map((c) => ({
+			id: c.id,
+			title: c.title,
+			mode: c.course!.mode,
+			updatedAt: c.updatedAt,
+			...(c.course!.mode === "learn" && lessonFinishOf(stores.chatStore.getChat(c.id)?.messages ?? []) ? { finished: true } : {}),
+		}));
 	const reused: CourseView["reused"] = {};
 	for (const d of course.draft?.skills ?? []) {
 		const existing = d.reuse ? ctx.skills.get(d.reuse) : undefined;
 		if (existing) reused[existing.id] = { name: existing.name, statement: existing.statement };
 	}
-	return { course, skills, review: p.review, nextUp: p.nextUp, locked: p.locked, known: p.known, sessions, reused };
+	return { course, skills, review: p.review, nextUp: p.nextUp, learning: p.learning, locked: p.locked, known: p.known, sessions, reused };
 }
 
 // ─── create / rename / delete ────────────────────────────────────────────────
@@ -355,8 +363,9 @@ export function createCourseSession(
 			ids = [skillId];
 			break;
 		case "practice":
-			ids = skillId !== undefined ? [skillId] : p.nextUp;
-			if (ids.length === 0) return { ok: false, status: 409, error: "Nothing is next up — every skill is known or locked" };
+			// "Practice all" practices what is learned but not known yet
+			ids = skillId !== undefined ? [skillId] : p.learning;
+			if (ids.length === 0) return { ok: false, status: 409, error: "Nothing to practice yet — finish a lesson first" };
 			break;
 		case "review":
 			ids = p.review;
@@ -376,7 +385,9 @@ export function createCourseSession(
 	const chains = chainsForSelection(picked, ctx.graph.chains).map((c) => formatChainLine(c, Object.fromEntries(byId)));
 	const link: ChatCourseLink = { courseId, mode, skillIds: ids };
 	const title = courseSessionTitle(mode, course.title, skills);
-	const chat = stores.chatStore.createChat(title, mode === "learn" ? undefined : "practice", link);
+	// Learn and the placement test are conversation sessions (the teacher;
+	// the placement tester); practice and review are practice sessions.
+	const chat = stores.chatStore.createChat(title, mode === "learn" || mode === "placement" ? undefined : "practice", link);
 	stampNewSession(chat.id);
 	stores.chatStore.saveMessages(chat.id, [
 		newCourseContextMessage({
@@ -393,19 +404,19 @@ export function createCourseSession(
 	return { ok: true, value: { id: chat.id, title: chat.title, prompt: courseFirstMessage(mode, course.title, skills) } };
 }
 
-/** A course session's per-turn pieces: the prompt section, and (practice
- *  modes) the skills the problem tool may tag. Undefined for other
- *  sessions, or when the course is gone. */
+/** A course session's per-turn pieces: the prompt section, its mode, and
+ *  (practice modes, the placement test) the skills its question/problem
+ *  tool may tag. Undefined for other sessions, or when the course is gone. */
 export function courseForTurn(
 	chatId: string,
-): { section: string; skills?: () => ReadonlyArray<{ id: string; name: string }> } | undefined {
+): { section: string; mode: CourseMode; skills?: () => ReadonlyArray<{ id: string; name: string }> } | undefined {
 	const link = stores.chatStore.getChat(chatId)?.course;
 	if (!link) return undefined;
 	const course = stores.courseStore.getCourse(link.courseId);
 	const ctx = readContext();
 	const skills = link.skillIds.filter((id) => ctx.skills.has(id)).map((id) => sessionSkill(id, ctx));
 	const section = coursePromptSection(link.mode, course?.title ?? "(deleted course)", skills);
-	if (link.mode === "learn") return { section };
+	if (link.mode === "learn") return { section, mode: link.mode };
 	const tags = skills.map((s) => ({ id: s.id, name: s.name }));
-	return { section, skills: () => tags };
+	return { section, mode: link.mode, skills: () => tags };
 }
