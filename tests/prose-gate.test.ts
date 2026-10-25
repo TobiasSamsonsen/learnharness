@@ -8,7 +8,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type AssistantMessage, type ToolCall } from "@earendil-works/pi-ai";
-import { PROSE_GATE_REASON, proseGateBlocks } from "../src/core/prose-gate.ts";
+import { ANSWER_NEXT_TEXT, PROSE_GATE_REASON, proseGateBlocks } from "../src/core/prose-gate.ts";
+import { newAnswerResult } from "../src/core/native-messages.ts";
 import { bareQuestionTools, createPracticeAgent, createTeacherAgent } from "../src/agent/teacher-agent.ts";
 
 const quizArgs = {
@@ -86,6 +87,21 @@ describe("proseGateBlocks (the pure rule)", () => {
 	it("a probe-phase answer counts as a graded answer", () => {
 		const next = assistant([call("q2")]);
 		assert.equal(proseGateBlocks([assistant([call("p1", "probe")]), result("p1", "probe")], next, "q2", "quiz"), true);
+	});
+});
+
+describe("the answer result carries the rule at the decision point", () => {
+	const answer = { kind: "quiz", questionText: "Q", dontKnow: false, answers: [{ index: 1, label: "$4$" }], correct: true, confidence: 90, answeredAt: "2026-10-25T00:00:00Z" };
+	const forModel = (toolName: string) => JSON.parse((newAnswerResult("q1", toolName, answer).content[0] as { text: string }).text);
+
+	it("a gated teach answer (quiz / explain) carries `next`", () => {
+		assert.equal(forModel("quiz").next, ANSWER_NEXT_TEXT);
+		assert.equal(forModel("explain").next, ANSWER_NEXT_TEXT);
+		assert.equal(forModel("quiz").correct, true, "the answer itself is unchanged");
+	});
+
+	it("probe, recall and ask answers do not", () => {
+		for (const tool of ["probe", "recall", "ask_user_question"]) assert.equal(forModel(tool).next, undefined, tool);
 	});
 });
 

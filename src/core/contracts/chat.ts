@@ -283,6 +283,9 @@ export interface ChatSummary {
 	/** The course link (fork addition): rides the list payload via the
 	 *  summary spread — the sidebar labels course sessions with it. */
 	course?: ChatCourseLink;
+	/** A course session that was finished (core/course-session.ts
+	 *  sessionFinishOf). Absent on open and non-course sessions. */
+	finished?: boolean;
 	/** The record's model-control settings — rides the list payload via the
 	 *  summary spread (the picker never needs it from here; the full record
 	 *  is its source). */

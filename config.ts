@@ -67,7 +67,11 @@ export type ModelRole =
 	| "planner"
 	/** The course planner (fork addition — docs/courses.md §3): drafts a
 	 *  course's skill map from its curriculum. */
-	| "coursePlanner";
+	| "coursePlanner"
+	/** The answer checker (fork addition, 2026-10-25): a second model
+	 *  that solves every multiple-choice question blind before it is
+	 *  posed (src/server/question-check.ts). */
+	| "checker";
 
 /**
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction

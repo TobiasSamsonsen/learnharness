@@ -8,20 +8,34 @@ import type {
 	CourseSkillView,
 	CourseSummary,
 	CourseView,
+	HeldSkill,
 	Skill,
+	SkillsOverview,
 } from "../core/contracts.ts";
 import { approveDraft, draftProblems, type DraftCheckContext } from "../core/course-draft.ts";
 import {
 	courseFirstMessage,
 	coursePromptSection,
 	courseSessionTitle,
-	lessonFinishOf,
+	sessionFinishOf,
 	newCourseContextMessage,
 	type SessionSkill,
 } from "../core/course-session.ts";
 import { chainsForSelection, formatChainLine } from "../core/chains.ts";
 import { getGraph } from "../core/graph.ts";
-import { dueAt, foldBoxes, KNOWN_BOX, partitionSkills, skillEventsOf, type BoxState, type SkillPartition } from "../core/mastery.ts";
+import {
+	dueAt,
+	foldBoxes,
+	inCourseEvidence,
+	isDue,
+	KNOWN_BOX,
+	LEARNED_BOX,
+	partitionSkills,
+	skillEventsOf,
+	type BoxState,
+	type SkillEvent,
+	type SkillPartition,
+} from "../core/mastery.ts";
 import { materialBlock } from "../core/materials.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { mergeSkillLines } from "../core/skills.ts";
@@ -69,17 +83,23 @@ function courseChats() {
 		.filter((r) => r !== null && r.course !== undefined);
 }
 
-/** The box of every skill that has ever been practiced in a course. */
-function allBoxes(skills: ReadonlyMap<string, Skill>): Map<string, BoxState> {
-	const events = courseChats().flatMap((chat) => skillEventsOf(chat!.messages, chat!.course!));
-	return foldBoxes(events, (id) => skills.get(id)?.requires ?? []);
+/** Every course session's skill evidence, by course. */
+function eventsByCourse(): Map<string, SkillEvent[]> {
+	const out = new Map<string, SkillEvent[]>();
+	for (const chat of courseChats()) {
+		const id = chat!.course!.courseId;
+		out.set(id, [...(out.get(id) ?? []), ...skillEventsOf(chat!.messages, chat!.course!)]);
+	}
+	return out;
 }
 
 interface ReadContext {
 	graph: ReturnType<typeof getGraph>;
 	nodeIds: Set<string>;
 	skills: Map<string, Skill>;
+	/** A skill's box is global: evidence from every course counts. */
 	boxes: Map<string, BoxState>;
+	byCourse: Map<string, SkillEvent[]>;
 	now: number;
 }
 
@@ -87,7 +107,9 @@ function readContext(): ReadContext {
 	const graph = getGraph(stores.graphStore);
 	const nodeIds = new Set(graph.nodes.map((n) => n.id));
 	const skills = allSkills(nodeIds);
-	return { graph, nodeIds, skills, boxes: allBoxes(skills), now: Date.now() };
+	const byCourse = eventsByCourse();
+	const boxes = foldBoxes([...byCourse.values()].flat(), (id) => skills.get(id)?.requires ?? []);
+	return { graph, nodeIds, skills, boxes, byCourse, now: Date.now() };
 }
 
 function checkContext(ctx = readContext()): DraftCheckContext {
@@ -121,7 +143,8 @@ function learnChatsBySkill(): Map<string, Set<string>> {
 }
 
 function partitionOf(course: CourseRecord, ctx: ReadContext): SkillPartition {
-	return partitionSkills(course.skills, ctx.skills, ctx.boxes, ctx.now);
+	const inCourse = inCourseEvidence(ctx.byCourse.get(course.id) ?? [], (id) => ctx.skills.get(id)?.requires ?? []);
+	return partitionSkills(course.skills, ctx.skills, ctx.boxes, ctx.now, inCourse);
 }
 
 export function listCourseSummaries(): CourseSummary[] {
@@ -140,6 +163,24 @@ export function listCourseSummaries(): CourseSummary[] {
 			due: p.review.length,
 		};
 	});
+}
+
+/** Every skill the learner has, across all courses (the home's skills
+ *  card): strongest box first, then by name. */
+export function skillsOverview(): SkillsOverview {
+	const ctx = readContext();
+	const coursesOf = new Map<string, string[]>();
+	for (const course of stores.courseStore.listCourses()) {
+		for (const id of course.skills) coursesOf.set(id, [...(coursesOf.get(id) ?? []), course.title]);
+	}
+	const held: HeldSkill[] = [];
+	for (const [id, state] of ctx.boxes) {
+		const skill = ctx.skills.get(id);
+		if (!skill || state.box < LEARNED_BOX) continue;
+		held.push({ id, name: skill.name, statement: skill.statement, box: state.box, due: isDue(state, ctx.now), courses: coursesOf.get(id) ?? [] });
+	}
+	held.sort((a, b) => b.box - a.box || a.name.localeCompare(b.name));
+	return { known: held.filter((s) => s.box >= KNOWN_BOX), learning: held.filter((s) => s.box < KNOWN_BOX) };
 }
 
 export function courseView(courseId: string): CourseView | null {
@@ -182,14 +223,25 @@ export function courseView(courseId: string): CourseView | null {
 			title: c.title,
 			mode: c.course!.mode,
 			updatedAt: c.updatedAt,
-			...(c.course!.mode === "learn" && lessonFinishOf(stores.chatStore.getChat(c.id)?.messages ?? []) ? { finished: true } : {}),
+			...(sessionFinishOf(stores.chatStore.getChat(c.id)?.messages ?? []) ? { finished: true } : {}),
 		}));
 	const reused: CourseView["reused"] = {};
 	for (const d of course.draft?.skills ?? []) {
 		const existing = d.reuse ? ctx.skills.get(d.reuse) : undefined;
 		if (existing) reused[existing.id] = { name: existing.name, statement: existing.statement };
 	}
-	return { course, skills, review: p.review, nextUp: p.nextUp, learning: p.learning, locked: p.locked, known: p.known, sessions, reused };
+	return {
+		course,
+		skills,
+		review: p.review,
+		nextUp: p.nextUp,
+		learning: p.learning,
+		locked: p.locked,
+		known: p.known,
+		contextCheck: p.contextCheck,
+		sessions,
+		reused,
+	};
 }
 
 // ─── create / rename / delete ────────────────────────────────────────────────
@@ -372,7 +424,15 @@ export function createCourseSession(
 			if (ids.length === 0) return { ok: false, status: 409, error: "Nothing is due for review" };
 			break;
 		case "placement":
-			ids = p.order;
+			// skills already had from another course get their own context
+			// check — the placement test does not spend questions on them
+			ids = p.order.filter((id) => !p.contextCheck.includes(id));
+			if (ids.length === 0) return { ok: false, status: 409, error: "Every skill is already known from another course — use the context checks" };
+			break;
+		case "check":
+			if (skillId === undefined) return { ok: false, status: 400, error: "A context check needs a skill" };
+			if ((ctx.boxes.get(skillId)?.box ?? 0) < LEARNED_BOX) return { ok: false, status: 409, error: "Learn this skill first — a context check is for skills you already have" };
+			ids = [skillId];
 			break;
 	}
 	const skills = ids.map((id) => sessionSkill(id, ctx));

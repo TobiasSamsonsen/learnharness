@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDownIcon, ChevronRightIcon, Loader2Icon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, Loader2Icon } from "lucide-react";
 import {
 	COURSE_MODE_LABEL,
 	KNOWN_BOX,
 	MAX_BOX,
+	placementQuestionTarget,
 	type CourseMode,
 	type CourseSkillView,
 	type CourseView,
@@ -16,7 +17,7 @@ import {
 	type PlanNodeStatus,
 } from "@/src/core";
 import { MaterialsControl } from "@/components/materials-control";
-import { PlanDiagram, GRAPH_PAD } from "@/components/plan-block";
+import { SkillMap } from "@/components/skill-map";
 import { SidebarToggle } from "@/components/sidebar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { cn } from "@/lib/utils";
@@ -71,12 +72,13 @@ function writePlacementSkipped(courseId: string): void {
 /** The first step after approval (owner, 2026-10-25): find the starting
  *  point with the quick placement test, or start from the beginning. */
 function PlacementOffer({ total, busy, onTake, onSkip }: { total: number; busy: boolean; onTake: () => void; onSkip: () => void }) {
+	const target = placementQuestionTarget(total);
 	return (
 		<section data-testid="placement-offer" className="rounded-lg border border-border bg-card/60 px-4 py-3">
 			<div className="font-prose text-(length:--lh-prose-size) font-medium">Find your starting point</div>
 			<p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-				A quick multiple-choice test — about one question per skill ({total} skills), hardest first. What you already know is credited, so
-				you start at your weak spots instead of the most basic skill.
+				A quick multiple-choice test — about {target === 1 ? "one short question" : `${target} short questions`} for {total === 1 ? "1 skill" : `${total} skills`}, hardest
+				first. What you already know is credited, so you start at your weak spots instead of the most basic skill.
 			</p>
 			<div className="mt-2.5 flex flex-wrap items-center gap-2">
 				<button type="button" className={cn(BTN, "border-foreground/40 text-foreground")} disabled={busy} data-testid="placement-take" onClick={onTake}>
@@ -242,6 +244,62 @@ function DraftReview({
 	);
 }
 
+function SessionLink({ session }: { session: CourseView["sessions"][number] }) {
+	return (
+		<li>
+			<Link href={`/chat/${session.id}`} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-accent">
+				<span className="min-w-0 flex-1 truncate font-prose">{session.title}</span>
+				<span className="shrink-0 text-xs text-muted-foreground">{COURSE_MODE_LABEL[session.mode]}</span>
+				{session.finished && <CheckIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Finished" />}
+			</Link>
+		</li>
+	);
+}
+
+/** The course's sessions (owner, 2026-10-25): the open ones first, the
+ *  finished ones folded under their own toggle so they stop crowding
+ *  what is still in progress. */
+function SessionsSection({ sessions }: { sessions: CourseView["sessions"] }) {
+	const [showFinished, setShowFinished] = useState(false);
+	const open = sessions.filter((s) => !s.finished);
+	const finished = sessions.filter((s) => s.finished);
+	return (
+		<section data-testid="course-sessions">
+			<div className={SECTION_HEAD}>Sessions</div>
+			{open.length > 0 ? (
+				<ul className="space-y-0.5" data-testid="course-sessions-open">
+					{open.map((s) => (
+						<SessionLink key={s.id} session={s} />
+					))}
+				</ul>
+			) : (
+				<p className="px-2 text-xs text-muted-foreground">No session in progress.</p>
+			)}
+			{finished.length > 0 && (
+				<div className="mt-2">
+					<button
+						type="button"
+						onClick={() => setShowFinished((v) => !v)}
+						aria-expanded={showFinished}
+						data-testid="course-sessions-finished-toggle"
+						className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+					>
+						{showFinished ? <ChevronDownIcon className="size-3.5" /> : <ChevronRightIcon className="size-3.5" />}
+						Finished · {finished.length}
+					</button>
+					{showFinished && (
+						<ul className="space-y-0.5 opacity-80" data-testid="course-sessions-finished">
+							{finished.map((s) => (
+								<SessionLink key={s.id} session={s} />
+							))}
+						</ul>
+					)}
+				</div>
+			)}
+		</section>
+	);
+}
+
 /** The page body — a pure function of the payload plus callbacks (render
  *  tests drive it directly). */
 export function CourseBody({
@@ -268,7 +326,11 @@ export function CourseBody({
 	placementSkipped?: boolean;
 	onSkipPlacement?: () => void;
 }) {
-	const markerId = useId().replace(/[^a-zA-Z0-9-]/g, "");
+	// The map opens where the learner is: what is due, then what is next.
+	const mapFocus = useMemo(
+		() => (data.review.length + data.nextUp.length > 0 ? [...data.review, ...data.nextUp] : data.learning),
+		[data.review, data.nextUp, data.learning],
+	);
 	const { course, skills } = data;
 	const byId = useMemo(() => new Map(skills.map((s) => [s.id, s])), [skills]);
 	const names = useMemo(() => new Map(skills.map((s) => [s.id, s.name])), [skills]);
@@ -276,6 +338,11 @@ export function CourseBody({
 	const edges = useMemo(() => skills.flatMap((s) => s.requires.map((r) => ({ from: r, to: s.id }))), [skills]);
 	const drafting = data.drafting || course.status === "drafting";
 	const list = (ids: readonly string[]) => ids.map((id) => byId.get(id)).filter((s): s is CourseSkillView => s !== undefined);
+	// a skill from another course shows once, in its own section (the
+	// counts still read data.known / data.learning)
+	const fromElsewhere = new Set(data.contextCheck);
+	const learning = data.learning.filter((id) => !fromElsewhere.has(id));
+	const known = data.known.filter((id) => !fromElsewhere.has(id));
 	return (
 		<div className="space-y-8">
 			<section data-testid="course-curriculum">
@@ -313,21 +380,20 @@ export function CourseBody({
 
 			{skills.length > 0 && (
 				<>
-					{data.sessions.length === 0 && !placementSkipped && (
-						<PlacementOffer total={skills.length} busy={busy} onTake={() => onStart("placement")} onSkip={() => onSkipPlacement?.()} />
+					{data.sessions.length === 0 && !placementSkipped && skills.length > data.contextCheck.length && (
+						<PlacementOffer total={skills.length - data.contextCheck.length} busy={busy} onTake={() => onStart("placement")} onSkip={() => onSkipPlacement?.()} />
 					)}
 
 					<section data-testid="course-map">
 						<div className={SECTION_HEAD}>Skill map</div>
-						<PlanDiagram
+						<SkillMap
 							nodes={nodes}
 							edges={edges}
 							statusOf={(id) => {
 								const s = byId.get(id);
 								return s ? diagramStatus(s) : "upcoming";
 							}}
-							markerId={markerId}
-							pad={GRAPH_PAD}
+							focusIds={mapFocus}
 						/>
 						<p className="mt-1 text-[11px] text-muted-foreground/80">White: known, learned or next up · gray: locked behind a prerequisite.</p>
 					</section>
@@ -375,10 +441,33 @@ export function CourseBody({
 						)}
 					</section>
 
-					{data.learning.length > 0 && (
+					{data.contextCheck.length > 0 && (
+						<section data-testid="course-context-check">
+							<div className={SECTION_HEAD}>From another course · {data.contextCheck.length}</div>
+							<p className="mb-2 text-xs text-muted-foreground">
+								You already have these from another course. A short check confirms each one works the same way here — optional, nothing is locked behind it.
+							</p>
+							<div className="space-y-1.5">
+								{list(data.contextCheck).map((s) => (
+									<SkillRow
+										key={s.id}
+										skill={s}
+										names={names}
+										actions={
+											<button type="button" className={BTN} disabled={busy} data-testid={`check-${s.id}`} onClick={() => onStart("check", s.id)}>
+												Quick check
+											</button>
+										}
+									/>
+								))}
+							</div>
+						</section>
+					)}
+
+					{learning.length > 0 && (
 						<section data-testid="course-learning">
 							<div className="mb-2 flex items-center justify-between">
-								<span className={cn(SECTION_HEAD, "mb-0")}>Learning · {data.learning.length}</span>
+								<span className={cn(SECTION_HEAD, "mb-0")}>Learning · {learning.length}</span>
 								{data.learning.length > 1 && (
 									<button type="button" className={BTN} disabled={busy} data-testid="practice-all" onClick={() => onStart("practice")}>
 										Practice all
@@ -386,7 +475,7 @@ export function CourseBody({
 								)}
 							</div>
 							<div className="space-y-1.5">
-								{list(data.learning).map((s) => (
+								{list(learning).map((s) => (
 									<SkillRow
 										key={s.id}
 										skill={s}
@@ -414,33 +503,16 @@ export function CourseBody({
 						</section>
 					)}
 
-					{data.known.length > 0 && (
+					{known.length > 0 && (
 						<section data-testid="course-known">
-							<div className={SECTION_HEAD}>Known · {data.known.length}</div>
-							<div className="space-y-1.5">{list(data.known).map((s) => <SkillRow key={s.id} skill={s} names={names} />)}</div>
+							<div className={SECTION_HEAD}>Known · {known.length}</div>
+							<div className="space-y-1.5">{list(known).map((s) => <SkillRow key={s.id} skill={s} names={names} />)}</div>
 						</section>
 					)}
 				</>
 			)}
 
-			{data.sessions.length > 0 && (
-				<section data-testid="course-sessions">
-					<div className={SECTION_HEAD}>Sessions</div>
-					<ul className="space-y-0.5">
-						{data.sessions.map((s) => (
-							<li key={s.id}>
-								<Link href={`/chat/${s.id}`} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-accent">
-									<span className="min-w-0 flex-1 truncate font-prose">{s.title}</span>
-									<span className="shrink-0 text-xs text-muted-foreground">
-										{COURSE_MODE_LABEL[s.mode]}
-										{s.finished ? " · finished" : ""}
-									</span>
-								</Link>
-							</li>
-						))}
-					</ul>
-				</section>
-			)}
+			{data.sessions.length > 0 && <SessionsSection sessions={data.sessions} />}
 		</div>
 	);
 }

@@ -134,6 +134,7 @@ const catalog = (strongProvider: string | null, ...keyedProviders: string[]): Mo
 		planner: null,
 		pdfReader: null,
 		coursePlanner: null,
+		checker: null,
 	},
 	slots: {
 		strong: strongProvider

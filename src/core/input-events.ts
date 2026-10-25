@@ -39,7 +39,8 @@ import {
 	pendingProblemDismissalOf,
 } from "./native-messages.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
-import { lessonFinishOf, newLessonFinishedMarker } from "./course-session.ts";
+import { sessionFinishOf, newLessonFinishedMarker } from "./course-session.ts";
+import type { CourseMode } from "./contracts/course.ts";
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
@@ -238,12 +239,14 @@ export function inputAppends(
 			return [...dismissalConclusion(record), newNextMessage()];
 		}
 		case "finish": {
-			// Honest 400s: a course Learn session, finished at most once, and
-			// never over an open question (answer or dismiss it first).
-			if (record.course?.mode !== "learn") throw new ChatInputError("finish input is a course-lesson affordance");
-			if (lessonFinishOf(record.messages)) throw new ChatInputError("this lesson is already finished");
+			// Honest 400s: a course session, finished at most once, and never
+			// over an open question or a live practice problem (answer or
+			// dismiss it first).
+			if (!record.course) throw new ChatInputError("finish input is a course-session affordance");
+			if (sessionFinishOf(record.messages)) throw new ChatInputError("this session is already finished");
 			if (danglingQuestionOf(record.messages)) throw new ChatInputError("finish input requires no open question");
-			return [...dismissalConclusion(record), newLessonFinishedMarker()];
+			if (record.kind === "practice" && activeProblemOf(record.messages)) throw new ChatInputError("finish input requires no active problem");
+			return [...dismissalConclusion(record), newLessonFinishedMarker(record.course.mode as CourseMode)];
 		}
 	}
 }

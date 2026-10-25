@@ -17,6 +17,7 @@ import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
 import { phaseAt3Lh } from "../core/phases.ts";
+import { sessionFinishOf } from "../core/course-session.ts";
 
 function chatFile(id: string): string {
 	if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Invalid chat id: ${id}`);
@@ -110,6 +111,9 @@ function listChats(): ChatSummary[] {
 						// NOT record-derived — the API route merges it (ChatListItem).
 						phase: phaseAt3Lh(messages),
 						pendingQuestion: danglingQuestionOf(messages) !== null,
+						// A finished course session (owner, 2026-10-25): the
+						// sidebar row says so.
+						...(summary.course && sessionFinishOf(messages as LhMessage[]) ? { finished: true } : {}),
 					};
 				} catch (err) {
 					console.error(`[chat ${summary.id}] summary projection failed:`, err);

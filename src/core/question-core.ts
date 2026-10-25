@@ -171,6 +171,15 @@ export const quizInputBase = Type.Object({
 			"that answer (if none would, the options are wrong — fix them, never the reasoning). Revealed AFTER the " +
 			"learner answers, whether they got it right or wrong.",
 	}),
+	verify: Type.Optional(
+		Type.String({
+			description:
+				"Optional, never shown: a short Python program that COMPUTES the answer and prints exactly the correct option's label " +
+				"(multi-select: each correct label on its own line). It is run before the question is posed, and the call is returned " +
+				"to you when it prints anything else. Use it whenever the answer is computable but is not simply the printed output " +
+				"of the question's own code block (that block is run automatically) — a blank to fill, a value after a loop, a raised error, a numeric result.",
+		}),
+	),
 	options: Type.Array(Type.Object(quizOptionProps), {
 		minItems: 2,
 		description:

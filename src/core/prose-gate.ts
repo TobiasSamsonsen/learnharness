@@ -29,6 +29,15 @@ export const PROSE_GATE_REASON =
 	"Respond to his answer in text first (what it shows; if it was wrong, diagnose and repair), then teach the next step in text, " +
 	"and only then call the question again, in the same message after that text.";
 
+/** The just-in-time half (owner, 2026-10-25 — the mutable-types lesson:
+ *  the gate fired on 6 of 7 checks and the retries passed it with one
+ *  filler line). Rides every gated tool's answer result as `next`, so
+ *  the rule is in front of the model at the moment it decides; the gate
+ *  stays the backstop. */
+export const ANSWER_NEXT_TEXT =
+	"Reply in text before any tool: what this answer shows (wrong: diagnose and repair). " +
+	"Then teach the next step in text before its question — or finish.";
+
 const hasText = (blocks: AssistantMessage["content"]): boolean =>
 	blocks.some((b) => b.type === "text" && b.text.trim().length > 0);
 

@@ -43,6 +43,7 @@ import {
 	THINKING_LABEL,
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
+import { ANSWER_NEXT_TEXT, PROSE_GATED_TOOLS } from "./prose-gate.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 
 /** The hard-invariant wording for an aborted turn's unanswered calls —
@@ -133,18 +134,22 @@ export function newUserSteer(text: string, id: string): LhMessage & UserMessage 
  *  compact learner-only record (compactAnswerForModel — the call's own
  *  arguments already carry the question/options/explanation/commitment;
  *  restating them doubled every answer's tokens), while `details` keeps
- *  the FULL graded QuestionAnswerData for the record and the UI. */
+ *  the FULL graded QuestionAnswerData for the record and the UI. A
+ *  prose-gated tool's answer also carries `next` (core/prose-gate.ts) —
+ *  written once here, so replay and the prompt cache stay stable. */
 export function newAnswerResult(
 	toolCallId: string,
 	toolName: string,
 	answer: unknown,
 ): LhMessage & ToolResultMessage {
+	const forModel = compactAnswerForModel(answer as QuestionAnswerData);
+	if (PROSE_GATED_TOOLS.includes(toolName)) forModel.next = ANSWER_NEXT_TEXT;
 	return {
 		id: newMessageId(),
 		role: "toolResult",
 		toolCallId,
 		toolName,
-		content: [{ type: "text", text: JSON.stringify(compactAnswerForModel(answer as QuestionAnswerData)) }],
+		content: [{ type: "text", text: JSON.stringify(forModel) }],
 		// 0.87.1 narrowed ToolResultMessage.details to JsonRepresentation —
 		// our payloads are JSON-safe answer structures, so the cast is honest.
 		details: answer as ToolResultMessage["details"],
