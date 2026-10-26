@@ -58,7 +58,10 @@ import { PracticeDock } from "@/components/practice-dock";
 import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
 import { TopBar } from "@/components/top-bar";
-import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, TurnUsage, SessionPricing } from "@/src/core";
+import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, SketchPayload, TurnUsage, SessionPricing } from "@/src/core";
+import { READ_SKETCH_TOOL, readSketchCall, sketchStatesOf } from "@/src/core";
+import { SketchDisputeLine } from "@/components/artifacts/read-sketch-card";
+import { useModelCatalog } from "@/components/model-picker";
 import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
 import {
@@ -130,6 +133,16 @@ export const ChatActionsContext = createContext<{
 	/** Opens the model setup dialog (BYOK, 2026-09-22): refused job cards
 	 *  deep-link into the same SetupDialog the send interception uses. */
 	openSetup: () => void;
+	/** The read-back card's dispute (Android plan M2): whether this
+	 *  reading may be disputed right now, and the send. "available" only on
+	 *  the newest reading of a sketch while idle with no question waiting. */
+	sketchDispute?: {
+		state: (sketchId: string, toolCallId: string) => "available" | "disputed" | "none";
+		/** Is this call the newest reading of its sketch? (An older reading's
+		 *  doubts are history, not a request.) */
+		isNewest: (sketchId: string, toolCallId: string) => boolean;
+		send: (sketchId: string, text?: string) => void;
+	};
 } | null>(null);
 
 /** The BYOK refusal envelope from the transport's error text: the
@@ -502,12 +515,28 @@ export function Chat({
 	// the dock stays mounted (the problem is still active until the agent
 	// concludes).
 	const submitThinking = useCallback(
-		(text: string) => {
+		(text: string, sketch?: SketchPayload): Promise<boolean> => {
 			const problem = activeProblemRef.current;
-			if (!problem) return;
-			void send({ type: "thinking", problemCallId: problem.toolCallId, text });
+			if (!problem) return Promise.resolve(false);
+			return send(
+				sketch
+					? { type: "thinking", problemCallId: problem.toolCallId, text, sketch }
+					: { type: "thinking", problemCallId: problem.toolCallId, text },
+			);
 		},
 		[send],
+	);
+
+	// Sketch answers (Android plan M1): offered only when the session's
+	// model reads images — the stats bar's model control reports the
+	// effective model; unknown (still loading) counts as no.
+	const [sessionModel, setSessionModel] = useState<string | undefined>();
+	const { catalog: modelCatalog } = useModelCatalog();
+	const sketchAvailable = useMemo(
+		() =>
+			!!sessionModel &&
+			!!modelCatalog?.models.some((m) => `${m.provider}:${m.id}` === sessionModel && m.input.includes("image")),
+		[sessionModel, modelCatalog],
 	);
 
 	// Teach-phase check (W5, vision §2): a pending QUIZ that lands once a
@@ -715,6 +744,31 @@ export function Chat({
 					(b) => b.type === "toolCall" && b.name === "problem",
 				),
 		);
+	// The read-back card's dispute (Android plan M2): the newest reading of
+	// each sketch, and whether a dispute can go out now — idle, no question
+	// waiting (the dock owns that moment), no compaction running.
+	const sketchDispute = useMemo(() => {
+		const states = sketchStatesOf(nativeMessages as unknown as Parameters<typeof sketchStatesOf>[0]);
+		const newestRead = new Map<string, string>();
+		for (const m of nativeMessages) {
+			if ((m as { role?: string }).role !== "assistant") continue;
+			for (const b of (m as { content: Array<{ type: string; id?: string; name?: string; arguments?: unknown }> }).content) {
+				if (b.type !== "toolCall" || b.name !== READ_SKETCH_TOOL || !b.id) continue;
+				const id = readSketchCall(b.arguments)?.sketchId;
+				if (id) newestRead.set(id, b.id);
+			}
+		}
+		const idle = !busy && !pending && !compacting;
+		return {
+			isNewest: (sketchId: string, toolCallId: string): boolean => newestRead.get(sketchId) === toolCallId,
+			state: (sketchId: string, toolCallId: string): "available" | "disputed" | "none" =>
+				newestRead.get(sketchId) !== toolCallId ? "none" : states.get(sketchId)?.disputed ? "disputed" : idle ? "available" : "none",
+			send: (sketchId: string, text?: string) => {
+				void send(text ? { type: "dispute", sketchId, text } : { type: "dispute", sketchId });
+			},
+		};
+	}, [nativeMessages, busy, pending, compacting, send]);
+
 	const sendNext = useCallback(() => {
 		if (!nextReady) return;
 		void send({ type: "next" });
@@ -1194,6 +1248,7 @@ export function Chat({
 					void send({ type: "text", text: t });
 				},
 				openSetup: () => setSetupOpen(true),
+				sketchDispute,
 			}}
 		>
 		<SessionMermaidContext.Provider
@@ -1404,7 +1459,7 @@ export function Chat({
 											case "data-compaction-cut":
 												return <CompactionCutDivider key={pi} data={part.data as CompactionDividerData} />;
 											case "data-practice-thinking":
-												return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} />;
+												return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} chatId={chatId} />;
 											case "data-practice-next":
 												// The learner's move-on signal (owner round 16): a compact
 												// centered mono-caps line — chrome, the dismissal register.
@@ -1418,6 +1473,8 @@ export function Chat({
 														Next problem
 													</div>
 												);
+											case "data-sketch-dispute":
+												return <SketchDisputeLine key={pi} data={part.data as { sketchId?: unknown; text?: unknown }} />;
 											case "data-lesson-finished":
 												return <LessonFinishedLine key={pi} skill={lessonSkill} lesson={isLesson} />;
 											default:
@@ -1558,7 +1615,7 @@ export function Chat({
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
 															return (
-																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} />
+																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} chatId={chatId} />
 															);
 														}
 														return null;
@@ -1648,6 +1705,8 @@ export function Chat({
 					practice={activeProblem}
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
+					sketchAvailable={sketchAvailable}
+					onModelChange={setSessionModel}
 					chatId={chatId}
 					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
 					onOpenPlan={() => setPlanOpen(true)}
@@ -1705,8 +1764,8 @@ export function Chat({
 							edge={{ chatId, mic: <DictationBar dictation={dictation} compact /> }}
 						/>
 					}
-					onSubmitAnswer={(output) => {
-						if (!pending) return;
+					onSubmitAnswer={(output, sketch) => {
+						if (!pending) return Promise.resolve(false);
 						// THE ANSWER IS THE QUESTION CALL'S TOOL RESULT (fork 1, owner
 						// 2026-09-26): one input event, one turn — the hook appends
 						// the optimistic graded result (the AnsweredCard shows at
@@ -1717,7 +1776,7 @@ export function Chat({
 						// check answer is its only carrier.
 						const reading = readingThinkingRef.current.trim() || undefined;
 						clearReadingThinking();
-						submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output);
+						return submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output, sketch);
 					}}
 				/>
 				</Conversation>
@@ -1876,6 +1935,8 @@ function DockOverlay({
 	practice,
 	compactionRunning,
 	onSubmitThinking,
+	sketchAvailable,
+	onModelChange,
 	requiresReveal,
 	readingThinking,
 	onReadingThinking,
@@ -1903,7 +1964,12 @@ function DockOverlay({
 	 *  question (the composer is replaced); null in teaching sessions. */
 	practice: { toolCallId: string; input: unknown } | null;
 	/** (commit, text) — the practice dock's two submit lanes. */
-	onSubmitThinking: (text: string) => void;
+	/** Resolves to whether the server accepted the submission. */
+	onSubmitThinking: (text: string, sketch?: SketchPayload) => Promise<boolean>;
+	/** The session's model reads images — the docks offer "Open in sketch". */
+	sketchAvailable: boolean;
+	/** The stats bar's model control reports the session's effective model. */
+	onModelChange: (model: string | undefined) => void;
 	/** Teach-phase pending question: arrives collapsed behind the reveal button (W5). */
 	requiresReveal: boolean;
 	/** The reading-thinking draft (owner 2026-10-03) — owned by ChatView so
@@ -1917,7 +1983,8 @@ function DockOverlay({
 	contextTokens: number | null;
 	pricing?: SessionPricing;
 	composer: React.ReactNode;
-	onSubmitAnswer: (output: QuestionAnswerData) => void;
+	/** Resolves to whether the server accepted the answer. */
+	onSubmitAnswer: (output: QuestionAnswerData, sketch?: SketchPayload) => Promise<boolean>;
 	/** The model control's pass-through (the stats bar hosts it). */
 	chatId: string;
 	/** Reports the dock's settled height (block + gradient) — ChatView's
@@ -2365,6 +2432,7 @@ function DockOverlay({
 									onEscape={dictationCancel}
 									dictationClaim={!revealPending}
 									compactionRunning={compactionRunning}
+									sketchAvailable={sketchAvailable}
 								/>
 							) : practice ? (
 								<PracticeDock
@@ -2378,6 +2446,7 @@ function DockOverlay({
 									onSubmit={onSubmitThinking}
 									onEscape={dictationCancel}
 									compactionRunning={compactionRunning}
+									sketchAvailable={sketchAvailable}
 								/>
 							) : (
 								composer
@@ -2396,7 +2465,7 @@ function DockOverlay({
 					{/* The stats row: beneath the composer/question shell, not
 					    flush to the screen bottom — static height, outside the
 					    morphing shell so it never joins a height animation. */}
-					<StatsBar turns={turns} contextTokens={contextTokens} pricing={pricing} chatId={chatId} />
+					<StatsBar turns={turns} contextTokens={contextTokens} pricing={pricing} chatId={chatId} onModelChange={onModelChange} />
 					{/* The scroll-down disc (moved here from the Conversation,
 					    owner refinement round 2026-09-24): anchored to the BLOCK's
 					    top edge — above the composer shell AND the stats row, in

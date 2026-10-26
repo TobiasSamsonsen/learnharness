@@ -36,6 +36,7 @@ import {
 	COMPACTION_RESERVE_TOKENS,
 	estimateContextTokens,
 	estimateTokens,
+	estimateSketchRequestTokens,
 	newCompactionMarker,
 	planTreeToText,
 	serializeForSummary,
@@ -158,7 +159,10 @@ export function effectiveThresholdTokens(settingTokens: number | undefined, cont
 export function projectedContextTokens(messages: readonly LhMessage[], systemPromptTokens: number): number {
 	const est = estimateContextTokens(messages);
 	if (est.lastUsageIndex !== null) return est.tokens;
-	return estimateTokens(toLlmMessages(messages as readonly AgentMessage[]) as unknown as readonly LhMessage[]) + systemPromptTokens;
+	// Sketches project as text stubs here (no resolver — never the bytes);
+	// their images are sized from the record, at their real vision cost.
+	const projected = toLlmMessages(messages as readonly AgentMessage[]);
+	return estimateTokens(projected as unknown as readonly LhMessage[]) + estimateSketchRequestTokens(messages) + systemPromptTokens;
 }
 
 // ─── the compaction run ─────────────────────────────────────────────────────

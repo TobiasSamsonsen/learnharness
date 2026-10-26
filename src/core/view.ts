@@ -407,6 +407,17 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			});
 			return;
 		}
+		case "sketch-dispute": {
+			// The learner's dispute of a reading (Android plan M2): a quiet
+			// user-side line keyed on the structured details — the model reads
+			// the marker's content, the transcript never shows it.
+			out.push({
+				id: marker.id,
+				role: "user",
+				parts: [{ type: "data-sketch-dispute", id: `sd_${marker.id}`, data: marker.details }],
+			});
+			return;
+		}
 		case "practice-next": {
 			// The learner's explicit move-on signal (owner round 16): a compact
 			// centered system line — the mono-caps chrome register, not prose.

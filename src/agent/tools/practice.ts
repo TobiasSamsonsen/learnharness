@@ -15,7 +15,7 @@
  */
 
 import { Type, type Static } from "typebox";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import { resolveTargetId } from "../../core/chains.ts";
 import { readTool } from "./read.ts";
 import { lsTool } from "./ls.ts";
@@ -29,6 +29,8 @@ import { circuitSolveTool, figureGuideTool } from "./figures.ts";
 import type { LhMessage } from "../../core/native-messages.ts";
 import { concludeResult, invalidInputResult, problemResult } from "../tool-execute.ts";
 import { healEncodedArguments, healToolRecord } from "./heal.ts";
+import { readSketchTool } from "./sketch.ts";
+import { noteSketchRead, sketchConcludeProblems, sketchGateOf, sketchIdsOf, type SketchGate } from "../../core/sketch-gate.ts";
 
 
 /** The record-reading context the gates need (the plan-tools idiom). */
@@ -65,13 +67,21 @@ export interface PracticeToolContext {
  *  this closure — the intra-turn truth the record cannot hold yet. */
 export interface PracticeGate {
 	problemActive: boolean;
+	/** The active problem's newest sketch and its reading state (Android
+	 *  plan M2): conclude as solved waits on it. Null/absent = nothing to
+	 *  gate. */
+	sketch?: SketchGate | null;
 }
 
 /** Seed the turn's gate from the record (result-aware activeProblemOf —
  *  only a cleanly-posed problem counts). */
 export function createPracticeGate(ctx: PracticeToolContext): PracticeGate {
 	const record = ctx.chatStore.getChat(ctx.chatId);
-	return { problemActive: record ? activeProblemOf(record.messages) !== null : false };
+	const active = record ? activeProblemOf(record.messages) : null;
+	return {
+		problemActive: active !== null,
+		sketch: record ? sketchGateOf(record.messages as unknown as AgentMessage[], active?.toolCallId ?? null) : null,
+	};
 }
 
 // ─── problem: the pose ───────────────────────────────────────────────────────
@@ -204,6 +214,7 @@ export function problemTool(
 			const figures = figureInputProblems(input, { perField: true });
 			if (figures.length > 0) return invalidInputResult("problem", figures);
 			gate.problemActive = true;
+			gate.sketch = null; // a fresh problem starts with no sketch
 			return problemResult();
 		},
 	};
@@ -270,10 +281,15 @@ export function concludeTool(gate: PracticeGate): AgentTool<typeof concludeInput
 		parameters: concludeInputObject,
 		prepareArguments: (args: unknown) => healEncodedArguments(args, concludeInputObject) as never,
 		executionMode: "sequential",
-		execute: async (_toolCallId, _input) => {
+		execute: async (_toolCallId, input) => {
 			if (!gate.problemActive) {
 				return invalidInputResult("conclude", ["no active problem to conclude — pose one first"]);
 			}
+			// THE SKETCH GATE (Android plan M2): a solved outcome waits on the
+			// newest sketch being read, free of doubts, and undisputed. A refusal
+			// is an error result — never mastery evidence.
+			const waiting = sketchConcludeProblems(gate.sketch ?? null, input.outcome);
+			if (waiting.length > 0) return invalidInputResult("conclude", waiting);
 			gate.problemActive = false;
 			return concludeResult();
 		},
@@ -299,6 +315,13 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AgentToo
 	return healToolRecord({
 		problem: problemTool(gate, ctx.graphNodes, ctx.courseSkills),
 		conclude: concludeTool(gate),
+		// The tutor's transcription of the learner's handwriting (Android
+		// plan M2) — sketches are named from the record, fresh per call; a
+		// read flips the conclude gate mid-turn.
+		read_sketch: readSketchTool({
+			known: () => sketchIdsOf((ctx.chatStore.getChat(ctx.chatId)?.messages ?? []) as unknown as AgentMessage[]),
+			onRead: (sketchId, uncertain) => noteSketchRead(gate.sketch ?? null, sketchId, uncertain),
+		}),
 		figure_guide: figureGuideTool,
 		circuit_solve: circuitSolveTool,
 		read: readTool,

@@ -262,3 +262,35 @@ describe("GraphContextCard", () => {
 		assert.equal((view[0]!.parts[0] as { type: string }).type, "data-graph-context");
 	});
 });
+
+describe("sketch answers (Android plan M1)", () => {
+	const dock = (sketchAvailable?: boolean) =>
+		renderToStaticMarkup(
+			<PracticeDock
+				problemCallId="call_p1"
+				input={{ statement: "Draw the circuit." }}
+				expanded={true}
+				onExpand={() => {}}
+				onSubmit={() => {}}
+				sketchAvailable={sketchAvailable}
+			/>,
+		);
+
+	it("Open in sketch shows only for a model that reads images", () => {
+		assert.match(dock(true), /data-testid="practice-open-sketch"/);
+		assert.ok(!dock(false).includes("practice-open-sketch"));
+		assert.ok(!dock(undefined).includes("practice-open-sketch"), "unknown counts as no");
+	});
+
+	it("a sketch submission's card shows the page, with or without words", () => {
+		const sketch = { id: "sk_render0000000001", producer: "web-canvas" as const, pages: [{ width: 300, height: 120 }, { width: 300, height: 80 }], strokeCount: 3, pointCount: 40 };
+		const html = renderToStaticMarkup(<ThinkingCard data={{ problemCallId: "c", text: "", sketch }} chatId="chat_r" />);
+		assert.match(html, /data-testid="sketch-thumbnail"/);
+		assert.match(html, /\/api\/chats\/chat_r\/sketches\/sk_render0000000001\/0/);
+		assert.match(html, /page 2/);
+		assert.ok(!html.includes('data-testid="thinking-card"'), "no empty thinking row");
+		const worded = renderToStaticMarkup(<ThinkingCard data={{ problemCallId: "c", text: "two resistors", sketch }} chatId="chat_r" />);
+		assert.match(worded, /two resistors/);
+		assert.match(worded, /sketch-thumbnail/);
+	});
+});

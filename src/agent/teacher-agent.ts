@@ -20,8 +20,10 @@ import { healToolRecord } from "./tools/heal.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { figureInputProblems } from "../core/figures/index.ts";
 import { circuitSolveTool, figureGuideTool } from "./tools/figures.ts";
+import { readSketchTool } from "./tools/sketch.ts";
+import { READ_SKETCH_TOOL, isDoubtfulReadResult, sketchIdsOf } from "../core/sketch-gate.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
-import { toLlmMessages, nativeInputCause } from "../core/native-messages.ts";
+import { toLlmMessages, nativeInputCause, type SketchImageResolver } from "../core/native-messages.ts";
 import { PROSE_GATE_REASON, proseGateBlocks } from "../core/prose-gate.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } from "../core/language.ts";
@@ -137,6 +139,10 @@ export interface AgentBuildOptions {
 	 *  the material, and its tools (a Learn session's finish_lesson —
 	 *  tools/course.ts), added to the registry. */
 	course?: { section: string; tools?: AgentTool<any>[] };
+	/** Sketch answers (fork addition, 2026-10-26): loads a stored sketch
+	 *  page for the model projection (server/sketches.ts sketchImagesFor).
+	 *  Absent → sketches reach the model as text stubs. */
+	sketchImages?: SketchImageResolver;
 	/** Native conversation identity: the existing persisted chat id, reused
 	 * across reconstructed prober, teacher, and practice Agents.
 	 * Debug: when set AND LH_PROVIDER_EVENTS=1, raw provider stream events
@@ -169,8 +175,12 @@ export interface AgentBuildOptions {
 function makeQuestionStopper() {
 	return (context: {
 		message: { content: Array<{ type: string; id?: string; name?: string }> };
-		toolResults: Array<{ toolCallId: string; isError?: boolean }>;
+		toolResults: Array<{ toolCallId: string; toolName?: string; isError?: boolean; details?: unknown }>;
 	}): boolean => {
+		// A read_sketch that left doubts open ends the turn even in a mixed batch
+		// (a refused conclude beside it would otherwise let the model carry on
+		// and write the paragraph the card is waiting to hold back).
+		if (context.toolResults.some(isDoubtfulReadResult)) return true;
 		const called = new Set(
 			context.message.content
 				.filter((c) => c.type === "toolCall" && c.name !== undefined && (QUESTION_TOOLS as readonly string[]).includes(c.name!))
@@ -198,6 +208,12 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		opts.language ?? DEFAULT_LESSON_LANGUAGE,
 		"conversation",
 	);
+	// read_sketch (Android plan M2) rides EVERY agent, always — practice
+	// builds its own (it shares the conclude gate). A caller-owned registry
+	// (opts.tools — the tests') is never touched.
+	if (!opts.tools && !tools.some((t) => t.name === READ_SKETCH_TOOL)) {
+		tools = [...tools, ...Object.values(healToolRecord({ read_sketch: readSketchTool({ known: () => sketchIdsOf(opts.messages ?? []) }) }))];
+	}
 	if (opts.materials) tools = [...tools, ...opts.materials.tools];
 	if (opts.course?.tools) tools = [...tools, ...opts.course.tools];
 	// Debug recorder (owner, 2026-10-04): raw provider events when
@@ -249,7 +265,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		// UI-only markers (plan-block) drop, the app's id fields strip, and
 		// an abort's dangling question call gets its INTERRUPTED result. It
 		// must never throw (pi's convertToLlm contract).
-		convertToLlm: toLlmMessages,
+		convertToLlm: (messages) => toLlmMessages(messages, { sketchImage: opts.sketchImages }),
 		prepareRequest: (request) => {
 			if (opts.callPurpose) {
 				let learner = false, automatic = false;

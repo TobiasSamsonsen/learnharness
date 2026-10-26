@@ -37,7 +37,9 @@ import type { PlanTree } from "./contracts/plan.ts";
 import { derivePlanStatusesLh, derivedNodeStatus } from "./contracts/plan.ts";
 import { COMPACTED_HISTORY_HEADER } from "./contracts/chat.ts";
 import type { LhMessage, LhMarkerMessage } from "./native-messages.ts";
-import { newMessageId } from "./native-messages.ts";
+import { newMessageId, requestSketchPages } from "./native-messages.ts";
+import { sketchOfMessage } from "./sketch.ts";
+import { sketchStatesOf } from "./sketch-gate.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolResultMessage, SystemMessage } from "@earendil-works/pi-ai";
 
@@ -100,6 +102,12 @@ export function estimateMessageTokens(message: LhMessage | AgentMessage): number
 		}
 	} else {
 		chars += textCharsOfContent(content);
+		// A RECORD message's sketch (fork addition, 2026-10-26): its pages
+		// ride as images only at the model boundary — counted here at their
+		// real vision cost. Record messages carry ids; the wire projection
+		// strips them and is sized by estimateSketchRequestTokens instead.
+		const sketch = typeof (message as { id?: unknown }).id === "string" ? sketchOfMessage(message as AgentMessage) : null;
+		if (sketch) for (const p of sketch.pages) chars += sketchPageTokens(p.width, p.height) * 4;
 		if (message.role === "system") {
 			const system = message as SystemMessage;
 			for (const section of Object.values(system.sections ?? {})) chars += section?.length ?? 0;
@@ -122,6 +130,34 @@ function textCharsOfContent(content: unknown): number {
 		else if (block?.type === "text") chars += block.text?.length ?? 0;
 	}
 	return chars;
+}
+
+/** A sketch page's vision cost: ⌈w/28⌉×⌈h/28⌉ tokens (current Claude
+ *  models — docs/android/plan.md §5). */
+export function sketchPageTokens(width: number, height: number): number {
+	return Math.ceil(width / 28) * Math.ceil(height / 28);
+}
+
+/** The sketch images one request carries (the newest-pages window that
+ *  toLlmMessages applies), at their vision cost — the wire projection's
+ *  estimate adds this to its text (its sketches ride as stubs there). */
+export function estimateSketchRequestTokens(messages: readonly (LhMessage | AgentMessage)[]): number {
+	let tokens = 0;
+	for (const { ref, page } of requestSketchPages(messages as readonly AgentMessage[])) {
+		const p = ref.pages[page]!;
+		tokens += sketchPageTokens(p.width, p.height);
+	}
+	return tokens;
+}
+
+/** Summary text of a content value: text blocks as-is, an image as
+ *  `[image]` — never its base64. */
+function contentText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return (content as Array<{ type?: string; text?: string }>)
+		.map((c) => (c?.type === "text" ? (c.text ?? "") : c?.type === "image" ? "[image]" : JSON.stringify(c)))
+		.join("\n");
 }
 
 /** The newest assistant message carrying VALID provider-reported usage
@@ -308,10 +344,21 @@ export function keptIndexFor(messages: readonly LhMessage[], marker: LhMarkerMes
  * the model; the SUMMARY only needs their gist). */
 export function serializeForSummary(messages: readonly LhMessage[]): string {
 	const lines: string[] = [];
+	// A sketch is its recorded reading, never its pixels (Android plan M2):
+	// `[sketch sk_x — read as: …]`, or `not read` when no reading survives.
+	const sketchStates = sketchStatesOf(messages as readonly AgentMessage[]);
+	const sketchLine = (m: LhMessage): string | null => {
+		const ref = sketchOfMessage(m as AgentMessage);
+		if (!ref) return null;
+		const reading = sketchStates.get(ref.id)?.read;
+		return reading
+			? `[sketch ${ref.id} — read as: ${reading.reading}${reading.uncertain.length > 0 ? ` (doubts: ${reading.uncertain.join("; ")})` : ""}${reading.settled.length > 0 ? ` (settled: ${reading.settled.join("; ")})` : ""}]`
+			: `[sketch ${ref.id} — not read]`;
+	};
 	for (const m of messages) {
 		const role = (m as { role?: string }).role;
 		if (role === "user") {
-			lines.push(`[LEARNER] ${(m as { content: string }).content}`);
+			lines.push(`[LEARNER] ${contentText((m as { content: unknown }).content)}`);
 		} else if (role === "assistant") {
 			const assistant = m as AssistantMessage;
 			const blocks: string[] = [];
@@ -324,18 +371,20 @@ export function serializeForSummary(messages: readonly LhMessage[]): string {
 			if (blocks.length > 0) lines.push(`[TUTOR] ${blocks.join("\n")}`);
 		} else if (role === "toolResult") {
 			const result = m as ToolResultMessage;
-			const text = result.content
-				.map((c) => (c.type === "text" ? c.text : JSON.stringify(c)))
-				.join("\n");
+			const text = contentText(result.content);
 			lines.push(
 				`[RESULT for ${result.toolName}${result.isError ? " (error)" : ""}] ${
 					text.length > SUMMARY_TOOL_RESULT_TRUNCATE ? `${text.slice(0, SUMMARY_TOOL_RESULT_TRUNCATE)}…[truncated]` : text
 				}`,
 			);
+			const sketch = sketchLine(m);
+			if (sketch) lines.push(sketch);
 		} else if (role === "custom") {
 			const marker = m as LhMarkerMessage;
 			if (marker.customType === "plan-block") continue; // UI-only
-			lines.push(`[SYSTEM NOTE] ${marker.content}`);
+			lines.push(`[SYSTEM NOTE] ${contentText(marker.content)}`);
+			const sketch = sketchLine(m);
+			if (sketch) lines.push(sketch);
 		}
 	}
 	return lines.join("\n\n");

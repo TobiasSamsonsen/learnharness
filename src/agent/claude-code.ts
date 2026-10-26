@@ -27,6 +27,7 @@ import {
 	validateToolCall,
 } from "@earendil-works/pi-ai";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { SKETCH_LABEL_RE } from "../core/sketch.ts";
 
 /**
  * THE CLAUDE CODE PROVIDER (fork addition, 2026-10-24): model turns run
@@ -628,16 +629,45 @@ function spawnClaude(bin: string, args: string[], cwd: string): ChildProcess {
 
 // ─── fingerprints (pure) ─────────────────────────────────────────────────────
 
+/** Content blocks, fingerprinted. A SKETCH page is its label whether it
+ *  rides as an image or as a text stub (elided, out of the window, or
+ *  unreadable): the label hashes alone and the image after it is skipped —
+ *  so a sketch changing form never breaks a live session's prefix (the
+ *  process already holds the image it was sent; the stub only matters to a
+ *  fresh replay). */
+function fingerprintBlocks(content: ReadonlyArray<{ type: string; text?: string; data?: string; mimeType?: string }>): unknown[] {
+	const out: unknown[] = [];
+	let afterLabel = false;
+	for (const b of content) {
+		if (b.type === "text") {
+			const label = SKETCH_LABEL_RE.exec(b.text ?? "");
+			if (label) {
+				out.push(["sk", label[1], label[2], label[3]]);
+				afterLabel = true;
+				continue;
+			}
+			out.push(b.text);
+			afterLabel = false;
+		} else {
+			if (afterLabel) {
+				afterLabel = false;
+				continue;
+			}
+			out.push({ img: createHash("sha1").update(b.data ?? "").digest("hex"), t: b.mimeType });
+		}
+	}
+	return out;
+}
+
 /** A message's identity for continuation checks: what the model saw of it. */
 export function messageFingerprint(m: Message): string {
-	const img = (b: { data: string; mimeType: string }) => ({ img: createHash("sha1").update(b.data).digest("hex"), t: b.mimeType });
 	let shape: unknown;
 	if (m.role === "user") {
-		shape = ["u", typeof m.content === "string" ? m.content : m.content.map((b) => (b.type === "text" ? b.text : img(b)))];
+		shape = ["u", typeof m.content === "string" ? m.content : fingerprintBlocks(m.content)];
 	} else if (m.role === "assistant") {
 		shape = ["a", m.content.map((b) => (b.type === "text" ? b.text : b.type === "thinking" ? ["th", b.thinking] : ["tc", b.id, b.name, b.arguments]))];
 	} else if (m.role === "toolResult") {
-		shape = ["r", m.toolCallId, m.isError, m.content.map((b) => (b.type === "text" ? b.text : img(b)))];
+		shape = ["r", m.toolCallId, m.isError, fingerprintBlocks(m.content)];
 	} else {
 		shape = ["s"];
 	}

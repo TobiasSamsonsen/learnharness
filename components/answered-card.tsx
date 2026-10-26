@@ -7,6 +7,7 @@ import { ThinkingBlock } from "@/components/thinking-block";
 import { cn } from "@/lib/utils";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { FigureScope } from "@/components/figures/figure-scope";
+import { SketchThumbnail } from "@/components/sketch/sketch-thumbnail";
 import type { QuestionAnswerData } from "@/src/core";
 import { parseAskInput, parseQuizInput } from "@/src/core";
 
@@ -20,7 +21,7 @@ import { parseAskInput, parseQuizInput } from "@/src/core";
  * client — the card reveals his answer, the committed correct answer, and
  * the explanation, with NO verdict chips (owner ruling 2026-09-27).
  */
-export function AnsweredCard({ answer, input }: { answer: QuestionAnswerData; input?: unknown }) {
+export function AnsweredCard({ answer, input, chatId }: { answer: QuestionAnswerData; input?: unknown; chatId?: string }) {
 	const [whyOpen, setWhyOpen] = useState(false); // the tucked explanation (predictions, owner 2026-10-03)
 	if (answer.dismissed) {
 		return (
@@ -180,6 +181,8 @@ export function AnsweredCard({ answer, input }: { answer: QuestionAnswerData; in
 			{answer.dontKnow && isQuiz && (
 				<div className="mt-2 text-sm text-muted-foreground">Answered “I don't know”.</div>
 			)}
+
+			{answer.sketch && chatId && <SketchThumbnail chatId={chatId} sketch={answer.sketch} />}
 
 			{(answer.thinking ?? answer.note) && (
 				/* The SAME unified row (owner round, 2026-10-05): the quiz answer's

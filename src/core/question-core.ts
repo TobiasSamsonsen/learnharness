@@ -19,6 +19,7 @@
 
 import { Type, type Static } from "typebox";
 import { stripModelValueDebris } from "./value-debris.ts";
+import type { SketchRef } from "./contracts/sketch.ts";
 
 // ─── shared types ───────────────────────────────────────────────────────────
 
@@ -501,6 +502,12 @@ export interface QuestionAnswerData {
 	committed?: string; // explain only (rendering): the model's committed answer
 	explanation?: string; // quiz only (rendering)
 	dismissed?: boolean;
+	/** The learner's handwriting (fork addition, 2026-10-26): the stored
+	 *  sketch's ref — the server derives it from the input's payload
+	 *  (core/sketch.ts sketchRefOf); the images reach the model through
+	 *  toLlmMessages, never through this record. In text mode it is (part
+	 *  of) the answer; in select modes it is thinking. */
+	sketch?: SketchRef;
 	answeredAt: string;
 }
 
@@ -523,6 +530,7 @@ export interface AnswerRequest {
 	thinking?: string; // the reasoning-on-the-question channel (was `note`)
 	readingThinking?: string; // the thinking-while-reading channel (check answers)
 	confidence?: number; // quiz only: 0-100 raw probability, always chosen by the learner — the dock has no default (owner, 2026-10-25)
+	sketch?: SketchRef; // the handwriting's ref (the payload itself rides the input event)
 }
 
 /** The confidence slider's snap stops (owner, 2026-10-01): raw probability
@@ -592,8 +600,10 @@ export function dockSubmitGate(s: {
 	other: string;
 	text: string;
 	confidenceSet: boolean;
+	/** A sketch is attached — in text mode it answers on its own. */
+	hasSketch?: boolean;
 }): { canSubmit: boolean; needsConfidence: boolean } {
-	if (s.mode === "text") return { canSubmit: s.text.trim().length > 0, needsConfidence: false };
+	if (s.mode === "text") return { canSubmit: s.text.trim().length > 0 || s.hasSketch === true, needsConfidence: false };
 	if (s.sel.dontKnow) return { canSubmit: true, needsConfidence: false };
 	const picked = (s.sel.otherSelected && s.other.trim().length > 0) || s.sel.selected.size > 0;
 	const needsConfidence = picked && s.kind === "quiz" && !s.confidenceSet;
@@ -777,6 +787,7 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 	}
 	if (req.other?.trim()) base.other = req.other.trim();
 	if (req.text?.trim()) base.text = req.text.trim();
+	if (req.sketch) base.sketch = req.sketch;
 
 	if (qd.kind === "quiz") {
 		base.correctIndices = qd.correctIndices ?? [];
@@ -849,5 +860,10 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 	const thinking = ad.thinking ?? ad.note;
 	if (thinking) out.thinking = thinking;
 	if (ad.readingThinking) out.thinkingWhileReading = ad.readingThinking;
+	// The handwriting LAST (verdict-first order): its pages ride as images
+	// right after this JSON, each labeled with the id.
+	if (ad.sketch) {
+		out.sketch = { id: ad.sketch.id, pages: ad.sketch.pages.length, as: ad.kind === "quiz" || (ad.options?.length ?? 0) > 0 ? "thinking" : "answer" };
+	}
 	return out;
 }

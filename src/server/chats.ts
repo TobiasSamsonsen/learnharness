@@ -135,6 +135,7 @@ export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): P
 	const stats = deleteChatTraces(stores.graphStore, chatId, mode);
 	const jobsRemoved = stores.jobStore.deleteJobsForChat(chatId);
 	stores.materialStore.removeAll(chatId); // its source material dies with it
+	stores.sketchStore.removeAll(chatId); // and its sketches
 	stores.chatStore.deleteChat(chatId);
 	return { ok: true, mode, stats, jobsRemoved, graphRevision: graphRevision() };
 }

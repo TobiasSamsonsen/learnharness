@@ -18,3 +18,5 @@ export * from "./contracts/probe.ts";
 export * from "./contracts/models.ts";
 // Courses + skills (fork addition, 2026-10-24 — docs/courses.md).
 export * from "./contracts/course.ts";
+// Sketch answers (fork addition, 2026-10-26 — the Android plan M1).
+export * from "./contracts/sketch.ts";

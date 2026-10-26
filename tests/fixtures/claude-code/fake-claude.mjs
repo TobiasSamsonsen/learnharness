@@ -111,7 +111,7 @@ async function message() {
 	ev({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 3 } });
 	ev({ type: "message_stop" });
 	const result = await reply;
-	log("mcp-reply", { text: result.result?.content?.[0]?.text });
+	log("mcp-reply", { text: result.result?.content?.[0]?.text, types: (result.result?.content ?? []).map((c) => c.type) });
 	out({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: result.result?.content }] } });
 	return message();
 }
@@ -126,7 +126,8 @@ process.stdin.on("data", (chunk) => {
 		inBuf = inBuf.slice(nl + 1);
 		if (!line) continue;
 		const msg = JSON.parse(line);
-		log("input", { blocks: msg.message.content.length });
+		const content = msg.message.content;
+		log("input", { blocks: content.length, types: Array.isArray(content) ? content.map((c) => c.type) : ["text"] });
 		void message();
 	}
 });

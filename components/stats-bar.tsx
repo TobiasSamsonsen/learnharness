@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { SessionPricing, TurnUsage } from "@/src/core";
 import { formatTokens, formatUsd, prettyModel } from "@/components/usage-format";
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
@@ -38,6 +38,7 @@ export function StatsBar({
 	pricing,
 	chatId,
 	leadingSlot,
+	onModelChange,
 }: {
 	turns: TurnUsage[];
 	contextTokens?: number | null;
@@ -51,9 +52,20 @@ export function StatsBar({
 	 *  composer's teach | practice switch rides here — before the session
 	 *  data (which renders nothing pre-chat on that surface). */
 	leadingSlot?: ReactNode;
+	/** The session's effective model ("provider:id"), as the model control
+	 *  resolves it — chat.tsx gates sketch answers on its image input. */
+	onModelChange?: (model: string | undefined) => void;
 }) {
 	const [open, setOpen] = useState(false);
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
+	// Stable (ModelControl's report effect keys on it); the parent's
+	// callback is read through a ref.
+	const onModelChangeRef = useRef(onModelChange);
+	onModelChangeRef.current = onModelChange;
+	const onSelectedModel = useCallback((model: string | undefined) => {
+		setSelectedModel(model);
+		onModelChangeRef.current?.(model);
+	}, []);
 	// Same dropdown discipline as the model control (owner, df4433f treatment,
 	// stats round 1): close on any pointerdown outside the bar or on Escape.
 	const barRef = useRef<HTMLDivElement>(null);
@@ -190,7 +202,7 @@ export function StatsBar({
 			    agents (prober/teacher); the record's `turns` above still folds
 			    the ACTUAL models billed, regardless of what the picker says. */}
 			<div className="flex items-center gap-1.5">
-				<ModelControl chatId={chatId} onModelChange={setSelectedModel} />
+				<ModelControl chatId={chatId} onModelChange={onSelectedModel} />
 			</div>
 		</div>
 	);

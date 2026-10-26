@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
-import type { ChatInput, LhMessage, QuestionAnswerData } from "@/src/core";
+import type { ChatInput, LhMessage, QuestionAnswerData, SketchPayload } from "@/src/core";
 import { SessionModel, type SessionState } from "@/components/session-core";
 
 export interface UseChatSessionOptions {
@@ -100,11 +100,12 @@ export function useChatSession({ chatId, initialMessages, initiallyInFlight }: U
 		[model],
 	);
 
-	const send = useCallback((input: ChatInput) => void model.send(input), [model]);
+	// Resolves to whether the server accepted the input (most callers ignore it).
+	const send = useCallback((input: ChatInput) => model.send(input), [model]);
 	const steer = useCallback((text: string) => void model.steer(text), [model]);
 	const submitAnswer = useCallback(
-		(tool: string, toolCallId: string, output: QuestionAnswerData) =>
-			void model.submitAnswer(tool, toolCallId, output),
+		(tool: string, toolCallId: string, output: QuestionAnswerData, sketch?: SketchPayload) =>
+			model.submitAnswer(tool, toolCallId, output, sketch),
 		[model],
 	);
 	const dismissQuestion = useCallback(

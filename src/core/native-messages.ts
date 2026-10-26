@@ -34,7 +34,7 @@
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import { QUESTION_TOOLS } from "./pending.ts";
 import {
 	CONCLUDE_ACK_TEXT,
@@ -43,8 +43,11 @@ import {
 	THINKING_LABEL,
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
-import { ANSWER_NEXT_TEXT, PROSE_GATED_TOOLS } from "./prose-gate.ts";
+import { ANSWER_NEXT_TEXT, PROSE_GATED_TOOLS, SKETCH_ANSWER_NEXT_TEXT, SKETCH_READ_FIRST_TEXT } from "./prose-gate.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
+import type { SketchRef } from "./contracts/sketch.ts";
+import { SKETCH_MAX_REQUEST_PAGES, sketchLabel, sketchStubText } from "./sketch.ts";
+import { SKETCH_DISPUTE_MARKER, isDoubtfulReadResult, sketchOccurrencesOf, sketchReplayPlan, type SketchOccurrence } from "./sketch-gate.ts";
 
 /** The hard-invariant wording for an aborted turn's unanswered calls —
  *  carried over verbatim from the pre-native era so the model's view
@@ -74,6 +77,7 @@ export interface LhMarkerMessage {
 		| "plan-block"
 		| "practice-thinking"
 		| "practice-next"
+		| "sketch-dispute"
 		| "problem-dismissed"
 		| "lesson-finished"
 		| "compaction";
@@ -143,7 +147,9 @@ export function newAnswerResult(
 	answer: unknown,
 ): LhMessage & ToolResultMessage {
 	const forModel = compactAnswerForModel(answer as QuestionAnswerData);
-	if (PROSE_GATED_TOOLS.includes(toolName)) forModel.next = ANSWER_NEXT_TEXT;
+	const hasSketch = (answer as QuestionAnswerData).sketch !== undefined;
+	if (PROSE_GATED_TOOLS.includes(toolName)) forModel.next = hasSketch ? SKETCH_ANSWER_NEXT_TEXT : ANSWER_NEXT_TEXT;
+	else if (hasSketch) forModel.next = SKETCH_READ_FIRST_TEXT;
 	return {
 		id: newMessageId(),
 		role: "toolResult",
@@ -249,14 +255,39 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
  *  content label is the single "Your thinking"; `details` keeps the raw
  *  payload for the transcript card. One problem may carry many
  *  submissions. */
-export function newThinkingMessage(problemCallId: string, text: string): LhMarkerMessage {
+export function newThinkingMessage(problemCallId: string, text: string, sketch?: SketchRef): LhMarkerMessage {
+	// A sketch (fork addition, 2026-10-26) may stand alone: the text names
+	// it, and toLlmMessages puts its page images ahead of this content.
+	const body = text.trim().length > 0 ? text : "(no words — see the sketch)";
+	const sketchLine = sketch
+		? `\n\n[Handwritten sketch ${sketch.id} attached — ${sketch.pages.length} page(s). Call read_sketch on it first, in this reply.]`
+		: "";
 	return {
 		id: newMessageId(),
 		role: "custom",
 		customType: "practice-thinking",
-		content: `${THINKING_LABEL}:\n${text}`,
+		content: `${THINKING_LABEL}:\n${body}${sketchLine}`,
 		display: true,
-		details: { problemCallId, text },
+		details: sketch ? { problemCallId, text, sketch } : { problemCallId, text },
+		timestamp: Date.now(),
+	};
+}
+
+/** The learner's dispute of a reading (Android plan M2, owner: a real,
+ *  recorded input): "that's not what I wrote". The content is the model's
+ *  instruction — re-read before responding; the transcript renders its own
+ *  line off the details. The marker also re-opens the conclude gate and
+ *  the sketch's images (sketch-gate.ts folds it). */
+export function newSketchDisputeMarker(sketchId: string, text?: string): LhMarkerMessage {
+	const wrote = text?.trim() ?? "";
+	const said = wrote ? ` They say what they wrote was: «${wrote}».` : "";
+	return {
+		id: newMessageId(),
+		role: "custom",
+		customType: SKETCH_DISPUTE_MARKER,
+		content: `[The learner says your reading of sketch ${sketchId} is wrong.${said} They are right about what they wrote: re-read the sketch and call read_sketch again with the corrected reading before you respond.]`,
+		display: true,
+		details: wrote ? { sketchId, text: wrote } : { sketchId },
 		timestamp: Date.now(),
 	};
 }
@@ -515,7 +546,81 @@ function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
  * Contract (pi-agent-core): never throws — an unknown shape passes
  * through untouched rather than killing the loop.
  */
-export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
+/** Loads a stored sketch page for the model (the server's resolver —
+ *  core stays pure; null when the file is gone). */
+export type SketchImageResolver = (sketchId: string, page: number) => { data: string; mimeType: string } | null;
+
+/** The model-facing blocks of a sketch: per page, its label then its
+ *  image. A missing page degrades to a text stub — never a throw; a page
+ *  outside the request's newest-pages window is a stub too. */
+function sketchBlocks(
+	occurrence: SketchOccurrence,
+	resolve: SketchImageResolver | undefined,
+	attached: ReadonlySet<string>,
+	elided: ReadonlySet<number>,
+): (TextContent | ImageContent)[] {
+	const { ref, index } = occurrence;
+	const n = ref.pages.length;
+	const out: (TextContent | ImageContent)[] = [];
+	for (let i = 0; i < n; i++) {
+		// A confirmed sketch whose scope closed: its reading is the record.
+		if (elided.has(index)) {
+			out.push({ type: "text", text: sketchStubText(ref.id, i, n, "elided") });
+			continue;
+		}
+		if (!attached.has(`${index}/${i}`)) {
+			out.push({ type: "text", text: sketchStubText(ref.id, i, n, "window") });
+			continue;
+		}
+		let image: { data: string; mimeType: string } | null = null;
+		try {
+			image = resolve?.(ref.id, i) ?? null;
+		} catch {
+			image = null;
+		}
+		if (image) {
+			out.push({ type: "text", text: sketchLabel(ref.id, i, n) });
+			out.push({ type: "image", data: image.data, mimeType: image.mimeType });
+		} else {
+			out.push({ type: "text", text: sketchStubText(ref.id, i, n, "missing") });
+		}
+	}
+	return out;
+}
+
+/** The image budget (owner, M1 review 2026-10-26): the sketch pages one
+ *  request carries as images — the newest SKETCH_MAX_REQUEST_PAGES of the
+ *  span the request renders (from `start`, the compaction cut; omitted =
+ *  the cut toLlmMessages applies), among the occurrences elision left as
+ *  images. Older pages ride as stubs, so a long session never passes the
+ *  provider's per-request image cap (the backstop under M2's elision). */
+export function requestSketchPages(
+	messages: readonly AgentMessage[],
+	start?: number,
+): { index: number; ref: SketchRef; page: number }[] {
+	let from = start;
+	if (from === undefined) {
+		const active = activeCompactionOf(messages as readonly LhMessage[]);
+		const kept = active ? keptIndexFor(messages as readonly LhMessage[], active) : 0;
+		from = kept > 0 ? kept : 0;
+	}
+	const elided = sketchReplayPlan(messages);
+	const out: { index: number; ref: SketchRef; page: number }[] = [];
+	const occurrences = sketchOccurrencesOf(messages);
+	for (let k = occurrences.length - 1; k >= 0 && out.length < SKETCH_MAX_REQUEST_PAGES; k--) {
+		const { index, ref } = occurrences[k]!;
+		if (index < from || elided.has(index)) continue;
+		for (let p = ref.pages.length - 1; p >= 0 && out.length < SKETCH_MAX_REQUEST_PAGES; p--) out.push({ index, ref, page: p });
+	}
+	return out;
+}
+
+/** Model-facing projection options (the server wires the sketch resolver). */
+export interface ToLlmOptions {
+	sketchImage?: SketchImageResolver;
+}
+
+export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOptions = {}): Message[] {
 	// THE COMPACTION CUT (owner round 14, 2026-10-05): the ACTIVE marker
 	// (the newest — chained compactions rule last) names the first kept
 	// message; everything before it is replaced by the marker's content
@@ -550,6 +655,9 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 	// context.systemPrompt + context.tools around its projection.
 	const leading =
 		(messages[0] as { role?: string } | undefined)?.role === "system" ? (messages[0] as Message) : null;
+	const elided = sketchReplayPlan(messages);
+	const occurrenceAt = new Map(sketchOccurrencesOf(messages).map((o) => [o.index, o]));
+	const attached = new Set(requestSketchPages(messages, start).map(({ index, page }) => `${index}/${page}`));
 	const out: Message[] = [];
 	if (leading) out.push(leading);
 	if (head) out.push(head);
@@ -566,16 +674,28 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 			// marker whose cut could not resolve has no head and renders as
 			// its user text — honest degradation.)
 			if (marker.customType === "compaction" && head !== null && marker.id === active!.id) continue;
+			// A sketch's pages lead its thinking (images before text reads best);
+			// a DISPUTE marker re-sends the disputed sketch's pages itself — the
+			// re-read needs the image, and a live process only receives what
+			// arrives in a new message.
+			const occurrence = occurrenceAt.get(i);
 			out.push({
 				role: "user",
-				content: [{ type: "text", text: marker.content }],
-			timestamp: marker.timestamp,
+				content: [...(occurrence ? sketchBlocks(occurrence, opts.sketchImage, attached, elided) : []), { type: "text", text: marker.content }],
+				timestamp: marker.timestamp,
 			});
 			continue;
 		}
 		// Strip the record id: the wire carries the native shape only.
 		const { id: _id, ...native } = m as LhMessage;
-		out.push(native as Message);
+		const answerSketch = role === "toolResult" ? occurrenceAt.get(i) : undefined;
+		if (answerSketch) {
+			// The answer's JSON first (it names the sketch), then its pages.
+			const result = native as ToolResultMessage;
+			out.push({ ...result, content: [...result.content, ...sketchBlocks(answerSketch, opts.sketchImage, attached, elided)] });
+		} else {
+			out.push(native as Message);
+		}
 		// Dangling-call synthesis: an assistant message whose toolCalls have
 		// no results in the remaining tail (abort mid-question) — the
 		// provider rejects unanswered calls outright.
@@ -689,7 +809,7 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 	if (message.role === "system" || message.role === "assistant") return "neutral";
 	if (message.role === "custom") {
 		if (["probe-handoff", "subagent-steer", "subagent-abort"].includes(message.customType)) return "automatic";
-		if (["practice-thinking", "practice-next", "lesson-finished"].includes(message.customType)) return "learner";
+		if (["practice-thinking", "practice-next", "sketch-dispute", "lesson-finished"].includes(message.customType)) return "learner";
 		return ["graph-context", "plan-block", "problem-dismissed", "compaction"].includes(message.customType) ? "neutral" : "unrecognizable";
 	}
 	if (message.role === "toolResult") {
@@ -769,6 +889,10 @@ export function needsContinuation(messages: readonly LhMessage[]): boolean {
 		(m) => m.toolName === PRACTICE_PROBLEM_TOOL && !m.isError && m.details == null,
 	);
 	if (posedProblem) return false;
+	// A read with open doubts ENDED its turn deliberately (the learner
+	// clarifies on the card; the tutor writes nothing until it can read again
+	// clean) — a reload must not wake a phantom turn that writes the paragraph.
+	if (results.some(isDoubtfulReadResult)) return false;
 	const answered = new Set(results.map((m) => m.toolCallId));
 	const calls = (content as Array<{ type?: string; id?: string }>).filter(
 		(b) => b.type === "toolCall" && typeof b.id === "string",
