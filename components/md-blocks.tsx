@@ -253,7 +253,7 @@ export function MarkdownCode(props: ComponentProps<"code"> & ExtraProps) {
 
 	if (language === "mermaid") return <MermaidInline chart={source} />;
 	// Figures (owner, 2026-10-26): text-described diagrams the app draws.
-	if (language === "plot" || language === "blocks" || language === "circuit") {
+	if (language === "plot" || language === "blocks" || language === "circuit" || language === "logic" || language === "timing") {
 		return <FigureInline lang={language} source={source} copy={<CopyCorner getText={() => source} label="Copy figure source" />} />;
 	}
 

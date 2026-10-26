@@ -22,7 +22,7 @@ export function FigureScope({ texts, children }: { texts: ReadonlyArray<string |
 	const parent = useContext(FigureScopeContext);
 	const key = texts.join("\u0000");
 	const value = useMemo(() => {
-		if (!key.includes("```blocks") && !key.includes("```circuit")) return parent;
+		if (!["```blocks", "```circuit", "```logic"].some((f) => key.includes(f))) return parent;
 		const own = diagramScope(texts.filter((t): t is string => typeof t === "string"));
 		return own.size === 0 ? parent : new Map([...parent, ...own]);
 		// texts is keyed by its joined content
