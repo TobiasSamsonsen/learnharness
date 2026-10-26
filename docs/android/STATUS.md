@@ -1,8 +1,8 @@
 # Android plan — status (2026-10-26)
 
-Plan: [plan.md](plan.md). Branch `feat/sketch-answers` holds M1 work in progress, by Claude for the owner.
+Plan: [plan.md](plan.md). Branch `feat/sketch-answers` holds the M1 and M2 work, by Claude for the owner.
 
-## Being worked on now: M1 (sketch answers, desktop vertical slice), in its final checks. Don't start M1 in parallel.
+## Being worked on now: M2 (transcribe-first), implemented, in its final checks. M1 is done. Don't start M2/M3 in parallel.
 
 ### M1 decisions made after the plan
 - **Strokes on the wire, server renders.** Producers send vector strokes (`SketchPayload`). Core plans the pages; resvg renders PNG for the model and SVG for the UI.
@@ -23,4 +23,18 @@ Plan: [plan.md](plan.md). Branch `feat/sketch-answers` holds M1 work in progress
 - **Manual check passed (2026-10-26, Chrome, mouse, `next dev`, Claude Sonnet 5 via Claude Code):** practice dock and text-mode question both offer "Open in sketch"; strokes land under the pointer; Ctrl+Z / Ctrl+Shift+Z, plain Enter (nothing), Esc (closes the view only; the problem stays) and reopen-keeps-ink all work; Ctrl+Enter and the Submit button both send; thumbnails render in the thinking and answered cards; Claude described both drawings correctly (right angle position, missing labels, the right-angle marker). Fixed on the way: the view's header now shows the question before its context line, as the dock does. Not yet tried: a real pen (pressure, palm rejection), which M3/M9 cover.
 - **Floating problem box (owner, 2026-10-26):** the sketch view is all canvas; the problem floats above it in a box that is draggable by its header and collapses to a small pill (click the pill to expand; dragging the pill never expands it). Position and collapsed state are remembered in localStorage (`lh:sketch-box`) and clamped inside the view on resize. Checked in Chrome (drag, collapse, pill drag, pill click). This is the M3 "draggable floating box" without the MC options / confidence rail inside it.
 
-### Not started (free to pick up): M0 (phone spike), M4, M5, M6. M2/M3 depend on M1.
+### M2 (transcribe-first): implemented 2026-10-26, plan approved by the owner
+Owner decisions: the dispute is a new recorded `dispute` input, available only when idle with no question waiting; the card heading is "I read:" (model-neutral); the tool field is `reading` (not the plan's `latex`, since diagrams get a structural reading); gate = the active problem's newest sketch only, `solvedWithHints` counts as solved.
+- `src/agent/tools/sketch.ts` `read_sketch {sketchId, reading, uncertain[]}`: always registered (prober, teacher, practice, placement; practice builds its own with the gate). It checks the id against the transcript's sketches; the call and its clean result are the record, no new store.
+- `src/core/sketch-gate.ts` (pure): `sketchStatesOf` (read/dispute fold), `sketchGateOf` / `noteSketchRead` / `sketchConcludeProblems` (the conclude gate; a closure on `PracticeGate`, so a `[read_sketch, conclude]` batch works), `sketchReplayPlan` (elision), `sketchIdsOf`.
+- Gate: `conclude` as solved/solvedWithHints is refused (an error result: never mastery evidence) while the newest sketch on the active problem is unread, doubtful, or disputed. movedOn/surrendered/dismissed are never gated.
+- Dispute: new `dispute {sketchId, text?}` input (400 unless the sketch was read and no question is waiting) → `sketch-dispute` marker (content tells the model to re-read; details `{sketchId, text?}`); folds into the gate; transcript line `SketchDisputeLine`.
+- Card: `components/artifacts/read-sketch-card.tsx` (registered as `read_sketch`): thumbnail, "I read:", the reading in math, doubts, "That's not what I wrote" (optional "What did you write?"). The button shows only on the newest reading, only after the call has a result, only while idle (`ChatActionsContext.sketchDispute`).
+- Prompt `shared/18-sketches.md` (composed into all four agents; pin test updated); sketch answers' `next` text and the practice marker's line say "call read_sketch first".
+- Elision: a CONFIRMED sketch (read, no doubts, no open dispute) whose scope is CLOSED (a newer problem posed / a later question answered) rides as a text stub (`sketchStubText`, label first); a dispute re-opens it (the re-read needs the image). The 20-page window stays as a backstop.
+- Fingerprint (`claude-code.ts` `fingerprintBlocks`): a sketch page hashes by its label whether image or stub, so a form change never respawns a live process; this also removes the respawn the 20-page window caused.
+- Compaction summaries: `[sketch sk_x — read as: …]` / `— not read]`. `skills/learnharness` documents sketches and the dispute/read markers; its reader knows `read_sketch` and `sketch-dispute`.
+- Tests: `tests/sketch-reading.test.ts`, `tests/read-sketch-card.test.tsx`, additions in `practice-flow` (gate + dispute through the real handler), `session-core`, `courses`/`tool-toggles-bridge`/`practice-agents` (tool-list pins), `prompt-overrides`. `npm run typecheck`, `npm run lint` clean; `npm test` 2370/2380, the 10 failures are the known Windows ones (one more auth test flaked once under full-suite load and passes alone).
+- **Left:** the live manual check (ambiguous sketch: the tutor asks instead of grading; a dispute makes it re-read).
+
+### Not started (free to pick up): M0 (phone spike), M4, M5, M6. M3 builds on M1/M2.

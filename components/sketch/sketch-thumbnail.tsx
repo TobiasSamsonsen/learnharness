@@ -16,7 +16,15 @@ const RETRIES = 20;
 /** 0.8 s, doubling, capped at 8 s. */
 const retryDelay = (attempt: number) => Math.min(800 * 2 ** attempt, 8000);
 
-export function SketchThumbnail({ chatId, sketch }: { chatId: string; sketch: SketchRef }) {
+export function SketchThumbnail({
+	chatId,
+	sketch,
+}: {
+	chatId: string;
+	/** A SketchRef — or just an id and its pages (the read-back card only
+	 *  knows the id; it shows page 1). */
+	sketch: Pick<SketchRef, "id" | "pages">;
+}) {
 	const pageUrl = (page: number) => `/api/chats/${encodeURIComponent(chatId)}/sketches/${sketch.id}/${page}`;
 	const [attempt, setAttempt] = useState(0);
 	const [failed, setFailed] = useState(false);

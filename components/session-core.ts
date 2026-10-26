@@ -21,6 +21,7 @@ import {
 	newAnswerResult,
 	newLessonFinishedMarker,
 	newNextMessage,
+	newSketchDisputeMarker,
 	newProblemDismissedMarker,
 	newThinkingMessage,
 	newUserMessage,
@@ -571,6 +572,10 @@ export class SessionModel {
 			// the write-ahead copy absorbs this card (details match).
 			const ref = input.sketch ? sketchRefOf(input.sketch) : undefined;
 			optimistic.push({ ...newThinkingMessage(input.problemCallId, input.text, ref), id: localId() });
+		} else if (input.type === "dispute") {
+			// A disputed reading (Android plan M2): the marker lands the
+			// instant the card's button fires.
+			optimistic.push({ ...newSketchDisputeMarker(input.sketchId, input.text), id: localId() });
 		} else if (input.type === "next") {
 			// The move-on signal (owner round 16): the NEXT PROBLEM line
 			// renders the instant the chip/Enter fires.

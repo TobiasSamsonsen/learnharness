@@ -24,7 +24,7 @@ import { afterEach, describe, it } from "node:test";
 import { absorbed, pendingCallTool, SessionModel } from "../components/session-core.ts";
 import type { ChatInput } from "../src/core/input-events.ts";
 import type { LhMessage } from "../src/core/native-messages.ts";
-import { newUserMessage, newAnswerResult, newThinkingMessage, needsContinuation, endsInDismissal } from "../src/core/native-messages.ts";
+import { newUserMessage, newAnswerResult, newThinkingMessage, newSketchDisputeMarker, needsContinuation, endsInDismissal } from "../src/core/native-messages.ts";
 import { inputAppends, parseChatInput } from "../src/core/input-events.ts";
 import { sketchRefOf } from "../src/core/sketch.ts";
 import type { SketchPayload } from "../src/core/contracts/sketch.ts";
@@ -1170,5 +1170,32 @@ describe("sketch submissions — review fixes (M1, 2026-10-26)", () => {
 		assert.equal(await model({ initialMessages: poseRecord() }).send({ type: "thinking", problemCallId: "call-p1", text: "x", sketch: SKETCH }), false, "409");
 		globalThis.fetch = dietFetch({ stream: () => sseResponse("[DONE]"), post: () => Response.json({ error: "The sketch could not be saved" }, { status: 500 }) });
 		assert.equal(await model({ initialMessages: poseRecord() }).send({ type: "thinking", problemCallId: "call-p1", text: "x", sketch: SKETCH }), false, "500");
+	});
+});
+
+describe("dispute submissions (Android plan M2)", () => {
+	const SK = "sk_sessiondispute001";
+
+	it("the optimistic marker is absorbed by the server's own copy", () => {
+		const optimistic = { ...newSketchDisputeMarker(SK, "it was x^3"), id: "c_opt3" } as LhMessage;
+		const input = parseChatInput(JSON.parse(JSON.stringify({ type: "dispute", sketchId: SK, text: "  it was x^3 " })));
+		const record = [
+			...poseRecord(),
+			{ id: "a_read", role: "assistant", content: [{ type: "toolCall", id: "r1", name: "read_sketch", arguments: { sketchId: SK, reading: "x", uncertain: [] } }], timestamp: 1 } as unknown as LhMessage,
+			{ id: "r_read", role: "toolResult", toolCallId: "r1", toolName: "read_sketch", content: [{ type: "text", text: "ok" }], isError: false, timestamp: 2 } as unknown as LhMessage,
+		];
+		const [serverCopy] = inputAppends({ messages: record, kind: "practice" }, input);
+		assert.ok(absorbed(optimistic, [...record, { ...serverCopy!, id: "srv_5" } as LhMessage]), "same dispute → one line");
+	});
+
+	it("send lands the marker at once and carries the dispute on the wire", async () => {
+		let posted = "";
+		globalThis.fetch = dietFetch({ stream: () => sseResponse({ type: "agent_end", messages: [] }, "[DONE]"), onPost: (b) => (posted = b) });
+		const m = model({ initialMessages: poseRecord() });
+		const sending = m.send({ type: "dispute", sketchId: SK, text: "it was x^3" });
+		const marker = m.getState().nativeMessages.find((x) => (x as { customType?: string }).customType === "sketch-dispute");
+		assert.deepEqual((marker as { details: unknown }).details, { sketchId: SK, text: "it was x^3" });
+		await sending;
+		assert.deepEqual((JSON.parse(posted) as { input: unknown }).input, { type: "dispute", sketchId: SK, text: "it was x^3" });
 	});
 });

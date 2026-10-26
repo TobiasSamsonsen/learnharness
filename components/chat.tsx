@@ -59,6 +59,8 @@ import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-c
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
 import { TopBar } from "@/components/top-bar";
 import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, SketchPayload, TurnUsage, SessionPricing } from "@/src/core";
+import { READ_SKETCH_TOOL, sketchStatesOf } from "@/src/core";
+import { SketchDisputeLine } from "@/components/artifacts/read-sketch-card";
 import { useModelCatalog } from "@/components/model-picker";
 import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
@@ -131,6 +133,13 @@ export const ChatActionsContext = createContext<{
 	/** Opens the model setup dialog (BYOK, 2026-09-22): refused job cards
 	 *  deep-link into the same SetupDialog the send interception uses. */
 	openSetup: () => void;
+	/** The read-back card's dispute (Android plan M2): whether this
+	 *  reading may be disputed right now, and the send. "available" only on
+	 *  the newest reading of a sketch while idle with no question waiting. */
+	sketchDispute?: {
+		state: (sketchId: string, toolCallId: string) => "available" | "disputed" | "none";
+		send: (sketchId: string, text?: string) => void;
+	};
 } | null>(null);
 
 /** The BYOK refusal envelope from the transport's error text: the
@@ -732,6 +741,30 @@ export function Chat({
 					(b) => b.type === "toolCall" && b.name === "problem",
 				),
 		);
+	// The read-back card's dispute (Android plan M2): the newest reading of
+	// each sketch, and whether a dispute can go out now — idle, no question
+	// waiting (the dock owns that moment), no compaction running.
+	const sketchDispute = useMemo(() => {
+		const states = sketchStatesOf(nativeMessages as unknown as Parameters<typeof sketchStatesOf>[0]);
+		const newestRead = new Map<string, string>();
+		for (const m of nativeMessages) {
+			if ((m as { role?: string }).role !== "assistant") continue;
+			for (const b of (m as { content: Array<{ type: string; id?: string; name?: string; arguments?: unknown }> }).content) {
+				if (b.type !== "toolCall" || b.name !== READ_SKETCH_TOOL || !b.id) continue;
+				const id = (b.arguments as { sketchId?: unknown } | null)?.sketchId;
+				if (typeof id === "string") newestRead.set(id, b.id);
+			}
+		}
+		const idle = !busy && !pending && !compacting;
+		return {
+			state: (sketchId: string, toolCallId: string): "available" | "disputed" | "none" =>
+				newestRead.get(sketchId) !== toolCallId ? "none" : states.get(sketchId)?.disputed ? "disputed" : idle ? "available" : "none",
+			send: (sketchId: string, text?: string) => {
+				void send(text ? { type: "dispute", sketchId, text } : { type: "dispute", sketchId });
+			},
+		};
+	}, [nativeMessages, busy, pending, compacting, send]);
+
 	const sendNext = useCallback(() => {
 		if (!nextReady) return;
 		void send({ type: "next" });
@@ -1211,6 +1244,7 @@ export function Chat({
 					void send({ type: "text", text: t });
 				},
 				openSetup: () => setSetupOpen(true),
+				sketchDispute,
 			}}
 		>
 		<SessionMermaidContext.Provider
@@ -1435,6 +1469,8 @@ export function Chat({
 														Next problem
 													</div>
 												);
+											case "data-sketch-dispute":
+												return <SketchDisputeLine key={pi} data={part.data as { sketchId?: unknown; text?: unknown }} />;
 											case "data-lesson-finished":
 												return <LessonFinishedLine key={pi} skill={lessonSkill} lesson={isLesson} />;
 											default:
