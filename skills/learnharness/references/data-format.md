@@ -28,6 +28,11 @@ models/stt/…              Downloaded local dictation models (binary), NOT lear
 materials/<chat-id>/      A lesson's source material: index.json (name, kind, status, the
                           model-written profile) + one folder per item with its stored copy
 materials/<course-id>/    A course's curriculum, same layout
+sketches/<chat-id>/<sketch-id>/
+                          A learner's handwriting (sketch answers): strokes.json (the vector
+                          strokes as drawn), and per page N.svg (what the learner sees) and
+                          N.png (what the tutor was shown). Binary/derived; the record names
+                          a sketch only by its ID (see "Sketches" below)
 courses/<course-id>.json  A course: title, status, the approved skill IDs, a pending draft.
                           How well a skill is known is NOT stored: it is folded from the
                           practice sessions whose record carries `course` (problem `skills`
@@ -147,7 +152,8 @@ recall/explain response: the teacher's subsequent prose is its interpretation.
 
 | `customType` | Interpretation |
 | --- | --- |
-| `practice-thinking` | **Learner-authored work**, including intermediate attempts and claimed answers; raw text is `details.text`, associated through `details.problemCallId` |
+| `practice-thinking` | **Learner-authored work**, including intermediate attempts and claimed answers; raw text is `details.text`, associated through `details.problemCallId`; may carry `details.sketch` (a handwritten sketch, see "Sketches") and then `text` may be empty |
+| `sketch-dispute` | The learner said the tutor's reading of a sketch was wrong: `details.sketchId`, and `details.text` = what they say they wrote (optional) |
 | `graph-context` | Picked propositions/chains supplied as session context; app-injected, not learner speech |
 | `plan-block` | Historical plan presentation snapshot in `details.block` |
 | `subagent-steer` | Delivered teaching artifact; `details.kind` and `details.result` identify the payload |
@@ -162,6 +168,23 @@ precommitted `modelSolution`. There may be many `practice-thinking` submissions 
 one problem. `conclude` carries the teacher's outcome/verdict; a dismissal can be
 recorded before its synthetic conclude pair appears. Preserve the sequence rather
 than treating only the last submission as the learner's work.
+
+### Sketches
+
+A learner can answer or think in handwriting. The record never holds the image, only
+a reference: `details.sketch` = `{id, producer, pages: [{width, height}], strokeCount,
+pointCount}` on a `practice-thinking` marker, or on a question's answer `toolResult`
+(`details.sketch`; in a text-mode question the sketch is the answer or part of it, in
+a choice question it is thinking). The files are under `sketches/<chat-id>/<id>/`.
+
+The tutor transcribes each sketch with a `read_sketch` tool call
+(`arguments.sketchId`, `arguments.reading` as the learner wrote it — errors included —
+and `arguments.uncertain`, a list of doubtful marks). **That reading is the durable
+text record of the sketch**; it is a model transcription, not the learner's own words,
+and a `sketch-dispute` marker after it means the learner said it was wrong (a later
+`read_sketch` for the same `sketchId` replaces it). A practice `conclude` as `solved`
+or `solvedWithHints` is refused (an error result) while the problem's newest sketch is
+unread, doubtful, or disputed — refused calls are not outcomes.
 
 Call IDs may repeat in older records. When joining, associate a result with the
 nearest matching **preceding** call; a whole-session last-wins map can attach it

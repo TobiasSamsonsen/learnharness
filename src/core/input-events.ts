@@ -27,6 +27,7 @@
 
 import type { QuestionAnswerData } from "./question-core.ts";
 import type { LhMessage } from "./native-messages.ts";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
 	activeProblemOf,
 	concludedByDismissalPair,
@@ -34,6 +35,7 @@ import {
 	newAnswerResult,
 	newNextMessage,
 	newProblemDismissedMarker,
+	newSketchDisputeMarker,
 	newThinkingMessage,
 	newUserMessage,
 	pendingProblemDismissalOf,
@@ -42,7 +44,8 @@ import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
 import { sessionFinishOf, newLessonFinishedMarker } from "./course-session.ts";
 import type { CourseMode } from "./contracts/course.ts";
 import type { SketchPayload } from "./contracts/sketch.ts";
-import { parseSketchPayload, SketchPayloadError, sketchRefOf } from "./sketch.ts";
+import { isSketchId, parseSketchPayload, SketchPayloadError, sketchRefOf } from "./sketch.ts";
+import { sketchStatesOf } from "./sketch-gate.ts";
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
@@ -61,6 +64,10 @@ export type ChatInput =
 	 *  chip or Enter on an empty composer. Practice sessions only, and
 	 *  only with nothing active (mid-problem input rides the dock). */
 	| { type: "next" }
+	/** The learner's dispute of the tutor's reading of a sketch (Android plan
+	 *  M2): "that's not what I wrote", with what they wrote, optionally. A real,
+	 *  recorded input — it re-opens the conclude gate and starts a turn. */
+	| { type: "dispute"; sketchId: string; text?: string }
 	/** The learner's Finish lesson (owner, 2026-10-25): course Learn
 	 *  sessions only — logs the lesson finished (the skill becomes
 	 *  learned) and the teacher wraps up. */
@@ -160,6 +167,9 @@ export function dismissAppends(record: { messages: LhMessage[] }, input: Dismiss
 /** A malformed input event (the honest 400 — the orphan-trap discipline). */
 export class ChatInputError extends Error {}
 
+/** The most a learner may write when disputing a reading. */
+export const DISPUTE_MAX_CHARS = 2000;
+
 /** An input's optional sketch, validated (the honest 400 on a bad one). */
 function sketchOf(value: unknown): SketchPayload | undefined {
 	if (value === undefined) return undefined;
@@ -214,6 +224,14 @@ export function parseChatInput(input: unknown): ChatInput {
 			}
 		case "next":
 			return { type: "next" };
+		case "dispute":
+			if (!isSketchId(i.sketchId)) throw new ChatInputError("dispute input requires a valid sketchId");
+			if (i.text !== undefined && (typeof i.text !== "string" || i.text.length > DISPUTE_MAX_CHARS)) {
+				throw new ChatInputError(`dispute text must be a string of at most ${DISPUTE_MAX_CHARS} characters`);
+			}
+			return typeof i.text === "string" && i.text.trim().length > 0
+				? { type: "dispute", sketchId: i.sketchId, text: i.text }
+				: { type: "dispute", sketchId: i.sketchId };
 		case "finish":
 			return { type: "finish" };
 		default:
@@ -266,6 +284,16 @@ export function inputAppends(
 				throw new ChatInputError("next input requires no active problem");
 			}
 			return [...dismissalConclusion(record), newNextMessage()];
+		}
+		case "dispute": {
+			// Honest 400s (owner, M2): only a sketch the tutor has READ can be
+			// disputed, and never over an open question — nothing else may
+			// generate while a question dangles (the dock owns that moment).
+			if (!sketchStatesOf(record.messages as AgentMessage[]).get(input.sketchId)?.read) {
+				throw new ChatInputError("dispute input targets a sketch that has not been read");
+			}
+			if (danglingQuestionOf(record.messages)) throw new ChatInputError("dispute input requires no open question");
+			return [...dismissalConclusion(record), newSketchDisputeMarker(input.sketchId, input.text)];
 		}
 		case "finish": {
 			// Honest 400s: a course session, finished at most once, and never

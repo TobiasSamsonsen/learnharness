@@ -259,7 +259,8 @@ describe("compaction sees sketches", () => {
 		const plain = estimateMessageTokens(newThinkingMessage("c", "words"));
 		const sketched = estimateMessageTokens(newThinkingMessage("c", "words", big));
 		const pages = sketchPageTokens(2000, 1400) + sketchPageTokens(2000, 600);
-		assert.ok(Math.abs(sketched - plain - pages) <= 20, `adds ${sketched - plain}, pages cost ${pages}`);
+		// The pages' vision cost, plus the marker's own few lines of text.
+		assert.ok(sketched - plain >= pages && sketched - plain <= pages + 100, `adds ${sketched - plain}, pages cost ${pages}`);
 	});
 
 	it("the wire projection is sized once: text stubs plus the request's image window", () => {

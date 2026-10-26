@@ -43,10 +43,11 @@ import {
 	THINKING_LABEL,
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
-import { ANSWER_NEXT_TEXT, PROSE_GATED_TOOLS } from "./prose-gate.ts";
+import { ANSWER_NEXT_TEXT, PROSE_GATED_TOOLS, SKETCH_ANSWER_NEXT_TEXT, SKETCH_READ_FIRST_TEXT } from "./prose-gate.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import type { SketchRef } from "./contracts/sketch.ts";
-import { isSketchRef, SKETCH_MAX_REQUEST_PAGES, sketchLabel } from "./sketch.ts";
+import { SKETCH_MAX_REQUEST_PAGES, sketchLabel, sketchOfMessage, sketchStubText } from "./sketch.ts";
+import { SKETCH_DISPUTE_MARKER, sketchReplayPlan } from "./sketch-gate.ts";
 
 /** The hard-invariant wording for an aborted turn's unanswered calls —
  *  carried over verbatim from the pre-native era so the model's view
@@ -76,6 +77,7 @@ export interface LhMarkerMessage {
 		| "plan-block"
 		| "practice-thinking"
 		| "practice-next"
+		| "sketch-dispute"
 		| "problem-dismissed"
 		| "lesson-finished"
 		| "compaction";
@@ -145,7 +147,9 @@ export function newAnswerResult(
 	answer: unknown,
 ): LhMessage & ToolResultMessage {
 	const forModel = compactAnswerForModel(answer as QuestionAnswerData);
-	if (PROSE_GATED_TOOLS.includes(toolName)) forModel.next = ANSWER_NEXT_TEXT;
+	const hasSketch = (answer as QuestionAnswerData).sketch !== undefined;
+	if (PROSE_GATED_TOOLS.includes(toolName)) forModel.next = hasSketch ? SKETCH_ANSWER_NEXT_TEXT : ANSWER_NEXT_TEXT;
+	else if (hasSketch) forModel.next = SKETCH_READ_FIRST_TEXT;
 	return {
 		id: newMessageId(),
 		role: "toolResult",
@@ -255,7 +259,9 @@ export function newThinkingMessage(problemCallId: string, text: string, sketch?:
 	// A sketch (fork addition, 2026-10-26) may stand alone: the text names
 	// it, and toLlmMessages puts its page images ahead of this content.
 	const body = text.trim().length > 0 ? text : "(no words — see the sketch)";
-	const sketchLine = sketch ? `\n\n[Handwritten sketch ${sketch.id} attached — ${sketch.pages.length} page(s)]` : "";
+	const sketchLine = sketch
+		? `\n\n[Handwritten sketch ${sketch.id} attached — ${sketch.pages.length} page(s). Call read_sketch on it first, in this reply.]`
+		: "";
 	return {
 		id: newMessageId(),
 		role: "custom",
@@ -263,6 +269,25 @@ export function newThinkingMessage(problemCallId: string, text: string, sketch?:
 		content: `${THINKING_LABEL}:\n${body}${sketchLine}`,
 		display: true,
 		details: sketch ? { problemCallId, text, sketch } : { problemCallId, text },
+		timestamp: Date.now(),
+	};
+}
+
+/** The learner's dispute of a reading (Android plan M2, owner: a real,
+ *  recorded input): "that's not what I wrote". The content is the model's
+ *  instruction — re-read before responding; the transcript renders its own
+ *  line off the details. The marker also re-opens the conclude gate and
+ *  the sketch's images (sketch-gate.ts folds it). */
+export function newSketchDisputeMarker(sketchId: string, text?: string): LhMarkerMessage {
+	const wrote = text?.trim() ?? "";
+	const said = wrote ? ` They say what they wrote was: «${wrote}».` : "";
+	return {
+		id: newMessageId(),
+		role: "custom",
+		customType: SKETCH_DISPUTE_MARKER,
+		content: `[The learner says your reading of sketch ${sketchId} is wrong.${said} They are right about what they wrote: re-read the sketch and call read_sketch again with the corrected reading before you respond.]`,
+		display: true,
+		details: wrote ? { sketchId, text: wrote } : { sketchId },
 		timestamp: Date.now(),
 	};
 }
@@ -532,12 +557,18 @@ function sketchBlocks(
 	ref: SketchRef,
 	resolve: SketchImageResolver | undefined,
 	attached: ReadonlySet<string>,
+	elided: ReadonlySet<string>,
 ): (TextContent | ImageContent)[] {
 	const n = ref.pages.length;
 	const out: (TextContent | ImageContent)[] = [];
 	for (let i = 0; i < n; i++) {
+		// A confirmed sketch whose scope closed: its reading is the record.
+		if (elided.has(ref.id)) {
+			out.push({ type: "text", text: sketchStubText(ref.id, i, n, "elided") });
+			continue;
+		}
 		if (!attached.has(`${ref.id}/${i}`)) {
-			out.push({ type: "text", text: `${sketchLabel(ref.id, i, n)} (omitted — older than the newest ${SKETCH_MAX_REQUEST_PAGES} sketch pages)` });
+			out.push({ type: "text", text: sketchStubText(ref.id, i, n, "window") });
 			continue;
 		}
 		let image: { data: string; mimeType: string } | null = null;
@@ -550,27 +581,10 @@ function sketchBlocks(
 			out.push({ type: "text", text: sketchLabel(ref.id, i, n) });
 			out.push({ type: "image", data: image.data, mimeType: image.mimeType });
 		} else {
-			out.push({ type: "text", text: `${sketchLabel(ref.id, i, n)} (image unavailable)` });
+			out.push({ type: "text", text: sketchStubText(ref.id, i, n, "missing") });
 		}
 	}
 	return out;
-}
-
-/** The sketch a record message carries (a thinking marker's details, or
- *  an answer's graded record), if any. */
-export function sketchOfMessage(m: AgentMessage): SketchRef | null {
-	const role = (m as { role?: string }).role;
-	if (role === "custom") {
-		const marker = m as LhMarkerMessage;
-		if (marker.customType !== "practice-thinking") return null;
-		const sketch = (marker.details as { sketch?: unknown } | null)?.sketch;
-		return isSketchRef(sketch) ? sketch : null;
-	}
-	if (role === "toolResult") {
-		const sketch = ((m as ToolResultMessage).details as { sketch?: unknown } | null)?.sketch;
-		return isSketchRef(sketch) ? sketch : null;
-	}
-	return null;
 }
 
 /** The image budget (owner, M1 review 2026-10-26): the sketch pages one
@@ -589,10 +603,11 @@ export function requestSketchPages(
 		const kept = active ? keptIndexFor(messages as readonly LhMessage[], active) : 0;
 		from = kept > 0 ? kept : 0;
 	}
+	const elided = sketchReplayPlan(messages);
 	const out: { ref: SketchRef; page: number }[] = [];
 	for (let i = messages.length - 1; i >= from && out.length < SKETCH_MAX_REQUEST_PAGES; i--) {
 		const ref = sketchOfMessage(messages[i]!);
-		if (!ref) continue;
+		if (!ref || elided.has(ref.id)) continue;
 		for (let p = ref.pages.length - 1; p >= 0 && out.length < SKETCH_MAX_REQUEST_PAGES; p--) out.push({ ref, page: p });
 	}
 	return out;
@@ -638,6 +653,7 @@ export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOpti
 	// context.systemPrompt + context.tools around its projection.
 	const leading =
 		(messages[0] as { role?: string } | undefined)?.role === "system" ? (messages[0] as Message) : null;
+	const elided = sketchReplayPlan(messages);
 	const attached = new Set(requestSketchPages(messages, start).map(({ ref, page }) => `${ref.id}/${page}`));
 	const out: Message[] = [];
 	if (leading) out.push(leading);
@@ -659,7 +675,7 @@ export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOpti
 			const sketch = sketchOfMessage(marker);
 			out.push({
 				role: "user",
-				content: [...(sketch ? sketchBlocks(sketch, opts.sketchImage, attached) : []), { type: "text", text: marker.content }],
+				content: [...(sketch ? sketchBlocks(sketch, opts.sketchImage, attached, elided) : []), { type: "text", text: marker.content }],
 				timestamp: marker.timestamp,
 			});
 			continue;
@@ -670,7 +686,7 @@ export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOpti
 		if (answerSketch) {
 			// The answer's JSON first (it names the sketch), then its pages.
 			const result = native as ToolResultMessage;
-			out.push({ ...result, content: [...result.content, ...sketchBlocks(answerSketch, opts.sketchImage, attached)] });
+			out.push({ ...result, content: [...result.content, ...sketchBlocks(answerSketch, opts.sketchImage, attached, elided)] });
 		} else {
 			out.push(native as Message);
 		}
@@ -787,7 +803,7 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 	if (message.role === "system" || message.role === "assistant") return "neutral";
 	if (message.role === "custom") {
 		if (["probe-handoff", "subagent-steer", "subagent-abort"].includes(message.customType)) return "automatic";
-		if (["practice-thinking", "practice-next", "lesson-finished"].includes(message.customType)) return "learner";
+		if (["practice-thinking", "practice-next", "sketch-dispute", "lesson-finished"].includes(message.customType)) return "learner";
 		return ["graph-context", "plan-block", "problem-dismissed", "compaction"].includes(message.customType) ? "neutral" : "unrecognizable";
 	}
 	if (message.role === "toolResult") {

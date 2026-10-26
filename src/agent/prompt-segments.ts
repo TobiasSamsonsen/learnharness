@@ -40,13 +40,13 @@ const PROMPTS_DIR = path.join(PATHS.root, "src", "agent", "prompts");
  *  truth contract, and the thinking-fields doctrine are ONE law across
  *  every agent. The question/confidence/file mechanics stay out
  *  (practice has no such tools). */
-const PRACTICE_SHARED_FRAGMENTS = ["10-voice.md", "15-accuracy.md", "16-mental-model.md", "40-formatting.md", "45-figures.md"];
+const PRACTICE_SHARED_FRAGMENTS = ["10-voice.md", "15-accuracy.md", "16-mental-model.md", "18-sketches.md", "40-formatting.md", "45-figures.md"];
 
 /** Shared fragments the PLACEMENT tester composes (owner, 2026-10-25):
  *  voice, accuracy, the question craft and confidence doctrine (its one
  *  instrument is the multiple-choice probe), formatting. No teaching
  *  base — it measures, never teaches. */
-const PLACEMENT_SHARED_FRAGMENTS = ["10-voice.md", "15-accuracy.md", "20-question-tools.md", "25-confidence.md", "40-formatting.md", "45-figures.md"];
+const PLACEMENT_SHARED_FRAGMENTS = ["10-voice.md", "15-accuracy.md", "18-sketches.md", "20-question-tools.md", "25-confidence.md", "40-formatting.md", "45-figures.md"];
 
 /** Absolute path for an override file (unchecked — validate first). */
 function overrideFileFor(segmentPath: string): string {

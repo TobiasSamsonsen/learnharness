@@ -14,7 +14,10 @@
  */
 
 import { getStroke } from "perfect-freehand";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import type { SketchPageInfo, SketchPayload, SketchProducer, SketchRef, SketchStroke } from "./contracts/sketch.ts";
+import type { LhMarkerMessage } from "./native-messages.ts";
 
 // ─── limits (owner, 2026-10-26) ──────────────────────────────────────────────
 
@@ -57,6 +60,37 @@ export function newSketchId(): string {
 /** The label the model reads ahead of each page image. */
 export function sketchLabel(id: string, page: number, pages: number): string {
 	return `[sketch ${id} · page ${page + 1}/${pages}]`;
+}
+
+/** The start of a model-facing sketch label — what identifies a page
+ *  whatever form it takes (image or text stub), so claude-code's
+ *  fingerprints can hash both alike. */
+export const SKETCH_LABEL_RE = /^\[sketch (sk_[A-Za-z0-9_-]{8,40}) · page (\d+)\/(\d+)\]/;
+
+/** A page the model no longer gets as an image: the label, then why.
+ *  Every form keeps the label first (SKETCH_LABEL_RE). */
+export function sketchStubText(id: string, page: number, pages: number, why: "elided" | "window" | "missing"): string {
+	const label = sketchLabel(id, page, pages);
+	if (why === "elided") return `${label} — omitted; its confirmed reading is your read_sketch call`;
+	if (why === "window") return `${label} (omitted — older than the newest ${SKETCH_MAX_REQUEST_PAGES} sketch pages)`;
+	return `${label} (image unavailable)`;
+}
+
+/** The sketch a record message carries (a thinking marker's details, or
+ *  an answer's graded record), if any. */
+export function sketchOfMessage(m: AgentMessage): SketchRef | null {
+	const role = (m as { role?: string }).role;
+	if (role === "custom") {
+		const marker = m as LhMarkerMessage;
+		if (marker.customType !== "practice-thinking") return null;
+		const sketch = (marker.details as { sketch?: unknown } | null)?.sketch;
+		return isSketchRef(sketch) ? sketch : null;
+	}
+	if (role === "toolResult") {
+		const sketch = ((m as ToolResultMessage).details as { sketch?: unknown } | null)?.sketch;
+		return isSketchRef(sketch) ? sketch : null;
+	}
+	return null;
 }
 
 // ─── validation ──────────────────────────────────────────────────────────────
@@ -254,6 +288,11 @@ export function sketchRefOf(payload: SketchPayload): SketchRef {
 	const pages = planSketch(payload).map(({ width, height }) => ({ width, height }));
 	const pointCount = payload.strokes.reduce((n, s) => n + s.points.length / 3, 0);
 	return { id: payload.id, producer: payload.producer, pages, strokeCount: payload.strokes.length, pointCount };
+}
+
+/** Is this a well-formed sketch id (the wire's and the record's shape)? */
+export function isSketchId(value: unknown): value is string {
+	return typeof value === "string" && SKETCH_ID_RE.test(value);
 }
 
 /** Is this value a SketchRef (the read-side guard for record details)? */

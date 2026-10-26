@@ -37,7 +37,9 @@ import type { PlanTree } from "./contracts/plan.ts";
 import { derivePlanStatusesLh, derivedNodeStatus } from "./contracts/plan.ts";
 import { COMPACTED_HISTORY_HEADER } from "./contracts/chat.ts";
 import type { LhMessage, LhMarkerMessage } from "./native-messages.ts";
-import { newMessageId, requestSketchPages, sketchOfMessage } from "./native-messages.ts";
+import { newMessageId, requestSketchPages } from "./native-messages.ts";
+import { sketchOfMessage } from "./sketch.ts";
+import { sketchStatesOf } from "./sketch-gate.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolResultMessage, SystemMessage } from "@earendil-works/pi-ai";
 
@@ -342,6 +344,17 @@ export function keptIndexFor(messages: readonly LhMessage[], marker: LhMarkerMes
  * the model; the SUMMARY only needs their gist). */
 export function serializeForSummary(messages: readonly LhMessage[]): string {
 	const lines: string[] = [];
+	// A sketch is its recorded reading, never its pixels (Android plan M2):
+	// `[sketch sk_x — read as: …]`, or `not read` when no reading survives.
+	const sketchStates = sketchStatesOf(messages as readonly AgentMessage[]);
+	const sketchLine = (m: LhMessage): string | null => {
+		const ref = sketchOfMessage(m as AgentMessage);
+		if (!ref) return null;
+		const reading = sketchStates.get(ref.id)?.read;
+		return reading
+			? `[sketch ${ref.id} — read as: ${reading.reading}${reading.uncertain.length > 0 ? ` (doubts: ${reading.uncertain.join("; ")})` : ""}]`
+			: `[sketch ${ref.id} — not read]`;
+	};
 	for (const m of messages) {
 		const role = (m as { role?: string }).role;
 		if (role === "user") {
@@ -364,10 +377,14 @@ export function serializeForSummary(messages: readonly LhMessage[]): string {
 					text.length > SUMMARY_TOOL_RESULT_TRUNCATE ? `${text.slice(0, SUMMARY_TOOL_RESULT_TRUNCATE)}…[truncated]` : text
 				}`,
 			);
+			const sketch = sketchLine(m);
+			if (sketch) lines.push(sketch);
 		} else if (role === "custom") {
 			const marker = m as LhMarkerMessage;
 			if (marker.customType === "plan-block") continue; // UI-only
 			lines.push(`[SYSTEM NOTE] ${contentText(marker.content)}`);
+			const sketch = sketchLine(m);
+			if (sketch) lines.push(sketch);
 		}
 	}
 	return lines.join("\n\n");

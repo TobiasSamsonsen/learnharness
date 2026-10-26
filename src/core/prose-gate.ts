@@ -38,6 +38,18 @@ export const ANSWER_NEXT_TEXT =
 	"Reply in text before any tool: what this answer shows (wrong: diagnose and repair). " +
 	"Then teach the next step in text before its question — or finish.";
 
+/** The same, for an answer that carries a SKETCH (Android plan M2): the
+ *  read comes first — the plain "reply in text before any tool" would have
+ *  the tutor grade handwriting it never transcribed. */
+export const SKETCH_ANSWER_NEXT_TEXT =
+	"A sketch is attached: call read_sketch on it first, in this reply — before any other tool or text. " +
+	"Then reply in text: what this answer shows (wrong: diagnose and repair). " +
+	"Then teach the next step in text before its question — or finish.";
+
+/** And for a sketch on a question that is not prose-gated (ask, probe). */
+export const SKETCH_READ_FIRST_TEXT =
+	"A sketch is attached: call read_sketch on it first, in this reply, then respond to the work.";
+
 const hasText = (blocks: AssistantMessage["content"]): boolean =>
 	blocks.some((b) => b.type === "text" && b.text.trim().length > 0);
 

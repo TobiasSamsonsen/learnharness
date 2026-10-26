@@ -20,6 +20,8 @@ import { healToolRecord } from "./tools/heal.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { figureInputProblems } from "../core/figures/index.ts";
 import { circuitSolveTool, figureGuideTool } from "./tools/figures.ts";
+import { readSketchTool } from "./tools/sketch.ts";
+import { READ_SKETCH_TOOL, sketchIdsOf } from "../core/sketch-gate.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
 import { toLlmMessages, nativeInputCause, type SketchImageResolver } from "../core/native-messages.ts";
 import { PROSE_GATE_REASON, proseGateBlocks } from "../core/prose-gate.ts";
@@ -202,6 +204,12 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		opts.language ?? DEFAULT_LESSON_LANGUAGE,
 		"conversation",
 	);
+	// read_sketch (Android plan M2) rides EVERY agent, always — practice
+	// builds its own (it shares the conclude gate). A caller-owned registry
+	// (opts.tools — the tests') is never touched.
+	if (!opts.tools && !tools.some((t) => t.name === READ_SKETCH_TOOL)) {
+		tools = [...tools, ...Object.values(healToolRecord({ read_sketch: readSketchTool({ known: () => sketchIdsOf(opts.messages ?? []) }) }))];
+	}
 	if (opts.materials) tools = [...tools, ...opts.materials.tools];
 	if (opts.course?.tools) tools = [...tools, ...opts.course.tools];
 	// Debug recorder (owner, 2026-10-04): raw provider events when

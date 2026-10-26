@@ -310,3 +310,82 @@ describe("practice flow — sketch submissions", () => {
 		}
 	});
 });
+
+// ─── sketch readings (Android plan M2, 2026-10-26) ──────────────────────────
+
+describe("practice flow — sketch readings", () => {
+	const SKETCH = {
+		id: "sk_readingflow00001",
+		producer: "web-canvas",
+		strokes: [{ size: 4, points: [10, 10, 0.5, 80, 40, 0.6, 160, 20, 0.5, 240, 60, 0.5] }],
+	};
+	after(() => {
+		for (const id of createdChats) fs.rmSync(path.join(PATHS.sketches, id), { recursive: true, force: true });
+	});
+	const sketchFactory = (chatId: string, engine: PiEngine): Parameters<typeof handleChatRequest>[1] =>
+		(opts) => createPracticeAgent({ chatId, chatStore }, { engine, messages: opts.messages, sketchImages: opts.sketchImages });
+	const results = (chatId: string, tool: string) =>
+		chatStore.getChat(chatId)!.messages.filter((m) => (m as ToolResultMessage).role === "toolResult" && (m as ToolResultMessage).toolName === tool) as Array<LhMessage & ToolResultMessage>;
+	const text = (m: ToolResultMessage) => (m.content[0] as { text: string }).text;
+
+	it("a solved conclude is refused until the sketch is read; [read_sketch, conclude] in one reply goes through", async () => {
+		const chat = createPracticeChat("Test: sketch gate");
+		const { engine } = scripted([
+			() => fauxAssistantMessage([fauxToolCall("problem", POSE, { id: "call-g1" })], { stopReason: "toolUse" }),
+			// The model skips the read and grades straight away…
+			() => fauxAssistantMessage([fauxToolCall("conclude", CONCLUDE, { id: "call-c1" })], { stopReason: "toolUse" }),
+			// …is refused, and does it properly: read first, conclude after, one reply.
+			() =>
+				fauxAssistantMessage(
+					[
+						fauxToolCall("read_sketch", { sketchId: SKETCH.id, reading: "$|G| = p$, then $\langle x \rangle$", uncertain: [] }, { id: "call-s1" }),
+						fauxToolCall("conclude", CONCLUDE, { id: "call-c2" }),
+					],
+					{ stopReason: "toolUse" },
+				),
+			() => fauxAssistantMessage([fauxText("Clean proof.")]),
+		]);
+		const factory = sketchFactory(chat.id, engine);
+		await drainTurn(post(chat.id, { type: "text", text: "go" }), factory);
+		await drainTurn(post(chat.id, { type: "thinking", problemCallId: "call-g1", text: "", sketch: SKETCH }), factory);
+
+		const concludes = results(chat.id, "conclude");
+		assert.equal(concludes.length, 2);
+		assert.equal(concludes[0]!.isError, true, "the unread conclude is refused");
+		assert.match(text(concludes[0]!), /unread — call read_sketch/);
+		assert.equal(concludes[1]!.isError, false, "the batched one goes through");
+		const reads = results(chat.id, "read_sketch");
+		assert.equal(reads.length, 1);
+		assert.equal(reads[0]!.isError, false);
+		assert.equal(activeProblemOf(chatStore.getChat(chat.id)!.messages), null, "only the clean conclude freed the problem");
+	});
+
+	it("a dispute is a recorded input: the marker lands, the model re-reads", async () => {
+		const chat = createPracticeChat("Test: sketch dispute");
+		const { engine, calls } = scripted([
+			() => fauxAssistantMessage([fauxToolCall("problem", POSE, { id: "call-d1" })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([fauxToolCall("read_sketch", { sketchId: SKETCH.id, reading: "$x^2$", uncertain: [] }, { id: "call-s1" })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([fauxText("You wrote x squared; that step holds.")]),
+			// After the dispute:
+			() => fauxAssistantMessage([fauxToolCall("read_sketch", { sketchId: SKETCH.id, reading: "$x^3$", uncertain: [] }, { id: "call-s2" })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([fauxText("Thanks — x cubed. Then the step fails.")]),
+		]);
+		const factory = sketchFactory(chat.id, engine);
+		await drainTurn(post(chat.id, { type: "text", text: "go" }), factory);
+		await drainTurn(post(chat.id, { type: "thinking", problemCallId: "call-d1", text: "see sketch", sketch: SKETCH }), factory);
+
+		// A dispute of an unknown / unread sketch is a 400 and changes nothing.
+		const before = chatStore.getChat(chat.id)!.messages.length;
+		const bad = await handleChatRequest(post(chat.id, { type: "dispute", sketchId: "sk_neverreadsketch01" }), factory);
+		assert.equal(bad.status, 400);
+		assert.equal(chatStore.getChat(chat.id)!.messages.length, before);
+
+		await drainTurn(post(chat.id, { type: "dispute", sketchId: SKETCH.id, text: "it was x^3" }), factory);
+		const messages = chatStore.getChat(chat.id)!.messages;
+		const marker = messages.find((m) => (m as { customType?: string }).customType === "sketch-dispute") as unknown as { details: { sketchId: string; text: string } };
+		assert.deepEqual(marker.details, { sketchId: SKETCH.id, text: "it was x^3" });
+		assert.ok(lastSaw(calls.slice(0, calls.length - 1), "says your reading of sketch"), "the model saw the dispute before re-reading");
+		assert.equal(results(chat.id, "read_sketch").length, 2, "it read again");
+		assert.equal(activeProblemOf(messages)?.toolCallId, "call-d1", "the problem is still active");
+	});
+});
