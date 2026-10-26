@@ -38,6 +38,9 @@ export const PATHS = {
 	/** Courses (fork addition — docs/courses.md): one JSON record per
 	 *  course (src/store/courses.ts). */
 	courses: path.join(DATA_ROOT, "courses"),
+	/** Sketch answers (fork addition, 2026-10-26): data/sketches/<chatId>/
+	 *  <sketchId>/ — strokes plus rendered pages (src/store/sketches.ts). */
+	sketches: path.join(DATA_ROOT, "sketches"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────

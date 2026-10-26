@@ -234,6 +234,27 @@ export interface MaterialStore {
 	auxPath(chatId: string, id: string, name: string): string;
 }
 
+/**
+ * Sketch answers (fork addition, 2026-10-26) — the sole writer of
+ * data/sketches/<chatId>/<sketchId>/: the strokes as sent, plus each
+ * rendered page as SVG (the UI) and PNG (the model). Written once per
+ * sketch by the chat handler's input path; the producer-minted id makes a
+ * retried POST overwrite identical bytes. Adapter: src/store/sketches.ts.
+ */
+export interface SketchStore {
+	save(
+		chatId: string,
+		sketch: { id: string; strokesJson: string; pages: { svg: string; png: Uint8Array }[] },
+	): void;
+	/** A rendered page; null when unknown. */
+	pagePng(chatId: string, sketchId: string, page: number): Uint8Array | null;
+	pageSvg(chatId: string, sketchId: string, page: number): string | null;
+	/** The strokes as sent (JSON); null when unknown. */
+	strokes(chatId: string, sketchId: string): string | null;
+	/** Delete every sketch of a lesson (its deletion). */
+	removeAll(chatId: string): void;
+}
+
 export interface SettingsStore {
 	/** The sanitized record, or null when none exists yet (first boot). */
 	readSettings(): UserSettings | null;

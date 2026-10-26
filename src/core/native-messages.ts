@@ -34,7 +34,7 @@
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, Message, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import { QUESTION_TOOLS } from "./pending.ts";
 import {
 	CONCLUDE_ACK_TEXT,
@@ -45,6 +45,8 @@ import {
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
 import { ANSWER_NEXT_TEXT, PROSE_GATED_TOOLS } from "./prose-gate.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
+import type { SketchRef } from "./contracts/sketch.ts";
+import { isSketchRef, sketchLabel } from "./sketch.ts";
 
 /** The hard-invariant wording for an aborted turn's unanswered calls —
  *  carried over verbatim from the pre-native era so the model's view
@@ -249,14 +251,18 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
  *  content label is the single "Your thinking"; `details` keeps the raw
  *  payload for the transcript card. One problem may carry many
  *  submissions. */
-export function newThinkingMessage(problemCallId: string, text: string): LhMarkerMessage {
+export function newThinkingMessage(problemCallId: string, text: string, sketch?: SketchRef): LhMarkerMessage {
+	// A sketch (fork addition, 2026-10-26) may stand alone: the text names
+	// it, and toLlmMessages puts its page images ahead of this content.
+	const body = text.trim().length > 0 ? text : "(no words — see the sketch)";
+	const sketchLine = sketch ? `\n\n[Handwritten sketch ${sketch.id} attached — ${sketch.pages.length} page(s)]` : "";
 	return {
 		id: newMessageId(),
 		role: "custom",
 		customType: "practice-thinking",
-		content: `${THINKING_LABEL}:\n${text}`,
+		content: `${THINKING_LABEL}:\n${body}${sketchLine}`,
 		display: true,
-		details: { problemCallId, text },
+		details: sketch ? { problemCallId, text, sketch } : { problemCallId, text },
 		timestamp: Date.now(),
 	};
 }
@@ -515,7 +521,55 @@ function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
  * Contract (pi-agent-core): never throws — an unknown shape passes
  * through untouched rather than killing the loop.
  */
-export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
+/** Loads a stored sketch page for the model (the server's resolver —
+ *  core stays pure; null when the file is gone). */
+export type SketchImageResolver = (sketchId: string, page: number) => { data: string; mimeType: string } | null;
+
+/** The model-facing blocks of a sketch: per page, its label then its
+ *  image. A missing page degrades to a text stub — never a throw. */
+function sketchBlocks(ref: SketchRef, resolve?: SketchImageResolver): (TextContent | ImageContent)[] {
+	const n = ref.pages.length;
+	const out: (TextContent | ImageContent)[] = [];
+	for (let i = 0; i < n; i++) {
+		let image: { data: string; mimeType: string } | null = null;
+		try {
+			image = resolve?.(ref.id, i) ?? null;
+		} catch {
+			image = null;
+		}
+		if (image) {
+			out.push({ type: "text", text: sketchLabel(ref.id, i, n) });
+			out.push({ type: "image", data: image.data, mimeType: image.mimeType });
+		} else {
+			out.push({ type: "text", text: `${sketchLabel(ref.id, i, n)} (image unavailable)` });
+		}
+	}
+	return out;
+}
+
+/** The sketch a record message carries (a thinking marker's details, or
+ *  an answer's graded record), if any. */
+export function sketchOfMessage(m: AgentMessage): SketchRef | null {
+	const role = (m as { role?: string }).role;
+	if (role === "custom") {
+		const marker = m as LhMarkerMessage;
+		if (marker.customType !== "practice-thinking") return null;
+		const sketch = (marker.details as { sketch?: unknown } | null)?.sketch;
+		return isSketchRef(sketch) ? sketch : null;
+	}
+	if (role === "toolResult") {
+		const sketch = ((m as ToolResultMessage).details as { sketch?: unknown } | null)?.sketch;
+		return isSketchRef(sketch) ? sketch : null;
+	}
+	return null;
+}
+
+/** Model-facing projection options (the server wires the sketch resolver). */
+export interface ToLlmOptions {
+	sketchImage?: SketchImageResolver;
+}
+
+export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOptions = {}): Message[] {
 	// THE COMPACTION CUT (owner round 14, 2026-10-05): the ACTIVE marker
 	// (the newest — chained compactions rule last) names the first kept
 	// message; everything before it is replaced by the marker's content
@@ -566,16 +620,25 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 			// marker whose cut could not resolve has no head and renders as
 			// its user text — honest degradation.)
 			if (marker.customType === "compaction" && head !== null && marker.id === active!.id) continue;
+			// A sketch's pages lead its thinking (images before text reads best).
+			const sketch = sketchOfMessage(marker);
 			out.push({
 				role: "user",
-				content: [{ type: "text", text: marker.content }],
+				content: [...(sketch ? sketchBlocks(sketch, opts.sketchImage) : []), { type: "text", text: marker.content }],
 			timestamp: marker.timestamp,
 			});
 			continue;
 		}
 		// Strip the record id: the wire carries the native shape only.
 		const { id: _id, ...native } = m as LhMessage;
-		out.push(native as Message);
+		const answerSketch = role === "toolResult" ? sketchOfMessage(m) : null;
+		if (answerSketch) {
+			// The answer's JSON first (it names the sketch), then its pages.
+			const result = native as ToolResultMessage;
+			out.push({ ...result, content: [...result.content, ...sketchBlocks(answerSketch, opts.sketchImage)] });
+		} else {
+			out.push(native as Message);
+		}
 		// Dangling-call synthesis: an assistant message whose toolCalls have
 		// no results in the remaining tail (abort mid-question) — the
 		// provider rejects unanswered calls outright.

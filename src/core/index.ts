@@ -63,6 +63,8 @@ export * from "./language.ts";
 export * from "./upstream.ts";
 // Lesson source material (fork addition, 2026-10-24).
 export * from "./materials.ts";
+// Sketch answers (fork addition, 2026-10-26 — the Android plan M1).
+export * from "./sketch.ts";
 // Courses: skills, the Leitner stand-in for "known", draft checks
 // (fork addition, 2026-10-24 — docs/courses.md).
 export * from "./skills.ts";

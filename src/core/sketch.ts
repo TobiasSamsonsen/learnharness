@@ -1,0 +1,250 @@
+/**
+ * Sketch answers — the pure half (fork addition, 2026-10-26; contract in
+ * contracts/sketch.ts). Browser-safe: the canvas draws its live strokes
+ * with the same outline options, and both sides derive the record's
+ * SketchRef from one function, so the optimistic card and the persisted
+ * record never disagree.
+ *
+ * The render plan (owner, M1): crop to the strokes' bounding box plus
+ * padding, scale so the long edge stays ≤ SKETCH_MAX_EDGE (the >20-images
+ * per-request limit — claude-code replays the transcript as one request)
+ * and never upscale past 2×, then cut pages taller than that into bands
+ * at blank rows. White background, ink as drawn. The server rasterizes
+ * each page's SVG for the model; the UI shows the SVG itself.
+ */
+
+import { getStroke } from "perfect-freehand";
+import type { SketchPageInfo, SketchPayload, SketchProducer, SketchRef, SketchStroke } from "./contracts/sketch.ts";
+
+// ─── limits (owner, 2026-10-26) ──────────────────────────────────────────────
+
+export const SKETCH_MAX_STROKES = 3000;
+export const SKETCH_MAX_POINTS = 250_000;
+/** The strokes' JSON size cap — also bounds the request's memory. */
+export const SKETCH_MAX_BYTES = 4_000_000;
+/** Long edge of a rendered page, in pixels. */
+export const SKETCH_MAX_EDGE = 2000;
+/** Pages (bands) one sketch may render to. */
+export const SKETCH_MAX_PAGES = 6;
+const MAX_UPSCALE = 2;
+/** A tiny sketch is enlarged until its long edge reaches this (≤ 2×). */
+const MIN_EDGE = 480;
+/** A page too tall by a little shrinks to fit (down to this share of its
+ *  scale) instead of splitting into bands. */
+const MIN_FIT_SCALE = 0.75;
+/** Padding around the strokes' bounding box, in canvas pixels. */
+const PAD = 24;
+const SKETCH_ID_RE = /^sk_[A-Za-z0-9_-]{8,40}$/;
+const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+const PRODUCERS: readonly SketchProducer[] = ["web-canvas", "android-ink"];
+/** The default ink. */
+export const SKETCH_INK = "#111111";
+
+/** The outline options — ONE set for the live canvas and the server
+ *  render, so what the learner saw is what the model sees. */
+export function sketchStrokeOptions(size: number) {
+	return { size, thinning: 0.5, smoothing: 0.5, streamline: 0.5, simulatePressure: false, last: true };
+}
+
+/** A fresh producer-minted sketch id. */
+export function newSketchId(): string {
+	return `sk_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+}
+
+/** The label the model reads ahead of each page image. */
+export function sketchLabel(id: string, page: number, pages: number): string {
+	return `[sketch ${id} · page ${page + 1}/${pages}]`;
+}
+
+// ─── validation ──────────────────────────────────────────────────────────────
+
+/** A payload that breaks the contract (callers map it to their 400). */
+export class SketchPayloadError extends Error {}
+
+/** Validate a wire payload (hand-written: the limits are counts and bytes
+ *  no schema expresses). Returns a clean copy; throws SketchPayloadError. */
+export function parseSketchPayload(value: unknown): SketchPayload {
+	if (typeof value !== "object" || value === null) throw new SketchPayloadError("sketch must be an object");
+	const v = value as Record<string, unknown>;
+	if (typeof v.id !== "string" || !SKETCH_ID_RE.test(v.id)) throw new SketchPayloadError("sketch id is invalid");
+	if (!PRODUCERS.includes(v.producer as SketchProducer)) throw new SketchPayloadError("sketch producer is unknown");
+	if (!Array.isArray(v.strokes) || v.strokes.length === 0) throw new SketchPayloadError("sketch has no strokes");
+	if (v.strokes.length > SKETCH_MAX_STROKES) {
+		throw new SketchPayloadError(`sketch has more than ${SKETCH_MAX_STROKES} strokes`);
+	}
+	let points = 0;
+	const strokes: SketchStroke[] = v.strokes.map((raw, i) => {
+		const s = raw as Record<string, unknown>;
+		if (typeof s !== "object" || s === null) throw new SketchPayloadError(`stroke ${i} must be an object`);
+		if (typeof s.size !== "number" || !(s.size >= 0.5 && s.size <= 64)) {
+			throw new SketchPayloadError(`stroke ${i} size is out of range`);
+		}
+		if (s.color !== undefined && (typeof s.color !== "string" || !COLOR_RE.test(s.color))) {
+			throw new SketchPayloadError(`stroke ${i} color is invalid`);
+		}
+		const p = s.points;
+		if (!Array.isArray(p) || p.length < 3 || p.length % 3 !== 0) {
+			throw new SketchPayloadError(`stroke ${i} points must be [x, y, pressure] triples`);
+		}
+		for (let k = 0; k < p.length; k++) {
+			const n = p[k];
+			const ok =
+				typeof n === "number" &&
+				Number.isFinite(n) &&
+				(k % 3 === 2 ? n >= 0 && n <= 1 : Math.abs(n) <= 1_000_000);
+			if (!ok) throw new SketchPayloadError(`stroke ${i} has an invalid point value`);
+		}
+		points += p.length / 3;
+		return s.color === undefined
+			? { size: s.size, points: p as number[] }
+			: { size: s.size, color: s.color, points: p as number[] };
+	});
+	if (points > SKETCH_MAX_POINTS) throw new SketchPayloadError(`sketch has more than ${SKETCH_MAX_POINTS} points`);
+	if (JSON.stringify(strokes).length > SKETCH_MAX_BYTES) {
+		throw new SketchPayloadError("sketch is larger than 4 MB");
+	}
+	const payload: SketchPayload = { id: v.id, producer: v.producer as SketchProducer, strokes };
+	planSketch(payload); // a sketch too tall to render is refused here, not at render time
+	return payload;
+}
+
+// ─── the render plan ─────────────────────────────────────────────────────────
+
+/** One planned page: its pixel size and the SVG that draws it. */
+export interface SketchPagePlan extends SketchPageInfo {
+	svg: string;
+}
+
+interface Outlined {
+	path: string;
+	color: string;
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+}
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** The SVG path of a perfect-freehand outline (its quadratic midpoint form). */
+function outlinePath(outline: number[][]): string {
+	if (outline.length === 0) return "";
+	const parts: (string | number)[] = ["M", r2(outline[0]![0]!), r2(outline[0]![1]!), "Q"];
+	for (let i = 0; i < outline.length; i++) {
+		const [x0, y0] = outline[i]!;
+		const [x1, y1] = outline[(i + 1) % outline.length]!;
+		parts.push(r2(x0!), r2(y0!), r2((x0! + x1!) / 2), r2((y0! + y1!) / 2));
+	}
+	parts.push("Z");
+	return parts.join(" ");
+}
+
+function outlineStrokes(strokes: readonly SketchStroke[]): Outlined[] {
+	const out: Outlined[] = [];
+	for (const s of strokes) {
+		const triples: number[][] = [];
+		for (let k = 0; k < s.points.length; k += 3) triples.push([s.points[k]!, s.points[k + 1]!, s.points[k + 2]!]);
+		const outline = getStroke(triples, sketchStrokeOptions(s.size));
+		if (outline.length === 0) continue;
+		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+		for (const [x, y] of outline) {
+			if (x! < minX) minX = x!;
+			if (x! > maxX) maxX = x!;
+			if (y! < minY) minY = y!;
+			if (y! > maxY) maxY = y!;
+		}
+		out.push({ path: outlinePath(outline), color: s.color ?? SKETCH_INK, minX, minY, maxX, maxY });
+	}
+	return out;
+}
+
+/** Where to cut a band that would end at `limit`: the middle of the blank
+ *  row nearest the limit within the band's lower half, else the limit. */
+function bandCut(strokes: readonly Outlined[], top: number, limit: number): number {
+	const floor = top + (limit - top) / 2;
+	const spans = strokes
+		.filter((s) => s.maxY > floor && s.minY < limit)
+		.map((s) => [s.minY, s.maxY] as const)
+		.sort((a, b) => a[0] - b[0]);
+	let best: number | null = null;
+	let reach = floor;
+	for (const [a, b] of spans) {
+		if (a > reach) best = (reach + a) / 2; // a blank row between reach and a
+		if (b > reach) reach = b;
+	}
+	if (reach < limit) best = (reach + limit) / 2;
+	return best !== null && best > floor ? best : limit;
+}
+
+const planCache = new WeakMap<SketchPayload, SketchPagePlan[]>();
+
+/** The deterministic page plan of a payload (memoized per payload object).
+ *  Throws SketchPayloadError when it would need more than SKETCH_MAX_PAGES. */
+export function planSketch(payload: SketchPayload): SketchPagePlan[] {
+	const cached = planCache.get(payload);
+	if (cached) return cached;
+	const strokes = outlineStrokes(payload.strokes);
+	if (strokes.length === 0) throw new SketchPayloadError("sketch has no visible ink");
+	const minX = Math.min(...strokes.map((s) => s.minX)) - PAD;
+	const maxX = Math.max(...strokes.map((s) => s.maxX)) + PAD;
+	const minY = Math.min(...strokes.map((s) => s.minY)) - PAD;
+	const maxY = Math.max(...strokes.map((s) => s.maxY)) + PAD;
+	const width = maxX - minX;
+	const height = maxY - minY;
+	// 1:1 canvas pixels read well; a tiny sketch is enlarged (≤ 2×) so its
+	// long edge reaches ~MIN_EDGE; never wider than the cap.
+	const long = Math.max(width, height);
+	const base = long < MIN_EDGE ? Math.min(MAX_UPSCALE, MIN_EDGE / long) : 1;
+	let s = Math.min(base, SKETCH_MAX_EDGE / width);
+	const bands: [number, number][] = [];
+	if (height * s <= SKETCH_MAX_EDGE) {
+		bands.push([minY, maxY]);
+	} else if (SKETCH_MAX_EDGE / height >= MIN_FIT_SCALE * s) {
+		// Slightly too tall: shrink to one page (one image costs far less
+		// than two bands at full scale).
+		s = SKETCH_MAX_EDGE / height;
+		bands.push([minY, maxY]);
+	} else {
+		const bandMax = SKETCH_MAX_EDGE / s;
+		let top = minY;
+		while (maxY - top > bandMax && bands.length <= SKETCH_MAX_PAGES) {
+			const cut = bandCut(strokes, top, top + bandMax);
+			bands.push([top, cut]);
+			top = cut;
+		}
+		bands.push([top, maxY]);
+	}
+	if (bands.length > SKETCH_MAX_PAGES) {
+		throw new SketchPayloadError(`sketch is too tall: more than ${SKETCH_MAX_PAGES} pages`);
+	}
+	const plan = bands.map(([top, bottom]) => {
+		const h = bottom - top;
+		const pw = Math.max(1, Math.round(width * s));
+		const ph = Math.max(1, Math.round(h * s));
+		const inBand = strokes.filter((st) => st.maxY >= top && st.minY <= bottom);
+		const paths = inBand.map((st) => `<path d="${st.path}" fill="${st.color}"/>`).join("");
+		const svg =
+			`<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}" ` +
+			`viewBox="${r2(minX)} ${r2(top)} ${r2(width)} ${r2(h)}">` +
+			`<rect x="${r2(minX)}" y="${r2(top)}" width="${r2(width)}" height="${r2(h)}" fill="#ffffff"/>` +
+			paths +
+			`</svg>`;
+		return { width: pw, height: ph, svg };
+	});
+	planCache.set(payload, plan);
+	return plan;
+}
+
+/** The record's view of a payload (pure, deterministic — both sides). */
+export function sketchRefOf(payload: SketchPayload): SketchRef {
+	const pages = planSketch(payload).map(({ width, height }) => ({ width, height }));
+	const pointCount = payload.strokes.reduce((n, s) => n + s.points.length / 3, 0);
+	return { id: payload.id, producer: payload.producer, pages, strokeCount: payload.strokes.length, pointCount };
+}
+
+/** Is this value a SketchRef (the read-side guard for record details)? */
+export function isSketchRef(value: unknown): value is SketchRef {
+	if (typeof value !== "object" || value === null) return false;
+	const v = value as Partial<SketchRef>;
+	return typeof v.id === "string" && SKETCH_ID_RE.test(v.id) && Array.isArray(v.pages);
+}
