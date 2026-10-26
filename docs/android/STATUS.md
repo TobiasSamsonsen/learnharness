@@ -1,10 +1,10 @@
 # Android plan — status (2026-10-26)
 
-**M6 implemented on `feat/headless-hardening` (see the M6 section at the end).** M5 merged (see the M5 section). M4 merged (see the M4 section). M3 implemented and merged 2026-10-26 (see the M3 section at the end); the owner has no pen or touch screen, so the pen test is not done.**
+**Done: M0 (phone spike), M1-M6, and M7 (device bring-up, implemented on `feat/android-termux`; see the M0 and M7 sections at the end).** Next: M8 (Android shell APK), then M9 (ink decision). The owner has no pen or touch screen on the PC, so the M3 pen test is not done; the M7 checklist items that need hands on the phone are listed in its section.
 
 Plan: [plan.md](plan.md). Branch `feat/sketch-answers` holds the M1 and M2 work, by Claude for the owner.
 
-## M1 and M2 are done and verified (2026-10-26). Next: M3 (full sketch view), or M0/M4/M5/M6, which are free to pick up.
+## M1 and M2 are done and verified (2026-10-26).
 
 ### M1 decisions made after the plan
 - **Strokes on the wire, server renders.** Producers send vector strokes (`SketchPayload`). Core plans the pages; resvg renders PNG for the model and SVG for the UI.
@@ -46,7 +46,7 @@ Owner decisions: the dispute is a new recorded `dispute` input, available only w
   2. *No paragraph while a doubt is open.* A `read_sketch` with anything in `uncertain` ENDS its turn (`terminate: true` on the result, the turn stopper also ends a mixed batch, `isDoubtfulReadResult`); `needsContinuation` owes nothing after one, so a reload cannot wake the paragraph. The newest reading with open doubts turns the card red ("Needs your clarification:", "Answer below to continue"); the learner answers in the usual box (thinking field / composer, no new input); an older reading's doubts are shown muted. The paragraph comes after a clean re-read.
 - **Noticed, not changed:** the read-back card repeats the sketch thumbnail directly under the learner's own submission thumbnail (two stacked copies); the model also counted the Z's three strokes as one (vision, not delivery).
 
-### Not started (free to pick up): M0 (phone spike), M4, M5, M6. M3 builds on M1/M2.
+### M3-M6 followed on this branch's base; each has its own section below.
 
 
 ### M3 (full sketch view): implemented 2026-10-26, plan approved by the owner
@@ -95,3 +95,25 @@ Owner decisions: token mode only when `LH_ACCESS_TOKEN` is set; pairing URL sets
 - **Not done / for M7:** `android/termux/lh` (generating the token, exporting `LH_ACCESS_TOKEN`, `LH_STT_DEVICE=cpu`, `LH_CLAUDE_CODE_MAX_SESSIONS=2`, `LH_WHISPER_URL_*`, `HOSTNAME=127.0.0.1`); publishing the tarball as a Release asset; Chrome-driven check of the pairing flow with a real browser (the smoke uses fetch with a hand-carried cookie); TLS / `X-Forwarded-*` handling is out of scope (the redirect uses the request's own protocol).
 - **Noticed:** Next's standalone server turns the absolute redirect Location into a relative one (`/`) when the host matches; the unit test sees the absolute form, the smoke accepts both.
 - **Token kept out of children (owner decision, after the merge):** `LH_ACCESS_TOKEN` is removed from the environments of the `claude` child (`childEnv`), the STT worker, `whisper-server` and the browser helper (`browserServiceSpawnEnv`, test added). Python runs and the upstream terminal already used sanitized environments (`LH_*` is dropped there).
+
+
+### M0 (phone feasibility spike): done 2026-10-26 on the owner's Pixel 7 Pro, no repo code changed ([feasibility.md](feasibility.md))
+All five checks pass: proot Ubuntu 24.04 + Node 26.12.1; Claude Code 2.1.310 (subscription login, a stream-json round trip with an image, 5.2 s on haiku-5-5); Playwright arm64 Chromium 156 launches with the app's own flags; whisper.cpp builds natively in Termux. **The soft spot is dictation speed:** this Tensor G2 runs the small whisper models at about 1.0-1.7x real time in Norwegian and 1.5-2.5x in English (about 5-7x slower than the PC, and it throttles within a minute); the medium models run at 0.4x. 4 threads is the best setting, core pinning does not help, transcripts match the PC. Not tested: the MCP image-result path on the device, screen-off survival and the phantom-process killer, whole-tree memory under load.
+
+
+### M7 (device bring-up: `lh` scripts, server in proot, whisper in Termux): implemented 2026-10-26 on `feat/android-termux`, plan approved by the owner ([m7-plan.md](m7-plan.md))
+Owner decisions: rolling `android-latest` pre-release for the tarball; `lh` fetched with one curl line (no git clone); persistent pairing token + a long-press link (no Termux:API); both whisper servers always on, `STT_LANGS` to drop one; `lh login` as the workaround for claude's dead paste prompt.
+- **Code:** `android/termux/lh` (one bash file: `install | login | start | stop | restart | status | update | pair [--rotate] | logs | version`), `android/termux/README.md` (setup, commands, config, the keep-alive notes, the M0 gotchas), `.gitattributes` (`lh` stays LF; a CRLF shebang would break it in Termux), `.github/workflows/android-server.yml` (shellcheck first; after the pack step it recreates the rolling `android-latest` pre-release with the tarball, its `.sha256` and a `version.txt`; `contents: write`).
+- **Design as built:** the guest scripts (`install.sh`, `start.sh`, `login.sh`, `env`) are written into the proot rootfs by `lh`, so they always match it; the token is copied into the guest as a file and read there (on no command line, and only in the server's own environment); the server and whisper servers run detached in their own sessions with PID files and are stopped by group; `lh update` verifies the sha256 before unpacking, swaps the server directory, and restarts only if the server changed.
+- **Tests:** `tests/android-lh.test.ts` (9): syntax and LF, version/help/unknown command, pair (one token, mode 600, `--rotate`), config validation, stop with a stale PID file, start (guest env, token copied but never in a script or on a command line, status, stop), `STT_LANGS`, update refusing a bad checksum, update when up to date. They drive a copy of `lh` under a temp HOME with stub `proot-distro`, `curl`, `setsid` and `whisper-server`. shellcheck (`-S style`) is clean. CI run 40386725480 on `ubuntu-24.04-arm` is green (1m35s) and published `android-latest`: tarball 64.2 MB, checksum, `version.txt` = `0.3.6+57055b6`.
+- **Verified on the Pixel 7 Pro (fresh install after removing the M0 guest):**
+  - `lh install` took **8 min 7 s** end to end (packages, Ubuntu, Node/claude/Chromium, whisper.cpp `whisper-server` build about 2 min, 365 MB of models, the 64 MB server).
+  - `lh login` worked through its own shell prompt (team account).
+  - `lh start`: server healthy in **6.3 s**; `restart` 9.5 s, the chat and the old cookie survive it. `lh update` with nothing new leaves the server running; `update --force` re-extracts and restarts in 19 s.
+  - Gates: with no cookie the page and the API are 403 and health is 200; a foreign Host is 403; the pairing link answers 303 and sets the cookie; with it the page and API are 200; a cross-origin POST is 403.
+  - A chat turn through the real `claude` (claude-code provider, haiku-5-5, "Hello.") took 5.0 s.
+  - Dictation through `/api/stt/local` against both servers: nb 64.2 s for the 50.3 s clip (0.78x), en 51.5 s for 58.6 s (1.14x), transcripts equal to M0's. This is the number to watch (see M0).
+  - Memory: the server group is 159 MB idle and about 396 MB with a live `claude` session; the whisper servers 265-279 MB when loaded and 381-398 MB after a request; `MemAvailable` 4.36 GB before start, 3.67 GB after, 3.16 GB after a chat turn and two dictations (the phone also runs its usual apps).
+  - The guest's Chromium runs headless with the app's flags (6.4 s cold in proot); the server environment holds `CHROME_PATH`, the whisper URLs, `LH_STT_DEVICE=cpu`, `MAX_SESSIONS=2`, `HOSTNAME=127.0.0.1`.
+- **Not done (needs hands on the phone, the plan's Track B list):** the app in Android Chrome through the pairing link, a full lesson, a quiz answered by sketch, a practice problem with sketch + voice (mic permission), a demo, and a screen-off turn with the wake lock. Also not exercised: `lh install` fetched through the raw `main` URL and `lh update`'s self-refresh (both need this branch merged; the self-refresh 404s until then and keeps the current script), the Android 17 child-process toggle, the MCP image-result path under proot.
+- **Noticed:** `proot-distro remove` failed with "container is busy" on a stale lock file after its last session was killed (removing `locks/ubuntu.lock` fixed it); the guest `apt` output during `install` is noisy.

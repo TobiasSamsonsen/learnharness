@@ -142,10 +142,13 @@ wait_health() {
 	return 1
 }
 
-rss_mb() { # RSS of a pid in MB, "-" if gone
+rss_mb() { # RSS in MB of a process and everything it started (its session), "-" if unknown
 	local kb
-	kb="$(awk '/VmRSS/{print $2}' "/proc/$1/status" 2>/dev/null || true)"
-	[ -n "$kb" ] && printf '%d' $((kb / 1024)) || printf -- '-'
+	kb="$(ps -eo pgid,rss 2>/dev/null | awk -v g="$1" '$1 == g { s += $2 } END { if (NR > 0) print s }' || true)"
+	if [ -z "$kb" ] || [ "$kb" = 0 ]; then
+		kb="$(awk '/VmRSS/{print $2}' "/proc/$1/status" 2>/dev/null || true)"
+	fi
+	if [ -n "$kb" ]; then printf '%d' $((kb / 1024)); else printf -- '-'; fi
 }
 
 # ── guest scripts ───────────────────────────────────────────────────────────
@@ -320,6 +323,8 @@ cmd_login() {
 
 # ── update ──────────────────────────────────────────────────────────────────
 
+SERVER_CHANGED=0 # set by update_server when it installed a new build
+
 installed_version() { cat "$ROOTFS/opt/lh/version.txt" 2>/dev/null || echo "none"; }
 
 update_server() {
@@ -346,6 +351,7 @@ update_server() {
 	mv "$ROOTFS/opt/lh/server.new" "$ROOTFS/opt/lh/server"
 	rm -rf "$ROOTFS/opt/lh/server.old" "$ROOTFS/opt/lh/dl.tar.zst" "$tmp"
 	printf '%s\n' "$remote" > "$ROOTFS/opt/lh/version.txt"
+	SERVER_CHANGED=1
 	say "server updated to $remote"
 }
 
@@ -372,7 +378,7 @@ cmd_update() {
 	running_pid server > /dev/null && was=1
 	update_server "${1:-}"
 	write_guest_scripts
-	if [ "$was" = 1 ]; then say "restarting"; cmd_restart; fi
+	if [ "$was" = 1 ] && [ "$SERVER_CHANGED" = 1 ]; then say "restarting"; cmd_restart; fi
 }
 
 # ── start / stop ────────────────────────────────────────────────────────────

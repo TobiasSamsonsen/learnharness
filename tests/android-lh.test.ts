@@ -221,3 +221,15 @@ test("lh update: a checksum that does not match is refused and the server is lef
 	assert.equal(fs.readFileSync(path.join(b.rootfs, "opt/lh/version.txt"), "utf8").trim(), "1.0.0+old");
 	assert.ok(fs.existsSync(path.join(b.rootfs, "opt/lh/server/server.js")), "the installed server is untouched");
 });
+
+test("lh update: an up-to-date server is left alone, no restart", opts, () => {
+	const b = makeBox("PORT=3456\n");
+	installFakes(b);
+	fs.writeFileSync(path.join(b.rootfs, "opt/lh/version.txt"), "9.9.9+abc1234\n"); // what the stub curl publishes
+	const r = b.run(["update"]);
+	assert.equal(r.code, 0, r.err);
+	assert.match(r.out, /up to date/);
+	assert.ok(!/restarting/.test(r.out));
+	const log = fs.existsSync(path.join(b.root, "stub.log")) ? fs.readFileSync(path.join(b.root, "stub.log"), "utf8") : "";
+	assert.ok(!log.includes("/opt/lh/start.sh"), "the server was not started");
+});
