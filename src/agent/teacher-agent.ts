@@ -21,7 +21,7 @@ import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { figureInputProblems } from "../core/figures/index.ts";
 import { circuitSolveTool, figureGuideTool } from "./tools/figures.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
-import { toLlmMessages, nativeInputCause } from "../core/native-messages.ts";
+import { toLlmMessages, nativeInputCause, type SketchImageResolver } from "../core/native-messages.ts";
 import { PROSE_GATE_REASON, proseGateBlocks } from "../core/prose-gate.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } from "../core/language.ts";
@@ -137,6 +137,10 @@ export interface AgentBuildOptions {
 	 *  the material, and its tools (a Learn session's finish_lesson —
 	 *  tools/course.ts), added to the registry. */
 	course?: { section: string; tools?: AgentTool<any>[] };
+	/** Sketch answers (fork addition, 2026-10-26): loads a stored sketch
+	 *  page for the model projection (server/sketches.ts sketchImagesFor).
+	 *  Absent → sketches reach the model as text stubs. */
+	sketchImages?: SketchImageResolver;
 	/** Native conversation identity: the existing persisted chat id, reused
 	 * across reconstructed prober, teacher, and practice Agents.
 	 * Debug: when set AND LH_PROVIDER_EVENTS=1, raw provider stream events
@@ -249,7 +253,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		// UI-only markers (plan-block) drop, the app's id fields strip, and
 		// an abort's dangling question call gets its INTERRUPTED result. It
 		// must never throw (pi's convertToLlm contract).
-		convertToLlm: toLlmMessages,
+		convertToLlm: (messages) => toLlmMessages(messages, { sketchImage: opts.sketchImages }),
 		prepareRequest: (request) => {
 			if (opts.callPurpose) {
 				let learner = false, automatic = false;

@@ -31,6 +31,8 @@ import {
 	type LhViewMessage,
 	type LiveExecution,
 	type QuestionAnswerData,
+	sketchRefOf,
+	type SketchPayload,
 } from "../src/core";
 
 export type SessionStatus = "ready" | "submitted" | "streaming" | "error";
@@ -559,7 +561,10 @@ export class SessionModel {
 			// The practice submissions (2026-10-04): the marker lands
 			// optimistically — the card renders from its details the
 			// moment the button fires.
-			optimistic.push({ ...newThinkingMessage(input.problemCallId, input.text), id: localId() });
+			// A sketch's ref is derived exactly as the server derives it, so
+			// the write-ahead copy absorbs this card (details match).
+			const ref = input.sketch ? sketchRefOf(input.sketch) : undefined;
+			optimistic.push({ ...newThinkingMessage(input.problemCallId, input.text, ref), id: localId() });
 		} else if (input.type === "next") {
 			// The move-on signal (owner round 16): the NEXT PROBLEM line
 			// renders the instant the chip/Enter fires.
@@ -664,9 +669,9 @@ export class SessionModel {
 
 	/** The answer path (the dock): the answer IS the question call's tool
 	 *  result (fork 1), riding as its input event. */
-	submitAnswer(tool: string, toolCallId: string, output: QuestionAnswerData): Promise<void> {
+	submitAnswer(tool: string, toolCallId: string, output: QuestionAnswerData, sketch?: SketchPayload): Promise<void> {
 		void tool;
-		return this.send({ type: "answer", toolCallId, answer: output });
+		return this.send(sketch ? { type: "answer", toolCallId, answer: output, sketch } : { type: "answer", toolCallId, answer: output });
 	}
 
 	/** The dismissal path (owner design 2026-10-03, "A2"): the skipped

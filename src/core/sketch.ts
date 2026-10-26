@@ -139,12 +139,23 @@ function outlinePath(outline: number[][]): string {
 	return parts.join(" ");
 }
 
+/** A stroke's perfect-freehand outline polygon (canvas pixels). */
+function strokeOutline(s: SketchStroke): number[][] {
+	const triples: number[][] = [];
+	for (let k = 0; k < s.points.length; k += 3) triples.push([s.points[k]!, s.points[k + 1]!, s.points[k + 2]!]);
+	return getStroke(triples, sketchStrokeOptions(s.size));
+}
+
+/** A stroke as an SVG path — the live canvas draws this (Path2D), the
+ *  server render embeds the same, so the two never drift. */
+export function sketchStrokePath(s: SketchStroke): string {
+	return outlinePath(strokeOutline(s));
+}
+
 function outlineStrokes(strokes: readonly SketchStroke[]): Outlined[] {
 	const out: Outlined[] = [];
 	for (const s of strokes) {
-		const triples: number[][] = [];
-		for (let k = 0; k < s.points.length; k += 3) triples.push([s.points[k]!, s.points[k + 1]!, s.points[k + 2]!]);
-		const outline = getStroke(triples, sketchStrokeOptions(s.size));
+		const outline = strokeOutline(s);
 		if (outline.length === 0) continue;
 		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 		for (const [x, y] of outline) {

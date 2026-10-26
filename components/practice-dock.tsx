@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon, PenLineIcon } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
-import { joinDictation, useDictationTarget } from "@/components/dictation";
+import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
+import { SketchView } from "@/components/sketch/sketch-view";
 import { cn } from "@/lib/utils";
-import { repairMathForDisplay } from "@/src/core";
+import { repairMathForDisplay, type SketchPayload } from "@/src/core";
 
 /**
  * The practice dock (practice sessions, owner design 2026-10-04): an
@@ -38,8 +39,13 @@ export interface PracticeDockProps {
 	/** Collapse state, owned by the DockOverlay. */
 	expanded: boolean;
 	onExpand: () => void;
-	/** text — POST {type:"thinking"} (one lane; the register is read from the text). */
-	onSubmit: (text: string) => void;
+	/** text — POST {type:"thinking"} (one lane; the register is read from
+	 *  the text). A sketch submit (Android plan M1) adds the handwriting;
+	 *  its text may then be empty. */
+	onSubmit: (text: string, sketch?: SketchPayload) => void;
+	/** The session's model reads images — "Open in sketch" shows only then
+	 *  (a text-only model would silently drop the pages). */
+	sketchAvailable?: boolean;
 	/** Escape in the thinking field stops dictation (threaded from the page). */
 	onEscape?: () => void;
 	/** Compaction is running for this chat (owner round 14): the thinking
@@ -49,8 +55,18 @@ export interface PracticeDockProps {
 	compactionRunning?: boolean;
 }
 
-export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false }: PracticeDockProps) {
+export function PracticeDock({
+	problemCallId,
+	input,
+	expanded,
+	onExpand,
+	onSubmit,
+	onEscape,
+	compactionRunning = false,
+	sketchAvailable = false,
+}: PracticeDockProps) {
 	const [thinking, setThinking] = useState("");
+	const [sketching, setSketching] = useState(false);
 	// Ref MIRRORS the field ("nothing gets lost", the question-dock
 	// discipline): a submit resuming after `await finishDictation()` reads
 	// the tail, never a stale closure.
@@ -75,6 +91,22 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 		thinkingRef.current = "";
 		setThinking("");
 		onSubmit(text);
+	};
+
+	/* The sketch submit: the thinking's dictated tail lands first (the
+	 * question dock's finish-dictation discipline), then text + sketch go
+	 * out as one submission. */
+	const submitSketch = (sketch: SketchPayload) => {
+		if (compactionRunning) return;
+		setSketching(false);
+		const send = () => {
+			const text = thinkingRef.current.trim();
+			thinkingRef.current = "";
+			setThinking("");
+			onSubmit(text, sketch);
+		};
+		if (isDictationActive()) void finishDictation().then(send);
+		else send();
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): dictation
@@ -158,17 +190,40 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
 						{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
 					</span>
+					{sketchAvailable && (
+						<Button
+							type="button"
+							variant="ghost"
+							data-testid="practice-open-sketch"
+							onClick={() => setSketching(true)}
+							className="ml-auto h-9 gap-1.5 rounded-[6px] px-3 text-sm"
+						>
+							<PenLineIcon className="size-4" />
+							Open in sketch
+						</Button>
+					)}
 					<Button
 						type="button"
 						data-testid="practice-send"
 						disabled={thinking.trim().length === 0 || compactionRunning}
 						onClick={() => submit()}
-						className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
+						className={cn("h-9 rounded-[6px] px-3.5 text-sm font-medium", !sketchAvailable && "ml-auto")}
 					>
 						Submit thinking
 					</Button>
 				</div>
 			</div>
+			{sketching && (
+				<SketchView
+					label="Problem"
+					statement={typeof input.statement === "string" ? input.statement : ""}
+					inkKey={problemCallId}
+					onSubmit={submitSketch}
+					onClose={() => setSketching(false)}
+					onCancelDictation={onEscape}
+					disabled={compactionRunning}
+				/>
+			)}
 		</div>
 	);
 }

@@ -41,17 +41,21 @@ import {
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
 import { sessionFinishOf, newLessonFinishedMarker } from "./course-session.ts";
 import type { CourseMode } from "./contracts/course.ts";
+import type { SketchPayload } from "./contracts/sketch.ts";
+import { parseSketchPayload, SketchPayloadError, sketchRefOf } from "./sketch.ts";
 
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
 	| { type: "text"; text: string }
-	| { type: "answer"; toolCallId: string; answer: QuestionAnswerData }
+	/** `sketch` (fork addition, 2026-10-26): the learner's handwriting as
+	 *  strokes — the server stores it and stamps its own ref on the answer. */
+	| { type: "answer"; toolCallId: string; answer: QuestionAnswerData; sketch?: SketchPayload }
 	| { type: "continue" }
 	/** The practice dock's two buttons (owner, 2026-10-04): the learner's
 	 *  thinking on the ACTIVE problem — one lane (owner 2026-10-05):
 	 *  whether it claims an answer is read from the text. One
 	 *  problem may carry many submissions; each is its own turn. */
-	| { type: "thinking"; problemCallId: string; text: string }
+	| { type: "thinking"; problemCallId: string; text: string; sketch?: SketchPayload }
 	/** The practice move-on signal (owner round 16): the learner's
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
@@ -156,6 +160,17 @@ export function dismissAppends(record: { messages: LhMessage[] }, input: Dismiss
 /** A malformed input event (the honest 400 — the orphan-trap discipline). */
 export class ChatInputError extends Error {}
 
+/** An input's optional sketch, validated (the honest 400 on a bad one). */
+function sketchOf(value: unknown): SketchPayload | undefined {
+	if (value === undefined) return undefined;
+	try {
+		return parseSketchPayload(value);
+	} catch (err) {
+		if (err instanceof SketchPayloadError) throw new ChatInputError(err.message);
+		throw err;
+	}
+}
+
 /** Parse and validate an input event off a request body. */
 export function parseChatInput(input: unknown): ChatInput {
 	if (typeof input !== "object" || input === null) throw new ChatInputError("input must be an object");
@@ -173,17 +188,30 @@ export function parseChatInput(input: unknown): ChatInput {
 			if (typeof i.answer !== "object" || i.answer === null) {
 				throw new ChatInputError("answer input requires the graded answer object");
 			}
-			return { type: "answer", toolCallId: i.toolCallId, answer: i.answer as QuestionAnswerData };
+			{
+				const sketch = sketchOf(i.sketch);
+				// The ref is the server's to derive, never the client's say.
+				const { sketch: _clientRef, ...answer } = i.answer as QuestionAnswerData;
+				return sketch
+					? { type: "answer", toolCallId: i.toolCallId, answer: { ...answer, sketch: sketchRefOf(sketch) }, sketch }
+					: { type: "answer", toolCallId: i.toolCallId, answer };
+			}
 		case "continue":
 			return { type: "continue" };
 		case "thinking":
 			if (typeof i.problemCallId !== "string" || i.problemCallId.length === 0) {
 				throw new ChatInputError("thinking input requires problemCallId");
 			}
-			if (typeof i.text !== "string" || i.text.trim().length === 0) {
-				throw new ChatInputError("thinking input requires non-empty text");
+			{
+				const sketch = sketchOf(i.sketch);
+				// A sketch may stand alone; without one the text is required.
+				if (typeof i.text !== "string" || (!sketch && i.text.trim().length === 0)) {
+					throw new ChatInputError("thinking input requires non-empty text");
+				}
+				return sketch
+					? { type: "thinking", problemCallId: i.problemCallId, text: i.text, sketch }
+					: { type: "thinking", problemCallId: i.problemCallId, text: i.text };
 			}
-			return { type: "thinking", problemCallId: i.problemCallId, text: i.text };
 		case "next":
 			return { type: "next" };
 		case "finish":
@@ -223,7 +251,8 @@ export function inputAppends(
 			if (!active || active.toolCallId !== input.problemCallId) {
 				throw new ChatInputError("thinking input targets no active problem");
 			}
-			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text)];
+			const ref = input.sketch ? sketchRefOf(input.sketch) : undefined;
+			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text, ref)];
 		}
 		case "next": {
 			// Honest 400s, the thinking gate's discipline: the signal is a

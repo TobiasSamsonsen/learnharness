@@ -223,3 +223,90 @@ describe("practice flow (scripted model)", () => {
 		assert.ok(lastSaw(calls, "dismissed"), "the model saw the dismissed outcome");
 	});
 });
+
+// ─── sketch submissions (Android plan M1, 2026-10-26) ───────────────────────
+
+describe("practice flow — sketch submissions", () => {
+	/** A two-row handwritten sketch: [x, y, pressure] triples. */
+	const SKETCH = {
+		id: "sk_flowtest00000001",
+		producer: "web-canvas",
+		strokes: [
+			{ size: 4, points: [10, 10, 0.5, 80, 40, 0.6, 160, 20, 0.5, 240, 60, 0.5] },
+			{ size: 4, points: [10, 120, 0.5, 200, 130, 0.5] },
+		],
+	};
+	const sketchDir = (chatId: string) => path.join(PATHS.sketches, chatId);
+	after(() => {
+		for (const id of createdChats) fs.rmSync(sketchDir(id), { recursive: true, force: true });
+	});
+	/** The handler's practice branch, with the sketch resolver wired. */
+	const sketchFactory = (chatId: string, engine: PiEngine): Parameters<typeof handleChatRequest>[1] =>
+		(opts) => createPracticeAgent({ chatId, chatStore }, { engine, messages: opts.messages, sketchImages: opts.sketchImages });
+
+	it("a sketch-only submission stores its pages and reaches the model as an image", async () => {
+		const chat = createPracticeChat("Test: practice sketch");
+		const seen: unknown[][] = [];
+		const { engine } = scripted([
+			() => fauxAssistantMessage([fauxToolCall("problem", POSE, { id: "call-s1" })], { stopReason: "toolUse" }),
+			(context) => {
+				seen.push(context.messages.map((m) => (m as { content?: unknown }).content));
+				return fauxAssistantMessage([fauxText("I see your two lines.")]);
+			},
+		]);
+		const factory = sketchFactory(chat.id, engine);
+		await drainTurn(post(chat.id, { type: "text", text: "go" }), factory);
+		await drainTurn(post(chat.id, { type: "thinking", problemCallId: "call-s1", text: "", sketch: SKETCH }), factory);
+
+		const png = fs.readFileSync(path.join(sketchDir(chat.id), SKETCH.id, "0.png"));
+		assert.deepEqual([...png.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47], "a real PNG");
+		assert.ok(fs.existsSync(path.join(sketchDir(chat.id), SKETCH.id, "0.svg")));
+		assert.ok(fs.existsSync(path.join(sketchDir(chat.id), SKETCH.id, "strokes.json")));
+
+		const marker = chatStore.getChat(chat.id)!.messages.find((m) => (m as { customType?: string }).customType === "practice-thinking");
+		const details = (marker as { details: { sketch?: { id: string }; text: string } }).details;
+		assert.equal(details.sketch?.id, SKETCH.id, "the record keeps the ref");
+		assert.ok(!JSON.stringify(chatStore.getChat(chat.id)).includes("iVBOR"), "never the bytes");
+
+		const last = seen.at(-1)!.at(-1) as Array<{ type: string; data?: string }>;
+		assert.deepEqual(last.map((b) => b.type), ["text", "image", "text"], "the page leads the thinking");
+		assert.equal(Buffer.from(last[1]!.data!, "base64").subarray(0, 4).toString("hex"), "89504e47");
+	});
+
+	it("a bad sketch is a 400 and nothing is written", async () => {
+		const chat = createPracticeChat("Test: practice sketch 400");
+		const { engine } = scripted([
+			() => fauxAssistantMessage([fauxToolCall("problem", POSE, { id: "call-s2" })], { stopReason: "toolUse" }),
+		]);
+		const factory = sketchFactory(chat.id, engine);
+		await drainTurn(post(chat.id, { type: "text", text: "go" }), factory);
+		const before = chatStore.getChat(chat.id)!.messages.length;
+		const res = await handleChatRequest(
+			post(chat.id, { type: "thinking", problemCallId: "call-s2", text: "x", sketch: { ...SKETCH, strokes: [{ size: 4, points: [1, 2] }] } }),
+			factory,
+		);
+		assert.equal(res.status, 400);
+		assert.equal(chatStore.getChat(chat.id)!.messages.length, before, "the record is unchanged");
+		assert.ok(!fs.existsSync(sketchDir(chat.id)), "no sketch on disk");
+	});
+
+	it("a sketch that cannot be stored refuses the input before the write-ahead", async () => {
+		const chat = createPracticeChat("Test: practice sketch store failure");
+		const { engine } = scripted([
+			() => fauxAssistantMessage([fauxToolCall("problem", POSE, { id: "call-s3" })], { stopReason: "toolUse" }),
+		]);
+		const factory = sketchFactory(chat.id, engine);
+		await drainTurn(post(chat.id, { type: "text", text: "go" }), factory);
+		const before = chatStore.getChat(chat.id)!.messages.length;
+		// A FILE where the chat's sketch folder belongs: the store's mkdir fails.
+		fs.mkdirSync(PATHS.sketches, { recursive: true });
+		fs.writeFileSync(sketchDir(chat.id), "blocker");
+		try {
+			const res = await handleChatRequest(post(chat.id, { type: "thinking", problemCallId: "call-s3", text: "x", sketch: SKETCH }), factory);
+			assert.equal(res.status, 500);
+			assert.equal(chatStore.getChat(chat.id)!.messages.length, before, "the record never names a missing sketch");
+		} finally {
+			fs.rmSync(sketchDir(chat.id), { force: true });
+		}
+	});
+});

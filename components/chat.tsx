@@ -58,7 +58,8 @@ import { PracticeDock } from "@/components/practice-dock";
 import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
 import { TopBar } from "@/components/top-bar";
-import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, TurnUsage, SessionPricing } from "@/src/core";
+import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, SketchPayload, TurnUsage, SessionPricing } from "@/src/core";
+import { useModelCatalog } from "@/components/model-picker";
 import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
 import {
@@ -502,12 +503,28 @@ export function Chat({
 	// the dock stays mounted (the problem is still active until the agent
 	// concludes).
 	const submitThinking = useCallback(
-		(text: string) => {
+		(text: string, sketch?: SketchPayload) => {
 			const problem = activeProblemRef.current;
 			if (!problem) return;
-			void send({ type: "thinking", problemCallId: problem.toolCallId, text });
+			void send(
+				sketch
+					? { type: "thinking", problemCallId: problem.toolCallId, text, sketch }
+					: { type: "thinking", problemCallId: problem.toolCallId, text },
+			);
 		},
 		[send],
+	);
+
+	// Sketch answers (Android plan M1): offered only when the session's
+	// model reads images — the stats bar's model control reports the
+	// effective model; unknown (still loading) counts as no.
+	const [sessionModel, setSessionModel] = useState<string | undefined>();
+	const { catalog: modelCatalog } = useModelCatalog();
+	const sketchAvailable = useMemo(
+		() =>
+			!!sessionModel &&
+			!!modelCatalog?.models.some((m) => `${m.provider}:${m.id}` === sessionModel && m.input.includes("image")),
+		[sessionModel, modelCatalog],
 	);
 
 	// Teach-phase check (W5, vision §2): a pending QUIZ that lands once a
@@ -1404,7 +1421,7 @@ export function Chat({
 											case "data-compaction-cut":
 												return <CompactionCutDivider key={pi} data={part.data as CompactionDividerData} />;
 											case "data-practice-thinking":
-												return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} />;
+												return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} chatId={chatId} />;
 											case "data-practice-next":
 												// The learner's move-on signal (owner round 16): a compact
 												// centered mono-caps line — chrome, the dismissal register.
@@ -1558,7 +1575,7 @@ export function Chat({
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
 															return (
-																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} />
+																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} chatId={chatId} />
 															);
 														}
 														return null;
@@ -1648,6 +1665,8 @@ export function Chat({
 					practice={activeProblem}
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
+					sketchAvailable={sketchAvailable}
+					onModelChange={setSessionModel}
 					chatId={chatId}
 					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
 					onOpenPlan={() => setPlanOpen(true)}
@@ -1705,7 +1724,7 @@ export function Chat({
 							edge={{ chatId, mic: <DictationBar dictation={dictation} compact /> }}
 						/>
 					}
-					onSubmitAnswer={(output) => {
+					onSubmitAnswer={(output, sketch) => {
 						if (!pending) return;
 						// THE ANSWER IS THE QUESTION CALL'S TOOL RESULT (fork 1, owner
 						// 2026-09-26): one input event, one turn — the hook appends
@@ -1717,7 +1736,7 @@ export function Chat({
 						// check answer is its only carrier.
 						const reading = readingThinkingRef.current.trim() || undefined;
 						clearReadingThinking();
-						submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output);
+						submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output, sketch);
 					}}
 				/>
 				</Conversation>
@@ -1876,6 +1895,8 @@ function DockOverlay({
 	practice,
 	compactionRunning,
 	onSubmitThinking,
+	sketchAvailable,
+	onModelChange,
 	requiresReveal,
 	readingThinking,
 	onReadingThinking,
@@ -1903,7 +1924,11 @@ function DockOverlay({
 	 *  question (the composer is replaced); null in teaching sessions. */
 	practice: { toolCallId: string; input: unknown } | null;
 	/** (commit, text) — the practice dock's two submit lanes. */
-	onSubmitThinking: (text: string) => void;
+	onSubmitThinking: (text: string, sketch?: SketchPayload) => void;
+	/** The session's model reads images — the docks offer "Open in sketch". */
+	sketchAvailable: boolean;
+	/** The stats bar's model control reports the session's effective model. */
+	onModelChange: (model: string | undefined) => void;
 	/** Teach-phase pending question: arrives collapsed behind the reveal button (W5). */
 	requiresReveal: boolean;
 	/** The reading-thinking draft (owner 2026-10-03) — owned by ChatView so
@@ -1917,7 +1942,7 @@ function DockOverlay({
 	contextTokens: number | null;
 	pricing?: SessionPricing;
 	composer: React.ReactNode;
-	onSubmitAnswer: (output: QuestionAnswerData) => void;
+	onSubmitAnswer: (output: QuestionAnswerData, sketch?: SketchPayload) => void;
 	/** The model control's pass-through (the stats bar hosts it). */
 	chatId: string;
 	/** Reports the dock's settled height (block + gradient) — ChatView's
@@ -2365,6 +2390,7 @@ function DockOverlay({
 									onEscape={dictationCancel}
 									dictationClaim={!revealPending}
 									compactionRunning={compactionRunning}
+									sketchAvailable={sketchAvailable}
 								/>
 							) : practice ? (
 								<PracticeDock
@@ -2378,6 +2404,7 @@ function DockOverlay({
 									onSubmit={onSubmitThinking}
 									onEscape={dictationCancel}
 									compactionRunning={compactionRunning}
+									sketchAvailable={sketchAvailable}
 								/>
 							) : (
 								composer
@@ -2396,7 +2423,7 @@ function DockOverlay({
 					{/* The stats row: beneath the composer/question shell, not
 					    flush to the screen bottom — static height, outside the
 					    morphing shell so it never joins a height animation. */}
-					<StatsBar turns={turns} contextTokens={contextTokens} pricing={pricing} chatId={chatId} />
+					<StatsBar turns={turns} contextTokens={contextTokens} pricing={pricing} chatId={chatId} onModelChange={onModelChange} />
 					{/* The scroll-down disc (moved here from the Conversation,
 					    owner refinement round 2026-09-24): anchored to the BLOCK's
 					    top edge — above the composer shell AND the stats row, in

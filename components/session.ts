@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
-import type { ChatInput, LhMessage, QuestionAnswerData } from "@/src/core";
+import type { ChatInput, LhMessage, QuestionAnswerData, SketchPayload } from "@/src/core";
 import { SessionModel, type SessionState } from "@/components/session-core";
 
 export interface UseChatSessionOptions {
@@ -103,8 +103,8 @@ export function useChatSession({ chatId, initialMessages, initiallyInFlight }: U
 	const send = useCallback((input: ChatInput) => void model.send(input), [model]);
 	const steer = useCallback((text: string) => void model.steer(text), [model]);
 	const submitAnswer = useCallback(
-		(tool: string, toolCallId: string, output: QuestionAnswerData) =>
-			void model.submitAnswer(tool, toolCallId, output),
+		(tool: string, toolCallId: string, output: QuestionAnswerData, sketch?: SketchPayload) =>
+			void model.submitAnswer(tool, toolCallId, output, sketch),
 		[model],
 	);
 	const dismissQuestion = useCallback(

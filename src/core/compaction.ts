@@ -37,7 +37,7 @@ import type { PlanTree } from "./contracts/plan.ts";
 import { derivePlanStatusesLh, derivedNodeStatus } from "./contracts/plan.ts";
 import { COMPACTED_HISTORY_HEADER } from "./contracts/chat.ts";
 import type { LhMessage, LhMarkerMessage } from "./native-messages.ts";
-import { newMessageId } from "./native-messages.ts";
+import { newMessageId, sketchOfMessage } from "./native-messages.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolResultMessage, SystemMessage } from "@earendil-works/pi-ai";
 
@@ -100,6 +100,11 @@ export function estimateMessageTokens(message: LhMessage | AgentMessage): number
 		}
 	} else {
 		chars += textCharsOfContent(content);
+		// A record message's sketch (fork addition, 2026-10-26): its pages
+		// ride as images only at the model boundary — count them here, unless
+		// this is already the projection (its image blocks counted above).
+		const sketch = sketchOfMessage(message as AgentMessage);
+		if (sketch && !hasImageBlock(content)) chars += sketch.pages.length * ESTIMATED_IMAGE_CHARS;
 		if (message.role === "system") {
 			const system = message as SystemMessage;
 			for (const section of Object.values(system.sections ?? {})) chars += section?.length ?? 0;
@@ -122,6 +127,20 @@ function textCharsOfContent(content: unknown): number {
 		else if (block?.type === "text") chars += block.text?.length ?? 0;
 	}
 	return chars;
+}
+
+function hasImageBlock(content: unknown): boolean {
+	return Array.isArray(content) && content.some((b) => (b as { type?: string } | null)?.type === "image");
+}
+
+/** Summary text of a content value: text blocks as-is, an image as
+ *  `[image]` — never its base64. */
+function contentText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return (content as Array<{ type?: string; text?: string }>)
+		.map((c) => (c?.type === "text" ? (c.text ?? "") : c?.type === "image" ? "[image]" : JSON.stringify(c)))
+		.join("\n");
 }
 
 /** The newest assistant message carrying VALID provider-reported usage
@@ -311,7 +330,7 @@ export function serializeForSummary(messages: readonly LhMessage[]): string {
 	for (const m of messages) {
 		const role = (m as { role?: string }).role;
 		if (role === "user") {
-			lines.push(`[LEARNER] ${(m as { content: string }).content}`);
+			lines.push(`[LEARNER] ${contentText((m as { content: unknown }).content)}`);
 		} else if (role === "assistant") {
 			const assistant = m as AssistantMessage;
 			const blocks: string[] = [];
@@ -324,9 +343,7 @@ export function serializeForSummary(messages: readonly LhMessage[]): string {
 			if (blocks.length > 0) lines.push(`[TUTOR] ${blocks.join("\n")}`);
 		} else if (role === "toolResult") {
 			const result = m as ToolResultMessage;
-			const text = result.content
-				.map((c) => (c.type === "text" ? c.text : JSON.stringify(c)))
-				.join("\n");
+			const text = contentText(result.content);
 			lines.push(
 				`[RESULT for ${result.toolName}${result.isError ? " (error)" : ""}] ${
 					text.length > SUMMARY_TOOL_RESULT_TRUNCATE ? `${text.slice(0, SUMMARY_TOOL_RESULT_TRUNCATE)}…[truncated]` : text
@@ -335,7 +352,7 @@ export function serializeForSummary(messages: readonly LhMessage[]): string {
 		} else if (role === "custom") {
 			const marker = m as LhMarkerMessage;
 			if (marker.customType === "plan-block") continue; // UI-only
-			lines.push(`[SYSTEM NOTE] ${marker.content}`);
+			lines.push(`[SYSTEM NOTE] ${contentText(marker.content)}`);
 		}
 	}
 	return lines.join("\n\n");

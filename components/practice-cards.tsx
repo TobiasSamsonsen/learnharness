@@ -2,7 +2,8 @@
 
 import { MessageResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
-import { repairMathForDisplay, type ArtifactPartProps } from "@/src/core";
+import { SketchThumbnail } from "@/components/sketch/sketch-thumbnail";
+import { repairMathForDisplay, type ArtifactPartProps, type SketchRef } from "@/src/core";
 
 /**
  * The practice transcript cards (practice sessions, owner design
@@ -53,6 +54,8 @@ export interface PracticeThinkingData {
 	/** Legacy records (pre 2026-10-05) carry the old two-lane flag; ignored. */
 	commit?: boolean;
 	text: string;
+	/** The submission's handwriting (Android plan M1). */
+	sketch?: SketchRef;
 }
 
 export function ProblemCard({ part }: ArtifactPartProps) {
@@ -289,10 +292,19 @@ function MetadataPopover({
 	);
 }
 
-export function ThinkingCard({ data }: { data: PracticeThinkingData }) {
+export function ThinkingCard({ data, chatId }: { data: PracticeThinkingData; chatId?: string }) {
 	// The unified row (owner rounds, 2026-10-05): one style, one label —
 	// 50%-italic quote block on expand. Legacy records' commit flag is
 	// deliberately unread (one lane now). A TRANSCRIPT row (owner round,
 	// 2026-10-07): full-width band + rail, arriving expanded.
-	return <ThinkingBlock testId="thinking-card" label="YOUR THINKING" text={data.text} defaultOpen />;
+	const block = data.text.trim() ? <ThinkingBlock testId="thinking-card" label="YOUR THINKING" text={data.text} defaultOpen /> : null;
+	if (!data.sketch || !chatId) return block;
+	// A sketch submission (Android plan M1): the page under the words —
+	// or alone, when the learner only drew.
+	return (
+		<div data-testid="thinking-sketch">
+			{block}
+			<SketchThumbnail chatId={chatId} sketch={data.sketch} />
+		</div>
+	);
 }

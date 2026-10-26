@@ -51,6 +51,7 @@ import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.
 import { emit } from "../core/events.ts";
 import { resolveLessonLanguage } from "../core/language.ts";
 import { materialsForTurn } from "./materials.ts";
+import { persistInputSketch, sketchImagesFor } from "./sketches.ts";
 import { courseForTurn } from "./courses.ts";
 import { finishLessonTool, finishSessionTool } from "../agent/tools/course.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
@@ -304,6 +305,16 @@ export async function handleChatInput(
 		throw err;
 	}
 
+	// The input's sketch (fork addition, 2026-10-26): its pages go on disk
+	// BEFORE anything durable names it — the hold-back save and the
+	// write-ahead below — so a record never references a missing sketch.
+	try {
+		await persistInputSketch(chatId, input);
+	} catch (err) {
+		console.error(`[chat ${chatId}] sketch persist failed:`, err);
+		return Response.json({ error: "The sketch could not be saved" }, { status: 500 });
+	}
+
 	// THE PARALLEL-QUESTION GATE (owner, 2026-10-03 — the deepseek parallel
 	// batch incident): an answer that leaves a SIBLING question dangling
 	// defers its wake. The dock advances to the next question (the client's
@@ -421,6 +432,9 @@ export async function handleChatInput(
 		// The lesson's source material (fork addition): profiles in the
 		// prompt + the lookup tools; absent when the lesson has none.
 		materials: materialsForTurn(chatId),
+		// Sketch answers (fork addition, 2026-10-26): the stored pages, read
+		// back at the model boundary — agent state never carries the bytes.
+		sketchImages: sketchImagesFor(chatId),
 		// The course section (fork addition — docs/courses.md §4): a course
 		// session's per-turn rules; absent for other sessions. A Learn
 		// session's teacher also gets finish_lesson; every other course

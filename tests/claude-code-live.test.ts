@@ -42,7 +42,7 @@ function useScript(steps: unknown[]): void {
 	fs.writeFileSync(script, JSON.stringify(steps));
 	process.env.FAKE_CLAUDE_SCRIPT = script;
 }
-const events = (): Array<{ pid: number; event: string; text?: string }> =>
+const events = (): Array<{ pid: number; event: string; text?: string; types?: string[] }> =>
 	fs.readFileSync(`${script}.log`, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
 const pids = () => [...new Set(events().map((e) => e.pid))];
 
@@ -87,6 +87,26 @@ test("a tool round trip and a learner message continue the SAME process", async 
 		["spawn", "input", "mcp-call", "mcp-reply", "input"],
 	);
 	assert.equal(events().find((e) => e.event === "mcp-reply")!.text, "r = 2", "the held call got the app's result");
+});
+
+test("sketch pages ride a held call's MCP reply and a learner message as images, on the SAME process", async () => {
+	// The Android plan's M1: an answer's sketch pages are image blocks
+	// appended to its tool result, a practice submission's lead its user
+	// message — both must continue the live process, images intact.
+	useScript([{ call: { name: "lookup", args: { q: "sketch" } } }, { text: "I read your sketch." }, { text: "And this one." }]);
+	const image = { type: "image" as const, data: "iVBORw0KGgo=", mimeType: "image/png" };
+	const history: Message[] = [user("teach me")];
+	const first = await call(history, "chat_sketch");
+	const answer = resultFor(first, '{"kind":"explain","sketch":{"id":"sk_test","pages":1,"as":"answer"}}');
+	history.push(first, { ...answer, content: [...answer.content, { type: "text", text: "[sketch sk_test · page 1/1]" }, image] });
+	const second = await call(history, "chat_sketch");
+	assert.equal(textOf(second), "I read your sketch.");
+	history.push(second, { role: "user", content: [{ type: "text", text: "[sketch sk_test2 · page 1/1]" }, image, { type: "text", text: "Your thinking: here" }], timestamp: Date.now() });
+	const third = await call(history, "chat_sketch");
+	assert.equal(textOf(third), "And this one.");
+	assert.equal(pids().length, 1, "one process served the whole conversation");
+	assert.deepEqual(events().find((e) => e.event === "mcp-reply")!.types, ["text", "text", "image"], "the held call's reply carries the page");
+	assert.deepEqual(events().filter((e) => e.event === "input").at(-1)!.types, ["text", "image", "text"], "the learner message carries the page");
 });
 
 test("a call Claude Code rejects itself ends the process — the next call starts fresh instead of hanging", async () => {

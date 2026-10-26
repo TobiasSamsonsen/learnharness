@@ -625,7 +625,7 @@ export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOpti
 			out.push({
 				role: "user",
 				content: [...(sketch ? sketchBlocks(sketch, opts.sketchImage) : []), { type: "text", text: marker.content }],
-			timestamp: marker.timestamp,
+				timestamp: marker.timestamp,
 			});
 			continue;
 		}

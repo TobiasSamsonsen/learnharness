@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
+import { ArrowDownIcon, ChevronRightIcon, PenLineIcon, PlayIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { FigureScope } from "@/components/figures/figure-scope";
+import { SketchView } from "@/components/sketch/sketch-view";
 import { cn } from "@/lib/utils";
 import {
 	buildAnswer,
@@ -23,6 +24,7 @@ import {
 	parseAskInput,
 	parseQuizInput,
 	parseExplainInput,
+	sketchRefOf,
 	toggleOption,
 	toggleOther,
 	type AnswerRequest,
@@ -34,6 +36,7 @@ import {
 	type QuestionMode,
 	type QuizToolInput,
 	type SelectMode,
+	type SketchPayload,
 	type Phase3,
 } from "@/src/core";
 import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-rail";
@@ -72,7 +75,12 @@ export interface QuestionDockProps {
 	 */
 	reveal?: boolean;
 	onExpand: () => void;
-	onSubmit: (output: QuestionAnswerData) => void;
+	/** A sketch submit (Android plan M1, text mode) passes the handwriting;
+	 *  the answer then carries its ref. */
+	onSubmit: (output: QuestionAnswerData, sketch?: SketchPayload) => void;
+	/** The session's model reads images — text mode then offers "Open in
+	 *  sketch" (a text-only model would silently drop the pages). */
+	sketchAvailable?: boolean;
 	/** Escape in a question field stops dictation (STT wave) — threaded
 	 *  from the page that owns the dictation hook. */
 	onEscape?: () => void;
@@ -106,6 +114,7 @@ export function QuestionDock({
 	phase = "probe",
 	dictationClaim = true,
 	compactionRunning = false,
+	sketchAvailable = false,
 }: QuestionDockProps) {
 	// The probe-phase names (owner, 2026-10-09) canonicalize onto their
 	// teach twins for every dock concern — parse dispatch, labels, kinds:
@@ -160,6 +169,7 @@ export function QuestionDock({
 					onEscape={onEscape}
 					dictationClaim={dictationClaim}
 					compactionRunning={compactionRunning}
+					sketchAvailable={sketchAvailable}
 				/>
 			</div>
 		</>
@@ -255,6 +265,7 @@ function QuestionDockForm({
 	onEscape,
 	dictationClaim = true,
 	compactionRunning = false,
+	sketchAvailable = false,
 }: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal">) {
 	const kind = toolQuestionKind(toolName);
 
@@ -329,6 +340,7 @@ function QuestionDockForm({
 	// answer cannot be sent until the learner chooses a stop. The dock
 	// unmounts between questions, so each question starts unset.
 	const [confIdx, setConfIdx] = useState<number | null>(null);
+	const [sketching, setSketching] = useState(false);
 	const selectMode: SelectMode = qd.mode === "multi-select" ? "multi-select" : "single-select";
 
 	// The PRIMARY dictation input (owner, STT round 1): while a question
@@ -397,6 +409,24 @@ function QuestionDockForm({
 			confidence: kind === "quiz" && confIdx !== null ? CONFIDENCE_STOPS[confIdx] : undefined,
 		};
 		onSubmit(buildAnswer(qd, req, toolName));
+	};
+	/* The sketch submit (Android plan M1, text mode only): the sketch
+	 * answers on its own or with the typed/dictated text; dictation's tail
+	 * lands first, exactly as for the Submit button. */
+	const submitSketch = (sketch: SketchPayload) => {
+		if (compactionRunning || qd.mode !== "text") return;
+		setSketching(false);
+		const send = () => {
+			const req: AnswerRequest = {
+				dontKnow: false,
+				values: [],
+				text: answerTextRef.current,
+				sketch: sketchRefOf(sketch),
+			};
+			onSubmit(buildAnswer(qd, req, toolName), sketch);
+		};
+		if (isDictationActive()) void finishDictation().then(send);
+		else send();
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): the same
@@ -911,17 +941,40 @@ function QuestionDockForm({
 						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
 								{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
 						</span>
+						{qd.mode === "text" && sketchAvailable && (
+							<Button
+								type="button"
+								variant="ghost"
+								data-testid="question-open-sketch"
+								onClick={() => setSketching(true)}
+								className="ml-auto h-9 gap-1.5 rounded-[6px] px-3 text-sm"
+							>
+								<PenLineIcon className="size-4" />
+								Open in sketch
+							</Button>
+						)}
 						<Button
 							type="submit"
 							disabled={!canSubmit || compactionRunning}
 							title={needsConfidence ? "Set your confidence first" : undefined}
-							className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
+							className={cn("h-9 rounded-[6px] px-3.5 text-sm font-medium", !(qd.mode === "text" && sketchAvailable) && "ml-auto")}
 						>
 							Submit answer
 						</Button>
 					</div>
 				</div>
 			</form>
+			{sketching && (
+				<SketchView
+					label="Question"
+					statement={qd.context ? `${qd.context}\n\n${qd.question}` : qd.question}
+					inkKey={toolCallId}
+					onSubmit={submitSketch}
+					onClose={() => setSketching(false)}
+					onCancelDictation={onEscape}
+					disabled={compactionRunning}
+				/>
+			)}
 		</div>
 		</FigureScope>
 	);

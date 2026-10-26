@@ -25,6 +25,9 @@ import { absorbed, pendingCallTool, SessionModel } from "../components/session-c
 import type { ChatInput } from "../src/core/input-events.ts";
 import type { LhMessage } from "../src/core/native-messages.ts";
 import { newUserMessage, newAnswerResult, newThinkingMessage, needsContinuation, endsInDismissal } from "../src/core/native-messages.ts";
+import { inputAppends, parseChatInput } from "../src/core/input-events.ts";
+import { sketchRefOf } from "../src/core/sketch.ts";
+import type { SketchPayload } from "../src/core/contracts/sketch.ts";
 import { ANSWER_NEXT_TEXT } from "../src/core/prose-gate.ts";
 import { projectView } from "../src/core/index.ts";
 import { dismissedAnswer } from "../src/core/question-core.ts";
@@ -1113,5 +1116,32 @@ describe("absorbed — the custom role (the doubled thinking card)", () => {
 		const customs = m.getState().nativeMessages.filter((x) => (x as { role?: string }).role === "custom");
 		assert.equal(customs.length, 1, "the server copy replaced the optimistic one — no doubling");
 		assert.equal((customs[0] as { id?: string }).id, "srv_1");
+	});
+});
+
+describe("sketch submissions (Android plan M1)", () => {
+	const SKETCH: SketchPayload = {
+		id: "sk_sessioncore000001",
+		producer: "web-canvas",
+		strokes: [{ size: 4, points: [10, 10, 0.5, 90, 50, 0.7, 200, 30, 0.5] }],
+	};
+
+	it("the optimistic card is absorbed by the server's own derivation", () => {
+		const optimistic = { ...newThinkingMessage("call-p1", "", sketchRefOf(SKETCH)), id: "c_opt1" } as LhMessage;
+		// The server path: the POST body's JSON, parsed and appended.
+		const input = parseChatInput(JSON.parse(JSON.stringify({ type: "thinking", problemCallId: "call-p1", text: "", sketch: SKETCH })));
+		const [serverCopy] = inputAppends({ messages: poseRecord(), kind: "practice" }, input);
+		assert.ok(absorbed(optimistic, [...poseRecord(), { ...serverCopy!, id: "srv_1" } as LhMessage]), "same sketch → one card");
+	});
+
+	it("send carries the strokes on the wire and the ref on the card", async () => {
+		let posted = "";
+		globalThis.fetch = dietFetch({ stream: () => sseResponse({ type: "agent_end", messages: [] }, "[DONE]"), onPost: (b) => (posted = b) });
+		const m = model({ initialMessages: poseRecord() });
+		const sending = m.send({ type: "thinking", problemCallId: "call-p1", text: "see sketch", sketch: SKETCH });
+		const card = m.getState().nativeMessages.find((x) => (x as { customType?: string }).customType === "practice-thinking");
+		assert.deepEqual((card as { details: { sketch?: unknown } }).details.sketch, sketchRefOf(SKETCH));
+		await sending;
+		assert.deepEqual((JSON.parse(posted) as { input: { sketch: unknown } }).input.sketch, SKETCH);
 	});
 });

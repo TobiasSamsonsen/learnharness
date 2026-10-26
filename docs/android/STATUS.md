@@ -2,7 +2,7 @@
 
 Plan: [plan.md](plan.md). Branch `feat/sketch-answers` holds M1 work in progress, by Claude for the owner.
 
-## Being worked on now: M1 (sketch answers, desktop vertical slice). Don't start M1 in parallel.
+## Being worked on now: M1 (sketch answers, desktop vertical slice), in its final checks. Don't start M1 in parallel.
 
 ### M1 decisions made after the plan
 - **Strokes on the wire, server renders.** Producers send vector strokes (`SketchPayload`). Core plans the pages; resvg renders PNG for the model and SVG for the UI.
@@ -10,23 +10,13 @@ Plan: [plan.md](plan.md). Branch `feat/sketch-answers` holds M1 work in progress
 - **Limits:** 3,000 strokes · 250k points · 4 MB per sketch. At most 6 pages, page long edge ≤ 2000 px.
 - **Kept practice page:** a dock submit with unsent ink shows a removable "Sketch attached" chip. A re-submit with no new ink sends only a reference. After a reload, restore the submitted strokes (server) plus unsent ink (localStorage). This lands in M3.
 - **Sketch view keys:** Ctrl/⌘+Enter submits, Esc closes (cancels dictation first), Ctrl+Z / Ctrl+Shift+Z undo and redo. Plain Enter does nothing.
+- **Unsent ink (M1):** closing the sketch view keeps the ink in memory for that question or problem (`components/sketch/ink-memory.ts`); a submit from the canvas clears it. A plain text submit from the dock leaves the ink alone (the "Sketch attached" chip is M3).
 
-### Done (uncommitted-quality WIP, NOT typechecked or tested yet)
-- `src/core/contracts/sketch.ts`: SketchPayload, SketchStroke, SketchRef.
-- `src/core/sketch.ts`: limits, `parseSketchPayload`, `planSketch` (crop, scale, bands), `sketchRefOf`, `sketchLabel`, `newSketchId`.
-- `src/core/question-core.ts`: `sketch` on AnswerRequest/QuestionAnswerData, the `dockSubmitGate` `hasSketch` flag, `compactAnswerForModel` writes `sketch` last.
-- `src/core/native-messages.ts`: `newThinkingMessage(..., sketch?)`, `toLlmMessages(messages, {sketchImage})` (images ahead of thinking, appended to answer tool results), `sketchOfMessage`.
-- `src/core/input-events.ts`: `sketch` on the answer/thinking inputs, validation (400), a server-derived ref.
-- `src/core/ports.ts` SketchStore, `src/store/sketches.ts`, `PATHS.sketches`, `stores.sketchStore`, cleanup on chat deletion.
-- `src/server/sketches.ts`: `persistInputSketch`, `sketchImagesFor`, `readSketchPage` (not yet exported from the barrel).
-
-### Remaining for M1
-1. Export `src/server/sketches.ts` from `src/server/index.ts`.
-2. In `chat-handler.ts`, `await persistInputSketch(chatId, input)` after `appends` succeed and before the hold-back save and the write-ahead. Set `agentOpts.sketchImages = sketchImagesFor(chatId)`.
-3. `teacher-agent.ts`: add `sketchImages` to `AgentBuildOptions`, and `convertToLlm: (m) => toLlmMessages(m, { sketchImage: opts.sketchImages })`.
-4. Route `app/api/chats/[id]/sketches/[sketchId]/[page]/route.ts` (svg/png).
-5. `src/core/compaction.ts`: count sketch pages in `estimateMessageTokens`; in `serializeForSummary`, handle array content and write `[image]` instead of base64.
-6. UI: `components/sketch/*` (overlay, canvas drawn with `getStroke`/`sketchStrokeOptions`, submit), an "Open in sketch" button in `practice-dock.tsx` and `question-dock.tsx` (text mode), thumbnails in `practice-cards.tsx` ThinkingCard and `answered-card.tsx`, plumbing through `session-core.ts`/`session.ts`/`chat.tsx`. Hide the button when the model lacks image input.
-7. Tests (see plan §7 M1), then `npm run typecheck && npm test && npm run lint`, plus the live check that Claude Code passes MCP image results through.
+### M1 status: implemented, tests green; two checks left
+- Core: `contracts/sketch.ts`, `sketch.ts` (+ `sketchStrokePath`, shared by the canvas and the server render), `input-events.ts` (optional `sketch` on answer/thinking, 400 on a bad payload, the server derives the ref), `question-core.ts`, `native-messages.ts`, `compaction.ts` (sketch pages counted once; `[image]` in summaries).
+- Server: `src/server/sketches.ts` (exported), `chat-handler.ts` (pages stored before the hold-back save and the write-ahead; a store failure is a 500 and the record is untouched), `teacher-agent.ts` (`sketchImages` → `convertToLlm`), route `GET /api/chats/[id]/sketches/[sketchId]/[page]?format=svg|png`.
+- UI: `components/sketch/*` (view, canvas, ink memory, thumbnail), "Open in sketch" in the practice dock and text-mode question dock (shown only when the session model's catalog entry has image input), thumbnails in `ThinkingCard`/`AnsweredCard`, plumbing through `session-core.ts`/`session.ts`/`chat.tsx`/`stats-bar.tsx`.
+- Tests: `tests/sketch-contract.test.ts`; additions in `practice-flow`, `session-core`, `render-practice-surface`, `claude-code-live` (the fake CLI now logs block types: an answer's page rides the held MCP reply and a submission's page the learner message, on the same process). `npm run typecheck`, `npm run lint` clean; `npm test` 2329/2339, the 10 failures are the known Windows ones.
+- **Left:** (1) the live check that the real `claude` CLI passes MCP image results through (needs the owner's go-ahead: it uses subscription quota); (2) a manual pen/mouse run in the app.
 
 ### Not started (free to pick up): M0 (phone spike), M4, M5, M6. M2/M3 depend on M1.
