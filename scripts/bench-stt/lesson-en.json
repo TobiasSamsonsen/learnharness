@@ -1,0 +1,18 @@
+{
+	"language": "en",
+	"note": "A stand-in lesson for the technical-term clip: its transcript carries SOME of the clip's terms (not 'virtual ground', 'harmonics', 'differential equation'), as a real lesson would.",
+	"tree": {
+		"version": 1,
+		"edges": [],
+		"nodes": [
+			{ "id": "n1", "title": "Nodal analysis" },
+			{ "id": "n2", "title": "Thévenin and Norton equivalents" },
+			{ "id": "n3", "title": "Transfer functions and poles" }
+		]
+	},
+	"messages": [
+		{ "id": "m1", "role": "assistant", "content": [{ "type": "text", "text": "We will reduce the network with **superposition** and the **Thévenin equivalent**, then move to the **Laplace transform** and the **eigenvalues** of the state matrix." }] },
+		{ "id": "m2", "role": "assistant", "content": [{ "type": "toolCall", "id": "t1", "name": "quiz", "arguments": { "nodeId": "n2", "question": "Which resistance is the Thévenin resistance when the load is removed and the independent sources are deactivated?" } }] }
+	],
+	"script": "To find the Thévenin equivalent of this network, I first remove the load resistor and compute the open-circuit voltage with nodal analysis. Then I deactivate the independent sources and find the equivalent resistance, which gives me the Thévenin resistance. By superposition the same answer follows, and the Norton current is the open-circuit voltage divided by that resistance. For the transfer function I take the Laplace transform of the differential equation, find the poles and zeros, and check that the eigenvalues of the state matrix have negative real parts. The operational amplifier in the feedback loop is ideal, so the inverting input is a virtual ground, and the Fourier series of the square wave contains only odd harmonics."
+}

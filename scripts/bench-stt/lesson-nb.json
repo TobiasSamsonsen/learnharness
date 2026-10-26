@@ -1,0 +1,18 @@
+{
+	"language": "nb",
+	"note": "A stand-in lesson for the technical-term clip: its transcript carries SOME of the clip's terms (not 'virtuell jord', 'harmoniske', 'differensialligningen'), as a real lesson would.",
+	"tree": {
+		"version": 1,
+		"edges": [],
+		"nodes": [
+			{ "id": "n1", "title": "Nodeanalyse" },
+			{ "id": "n2", "title": "Thévenin- og Norton-ekvivalenter" },
+			{ "id": "n3", "title": "Overføringsfunksjoner og poler" }
+		]
+	},
+	"messages": [
+		{ "id": "m1", "role": "assistant", "content": [{ "type": "text", "text": "Vi forenkler nettverket med **superposisjon** og **Thévenin-ekvivalenten**, og går deretter videre til **Laplace-transformasjonen** og **egenverdiene** til tilstandsmatrisen." }] },
+		{ "id": "m2", "role": "assistant", "content": [{ "type": "toolCall", "id": "t1", "name": "quiz", "arguments": { "nodeId": "n2", "question": "Hvilken motstand er Thévenin-motstanden når lasten er fjernet og de uavhengige kildene er slått av?" } }] }
+	],
+	"script": "For å finne Thévenin-ekvivalenten til nettverket fjerner jeg først lastmotstanden og regner ut tomgangsspenningen med nodeanalyse. Deretter slår jeg av de uavhengige kildene og finner ekvivalentmotstanden, som gir Thévenin-motstanden. Med superposisjon får jeg samme svar, og Norton-strømmen er tomgangsspenningen delt på denne motstanden. For overføringsfunksjonen tar jeg Laplace-transformasjonen av differensialligningen, finner polene og nullpunktene og sjekker at egenverdiene til tilstandsmatrisen har negativ realdel. Operasjonsforsterkeren i tilbakekoblingen er ideell, så den inverterende inngangen er en virtuell jord, og Fourier-rekken til firkantbølgen inneholder bare odde harmoniske."
+}
