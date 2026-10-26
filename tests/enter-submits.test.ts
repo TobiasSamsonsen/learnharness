@@ -13,7 +13,7 @@
 import assert from "node:assert/strict";
 import { parseHTML } from "linkedom";
 import { describe, it } from "node:test";
-import { buttonKeepsNativeEnter } from "../components/enter-submits.ts";
+import { buttonKeepsNativeEnter, enterSends, isCoarsePointer } from "../components/enter-submits.ts";
 import { blurAfterPointerClick } from "../components/focus-hygiene.ts";
 
 const { document } = parseHTML("<html><body></body></html>");
@@ -78,5 +78,54 @@ describe("blurAfterPointerClick (focus hygiene)", () => {
 		};
 		blurAfterPointerClick({ detail: 0, currentTarget: b });
 		assert.equal(blurred, false);
+	});
+});
+
+describe("enterSends (the shared send chord; coarse pointers type newlines)", () => {
+	const key = (over: Partial<{ key: string; shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }> = {}) => ({
+		key: "Enter",
+		shiftKey: false,
+		metaKey: false,
+		ctrlKey: false,
+		...over,
+	});
+
+	it("fine pointer: Enter sends, Shift+Enter is a newline, ⌘/Ctrl+Enter send", () => {
+		assert.equal(enterSends(key(), false), true);
+		assert.equal(enterSends(key({ shiftKey: true }), false), false);
+		assert.equal(enterSends(key({ metaKey: true }), false), true);
+		assert.equal(enterSends(key({ ctrlKey: true }), false), true);
+		assert.equal(enterSends(key({ ctrlKey: true, shiftKey: true }), false), true, "the old (!shift || meta || ctrl) chord");
+	});
+
+	it("coarse pointer: plain Enter is a newline; ⌘/Ctrl+Enter still send", () => {
+		assert.equal(enterSends(key(), true), false);
+		assert.equal(enterSends(key({ shiftKey: true }), true), false);
+		assert.equal(enterSends(key({ metaKey: true }), true), true);
+		assert.equal(enterSends(key({ ctrlKey: true }), true), true);
+	});
+
+	it("other keys never send", () => {
+		assert.equal(enterSends(key({ key: "a" }), false), false);
+		assert.equal(enterSends(key({ key: "a", ctrlKey: true }), true), false);
+	});
+
+	it("isCoarsePointer reads matchMedia at call time and degrades to fine", () => {
+		const g = globalThis as { window?: unknown };
+		const prev = g.window;
+		try {
+			g.window = undefined;
+			assert.equal(isCoarsePointer(), false, "no window (SSR)");
+			g.window = {};
+			assert.equal(isCoarsePointer(), false, "no matchMedia");
+			g.window = { matchMedia: (q: string) => ({ matches: q === "(pointer: coarse)" }) };
+			assert.equal(isCoarsePointer(), true);
+			g.window = { matchMedia: () => ({ matches: false }) };
+			assert.equal(isCoarsePointer(), false);
+			g.window = { matchMedia: () => { throw new Error("boom"); } };
+			assert.equal(isCoarsePointer(), false, "a throwing host never breaks typing");
+		} finally {
+			g.window = prev;
+		}
 	});
 });

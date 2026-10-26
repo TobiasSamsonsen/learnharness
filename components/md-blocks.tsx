@@ -81,7 +81,8 @@ async function copyText(text: string): Promise<boolean> {
  *  is also a `group`, and an unnamed group-hover would light EVERY corner in
  *  the message at once, the all-at-once the owner saw) and positions this
  *  via className; the icon self-hides until hover (opacity-0 →
- *  group-hover/md:opacity-100). Copies getText() on click; the icon flips
+ *  group-hover/md:opacity-100) — except where nothing can hover (touch,
+ *  M5): `(hover:none)` keeps it visible. Copies getText() on click; the icon flips
  *  to a check for a beat — enough feedback on its own (a "Copied" pill was
  *  tried and removed by owner ask, 2026-09-19). */
 export function CopyCorner({
@@ -102,7 +103,7 @@ export function CopyCorner({
 				type="button"
 				aria-label={label}
 				data-testid="md-copy"
-				className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/md:opacity-100"
+				className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity [@media(hover:none)]:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/md:opacity-100"
 				onClick={(e) => {
 					blurAfterPointerClick(e);
 					void copyText(getText()).then((ok) => {
@@ -212,7 +213,7 @@ function MermaidInline({ chart }: { chart: string }) {
 						type="button"
 						aria-label="Expand diagram"
 						data-testid="md-mermaid-expand"
-												className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/md:opacity-100"
+												className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity [@media(hover:none)]:opacity-100 hover:bg-accent hover:text-foreground group-hover/md:opacity-100"
 						onClick={(e) => {
 							blurAfterPointerClick(e);
 							overlay.openMermaid(chart);

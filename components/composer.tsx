@@ -4,6 +4,7 @@ import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/ui/hint";
 import { ComposerEdge } from "@/components/composer-edge";
+import { enterSends } from "@/components/enter-submits";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -139,7 +140,7 @@ export function Composer({
 					// Chat convention: Enter sends, Shift+Enter is a newline.
 					// ⌘/Ctrl+Enter also sends — the universal submit shortcut
 					// across every input in the app (thinking field, answers).
-					if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) {
+					if (enterSends(e)) {
 						e.preventDefault();
 						act();
 					}

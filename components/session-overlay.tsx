@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/components/pan-zoom";
+import { usePanZoomGestures } from "@/components/use-pan-zoom-gestures";
 import { renderMermaid } from "@/components/mermaid-render";
 import { MermaidError } from "@/components/mermaid-error";
 import { Hint } from "@/components/ui/hint";
@@ -142,8 +143,6 @@ export function MermaidOverlay({
 	const userAdjustedRef = useRef(false);
 	const atFloor = view.zoom <= fitZoom + 1e-9;
 	const [settled, setSettled] = useState(false);
-	const [panning, setPanning] = useState(false);
-
 	useEffect(() => {
 		if (atFloor) userAdjustedRef.current = false;
 	}, [atFloor]);
@@ -171,33 +170,16 @@ export function MermaidOverlay({
 		return () => el.removeEventListener("wheel", onWheel);
 	}, [fitZoom, box, size]);
 
-	const dragRef = useRef<{ px: number; py: number; x: number; y: number; moved: boolean } | null>(null);
-	const startDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-		if (e.button !== 0) return;
-		if ((e.target as HTMLElement).closest("button")) return;
-		if (atFloor) return;
-		dragRef.current = { px: e.clientX, py: e.clientY, x: view.x, y: view.y, moved: false };
-		setPanning(true);
-		e.currentTarget.classList.add("cursor-grabbing");
-		e.currentTarget.setPointerCapture(e.pointerId);
-	};
-	const moveDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-		const d = dragRef.current;
-		if (!d) return;
-		d.moved = true;
-		setView((v) =>
-			v.zoom <= fitZoom + 1e-9 ? v : { ...v, x: d.x + (e.clientX - d.px), y: d.y + (e.clientY - d.py) },
-		);
-	};
-	const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-		const d = dragRef.current;
-		if (d) {
-			dragRef.current = null;
-			if (d.moved) userAdjustedRef.current = true;
-		}
-		setPanning(false);
-		e.currentTarget.classList.remove("cursor-grabbing");
-	};
+	// Mouse drags; touch pans with one finger and pinches with two.
+	const { panning, handlers } = usePanZoomGestures({
+		viewportRef,
+		view,
+		setView,
+		surface: { floor: fitZoom, box, viewport: size },
+		onAdjusted: () => {
+			userAdjustedRef.current = true;
+		},
+	});
 	const stepZoom = (factor: number) => {
 		userAdjustedRef.current = true;
 		setView((v) => zoomedGraphView(v, factor, fitZoom, { x: size.w / 2, y: size.h / 2 }, box, size));
@@ -239,12 +221,9 @@ export function MermaidOverlay({
 				ref={viewportRef}
 				className={cn(
 					"relative min-h-0 flex-1 touch-none overflow-hidden rounded-xl border select-none",
-					atFloor ? "cursor-default" : "cursor-grab",
+					atFloor ? "cursor-default" : panning ? "cursor-grabbing" : "cursor-grab",
 				)}
-				onPointerDown={startDrag}
-				onPointerMove={moveDrag}
-				onPointerUp={endDrag}
-				onPointerCancel={endDrag}
+				{...handlers}
 			>
 				{error ? (
 					<div className="flex h-full items-center justify-center p-4">
@@ -287,7 +266,10 @@ export function MermaidOverlay({
 							/>
 						</div>
 						<div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-2">
-							<span className="text-xs text-muted-foreground/60">Drag to pan · scroll to zoom</span>
+							<span className="text-xs text-muted-foreground/60">
+									<span className="[@media(hover:none)]:hidden">Drag to pan · scroll to zoom</span>
+									<span className="hidden [@media(hover:none)]:inline">Drag to pan · pinch to zoom</span>
+								</span>
 							<div className="flex gap-1">
 								<Hint label="Zoom out" side="bottom">
 <button

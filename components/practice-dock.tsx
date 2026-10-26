@@ -5,7 +5,7 @@ import { ChevronRightIcon, PenLineIcon, XIcon } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
-import { useEnterSubmits } from "@/components/enter-submits";
+import { enterSends, useEnterSubmits } from "@/components/enter-submits";
 import { pagePayload, sendPage, useInk } from "@/components/sketch/ink-memory";
 import { useKeptPage } from "@/components/sketch/kept-page";
 import { SketchView } from "@/components/sketch/sketch-view";
@@ -205,7 +205,7 @@ export function PracticeDock({
 						}
 						// Enter SENDS — the single lane (owner round 2, 2026-10-05);
 						// Shift+Enter is the newline, ⌘/Ctrl+Enter the chord too.
-						if (e.key === "Enter" && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
+						if (enterSends(e)) {
 							e.preventDefault();
 							submit();
 						}
@@ -243,7 +243,7 @@ export function PracticeDock({
 				    field 10 − p-1 (4) = button 6. */}
 				<div className="flex items-center justify-between gap-2 p-1">
 					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
-						{compactionRunning ? "compacting session…" : (sketchError ?? "↵ submits · ⇧↵ newline")}
+						{compactionRunning ? "compacting session…" : (sketchError ?? <span className="[@media(pointer:coarse)]:hidden">↵ submits · ⇧↵ newline</span>)}
 					</span>
 					{sketchAvailable && (
 						<Button

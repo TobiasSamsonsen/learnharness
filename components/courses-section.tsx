@@ -28,6 +28,7 @@ export function CourseRow({ course, active, onOpen }: { course: CourseSummary; a
 		<button
 			type="button"
 			onClick={onOpen}
+			data-drawer-close
 			data-testid="course-row"
 			className={cn(
 				"relative mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left transition-colors hover:bg-accent",
