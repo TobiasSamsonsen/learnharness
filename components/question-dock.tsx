@@ -970,7 +970,7 @@ function QuestionDockForm({
 			{sketching && sketchAvailable && (
 				<SketchView
 					label="Question"
-					statement={qd.context ? `${qd.context}\n\n${qd.question}` : qd.question}
+					statement={qd.context ? `${qd.question}\n\n${qd.context}` : qd.question}
 					inkKey={toolCallId}
 					onSubmit={submitSketch}
 					onClose={() => setSketching(false)}
