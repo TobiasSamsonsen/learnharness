@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MaximizeIcon } from "lucide-react";
 import { useIsCodeFenceIncomplete } from "streamdown";
-import { computePlot, FigureError, parseBlocks, parseCircuit, parsePlot, type FigureLang } from "@/src/core";
+import { computePlot, computeTiming, FigureError, parseBlocks, parseCircuit, parseLogic, parsePlot, parseTiming, type DiagramScope, type FigureLang } from "@/src/core";
 import { MermaidError } from "@/components/mermaid-error";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { chartSize, useSessionMermaid } from "@/components/session-overlay";
@@ -11,16 +11,25 @@ import { Hint } from "@/components/ui/hint";
 import { renderBlocksSvg } from "@/components/figures/blocks-svg";
 import { renderPlotSvg } from "@/components/figures/plot-svg";
 import { renderCircuitSvg } from "@/components/figures/circuit-svg";
+import { renderLogicSvg } from "@/components/figures/logic-svg";
+import { renderTimingSvg } from "@/components/figures/timing-svg";
 import { withInk } from "@/components/figures/figure-label";
 import { useFigureScope } from "@/components/figures/figure-scope";
 
 /**
- * A ```blocks / ```plot / ```circuit figure in the message flow (figures phase 1,
+ * A ```blocks / ```plot / ```circuit / ```logic / ```timing figure in the message flow (figures phase 1,
  * owner 2026-10-26) — the MermaidInline pattern: a quiet skeleton while
  * the fence streams, the house error card when it does not parse, the
  * hover corner with copy + full-screen. The figure is drawn at the
  * session's text size, so its labels match the prose around it.
  */
+/** A timing figure, its linked logic diagram simulated. */
+function timingOf(source: string, scope: DiagramScope) {
+	const t = parseTiming(source);
+	const ref = t.logic ? scope.get(t.logic) : undefined;
+	return computeTiming(t, ref?.lang === "logic" ? ref.source : undefined);
+}
+
 export function FigureInline({ lang, source, copy }: { lang: FigureLang; source: string; copy: React.ReactNode }) {
 	const incomplete = useIsCodeFenceIncomplete();
 	const scope = useFigureScope();
@@ -45,7 +54,11 @@ export function FigureInline({ lang, source, copy }: { lang: FigureLang; source:
 						? await renderBlocksSvg(parseBlocks(source), fontPx)
 						: lang === "circuit"
 							? renderCircuitSvg(parseCircuit(source), fontPx)
-							: renderPlotSvg(computePlot(parsePlot(source), scope), fontPx);
+							: lang === "logic"
+								? await renderLogicSvg(parseLogic(source), fontPx)
+								: lang === "timing"
+									? renderTimingSvg(timingOf(source, scope), fontPx)
+									: renderPlotSvg(computePlot(parsePlot(source), scope), fontPx);
 				if (!cancelled) setSvg(out);
 			} catch (err) {
 				if (!cancelled) setError(err instanceof FigureError ? `line ${err.line}: ${err.message}` : err instanceof Error ? err.message : String(err));

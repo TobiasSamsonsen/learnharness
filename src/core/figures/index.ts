@@ -10,4 +10,5 @@ export * from "./blocks.ts";
 export * from "./metrics.ts";
 export * from "./plot.ts";
 export * from "./circuit.ts";
+export * from "./logic.ts";
 export * from "./figure-check.ts";

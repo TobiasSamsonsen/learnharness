@@ -18,10 +18,11 @@ import { notSimulatable, parseBlocks, parseExcitation, simulate, type BlockDiagr
 import { computePlot, parsePlot, type DiagramScope } from "./plot.ts";
 import { FigureError } from "./lines.ts";
 import { circuitFacts, circuitQuantity, parseCircuit } from "./circuit.ts";
+import { computeTiming, logicFacts, logicQuantity, parseLogic, parseTiming } from "./logic.ts";
 import { METRICS, metric, valueAt, type Metric, type Series } from "./metrics.ts";
 
-export type FigureLang = "plot" | "blocks" | "circuit";
-export const FIGURE_LANGS: readonly FigureLang[] = ["plot", "blocks", "circuit"];
+export type FigureLang = "plot" | "blocks" | "circuit" | "logic" | "timing";
+export const FIGURE_LANGS: readonly FigureLang[] = ["plot", "blocks", "circuit", "logic", "timing"];
 
 export interface FigureFence {
 	lang: FigureLang;
@@ -34,7 +35,7 @@ export function figureFences(text: string): FigureFence[] {
 	const out: FigureFence[] = [];
 	// a fence opens and closes at the start of a line (markdown's rule) — a
 	// ```plot mentioned inside prose is not a figure
-	for (const m of text.matchAll(/(?:^|\n)[ \t]*```(plot|blocks|circuit)([^\n`]*)\r?\n([\s\S]*?)\r?\n[ \t]*```/g)) {
+	for (const m of text.matchAll(/(?:^|\n)[ \t]*```(plot|blocks|circuit|logic|timing)([^\n`]*)\r?\n([\s\S]*?)\r?\n[ \t]*```/g)) {
 		const id = /\bid\s*=\s*([A-Za-z0-9_-]+)/.exec(m[2]!)?.[1];
 		out.push({ lang: m[1] as FigureLang, source: m[3]!, ...(id ? { id } : {}) });
 	}
@@ -46,11 +47,20 @@ export function fenceId(meta: string): string | undefined {
 	return /\bid\s*=\s*([A-Za-z0-9_-]+)/.exec(meta)?.[1];
 }
 
-/** The figures a plot may reference (diagrams, circuits), by id. */
+/** The figures another figure may reference by id: diagrams and circuits
+ *  (plots), logic diagrams (timing). */
 export function diagramScope(texts: readonly string[]): Map<string, { lang: FigureLang; source: string }> {
 	const scope = new Map<string, { lang: FigureLang; source: string }>();
-	for (const f of texts.flatMap(figureFences)) if (f.lang !== "plot" && f.id) scope.set(f.id, { lang: f.lang, source: f.source });
+	for (const f of texts.flatMap(figureFences)) if ((f.lang === "blocks" || f.lang === "circuit" || f.lang === "logic") && f.id) scope.set(f.id, { lang: f.lang, source: f.source });
 	return scope;
+}
+
+/** The logic source a timing figure links to, from a scope. */
+export function logicOf(scope: DiagramScope): (id: string) => string | undefined {
+	return (id) => {
+		const ref = scope.get(id);
+		return ref?.lang === "logic" ? ref.source : undefined;
+	};
 }
 
 const where = (f: FigureFence, i: number) => `Figure ${i + 1} (\`\`\`${f.lang}${f.id ? ` id=${f.id}` : ""})`;
@@ -59,7 +69,11 @@ const where = (f: FigureFence, i: number) => `Figure ${i + 1} (\`\`\`${f.lang}${
 export function checkFigure(f: FigureFence, scope: DiagramScope): void {
 	if (f.lang === "blocks") parseBlocks(f.source);
 	else if (f.lang === "circuit") parseCircuit(f.source);
-	else computePlot(parsePlot(f.source), scope);
+	else if (f.lang === "logic") parseLogic(f.source);
+	else if (f.lang === "timing") {
+		const t = parseTiming(f.source);
+		if (t.logic) computeTiming(t, logicOf(scope)(t.logic));
+	} else computePlot(parsePlot(f.source), scope);
 }
 
 /** Author-facing problems with the figures of a question's fields
@@ -152,6 +166,7 @@ export function figureQuantity(texts: readonly string[], check: FigureCheck): nu
 	const q = check.quantity.trim();
 	// a circuit answers circuit quantities (V(b), I(R1), R(a,b), tau(V(c)), …)
 	const fig = texts.flatMap(figureFences).find((f) => f.id === check.figure);
+	if (fig?.lang === "logic" || fig?.lang === "timing") return logicQuantity(fig.lang, fig.source, q, logicOf(diagramScope(texts)));
 	if (fig?.lang === "circuit") {
 		try {
 			return circuitQuantity(parseCircuit(fig.source), q);
@@ -259,6 +274,8 @@ export function figureFacts(fields: readonly string[]): string[] {
 		try {
 			if (f.lang === "circuit") {
 				for (const fact of circuitFacts(parseCircuit(f.source))) facts.push(`${where(f, i)} ${fact}.`);
+			} else if (f.lang === "logic" || f.lang === "timing") {
+				for (const fact of logicFacts(f.lang, f.source, logicOf(scope))) facts.push(`${where(f, i)} ${fact}.`);
 			} else if (f.lang === "blocks") {
 				const d = parseBlocks(f.source);
 				if (notSimulatable(d)) return;

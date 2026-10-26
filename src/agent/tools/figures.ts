@@ -141,17 +141,83 @@ ${FENCE}
 
 Solving: \`circuit_solve\` computes quantities while you author; \`figureCheck\` checks a key: V(b), V(a,b), I(R1), P(R1), R(a,b) (sources zeroed — Thévenin), V(c, t=1m), I(C1, t=2m), tau(V(c)), steady(…), rise(…), settling(…). Currents run first node → second THROUGH the element (a source delivering power has a negative current). DC values use the switches' t ≥ 0 state; transients start from the t < 0 steady state. Give a transient at least ~7τ of sim time.`;
 
-export const FIGURE_GUIDES: Record<"blocks" | "plot" | "circuit", string> = { blocks: BLOCKS_GUIDE, plot: PLOT_GUIDE, circuit: CIRCUIT_GUIDE };
+const LOGIC_GUIDE = `# ${FENCE}logic — gates and flip-flops (simulatable)
+
+Signal flow, like block diagrams: each line names its output, then its inputs. Gates are drawn with the distinctive (ANSI) shapes. A trailing "…" labels an input.
+
+| Line | Meaning |
+|---|---|
+| \`input a, b, clk\` | External signals. |
+| \`and y = a, b\` | and, or, nand, nor, xor, xnor take two or more inputs; \`not y = a\`, \`buf y = a\` one. |
+| \`dff q = d @ clk\` | D flip-flop on the rising edge of clk (clk must be an input). \`dff q, q_n = d @ clk\` adds the inverted output. Option \`; init 1\` (default 0). |
+| \`dlatch q = d @ en\` | D latch: follows d while en = 1, holds otherwise. |
+| \`sr q = s, r\` | SR latch: s sets, r resets, both 1 is undefined (x). |
+| \`output y\` | A signal leaving the diagram (at least one). |
+
+Gates may feed back (an SR latch from two cross-coupled NOR gates simulates correctly). A combinational diagram answers \`figureCheck: {figure: "ha", quantity: "c(a=1, b=1)"}\` and its truth table is computed for the answer check; a stateful one is asked about with a ${FENCE}timing figure.
+
+Example — a half adder:
+
+${FENCE}logic id=ha
+input a, b
+xor s = a, b
+and c = a, b
+output s, c
+${FENCE}
+
+Example — an SR latch from NOR gates:
+
+${FENCE}logic id=sr
+input s, r
+nor q = r, q_n
+nor q_n = s, q
+output q
+${FENCE}`;
+
+const TIMING_GUIDE = `# ${FENCE}timing — timing diagrams (WaveJSON)
+
+WaveDrom's WaveJSON: \`{"signal": [{"name": "clk", "wave": "p......"}, …]}\` — one character per time slot. Waves: \`0\` \`1\` low/high, \`x\` unknown, \`z\` high impedance, \`p\`/\`n\` a clock (rising/falling edge at each slot's start; \`P\`/\`N\` with an arrow), \`=\` or \`2\`–\`9\` a data value labelled from \`"data": ["A", "B"]\`, \`.\` continues the previous slot, \`|\` marks a gap. \`{}\` is an empty row; \`"head": {"tick": 0}\` numbers the slots.
+
+**Linked to a logic diagram** — \`"logic": "<id>"\` simulates the ${FENCE}logic id=… in the same question/message: signals WITH a wave drive its inputs (every input needs one), signals WITHOUT a wave are computed from it (drawn in the accent colour). A dff takes its data from the slot BEFORE a rising clock edge. Add \`"hide": true\` to a computed signal to draw it as a blank row to fill in — it is still computed for the check, so the question can ask for it and the explanation can show the same figure without hide.
+
+Example — a D flip-flop, Q to be found:
+
+${FENCE}logic id=ff
+input d, clk
+dff q = d @ clk
+output q
+${FENCE}
+
+${FENCE}timing id=t1
+{"logic": "ff", "head": {"tick": 0}, "signal": [
+  {"name": "clk", "wave": "p......."},
+  {"name": "d", "wave": "01100100"},
+  {"name": "q", "hide": true}
+]}
+${FENCE}
+
+A key read off the timing: \`figureCheck: {figure: "t1", quantity: "q[3]"}\` — signal q in slot 3 (slots count from 0).`;
+
+export const FIGURE_GUIDES: Record<"blocks" | "plot" | "circuit" | "logic" | "timing", string> = {
+	blocks: BLOCKS_GUIDE,
+	plot: PLOT_GUIDE,
+	circuit: CIRCUIT_GUIDE,
+	logic: LOGIC_GUIDE,
+	timing: TIMING_GUIDE,
+};
 
 const figureGuideInput = Type.Object({
-	family: Type.Union([Type.Literal("blocks"), Type.Literal("plot"), Type.Literal("circuit")], { description: "Which figure family's syntax to return." }),
+	family: Type.Union([Type.Literal("blocks"), Type.Literal("plot"), Type.Literal("circuit"), Type.Literal("logic"), Type.Literal("timing")], {
+		description: "Which figure family's syntax to return.",
+	}),
 });
 
 export const figureGuideTool: AgentTool<typeof figureGuideInput> = {
 	name: "figure_guide",
 	label: "figure_guide",
 	description:
-		"Returns the full syntax, rules and examples of one figure family (```blocks block diagrams, ```plot graphs, ```circuit schematics). " +
+		"Returns the full syntax, rules and examples of one figure family (```blocks block diagrams, ```plot graphs, ```circuit schematics, " +
+		"```logic gates and flip-flops, ```timing timing diagrams). " +
 		"Call it before writing your first figure of a family in this session.",
 	parameters: figureGuideInput,
 	execute: async (_toolCallId, input) => ({
