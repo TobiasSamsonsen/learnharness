@@ -3,17 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Redo2Icon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
-import { MessageResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
 import { isDictationActive } from "@/components/dictation";
+import { FloatingProblem } from "@/components/sketch/floating-problem";
 import { SketchCanvas } from "@/components/sketch/sketch-canvas";
 import { clearInk, readInk, writeInk, type InkState } from "@/components/sketch/ink-memory";
-import { newSketchId, parseSketchPayload, repairMathForDisplay, SketchPayloadError, type SketchPayload } from "@/src/core";
+import { newSketchId, parseSketchPayload, SketchPayloadError, type SketchPayload } from "@/src/core";
 
 /**
  * The sketch view (Android plan M1): a full-screen plain canvas opened
  * from the practice dock or a text-mode question. The question or problem
- * sits in a box at the top; the learner submits from here, and the dock's
+ * floats in a draggable, collapsible box above the page (floating-problem
+ * .tsx); the learner submits from here, and the dock's
  * own text (typed or dictated — the dock keeps its dictation claim) rides
  * along with the sketch.
  *
@@ -127,21 +128,16 @@ export function SketchView({ label, statement, inkKey, onSubmit, onClose, onCanc
 			aria-label="Sketch"
 			className="lh-no-drag fixed inset-0 z-50 flex flex-col bg-background"
 		>
-			<div className="flex items-start gap-2 border-b px-4 py-3">
-				<div className="max-h-[30vh] min-w-0 flex-1 overflow-y-auto">
-					<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-					<div className="lh-prose text-[15px]">
-						<MessageResponse>{repairMathForDisplay(statement)}</MessageResponse>
-					</div>
-				</div>
+			{/* The whole page is canvas; the problem floats above it (owner,
+			    2026-10-26) — draggable, collapsible to a pill. */}
+			<div className="relative min-h-0 flex-1 bg-white">
+				<SketchCanvas strokes={ink.strokes} onStroke={(s) => setInk({ strokes: [...inkRef.current.strokes, s], redo: [] })} />
+				<FloatingProblem label={label} statement={statement} />
+			</div>
+			<div className="flex items-center gap-1 border-t px-3 py-2">
 				<Button type="button" variant="ghost" size="icon" data-testid="sketch-close" aria-label="Close sketch" onClick={onClose}>
 					<XIcon className="size-4" />
 				</Button>
-			</div>
-			<div className="min-h-0 flex-1 bg-white">
-				<SketchCanvas strokes={ink.strokes} onStroke={(s) => setInk({ strokes: [...inkRef.current.strokes, s], redo: [] })} />
-			</div>
-			<div className="flex items-center gap-1 border-t px-3 py-2">
 				<Button type="button" variant="ghost" size="icon" data-testid="sketch-undo" aria-label="Undo" disabled={empty} onClick={undo}>
 					<Undo2Icon className="size-4" />
 				</Button>
