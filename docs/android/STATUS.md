@@ -17,6 +17,7 @@ Plan: [plan.md](plan.md). Branch `feat/sketch-answers` holds M1 work in progress
 - Server: `src/server/sketches.ts` (exported), `chat-handler.ts` (pages stored before the hold-back save and the write-ahead; a store failure is a 500 and the record is untouched), `teacher-agent.ts` (`sketchImages` → `convertToLlm`), route `GET /api/chats/[id]/sketches/[sketchId]/[page]?format=svg|png`.
 - UI: `components/sketch/*` (view, canvas, ink memory, thumbnail), "Open in sketch" in the practice dock and text-mode question dock (shown only when the session model's catalog entry has image input), thumbnails in `ThinkingCard`/`AnsweredCard`, plumbing through `session-core.ts`/`session.ts`/`chat.tsx`/`stats-bar.tsx`.
 - Tests: `tests/sketch-contract.test.ts`; additions in `practice-flow`, `session-core`, `render-practice-surface`, `claude-code-live` (the fake CLI now logs block types: an answer's page rides the held MCP reply and a submission's page the learner message, on the same process). `npm run typecheck`, `npm run lint` clean; `npm test` 2329/2339, the 10 failures are the known Windows ones.
-- **Left:** (1) the live check that the real `claude` CLI passes MCP image results through (needs the owner's go-ahead: it uses subscription quota); (2) a manual pen/mouse run in the app.
+- **Live check passed (2026-10-26):** the real `claude` CLI (2.1.310, `claude-haiku-5-5`) passes an MCP image result through. A held tool call answered with a resvg-rendered sketch page (a drawn triangle) got the reply "A triangle." (~1.9k tokens).
+- **Left:** a manual pen/mouse run in the app.
 
 ### Not started (free to pick up): M0 (phone spike), M4, M5, M6. M2/M3 depend on M1.
