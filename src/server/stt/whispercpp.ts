@@ -167,6 +167,8 @@ function startServer(language: LessonLanguage): Promise<string> {
 		const shell = process.platform === "win32" && /\.(cmd|bat)$/i.test(bin);
 		const proc = spawn(shell ? `"${bin}"` : bin, shell ? args.map((a) => `"${a}"`) : args, {
 			shell,
+			// the server's access token (Android plan M6) is not the engine's business
+			env: { ...process.env, LH_ACCESS_TOKEN: undefined },
 			stdio: ["ignore", "pipe", "pipe"],
 			windowsHide: true,
 		});

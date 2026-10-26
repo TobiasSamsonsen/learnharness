@@ -82,7 +82,7 @@ function startWorker(s: LocalSttState): ChildProcess {
 	// process.execPath is Electron (node mode) in the packaged app: the
 	// server already runs with ELECTRON_RUN_AS_NODE=1 and passes it on.
 	const worker = spawn(process.execPath, [WORKER], {
-		env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", LH_STT_CACHE_DIR: CACHE_DIR },
+		env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", LH_STT_CACHE_DIR: CACHE_DIR, LH_ACCESS_TOKEN: undefined },
 		serialization: "advanced",
 		stdio: ["ignore", "inherit", "inherit", "ipc"],
 	});

@@ -26,8 +26,10 @@ describe("browser-service helper (pure halves)", () => {
 		const env = browserServiceSpawnEnv({
 			ELECTRON_RUN_AS_NODE: "1",
 			LH_DEV_URL: "http://localhost:3000",
+			LH_ACCESS_TOKEN: "t".repeat(40),
 			PATH: "/usr/bin",
 		});
+		assert.equal("LH_ACCESS_TOKEN" in env, false, "the helper is not an access-token holder");
 		assert.equal("ELECTRON_RUN_AS_NODE" in env, false);
 		assert.equal("LH_DEV_URL" in env, false);
 		assert.equal(env.PATH, "/usr/bin");

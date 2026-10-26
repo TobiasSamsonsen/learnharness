@@ -140,6 +140,8 @@ export function browserServiceSpawnEnv(
 	// The artifact renderer is not an authorized app API client.
 	delete out.LH_DESKTOP_API_SECRET;
 	delete out.LH_DESKTOP_SERVER;
+	// nor a holder of the headless server's access token (Android plan M6)
+	delete out.LH_ACCESS_TOKEN;
 	return out;
 }
 
