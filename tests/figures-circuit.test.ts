@@ -96,7 +96,7 @@ describe("solving", () => {
 
 	it("time values need sim; diodes draw but do not solve", () => {
 		assert.match(String(circuitQuantity(c, "V(b, t=1m)")), /add a "sim 0\.\.<end>"/);
-		assert.match(String(circuitQuantity(parseCircuit("V1 a 0 5V; down\nD1 a b; right\nR1 b 0 1k; down"), "V(b)")), /diode — circuits with diodes are drawn, not solved/);
+		assert.match(String(circuitQuantity(parseCircuit("V1 a 0 5V; down\nD1 a b; right\nR1 b 0 1k; down"), "V(b)")), /diode — circuits with diodes or transistors are drawn, not solved/);
 		assert.match(String(circuitQuantity(c, "Z(b)")), /is not a circuit quantity/);
 	});
 });
@@ -150,5 +150,43 @@ describe("circuit_solve", async () => {
 	it("reports a netlist error with its line, and an unknown quantity by name", async () => {
 		assert.match(await run("V1 a 0 5V; down\nR1 a b; right", ["V(b)"]), /^line 2: R1 needs one value/);
 		assert.match(await run(divider, ["Z(b)"]), /^Z\(b\): "Z\(b\)" is not a circuit quantity/);
+	});
+});
+
+describe("op-amps and transistors (drawn; ideal op-amps solved)", () => {
+	it("an inverting amplifier: gain −R2/R1 through the virtual short", () => {
+		const inv = parseCircuit("V1 a 0 0.5V; down\nR1 a n 1k; right\nE1 o 0 opamp p n; right\nW p 0; down\nR2 n f 10k; up\nW f g; right\nW g o; down 1.25");
+		near(circuitQuantity(inv, "V(o)"), -5, 1e-6);
+		near(circuitQuantity(inv, "V(n)"), 0, 1e-6);
+	});
+
+	it("a non-inverting amplifier: gain 1 + R2/R1", () => {
+		const non = parseCircuit("V1 x 0 1V; down\nW x p; right\nE1 o 0 opamp p n; right\nR1 n 0 1k; left\nR2 n f 3k; up\nW f g; right\nW g o; down 1.25");
+		near(circuitQuantity(non, "V(o)"), 4, 1e-6);
+	});
+
+	it("op-amp terminals: − above + on the input side, the output one unit along", () => {
+		const { nodes } = layoutCircuit(parseCircuit("V1 a 0 1V; down\nR1 a n 1k; right\nE1 o 0 opamp p n; right\nW p 0; down"));
+		const n = nodes.get("n")!;
+		assert.deepEqual(nodes.get("p"), { x: n.x, y: n.y + 0.5 });
+		assert.deepEqual(nodes.get("o"), { x: n.x + 1, y: n.y + 0.25 });
+	});
+
+	it("a transistor's base sits beside its collector–emitter axis; it is drawn, not solved", () => {
+		const ce = parseCircuit("V1 vcc 0 12V; down\nR1 vcc c 2k; right\nQ1 c b e npn; down\nR2 e 0 1k; down\nW b x; left");
+		const { nodes } = layoutCircuit(ce);
+		const c = nodes.get("c")!;
+		assert.deepEqual(nodes.get("e"), { x: c.x, y: c.y + 1 });
+		assert.deepEqual(nodes.get("b"), { x: c.x - 0.5, y: c.y + 0.5 });
+		assert.match(String(circuitQuantity(ce, "V(c)")), /Q1 is a transistor — circuits with diodes or transistors are drawn, not solved/);
+		const { nodes: m } = layoutCircuit(parseCircuit("V1 vdd 0 5V; down\nR1 vdd d 1k; right\nM1 d g s nmos; down, mirror\nW s 0; down"));
+		assert.deepEqual(m.get("g"), { x: m.get("d")!.x + 0.5, y: m.get("d")!.y + 0.5 });
+	});
+
+	it("malformed transistor and op-amp lines name the template", () => {
+		assert.throws(() => parseCircuit("Q1 c b e; down"), /Q1 needs collector, base, emitter and its type/);
+		assert.throws(() => parseCircuit("Q1 c b e nmos; down"), /Q1's type is npn or pnp/);
+		assert.throws(() => parseCircuit("M1 d g s npn; down"), /M1's type is nmos or pmos/);
+		assert.throws(() => parseCircuit("E1 o 0 opamp p; right"), /an op-amp is "E1 out 0 opamp in\+ in-; right"/);
 	});
 });

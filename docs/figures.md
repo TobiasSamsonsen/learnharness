@@ -39,6 +39,6 @@ Fork feature, owner design round 2026-10-26. Questions and lessons could show on
 
 - In integrator-chain diagrams, feedback gains are placed to the right of the forward path rather than underneath it (ELK cannot flip a block's direction).
 - Tick labels use a decimal point.
-- Circuits: diodes are drawn, not solved; transistors and op-amps are not drawn yet. Node 0 is ground and gets a symbol at every connection; every other node must land on one grid point (loops have to close).
+- Circuits: diodes, BJTs (npn/pnp) and MOSFETs (nmos/pmos, enhancement, body tied to source) are drawn, not solved; op-amps are drawn and solved as ideal (V+ = V−). Netlist forms follow SPICE (Q c b e, M d g s) and lcapy (E out ref opamp in+ in−); symbols follow IEC 60617, the op-amp as the textbook triangle. Node 0 is ground and gets a symbol at every connection; every other node must land on one grid point (loops have to close).
 - Logic: a dff's clock must be a diagram input (no ripple counters yet); it samples its data from the slot before a rising edge. Timing works in whole slots.
 - Transients use backward Euler with 4000 steps (≈0.1 % error at τ for a 10τ window).

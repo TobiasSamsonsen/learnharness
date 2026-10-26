@@ -97,7 +97,7 @@ Example — diagrams as answer options: put the diagram in the stem (id=loop1) a
 
 In a quiz, \`figureCheck: {figure: "<plot id>", quantity: "tau(y2)"}\` verifies a number read off a named curve (give the plot fence an id: ${FENCE}plot id=p1).`;
 
-const CIRCUIT_GUIDE = `# ${FENCE}circuit — schematics (European symbols; solvable)
+const CIRCUIT_GUIDE = `# ${FENCE}circuit — schematics (IEC symbols; solvable without diodes and transistors)
 
 A netlist: one element per line, \`<name> <node> <node> [value]; <direction> [length], [options]\`. The element is drawn FROM its first node TO its second in the given direction (right, left, up, down; length in grid units, default 1). Node \`0\` is ground: every connection to it gets its own ground symbol, so a loop never has to close through ground — all other nodes must land consistently (a loop that does not close is refused with its line). A trailing "…" is the element's label (LaTeX allowed), drawn instead of its name and value.
 
@@ -113,8 +113,13 @@ A netlist: one element per line, \`<name> <node> <node> [value]; <direction> [le
 | Wire | \`W a b; up\` | Name optional (\`W\`), no value. |
 | Terminal pair | \`P1 a b; down\` | Open terminals (klemmer) between a and b, e.g. for Thévenin. |
 | VCVS / VCCS | \`E1 o 0 a 0 20; down\` / \`G1 o 0 a 0 2m; down\` | Output nodes, then the controlling pair, then the gain: V(o) = 20·V(a, 0), or a current 2 mS·V(a, 0). |
+| Op-amp (ideal) | \`E1 o 0 opamp p n; right\` | lcapy's form: output, reference (0, not drawn), \`opamp\`, + input, − input. The direction runs from the inputs to the output. Solved as ideal (V+ = V−, no input current). |
+| BJT | \`Q1 c b e npn; down\` | SPICE order: collector, base, emitter, then npn or pnp. The direction runs collector → emitter. Drawn, not solved. |
+| MOSFET | \`M1 d g s nmos; down\` | SPICE order: drain, gate, source, then nmos or pmos (enhancement; body tied to the source). The direction runs drain → source. Drawn, not solved. |
 
-Options after the direction: \`v=U_R\` (a voltage label across it, + at the first node), \`i=I_1\` (a current arrow, first → second node). Extra lines: \`nodes a, b\` labels those nodes in the drawing; \`sim 0..5m\` sets the transient time (seconds) for values in time.
+**Where the extra terminals land** (grid units; plan the wires to them): a transistor's base/gate sits 0.5 beside the MIDDLE of its collector–emitter (drain–source) axis — on the left of a vertical transistor, below a horizontal one (option \`mirror\`: the other side). An op-amp's inputs sit 0.25 on either side of its input side — − on top of a horizontal op-amp, on the left of a vertical one (\`mirror\` puts + there) — and the output is \`len\` (default 1) further along the direction, level with the middle: 0.25 below the − input. So feedback from the − input to the output of a rightward op-amp is \`R2 n f 10k; up\`, \`W f g; right\`, \`W g o; down 1.25\`.
+
+Options after the direction: \`v=U_R\` (a voltage label across it, + at the first node), \`i=I_1\` (a current arrow, first → second node), \`mirror\` (transistors, op-amps). Extra lines: \`nodes a, b\` labels those nodes in the drawing; \`sim 0..5m\` sets the transient time (seconds) for values in time.
 
 Give the fence an id when a plot or a figureCheck refers to it: ${FENCE}circuit id=c1
 
@@ -137,6 +142,30 @@ S1 a b closes; right
 R1 b c 1k; right
 C1 c 0 1u; down, v=v_C
 sim 0..10m
+${FENCE}
+
+Example — an inverting amplifier (gain −R2/R1):
+
+${FENCE}circuit id=inv
+V1 a 0 0.5V; down
+R1 a n 1k; right
+E1 o 0 opamp p n; right
+W p 0; down
+R2 n f 10k; up
+W f g; right
+W g o; down 1.25
+nodes o
+${FENCE}
+
+Example — a common-emitter stage (drawn only):
+
+${FENCE}circuit id=ce
+V1 vcc 0 12V; down 2
+R1 vcc c 2k; right 3
+Q1 c b e npn; down
+R2 e 0 1k; down
+W b x; left
+R3 x 0 10k; down 1.5
 ${FENCE}
 
 Solving: \`circuit_solve\` computes quantities while you author; \`figureCheck\` checks a key: V(b), V(a,b), I(R1), P(R1), R(a,b) (sources zeroed — Thévenin), V(c, t=1m), I(C1, t=2m), tau(V(c)), steady(…), rise(…), settling(…). Currents run first node → second THROUGH the element (a source delivering power has a negative current). DC values use the switches' t ≥ 0 state; transients start from the t < 0 steady state. Give a transient at least ~7τ of sim time.`;
