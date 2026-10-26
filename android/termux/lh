@@ -1,0 +1,512 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# lh — run learnharness on an Android phone or tablet, inside Termux.
+#
+#   lh install | login | start | stop | restart | status | update
+#      pair [--rotate] | logs [server|nb|en] [-f] | version | help
+#
+# The Next server, `claude`, Python and headless Chromium live in one proot
+# Ubuntu; whisper-server runs natively in Termux (docs/android/plan.md §4).
+# One file on purpose: `curl` it into $PREFIX/bin and run `lh install`.
+
+set -euo pipefail
+
+LH_VERSION="0.1.0"
+REPO="TobiasSamsonsen/learnharness"
+RAW_URL="https://raw.githubusercontent.com/${REPO}/main/android/termux/lh"
+RELEASE_URL="https://github.com/${REPO}/releases/download/android-latest"
+TARBALL="learnharness-server-linux-arm64.tar.zst"
+
+DISTRO="ubuntu"
+DISTRO_ID="ubuntu:24.04"
+NODE_VERSION="v26.12.1"
+PLAYWRIGHT_VERSION="1.64.1"
+WHISPER_REPO="https://github.com/ggml-org/whisper.cpp"
+WHISPER_REF="231638a0717b7822784297e5980965ffcec05810"
+
+# language | port | GGML url | size in bytes (the M4 models, docs/android/stt-bench.md)
+NB_PORT=8178
+EN_PORT=8179
+NB_MODEL_URL="https://huggingface.co/NbAiLab/nb-whisper-small/resolve/main/ggml-model-q5_0.bin"
+NB_MODEL_BYTES=175209680
+EN_MODEL_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin"
+EN_MODEL_BYTES=190098681
+
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+LH_DIR="${LH_HOME:-$HOME/.lh}"
+ROOTFS="$PREFIX/var/lib/proot-distro/containers/$DISTRO/rootfs"
+WHISPER_BIN="$LH_DIR/src/whisper.cpp/build/bin/whisper-server"
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'lh: %s\n' "$*" >&2; exit 1; }
+step() { printf '\n==> %s\n' "$*"; }
+
+guest() { proot-distro login "$DISTRO" -- "$@"; }
+guest_installed() { [ -d "$ROOTFS/etc" ]; }
+
+# ── config ──────────────────────────────────────────────────────────────────
+
+write_default_config() {
+	[ -f "$LH_DIR/config" ] && return 0
+	cat > "$LH_DIR/config" <<'EOF'
+# lh config — sourced by lh; run `lh restart` after editing.
+PORT=3000
+# whisper-server languages to run (each costs about 400 MB): nb, en, or "nb en"
+STT_LANGS="nb en"
+WHISPER_THREADS=4
+# live `claude` processes the app may keep (the phone's RAM budget)
+MAX_SESSIONS=2
+EOF
+}
+
+load_config() {
+	PORT=3000 STT_LANGS="nb en" WHISPER_THREADS=4 MAX_SESSIONS=2
+	# shellcheck disable=SC1091
+	[ -f "$LH_DIR/config" ] && . "$LH_DIR/config"
+	case "$PORT" in '' | *[!0-9]*) die "config: PORT must be a number" ;; esac
+	case "$WHISPER_THREADS" in '' | *[!0-9]*) die "config: WHISPER_THREADS must be a number" ;; esac
+	case "$MAX_SESSIONS" in '' | *[!0-9]*) die "config: MAX_SESSIONS must be a number" ;; esac
+	local l
+	for l in $STT_LANGS; do
+		case "$l" in nb | en) ;; *) die "config: STT_LANGS may only name nb and en (got '$l')" ;; esac
+	done
+}
+
+init_dirs() { mkdir -p "$LH_DIR"/{run,logs,models,src}; chmod 700 "$LH_DIR"; }
+
+# ── token ───────────────────────────────────────────────────────────────────
+
+new_token() { od -An -N24 -tx1 /dev/urandom | tr -d ' \n'; }
+
+ensure_token() {
+	init_dirs
+	if [ ! -s "$LH_DIR/token" ]; then
+		( umask 077; new_token > "$LH_DIR/token" )
+	fi
+	chmod 600 "$LH_DIR/token"
+}
+
+token() { cat "$LH_DIR/token"; }
+
+# the guest start script reads the token from a file, so it is never on a command line
+sync_token_to_guest() {
+	mkdir -p "$ROOTFS/root/.lh"
+	( umask 077; cp "$LH_DIR/token" "$ROOTFS/root/.lh/token" )
+	chmod 600 "$ROOTFS/root/.lh/token"
+}
+
+pair_link() { printf 'http://127.0.0.1:%s/?lh_token=%s' "$PORT" "$(token)"; }
+
+# ── processes ───────────────────────────────────────────────────────────────
+
+pidfile() { printf '%s/run/%s.pid' "$LH_DIR" "$1"; }
+
+alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
+
+running_pid() {
+	local f; f="$(pidfile "$1")"
+	[ -f "$f" ] || return 1
+	local pid; pid="$(cat "$f")"
+	alive "$pid" || return 1
+	printf '%s' "$pid"
+}
+
+# Starts a command detached in its own session (so a group kill reaches its
+# children) and records its PID. Never `pkill -f`: that matches itself.
+spawn() {
+	local name="$1" log="$2"; shift 2
+	setsid nohup "$@" > "$log" 2>&1 < /dev/null &
+	echo $! > "$(pidfile "$name")"
+}
+
+stop_proc() {
+	local name="$1" pid
+	pid="$(running_pid "$name")" || { rm -f "$(pidfile "$name")"; return 0; }
+	kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+	local _
+	for _ in 1 2 3 4 5 6 7 8 9 10; do
+		alive "$pid" || break
+		sleep 0.5
+	done
+	if alive "$pid"; then kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true; fi
+	rm -f "$(pidfile "$name")"
+}
+
+health() { curl -fsS --max-time 2 "http://127.0.0.1:$PORT/api/health" 2>/dev/null; }
+
+wait_health() {
+	local _
+	for _ in $(seq 1 120); do
+		health > /dev/null && return 0
+		sleep 0.5
+	done
+	return 1
+}
+
+rss_mb() { # RSS in MB of a process and everything it started (its session), "-" if unknown
+	local kb
+	kb="$(ps -eo pgid,rss 2>/dev/null | awk -v g="$1" '$1 == g { s += $2 } END { if (NR > 0) print s }' || true)"
+	if [ -z "$kb" ] || [ "$kb" = 0 ]; then
+		kb="$(awk '/VmRSS/{print $2}' "/proc/$1/status" 2>/dev/null || true)"
+	fi
+	if [ -n "$kb" ]; then printf '%d' $((kb / 1024)); else printf -- '-'; fi
+}
+
+# ── guest scripts ───────────────────────────────────────────────────────────
+# Written into the proot rootfs by `install`/`update`, so they always match this lh.
+
+write_guest_scripts() {
+	mkdir -p "$ROOTFS/opt/lh"
+	cat > "$ROOTFS/opt/lh/install.sh" <<EOF
+#!/bin/bash
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq curl ca-certificates xz-utils zstd libatomic1 python3 git unzip
+if [ "\$(/opt/node/bin/node -v 2>/dev/null || true)" != "$NODE_VERSION" ]; then
+	echo "-- node $NODE_VERSION"
+	curl -fsSL "https://nodejs.org/dist/$NODE_VERSION/node-$NODE_VERSION-linux-arm64.tar.xz" -o /tmp/node.tar.xz
+	rm -rf /opt/node && mkdir -p /opt/node
+	tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components=1
+	rm -f /tmp/node.tar.xz
+fi
+export PATH=/opt/node/bin:\$PATH
+echo "-- claude"
+npm i -g @anthropic-ai/claude-code 2>&1 | tail -1
+echo "-- chromium (playwright $PLAYWRIGHT_VERSION)"
+mkdir -p /opt/lh/pw && cd /opt/lh/pw
+[ -f package.json ] || npm init -y > /dev/null
+npm i playwright@$PLAYWRIGHT_VERSION 2>&1 | tail -1
+export PLAYWRIGHT_BROWSERS_PATH=/opt/lh/browsers
+npx playwright install-deps chromium 2>&1 | tail -1
+npx playwright install chromium 2>&1 | tail -1
+ls -d /opt/lh/browsers/chromium-*/chrome-linux*/chrome > /opt/lh/chrome-path
+echo "node \$(node -v) · claude \$(claude --version) · chrome \$(cat /opt/lh/chrome-path)"
+EOF
+
+	# Runs the server in the foreground: proot ends a login shell's background
+	# children when the shell exits, so lh keeps this process alive.
+	cat > "$ROOTFS/opt/lh/start.sh" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+export PATH=/opt/node/bin:$PATH
+# shellcheck disable=SC1091
+. /opt/lh/env
+LH_ACCESS_TOKEN="$(cat /root/.lh/token)"
+export LH_ACCESS_TOKEN
+CHROME_PATH="$(cat /opt/lh/chrome-path)"
+export CHROME_PATH
+export NODE_ENV=production
+export HOSTNAME=127.0.0.1
+export LH_DATA_DIR=/root/lh-data
+export LH_AUTH_FILE=/root/.lh/auth.json
+export LH_UPSTREAM_CHECK=0
+export LH_STT_ENGINE=whispercpp
+export LH_STT_DEVICE=cpu
+export LH_PYTHON=python3
+mkdir -p "$LH_DATA_DIR"
+cd /opt/lh/server
+exec node server.js
+EOF
+
+	# `claude auth login`'s paste prompt takes no keyboard input in Termux's
+	# terminal (M0), so it runs under a pty with a FIFO as stdin and the code is
+	# read here, with a plain `read`, then written to the FIFO.
+	cat > "$ROOTFS/opt/lh/login.sh" <<'EOF'
+#!/bin/bash
+set -uo pipefail
+export PATH=/opt/node/bin:$PATH
+if [ "${1:-}" != "--force" ] && claude auth status 2>/dev/null | grep -q '"loggedIn": true'; then
+	echo "Already signed in:"; claude auth status | grep -E 'email|subscriptionType'
+	exit 0
+fi
+log=/root/.lh/login.log fifo=/root/.lh/login.in
+mkdir -p /root/.lh; rm -f "$log" "$fifo"; mkfifo "$fifo"
+exec 3<>"$fifo"                       # keep the FIFO open so claude's stdin never sees EOF
+script -qfc "claude auth login" "$log" < "$fifo" > /dev/null 2>&1 &
+url=""
+for _ in $(seq 1 60); do
+	url="$(grep -ao 'https://claude\.com/cai/oauth/authorize[^[:space:][:cntrl:]]*' "$log" 2>/dev/null | head -1 || true)"
+	[ -n "$url" ] && break
+	sleep 0.5
+done
+[ -n "$url" ] || { echo "No sign-in link appeared; see /root/.lh/login.log" >&2; exit 1; }
+echo
+echo "Open this link (long-press it, then Open URL), sign in, and copy the code the page shows:"
+echo
+echo "$url"
+echo
+printf 'Paste the code here and press Enter: '
+read -r code
+code="$(printf '%s' "$code" | tr -d '[:space:]')"
+[ -n "$code" ] || { echo "No code entered." >&2; exit 1; }
+printf '%s\r' "$code" > "$fifo"
+for _ in $(seq 1 40); do
+	if grep -aq 'Login successful' "$log"; then break; fi
+	sleep 0.5
+done
+wait
+rm -f "$fifo" "$log"
+claude auth status | grep -E 'loggedIn|email|subscriptionType'
+EOF
+	chmod 755 "$ROOTFS"/opt/lh/*.sh
+}
+
+write_guest_env() { # non-secret settings the guest start script sources
+	local nb="" en=""
+	case " $STT_LANGS " in *" nb "*) nb="http://127.0.0.1:$NB_PORT" ;; esac
+	case " $STT_LANGS " in *" en "*) en="http://127.0.0.1:$EN_PORT" ;; esac
+	{
+		echo "export PORT=$PORT"
+		echo "export LH_CLAUDE_CODE_MAX_SESSIONS=$MAX_SESSIONS"
+		if [ -n "$nb" ]; then echo "export LH_WHISPER_URL_NB=$nb"; fi
+		if [ -n "$en" ]; then echo "export LH_WHISPER_URL_EN=$en"; fi
+	} > "$ROOTFS/opt/lh/env"
+}
+
+# ── install ─────────────────────────────────────────────────────────────────
+
+download_model() { # url dest bytes
+	local url="$1" dest="$2" bytes="$3"
+	if [ -f "$dest" ] && [ "$(stat -c %s "$dest")" = "$bytes" ]; then return 0; fi
+	curl -fL -C - --retry 3 -o "$dest" "$url"
+	[ "$(stat -c %s "$dest")" = "$bytes" ] || die "$(basename "$dest"): wrong size after download (expected $bytes bytes)"
+}
+
+build_whisper() {
+	local src="$LH_DIR/src/whisper.cpp"
+	if [ -x "$WHISPER_BIN" ] && [ "$(git -C "$src" rev-parse HEAD 2>/dev/null || true)" = "$WHISPER_REF" ]; then
+		say "whisper-server already built at ${WHISPER_REF:0:7}"
+		return 0
+	fi
+	if [ ! -d "$src/.git" ]; then
+		rm -rf "$src"; mkdir -p "$src"
+		git -C "$src" init -q
+		git -C "$src" remote add origin "$WHISPER_REPO"
+	fi
+	git -C "$src" fetch -q --depth 1 origin "$WHISPER_REF"
+	git -C "$src" checkout -q --detach FETCH_HEAD
+	( cd "$src"
+		cmake -B build -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_TESTS=OFF > "$LH_DIR/logs/whisper-build.log" 2>&1
+		cmake --build build -j"$(nproc)" --target whisper-server >> "$LH_DIR/logs/whisper-build.log" 2>&1 ) \
+		|| die "whisper.cpp build failed; see $LH_DIR/logs/whisper-build.log"
+}
+
+cmd_install() {
+	[ -d /data/data/com.termux ] || [ -n "${LH_ALLOW_ANY_HOST:-}" ] || die "install runs in Termux on Android"
+	init_dirs; write_default_config; load_config; ensure_token
+	step "Termux packages"
+	pkg install -y proot-distro git cmake clang make curl coreutils > "$LH_DIR/logs/pkg.log" 2>&1 \
+		|| { tail -n 8 "$LH_DIR/logs/pkg.log" >&2; die "pkg install failed (a 429 or 'not signed' means the mirror is rate-limiting: see android/termux/README.md)"; }
+	step "Ubuntu guest ($DISTRO_ID)"
+	if guest_installed; then say "already installed"; else proot-distro install "$DISTRO_ID" > /dev/null; fi
+	write_guest_scripts
+	step "Guest: Node $NODE_VERSION, claude, Chromium (a few minutes)"
+	guest bash /opt/lh/install.sh
+	step "whisper.cpp ${WHISPER_REF:0:7} (compiles on the device, about 10 minutes)"
+	build_whisper
+	step "Whisper models (365 MB)"
+	download_model "$NB_MODEL_URL" "$LH_DIR/models/nb.bin" "$NB_MODEL_BYTES"
+	download_model "$EN_MODEL_URL" "$LH_DIR/models/en.bin" "$EN_MODEL_BYTES"
+	step "learnharness server"
+	update_server --force
+	step "Sign in to Claude"
+	cmd_login || say "Sign-in not finished; run: lh login"
+	say
+	say "Installed. Run:  lh start"
+}
+
+cmd_login() {
+	guest_installed || die "not installed; run lh install"
+	write_guest_scripts
+	guest bash /opt/lh/login.sh "$@"
+}
+
+# ── update ──────────────────────────────────────────────────────────────────
+
+SERVER_CHANGED=0 # set by update_server when it installed a new build
+
+installed_version() { cat "$ROOTFS/opt/lh/version.txt" 2>/dev/null || echo "none"; }
+
+update_server() {
+	local force="${1:-}" tmp remote
+	tmp="$(mktemp -d "$LH_DIR/dl.XXXXXX")"
+	remote="$(curl -fsSL "$RELEASE_URL/version.txt")" || { rm -rf "$tmp"; die "could not fetch $RELEASE_URL/version.txt (has the android-server workflow published a release?)"; }
+	if [ "$force" != "--force" ] && [ "$remote" = "$(installed_version)" ]; then
+		rm -rf "$tmp"; say "server is up to date ($remote)"; return 0
+	fi
+	say "downloading $remote"
+	curl -fL --retry 3 -o "$tmp/$TARBALL" "$RELEASE_URL/$TARBALL" || { rm -rf "$tmp"; die "download failed"; }
+	curl -fsSL -o "$tmp/$TARBALL.sha256" "$RELEASE_URL/$TARBALL.sha256" || { rm -rf "$tmp"; die "checksum download failed"; }
+	local want got
+	want="$(awk '{print $1}' "$tmp/$TARBALL.sha256")"
+	got="$(sha256sum "$tmp/$TARBALL" | awk '{print $1}')"
+	if [ "$want" != "$got" ]; then rm -rf "$tmp"; die "checksum mismatch; the download is corrupt or not the published build"; fi
+	mkdir -p "$ROOTFS/opt/lh"
+	rm -rf "$ROOTFS/opt/lh/server.new"; mkdir -p "$ROOTFS/opt/lh/server.new"
+	cp "$tmp/$TARBALL" "$ROOTFS/opt/lh/dl.tar.zst"
+	guest bash -c 'tar --zstd -xf /opt/lh/dl.tar.zst -C /opt/lh/server.new && test -f /opt/lh/server.new/server.js' \
+		|| { rm -rf "$tmp" "$ROOTFS/opt/lh/server.new" "$ROOTFS/opt/lh/dl.tar.zst"; die "the tarball did not unpack to a server"; }
+	rm -rf "$ROOTFS/opt/lh/server.old"
+	[ -d "$ROOTFS/opt/lh/server" ] && mv "$ROOTFS/opt/lh/server" "$ROOTFS/opt/lh/server.old"
+	mv "$ROOTFS/opt/lh/server.new" "$ROOTFS/opt/lh/server"
+	rm -rf "$ROOTFS/opt/lh/server.old" "$ROOTFS/opt/lh/dl.tar.zst" "$tmp"
+	printf '%s\n' "$remote" > "$ROOTFS/opt/lh/version.txt"
+	SERVER_CHANGED=1
+	say "server updated to $remote"
+}
+
+update_self() {
+	local tmp target; tmp="$(mktemp)"
+	if curl -fsSL "$RAW_URL" -o "$tmp" && bash -n "$tmp" 2>/dev/null; then
+		target="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+		if ! cmp -s "$tmp" "$target"; then
+			# rename, never overwrite in place: bash is reading this file
+			cp "$tmp" "$target.new" && chmod 755 "$target.new" && mv "$target.new" "$target"
+			say "lh updated"
+		fi
+	else
+		say "could not refresh lh itself (kept the current one)"
+	fi
+	rm -f "$tmp"
+}
+
+cmd_update() {
+	guest_installed || die "not installed; run lh install"
+	init_dirs; load_config
+	update_self
+	local was=0
+	running_pid server > /dev/null && was=1
+	update_server "${1:-}"
+	write_guest_scripts
+	if [ "$was" = 1 ] && [ "$SERVER_CHANGED" = 1 ]; then say "restarting"; cmd_restart; fi
+}
+
+# ── start / stop ────────────────────────────────────────────────────────────
+
+whisper_args() { # lang → model, port
+	case "$1" in
+		nb) printf '%s %s' "$LH_DIR/models/nb.bin" "$NB_PORT" ;;
+		en) printf '%s %s' "$LH_DIR/models/en.bin" "$EN_PORT" ;;
+	esac
+}
+
+cmd_start() {
+	guest_installed || die "not installed; run lh install"
+	[ -x "$WHISPER_BIN" ] || die "whisper-server is not built; run lh install"
+	[ -f "$ROOTFS/opt/lh/server/server.js" ] || die "the server is not installed; run lh update"
+	load_config; ensure_token
+	if running_pid server > /dev/null; then say "already running"; cmd_pair; return 0; fi
+	if command -v termux-wake-lock > /dev/null; then termux-wake-lock || true; fi
+	local lang model port
+	for lang in $STT_LANGS; do
+		running_pid "whisper-$lang" > /dev/null && continue
+		read -r model port <<< "$(whisper_args "$lang")"
+		[ -f "$model" ] || die "missing model $model; run lh install"
+		spawn "whisper-$lang" "$LH_DIR/logs/whisper-$lang.log" \
+			"$WHISPER_BIN" -m "$model" --host 127.0.0.1 --port "$port" -t "$WHISPER_THREADS"
+	done
+	sync_token_to_guest
+	write_guest_scripts
+	write_guest_env
+	spawn server "$LH_DIR/logs/server.log" proot-distro login "$DISTRO" -- /opt/lh/start.sh
+	say "starting the server…"
+	if wait_health; then
+		say "up."
+		cmd_pair
+	else
+		say "the server did not answer in 60 s; last log lines:" >&2
+		tail -n 15 "$LH_DIR/logs/server.log" >&2 || true
+		exit 1
+	fi
+}
+
+cmd_stop() {
+	load_config
+	stop_proc server
+	local lang
+	for lang in nb en; do stop_proc "whisper-$lang"; done
+	if command -v termux-wake-unlock > /dev/null; then termux-wake-unlock || true; fi
+	if health > /dev/null; then die "something still answers on port $PORT"; fi
+	say "stopped"
+}
+
+cmd_restart() { cmd_stop; cmd_start; }
+
+# ── pair / status / logs ────────────────────────────────────────────────────
+
+cmd_pair() {
+	init_dirs; load_config
+	if [ "${1:-}" = "--rotate" ]; then
+		( umask 077; new_token > "$LH_DIR/token" )
+		say "new token made; the old pairing is void"
+		if guest_installed; then sync_token_to_guest; fi
+		if running_pid server > /dev/null; then say "restarting to apply it"; cmd_restart; return 0; fi
+	else
+		ensure_token
+	fi
+	say
+	say "Long-press this link, then Open URL (Chrome sets the pairing cookie):"
+	say
+	say "$(pair_link)"
+	say
+}
+
+cmd_status() {
+	load_config
+	say "lh $LH_VERSION · server $(installed_version)"
+	local name pid
+	for name in server whisper-nb whisper-en; do
+		if pid="$(running_pid "$name")"; then say "  $name: running (pid $pid, $(rss_mb "$pid") MB)"; else say "  $name: stopped"; fi
+	done
+	local h
+	if h="$(health)"; then say "  health: $h"; else say "  health: no answer on port $PORT"; fi
+	awk '/MemAvailable/{printf "  MemAvailable: %d MB\n", $2/1024}' /proc/meminfo 2>/dev/null || true
+}
+
+cmd_logs() {
+	local which="server" follow=""
+	for a in "$@"; do
+		case "$a" in -f) follow="-f" ;; server | nb | en) which="$a" ;; *) die "logs: server, nb or en (and -f)" ;; esac
+	done
+	local f="$LH_DIR/logs/server.log"
+	[ "$which" = nb ] && f="$LH_DIR/logs/whisper-nb.log"
+	[ "$which" = en ] && f="$LH_DIR/logs/whisper-en.log"
+	[ -f "$f" ] || die "no log yet: $f"
+	# shellcheck disable=SC2086
+	tail -n 80 $follow "$f"
+}
+
+cmd_help() {
+	cat <<'EOF'
+lh — learnharness on Android (Termux)
+
+  lh install            set everything up (packages, Ubuntu guest, whisper, server, sign-in)
+  lh login [--force]    sign in to Claude (the paste prompt works here, unlike claude's own)
+  lh start | stop | restart
+  lh status             processes, memory, server health
+  lh pair [--rotate]    print the pairing link for Chrome (--rotate: new token, restarts)
+  lh update [--force]   refresh lh and the server from the android-latest release
+  lh logs [server|nb|en] [-f]
+  lh version
+EOF
+}
+
+main() {
+	local cmd="${1:-help}"; [ $# -gt 0 ] && shift
+	case "$cmd" in
+		install) cmd_install ;;
+		login) cmd_login "$@" ;;
+		start) cmd_start ;;
+		stop) cmd_stop ;;
+		restart) cmd_restart ;;
+		status) cmd_status ;;
+		update) cmd_update "$@" ;;
+		pair) cmd_pair "$@" ;;
+		logs) cmd_logs "$@" ;;
+		version | --version | -v) say "lh $LH_VERSION" ;;
+		help | --help | -h) cmd_help ;;
+		*) cmd_help >&2; exit 2 ;;
+	esac
+}
+
+main "$@"
