@@ -41,6 +41,8 @@ const MIN_FIT_SCALE = 0.75;
 /** Padding around the strokes' bounding box, in canvas pixels. */
 const PAD = 24;
 const SKETCH_ID_RE = /^sk_[A-Za-z0-9_-]{8,40}$/;
+/** The new-ink bracket (kept page): drawn in the left padding. */
+const BRACKET_COLOR = "#2563eb";
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const PRODUCERS: readonly SketchProducer[] = ["web-canvas", "android-ink"];
 /** The default ink. */
@@ -141,6 +143,12 @@ export function parseSketchPayload(value: unknown): SketchPayload {
 		throw new SketchPayloadError("sketch is larger than 4 MB");
 	}
 	const payload: SketchPayload = { id: v.id, producer: v.producer as SketchProducer, strokes };
+	if (v.newFrom !== undefined) {
+		if (!Number.isInteger(v.newFrom) || (v.newFrom as number) < 0 || (v.newFrom as number) >= strokes.length) {
+			throw new SketchPayloadError("sketch newFrom is out of range");
+		}
+		if ((v.newFrom as number) > 0) payload.newFrom = v.newFrom as number;
+	}
 	planSketch(payload); // a sketch too tall to render is refused here, not at render time
 	return payload;
 }
@@ -153,6 +161,8 @@ export interface SketchPagePlan extends SketchPageInfo {
 }
 
 interface Outlined {
+	/** Index in the payload's strokes (empty outlines are skipped). */
+	index: number;
 	path: string;
 	color: string;
 	minX: number;
@@ -191,7 +201,7 @@ export function sketchStrokePath(s: SketchStroke): string {
 
 function outlineStrokes(strokes: readonly SketchStroke[]): Outlined[] {
 	const out: Outlined[] = [];
-	for (const s of strokes) {
+	for (const [index, s] of strokes.entries()) {
 		const outline = strokeOutline(s);
 		if (outline.length === 0) continue;
 		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -201,7 +211,7 @@ function outlineStrokes(strokes: readonly SketchStroke[]): Outlined[] {
 			if (y! < minY) minY = y!;
 			if (y! > maxY) maxY = y!;
 		}
-		out.push({ path: outlinePath(outline), color: s.color ?? SKETCH_INK, minX, minY, maxX, maxY });
+		out.push({ index, path: outlinePath(outline), color: s.color ?? SKETCH_INK, minX, minY, maxX, maxY });
 	}
 	return out;
 }
@@ -222,6 +232,20 @@ function bandCut(strokes: readonly Outlined[], top: number, limit: number): numb
 	}
 	if (reach < limit) best = (reach + limit) / 2;
 	return best !== null && best > floor ? best : limit;
+}
+
+/** A "[" in the left margin spanning the new ink's rows within one band
+ *  (kept page): tells the model which part of the page was just added. */
+function newInkBracket(strokes: readonly Outlined[], newFrom: number | undefined, minX: number, top: number, bottom: number): string {
+	if (!newFrom) return "";
+	const fresh = strokes.filter((s) => s.index >= newFrom);
+	if (fresh.length === 0) return "";
+	const y0 = Math.max(top, Math.min(...fresh.map((s) => s.minY)) - 4);
+	const y1 = Math.min(bottom, Math.max(...fresh.map((s) => s.maxY)) + 4);
+	if (y1 <= y0) return "";
+	const x = minX + 8;
+	const d = `M ${r2(x + 8)} ${r2(y0)} L ${r2(x)} ${r2(y0)} L ${r2(x)} ${r2(y1)} L ${r2(x + 8)} ${r2(y1)}`;
+	return `<path d="${d}" fill="none" stroke="${BRACKET_COLOR}" stroke-width="3" stroke-linecap="square"/>`;
 }
 
 const planCache = new WeakMap<SketchPayload, SketchPagePlan[]>();
@@ -271,16 +295,58 @@ export function planSketch(payload: SketchPayload): SketchPagePlan[] {
 		const ph = Math.max(1, Math.round(h * s));
 		const inBand = strokes.filter((st) => st.maxY >= top && st.minY <= bottom);
 		const paths = inBand.map((st) => `<path d="${st.path}" fill="${st.color}"/>`).join("");
+		const bracket = newInkBracket(strokes, payload.newFrom, minX, top, bottom);
 		const svg =
 			`<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}" ` +
 			`viewBox="${r2(minX)} ${r2(top)} ${r2(width)} ${r2(h)}">` +
 			`<rect x="${r2(minX)}" y="${r2(top)}" width="${r2(width)}" height="${r2(h)}" fill="#ffffff"/>` +
 			paths +
+			bracket +
 			`</svg>`;
 		return { width: pw, height: ph, svg };
 	});
 	planCache.set(payload, plan);
 	return plan;
+}
+
+/** Does a pointer (x, y) with radius r touch the stroke? Distance to the
+ *  polyline, plus half the stroke's width — the stroke eraser's hit test. */
+export function sketchStrokeHit(s: SketchStroke, x: number, y: number, r: number): boolean {
+	const reach = r + s.size / 2;
+	const p = s.points;
+	let px = p[0]!, py = p[1]!;
+	if (Math.hypot(x - px, y - py) <= reach) return true;
+	for (let k = 3; k < p.length; k += 3) {
+		const qx = p[k]!, qy = p[k + 1]!;
+		const dx = qx - px, dy = qy - py;
+		const len2 = dx * dx + dy * dy;
+		const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - px) * dx + (y - py) * dy) / len2));
+		if (Math.hypot(x - (px + t * dx), y - (py + t * dy)) <= reach) return true;
+		px = qx;
+		py = qy;
+	}
+	return false;
+}
+
+/** The newest sketch of the active problem: messages after its pose that
+ *  carry one (the kept page — null when none yet). */
+export function keptSketchOf(messages: readonly AgentMessage[], problemCallId: string): SketchRef | null {
+	let kept: SketchRef | null = null;
+	let inProblem = false;
+	for (const m of messages) {
+		if ((m as { role?: string }).role === "assistant") {
+			const content = (m as { content?: unknown }).content;
+			if (Array.isArray(content) && content.some((b) => (b as { type?: string; id?: string }).type === "toolCall" && (b as { id?: string }).id === problemCallId)) {
+				inProblem = true;
+				kept = null;
+			}
+			continue;
+		}
+		if (!inProblem) continue;
+		const ref = sketchOfMessage(m);
+		if (ref) kept = ref;
+	}
+	return kept;
 }
 
 /** The record's view of a payload (pure, deterministic — both sides). */

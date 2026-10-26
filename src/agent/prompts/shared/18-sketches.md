@@ -13,3 +13,5 @@ A message can carry a sketch: a `[sketch sk_… · page i/n]` label, then the pa
 If the learner disputes your reading, they are right about what they wrote: ask what they meant if you need to, call `read_sketch` again, and only then respond.
 
 On a multiple-choice question the sketch is thinking: the recorded pick and its verdict stay authoritative.
+
+On a whole-page resubmit the new ink is bracketed in the left margin: respond to that, not to the whole page again.

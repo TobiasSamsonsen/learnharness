@@ -58,7 +58,7 @@ export type ChatInput =
 	 *  thinking on the ACTIVE problem — one lane (owner 2026-10-05):
 	 *  whether it claims an answer is read from the text. One
 	 *  problem may carry many submissions; each is its own turn. */
-	| { type: "thinking"; problemCallId: string; text: string; sketch?: SketchPayload }
+	| { type: "thinking"; problemCallId: string; text: string; sketch?: SketchPayload; sketchRef?: string }
 	/** The practice move-on signal (owner round 16): the learner's
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
@@ -217,6 +217,14 @@ export function parseChatInput(input: unknown): ChatInput {
 				// A sketch may stand alone; without one the text is required.
 				if (typeof i.text !== "string" || (!sketch && i.text.trim().length === 0)) {
 					throw new ChatInputError("thinking input requires non-empty text");
+				}
+				if (i.sketchRef !== undefined && (sketch || !isSketchId(i.sketchRef))) {
+					throw new ChatInputError("thinking sketchRef must be a sketch id and cannot ride with a sketch");
+				}
+				// A kept page re-sent with no new ink (M3): only its id travels;
+				// the server resolves it against the stored strokes.
+				if (typeof i.sketchRef === "string") {
+					return { type: "thinking", problemCallId: i.problemCallId, text: i.text, sketchRef: i.sketchRef };
 				}
 				return sketch
 					? { type: "thinking", problemCallId: i.problemCallId, text: i.text, sketch }

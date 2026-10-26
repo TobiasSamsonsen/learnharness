@@ -58,8 +58,8 @@ import { PracticeDock } from "@/components/practice-dock";
 import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
 import { TopBar } from "@/components/top-bar";
-import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, SketchPayload, TurnUsage, SessionPricing } from "@/src/core";
-import { READ_SKETCH_TOOL, readSketchCall, sketchStatesOf } from "@/src/core";
+import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, SketchPayload, SketchRef, TurnUsage, SessionPricing } from "@/src/core";
+import { keptSketchOf, READ_SKETCH_TOOL, readSketchCall, sketchStatesOf } from "@/src/core";
 import { SketchDisputeLine } from "@/components/artifacts/read-sketch-card";
 import { useModelCatalog } from "@/components/model-picker";
 import type { LhViewMessage } from "@/src/core";
@@ -473,6 +473,11 @@ export function Chat({
 	const activeProblem = activeProblemOf(nativeMessages);
 	const activeProblemRef = useRef(activeProblem);
 	activeProblemRef.current = activeProblem;
+	// The problem's newest sketch — its kept page (Android plan M3).
+	const keptSketch = useMemo(
+		() => (activeProblem ? keptSketchOf(nativeMessages as unknown as Parameters<typeof keptSketchOf>[0], activeProblem.toolCallId) : null),
+		[activeProblem, nativeMessages],
+	);
 
 	const localStream = status === "submitted" || status === "streaming";
 	const busy = localStream || turnInFlight;
@@ -515,13 +520,15 @@ export function Chat({
 	// the dock stays mounted (the problem is still active until the agent
 	// concludes).
 	const submitThinking = useCallback(
-		(text: string, sketch?: SketchPayload): Promise<boolean> => {
+		(text: string, sketch?: SketchPayload, sketchRef?: string): Promise<boolean> => {
 			const problem = activeProblemRef.current;
 			if (!problem) return Promise.resolve(false);
 			return send(
 				sketch
 					? { type: "thinking", problemCallId: problem.toolCallId, text, sketch }
-					: { type: "thinking", problemCallId: problem.toolCallId, text },
+					: sketchRef
+						? { type: "thinking", problemCallId: problem.toolCallId, text, sketchRef }
+						: { type: "thinking", problemCallId: problem.toolCallId, text },
 			);
 		},
 		[send],
@@ -1705,6 +1712,7 @@ export function Chat({
 					practice={activeProblem}
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
+					keptSketch={keptSketch}
 					sketchAvailable={sketchAvailable}
 					onModelChange={setSessionModel}
 					chatId={chatId}
@@ -1935,6 +1943,7 @@ function DockOverlay({
 	practice,
 	compactionRunning,
 	onSubmitThinking,
+	keptSketch,
 	sketchAvailable,
 	onModelChange,
 	requiresReveal,
@@ -1965,7 +1974,9 @@ function DockOverlay({
 	practice: { toolCallId: string; input: unknown } | null;
 	/** (commit, text) — the practice dock's two submit lanes. */
 	/** Resolves to whether the server accepted the submission. */
-	onSubmitThinking: (text: string, sketch?: SketchPayload) => Promise<boolean>;
+	onSubmitThinking: (text: string, sketch?: SketchPayload, sketchRef?: string) => Promise<boolean>;
+	/** The active problem's newest sketch (its kept page). */
+	keptSketch: SketchRef | null;
 	/** The session's model reads images — the docks offer "Open in sketch". */
 	sketchAvailable: boolean;
 	/** The stats bar's model control reports the session's effective model. */
@@ -2444,6 +2455,8 @@ function DockOverlay({
 										void suppressFoldDuringReveal();
 									}}
 									onSubmit={onSubmitThinking}
+									chatId={chatId}
+									keptSketch={keptSketch}
 									onEscape={dictationCancel}
 									compactionRunning={compactionRunning}
 									sketchAvailable={sketchAvailable}

@@ -6,9 +6,30 @@
  * agent state and the SSE stream never carry image bytes.
  */
 
-import { planSketch, type SketchImageResolver, type TurnInput } from "../core/index.ts";
+import { parseSketchPayload, planSketch, type SketchImageResolver, type TurnInput } from "../core/index.ts";
 import { providerSafePng } from "../agent/subagents/headless.ts";
 import { stores } from "./stores.ts";
+
+/** A thinking input that re-sends a kept page by id (M3): load its stored
+ *  strokes into a payload with the SAME id. Null when it is unknown. The
+ *  pages already exist, so persistInputSketch skips it. */
+export function resolveSketchRef(chatId: string, input: TurnInput): TurnInput | null {
+	if (input.type !== "thinking" || !input.sketchRef) return input;
+	let json: string | null;
+	try {
+		json = stores.sketchStore.strokes(chatId, input.sketchRef);
+	} catch {
+		return null;
+	}
+	if (json === null) return null;
+	try {
+		const sketch = parseSketchPayload({ id: input.sketchRef, producer: "web-canvas", strokes: JSON.parse(json) });
+		const { sketchRef: _id, ...rest } = input;
+		return { ...rest, sketch };
+	} catch {
+		return null;
+	}
+}
 
 /** Render and store an input's sketch, if it carries one. Called before
  *  the input's appends are persisted — a record never names a sketch
@@ -17,6 +38,9 @@ export async function persistInputSketch(chatId: string, input: TurnInput): Prom
 	if (input.type !== "answer" && input.type !== "thinking") return;
 	const sketch = input.sketch;
 	if (!sketch) return;
+	// Already stored (a retried POST, or a kept page re-sent): strokes.json
+	// is written last, so its presence means every page is on disk.
+	if (stores.sketchStore.strokes(chatId, sketch.id) !== null) return;
 	const { Resvg } = await import("@resvg/resvg-js");
 	const pages = planSketch(sketch).map((page) => ({
 		svg: page.svg,
@@ -54,6 +78,15 @@ export function readSketchPage(
 		return format === "svg"
 			? stores.sketchStore.pageSvg(chatId, sketchId, page)
 			: stores.sketchStore.pagePng(chatId, sketchId, page);
+	} catch {
+		return null;
+	}
+}
+
+/** A stored sketch's strokes JSON for the kept page; null when unknown. */
+export function readSketchStrokes(chatId: string, sketchId: string): string | null {
+	try {
+		return stores.sketchStore.strokes(chatId, sketchId);
 	} catch {
 		return null;
 	}

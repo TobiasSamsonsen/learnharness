@@ -46,7 +46,7 @@ export * from "./model-catalog.ts";
 export { claudeCodeAvailable, claudePlanUsage } from "../agent/claude-code.ts";
 export { localSttStatuses, prepareLocalStt, transcribeLocal } from "./stt-local.ts";
 export { dismissUpstreamVersion, launchClaudeUpdate, upstreamStatus } from "./upstream.ts";
-export { readSketchPage } from "./sketches.ts";
+export { readSketchPage, readSketchStrokes } from "./sketches.ts";
 export { addLinkMaterial, addUploadedMaterial, listMaterials, removeMaterial } from "./materials.ts";
 // Courses (fork addition — docs/courses.md).
 export {
