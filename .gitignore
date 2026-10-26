@@ -16,3 +16,5 @@ auth.json
 
 # dev-fresh launcher scratch (fresh-user sim): disposable per launch
 .fresh-data/
+# Claude Code per-machine settings
+.claude/settings.local.json
