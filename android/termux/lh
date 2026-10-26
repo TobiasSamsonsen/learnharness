@@ -122,8 +122,8 @@ stop_proc() {
 	local name="$1" pid
 	pid="$(running_pid "$name")" || { rm -f "$(pidfile "$name")"; return 0; }
 	kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
-	local i
-	for i in 1 2 3 4 5 6 7 8 9 10; do
+	local _
+	for _ in 1 2 3 4 5 6 7 8 9 10; do
 		alive "$pid" || break
 		sleep 0.5
 	done
@@ -307,7 +307,7 @@ cmd_install() {
 	step "learnharness server"
 	update_server --force
 	step "Sign in to Claude"
-	cmd_login
+	cmd_login || say "Sign-in not finished; run: lh login"
 	say
 	say "Installed. Run:  lh start"
 }
@@ -390,7 +390,7 @@ cmd_start() {
 	[ -f "$ROOTFS/opt/lh/server/server.js" ] || die "the server is not installed; run lh update"
 	load_config; ensure_token
 	if running_pid server > /dev/null; then say "already running"; cmd_pair; return 0; fi
-	command -v termux-wake-lock > /dev/null && termux-wake-lock || true
+	if command -v termux-wake-lock > /dev/null; then termux-wake-lock || true; fi
 	local lang model port
 	for lang in $STT_LANGS; do
 		running_pid "whisper-$lang" > /dev/null && continue
@@ -419,7 +419,7 @@ cmd_stop() {
 	stop_proc server
 	local lang
 	for lang in nb en; do stop_proc "whisper-$lang"; done
-	command -v termux-wake-unlock > /dev/null && termux-wake-unlock || true
+	if command -v termux-wake-unlock > /dev/null; then termux-wake-unlock || true; fi
 	if health > /dev/null; then die "something still answers on port $PORT"; fi
 	say "stopped"
 }
