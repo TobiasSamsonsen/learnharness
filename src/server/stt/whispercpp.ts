@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { Readable } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { PATHS } from "../../../config.ts";
+import { parseMaxRequestSeconds, splitPcm } from "../../core/dictation-pieces.ts";
 import { dropPromptEcho } from "../../core/dictation-vocabulary.ts";
 import { LESSON_LANGUAGES, WHISPERCPP_MODELS, type LessonLanguage, type LocalSttStatus } from "../../core/language.ts";
 import type { SttReply } from "../stt-local.ts";
@@ -24,6 +25,10 @@ import { wavFromPcm } from "./wav.ts";
  * (owner, M4): the dictation UI keeps the recording and offers Retry.
  * LH_WHISPER_THREADS passes `-t` through; unset leaves whisper-server's own
  * default.
+ * LH_WHISPER_MAX_S (Android plan M7b) is the longest audio one request may
+ * carry: a server started with a short `-ac` audio context truncates anything
+ * longer, so a longer clip (a Retry of an old recording) is split at its
+ * quietest frames and the texts are joined. Unset = no splitting.
  */
 
 const GGML_DIR = path.join(PATHS.models, "stt", "ggml");
@@ -223,6 +228,19 @@ export function cleanWhisperText(raw: string): string {
 
 /** Transcribe one utterance (16 kHz mono Int16 LE PCM) on whisper.cpp. */
 export async function transcribeWhisperCpp(language: LessonLanguage, pcm: Uint8Array, vocabulary?: string): Promise<SttReply> {
+	const cap = parseMaxRequestSeconds(process.env.LH_WHISPER_MAX_S);
+	const chunks = cap ? splitPcm(pcm, cap) : [pcm];
+	if (chunks.length === 1) return transcribeChunk(language, pcm, vocabulary);
+	const texts: string[] = [];
+	for (const chunk of chunks) {
+		const reply = await transcribeChunk(language, chunk, vocabulary);
+		if (!reply.ok) return reply;
+		if (reply.text) texts.push(reply.text);
+	}
+	return { ok: true, text: texts.join(" ") };
+}
+
+async function transcribeChunk(language: LessonLanguage, pcm: Uint8Array, vocabulary?: string): Promise<SttReply> {
 	const { audio, peak } = toFloat(pcm);
 	if (audio.length < 1600 || peak < SILENCE_PEAK) return { ok: true, text: "" }; // < 0.1 s, or silence
 	const s = shared();

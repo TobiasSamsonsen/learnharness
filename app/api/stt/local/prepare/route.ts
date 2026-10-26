@@ -3,10 +3,11 @@
  * and load that language's local dictation model in the background. The
  * settings page's Download button and the dictation start path call it,
  * so recording overlaps the model load; GET /api/stt/local reports the
- * progress.
+ * progress. The answer also carries `pieceLimits` ({minS, maxS} or null): how
+ * long a live piece may be for this engine (LH_STT_PIECE_S).
  */
 import { isLessonLanguage } from "@/src/core";
-import { prepareLocalStt } from "@/src/server";
+import { prepareLocalStt, sttPieceLimits } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -16,5 +17,6 @@ export async function POST(req: Request) {
 		return Response.json({ error: "Body must be {language: \"en\" | \"nb\"}" }, { status: 400 });
 	}
 	void prepareLocalStt(body.language).catch(() => {}); // failures land in the status
-	return Response.json({ started: true }, { status: 202 });
+	// pieceLimits: the live segmenter's sizes for this engine, when it wants others (M7b)
+	return Response.json({ started: true, pieceLimits: sttPieceLimits() }, { status: 202 });
 }

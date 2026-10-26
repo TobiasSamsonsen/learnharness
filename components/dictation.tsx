@@ -5,7 +5,7 @@ import { Loader2Icon, MicIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
 import { useSettingsSaved } from "@/components/settings-signal";
-import { createPieceQueue, createSegmenter, withdrawDictation, type PieceQueue, type PieceResult, type Segmenter } from "@/components/dictation-live";
+import { DEFAULT_PIECE_LIMITS, createPieceQueue, createSegmenter, withdrawDictation, type PieceQueue, type PieceResult, type Segmenter } from "@/components/dictation-live";
 import {
 	DEFAULT_DICTATION_ENGINE,
 	DEFAULT_LESSON_LANGUAGE,
@@ -405,6 +405,8 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 	 *  piece while the learner keeps talking, and every delivered piece is
 	 *  remembered with the field it went to (Esc takes them back out). */
 	const segmenterRef = useRef<Segmenter | null>(null);
+	/** Live piece sizes: the desktop defaults until the server names its engine's own (prepare, below). */
+	const pieceLimitsRef = useRef(DEFAULT_PIECE_LIMITS);
 	const queueRef = useRef<PieceQueue | null>(null);
 	const deliveredRef = useRef<Array<{ text: string; target: DictationAppend }>>([]);
 	/** The last local clip whose transcription failed — kept for retry. */
@@ -581,7 +583,8 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 			// live: each piece is transcribed while the learner keeps talking,
 			// and lands in whichever field holds the dictation claim right then
 			deliveredRef.current = [];
-			segmenterRef.current = createSegmenter();
+			pieceLimitsRef.current = DEFAULT_PIECE_LIMITS;
+			segmenterRef.current = createSegmenter(16000, () => pieceLimitsRef.current);
 			queueRef.current = createPieceQueue({
 				transcribe: (piece) => postLocalPiece(piece, config.language, chatId),
 				deliver: (text) => {
@@ -599,7 +602,15 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ language: config.language }),
-			}).catch(() => {});
+			})
+				.then((res) => res.json())
+				.then((body: { pieceLimits?: { minS?: unknown; maxS?: unknown } | null }) => {
+					const l = body.pieceLimits;
+					if (gen === genRef.current && l && typeof l.minS === "number" && typeof l.maxS === "number" && l.minS >= 1 && l.maxS > l.minS) {
+						pieceLimitsRef.current = { minS: l.minS, maxS: l.maxS };
+					}
+				})
+				.catch(() => {});
 		}
 
 		// Mitigation D: the warm token (pre-minted at mount / after the last

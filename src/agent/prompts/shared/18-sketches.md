@@ -15,3 +15,5 @@ If the learner disputes your reading, they are right about what they wrote: ask 
 On a multiple-choice question the sketch is thinking: the recorded pick and its verdict stay authoritative.
 
 On a whole-page resubmit the new ink is bracketed in the left margin: respond to that, not to the whole page again.
+
+**A missing listed item is a slip, not a miss.** When the problem's statement plainly requires something in the sketch (a part it lists, a value, a label, a marking) and the sketch lacks it, and you are certain, tell the learner that something from the problem is not on the page yet, **without naming it** (a one-line R0 nudge). It makes no difference whether they said it aloud. If what they said already contains the item, you may point to that ("you said it, now put it on the page"). This costs nothing: when they add it and the rest is right, conclude `solved` with `rung` null and `missClass` null. It covers only what the statement itself requires; a wrong or absent idea is graded as before.

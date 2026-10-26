@@ -492,3 +492,19 @@ describe("compaction writes the reading, not the pixels", () => {
 		assert.match(text, /\[sketch sk_reading000000002 — not read\]/);
 	});
 });
+
+describe("the sketch prompt: a missing listed item (Android plan M7b)", () => {
+	const agents = ["teacher", "prober", "practice", "placement"] as const;
+	it("is in every agent's sketches fragment: unnamed nudge, no penalty, conclude solved", async () => {
+		const { effectivePromptSegments } = await import("../src/agent/prompt-segments.ts");
+		for (const agent of agents) {
+			const seg = effectivePromptSegments(agent, {}).find((s) => s.path === "shared/18-sketches.md");
+			assert.ok(seg, `${agent} composes the sketches fragment`);
+			const text = seg.sourceText;
+			assert.match(text, /A missing listed item is a slip, not a miss/);
+			assert.match(text, /without naming it/);
+			assert.match(text, /conclude `solved` with `rung` null and `missClass` null/);
+			assert.match(text, /a wrong or absent idea is graded as before/);
+		}
+	});
+});

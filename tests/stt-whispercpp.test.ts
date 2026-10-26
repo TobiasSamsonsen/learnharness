@@ -286,6 +286,38 @@ describe("the whisper.cpp adapter", () => {
 		}
 	});
 
+	it("LH_WHISPER_MAX_S splits a longer clip into capped requests and joins the texts; unset sends it whole", async () => {
+		const sizes: number[] = [];
+		let n = 0;
+		const capped = http.createServer((req, res) => {
+			let bytes = 0;
+			req.on("data", (c: Buffer) => (bytes += c.length));
+			req.on("end", () => {
+				sizes.push(bytes);
+				res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ text: [" one", " two", " three", " four"][n++ % 4] }));
+			});
+		});
+		await new Promise<void>((resolve) => capped.listen(0, "127.0.0.1", resolve));
+		const { port } = capped.address() as { port: number };
+		delete process.env.LH_WHISPER_BIN;
+		process.env.LH_WHISPER_URL_NB = `http://127.0.0.1:${port}/`;
+		try {
+			process.env.LH_WHISPER_MAX_S = "12";
+			assert.deepEqual(await whisper.transcribeWhisperCpp("nb", tone(30)), { ok: true, text: "one two three" });
+			assert.equal(sizes.length, 3);
+			for (const s of sizes) assert.ok(s <= 12 * 32_000 + 2_000, `a request of ${s} bytes`);
+			delete process.env.LH_WHISPER_MAX_S;
+			sizes.length = 0;
+			await whisper.transcribeWhisperCpp("nb", tone(30));
+			assert.equal(sizes.length, 1, "no cap, one request, as before");
+		} finally {
+			delete process.env.LH_WHISPER_URL_NB;
+			delete process.env.LH_WHISPER_MAX_S;
+			capped.closeAllConnections();
+			await new Promise<void>((resolve) => capped.close(() => resolve()));
+		}
+	});
+
 	it("URL mode surfaces an unreachable server as an error reply", async () => {
 		process.env.LH_WHISPER_URL_EN = "http://127.0.0.1:9"; // discard port: nothing listens
 		try {

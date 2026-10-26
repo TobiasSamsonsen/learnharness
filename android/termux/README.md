@@ -42,8 +42,10 @@ Settings live in `~/.lh/config` (plain shell, edit then `lh restart`):
 
 ```sh
 PORT=3000
-STT_LANGS="nb en"      # whisper-server languages; each costs about 400 MB, drop one to save RAM
+STT_LANGS="nb en"      # whisper-server languages; each costs 300-700 MB, drop one to save RAM
 WHISPER_THREADS=4      # 4 was the fastest on a Pixel 7 Pro; 8 is not faster
+WHISPER_GPU=auto       # auto: the Vulkan GPU build if it works (checked at start), else CPU; on: require it; off: CPU
+WHISPER_ARGS="-nf -ac 640"  # whisper-server flags: no re-decode fallback, a short audio window
 MAX_SESSIONS=2         # live claude processes the app keeps
 ```
 
@@ -58,6 +60,6 @@ Where things are: Termux `~/.lh/` (token, config, logs, whisper source and model
 ## Troubleshooting
 
 - `ip` fails with "Cannot bind netlink socket": Android blocks it for apps. You rarely need it; read the IP in Settings → Wi-Fi if you ssh in.
-- Slow dictation: the small models run at about 1-2.5x real time on a 2022 phone chip, and slower once it warms up (see feasibility.md). Turn one language off in `STT_LANGS` to free memory and cores.
+- Slow dictation: the whisper servers run with `-nf -ac 640`, the app cuts live pieces at 3-8 s, and `lh install` builds a Vulkan GPU version that `lh start` uses when it passes a self-test (`lh status` says `gpu` or `cpu` per language). On a Pixel 7 Pro that is about 2.7-3x real time instead of 0.8x. The GPU roughly doubles each whisper server's memory (about 700 MB instead of 300-400 MB): set `WHISPER_GPU=off` or drop a language from `STT_LANGS` if memory is tight. While Termux is in the background Android only lets it use cores 0-5 (not the fastest two), so numbers taken with Termux in front are too good. Details: [docs/android/stt-tuning.md](../../docs/android/stt-tuning.md).
 - The page says 403 or "pair": run `lh pair` and open the link again (the cookie is per browser).
 - The server does not come up: `lh logs`, and `lh status` for memory. `claude` errors about login: `lh login`.
