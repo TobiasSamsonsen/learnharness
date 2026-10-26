@@ -45,7 +45,7 @@ export { runPiTurn, piTurnResponse, type PiTurnHandle, type PiTurnSpec } from ".
 export * from "./observability.ts";
 export * from "./model-catalog.ts";
 export { claudeCodeAvailable, claudePlanUsage } from "../agent/claude-code.ts";
-export { localSttStatuses, prepareLocalStt, transcribeLocal } from "./stt-local.ts";
+export { localSttStatuses, prepareLocalStt, sttPieceLimits, transcribeLocal } from "./stt-local.ts";
 export { vocabularyForChat } from "./stt-vocabulary.ts";
 export { dismissUpstreamVersion, launchClaudeUpdate, upstreamStatus } from "./upstream.ts";
 export { readSketchPage, readSketchStrokes } from "./sketches.ts";

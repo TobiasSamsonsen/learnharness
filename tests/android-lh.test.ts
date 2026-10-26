@@ -57,6 +57,8 @@ function makeBox(config?: string): Box {
 while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2 ;; -*) shift ;; *) url="$1"; shift ;; esac; done
 case "$url" in
 	*/api/health) echo '{"ok":true}' ;;
+	*127.0.0.1:81*/inference) [ -n "$LH_TEST_INFER_FAIL" ] && exit 22; echo '{"text":""}' ;;
+	*127.0.0.1:81*) echo whisper ;;
 	*/version.txt) echo "9.9.9+abc1234" ;;
 	*githubusercontent.com*) cat "$LH_TEST_LH" > "\${out:-/dev/stdout}" ;;
 	*.sha256) echo "deadbeef  x" > "$out" ;;
@@ -94,12 +96,25 @@ esac`,
 function installFakes(b: Box): void {
 	const wbin = path.join(b.lhHome, "src/whisper.cpp/build/bin");
 	fs.mkdirSync(wbin, { recursive: true });
-	stub(wbin, "whisper-server", "exec sleep 60");
+	stub(wbin, "whisper-server", `echo "whisper-cpu $*" >> "$STUB_LOG"\nexec sleep 60`);
 	fs.mkdirSync(path.join(b.lhHome, "models"), { recursive: true });
 	fs.writeFileSync(path.join(b.lhHome, "models/nb.bin"), "x");
 	fs.writeFileSync(path.join(b.lhHome, "models/en.bin"), "x");
 	fs.mkdirSync(path.join(b.rootfs, "opt/lh/server"), { recursive: true });
 	fs.writeFileSync(path.join(b.rootfs, "opt/lh/server/server.js"), "// stub");
+}
+
+/** A GPU (Vulkan) whisper-server next to the CPU one: it serves, or exits at once ("dies"). */
+function installGpu(b: Box, behaviour: "ok" | "dies"): void {
+	const vk = path.join(b.lhHome, "src/whisper.cpp/build-vk/bin");
+	fs.mkdirSync(vk, { recursive: true });
+	stub(vk, "whisper-server", `echo "whisper-gpu $*" >> "$STUB_LOG"\n${behaviour === "dies" ? "exit 1" : "exec sleep 60"}`);
+}
+
+const stubLog = (b: Box): string => (fs.existsSync(path.join(b.root, "stub.log")) ? fs.readFileSync(path.join(b.root, "stub.log"), "utf8") : "");
+/** `stop` insists the port is silent, and the stub curl answers health forever: swap it for one that refuses. */
+function silenceCurl(b: Box): void {
+	fs.writeFileSync(path.join(b.root, "bin/curl"), "#!/bin/bash\nexit 22\n", { mode: 0o755 });
 }
 
 test("lh: the script parses and is plain LF", opts, () => {
@@ -232,4 +247,101 @@ test("lh update: an up-to-date server is left alone, no restart", opts, () => {
 	assert.ok(!/restarting/.test(r.out));
 	const log = fs.existsSync(path.join(b.root, "stub.log")) ? fs.readFileSync(path.join(b.root, "stub.log"), "utf8") : "";
 	assert.ok(!log.includes("/opt/lh/start.sh"), "the server was not started");
+});
+
+test("lh start: the CPU whisper-server gets -nf -ac 640, and the guest is told the piece sizes", opts, () => {
+	const b = makeBox("PORT=3456\n");
+	installFakes(b);
+	const started = b.run(["start"]);
+	assert.equal(started.code, 0, started.out + started.err);
+	try {
+		const log = stubLog(b);
+		assert.match(log, /whisper-cpu -m \S*nb\.bin --host 127\.0\.0\.1 --port 8178 -t 4 -nf -ac 640/);
+		assert.match(log, /whisper-cpu -m \S*en\.bin --host 127\.0\.0\.1 --port 8179 -t 4 -nf -ac 640/);
+		assert.ok(!log.includes("whisper-gpu"), "no GPU build installed");
+		const env = fs.readFileSync(path.join(b.rootfs, "opt/lh/env"), "utf8");
+		assert.match(env, /export LH_STT_PIECE_S=3-8/);
+		assert.match(env, /export LH_WHISPER_MAX_S=12/);
+		assert.match(b.run(["status"]).out, /whisper-nb: running \(pid \d+, [\d-]+ MB, cpu\)/);
+	} finally {
+		silenceCurl(b);
+		b.run(["stop"]);
+	}
+});
+
+test("lh start: a working GPU build is used (with the same flags), and status says so", opts, () => {
+	const b = makeBox("PORT=3456\n");
+	installFakes(b);
+	installGpu(b, "ok");
+	const started = b.run(["start"]);
+	assert.equal(started.code, 0, started.out + started.err);
+	try {
+		const log = stubLog(b);
+		assert.match(log, /whisper-gpu -m \S*nb\.bin --host 127\.0\.0\.1 --port 8178 -t 4 -nf -ac 640/);
+		assert.ok(!log.includes("whisper-cpu"), "the CPU build was not started");
+		assert.match(b.run(["status"]).out, /whisper-en: running \(pid \d+, [\d-]+ MB, gpu\)/);
+	} finally {
+		silenceCurl(b);
+		b.run(["stop"]);
+	}
+});
+
+test("lh start: a GPU build that dies at start-up falls back to the CPU", opts, () => {
+	const b = makeBox("PORT=3456\n");
+	installFakes(b);
+	installGpu(b, "dies");
+	const started = b.run(["start"]);
+	assert.equal(started.code, 0, started.out + started.err);
+	try {
+		assert.match(started.out, /GPU backend failed; using the CPU/);
+		const log = stubLog(b);
+		assert.ok(log.includes("whisper-gpu") && log.includes("whisper-cpu"));
+		assert.match(b.run(["status"]).out, /whisper-nb: running \(pid \d+, [\d-]+ MB, cpu\)/);
+		assert.ok(fs.existsSync(path.join(b.lhHome, "logs/whisper-nb.gpu-failed.log")), "the failed attempt keeps its log");
+	} finally {
+		silenceCurl(b);
+		b.run(["stop"]);
+	}
+});
+
+test("lh start: a GPU server that loads but cannot compute (self-test fails) falls back to the CPU", opts, () => {
+	const b = makeBox("PORT=3456\n");
+	installFakes(b);
+	installGpu(b, "ok");
+	const started = b.run(["start"], { LH_TEST_INFER_FAIL: "1" });
+	assert.equal(started.code, 0, started.out + started.err);
+	try {
+		assert.match(started.out, /GPU backend failed; using the CPU/);
+		assert.match(b.run(["status"], { LH_TEST_INFER_FAIL: "1" }).out, /whisper-nb: running \(pid \d+, [\d-]+ MB, cpu\)/);
+	} finally {
+		silenceCurl(b);
+		b.run(["stop"]);
+	}
+});
+
+test("lh config: WHISPER_GPU=off never starts the GPU build; =on refuses to fall back; junk is refused", opts, () => {
+	const off = makeBox('PORT=3456\nWHISPER_GPU=off\n');
+	installFakes(off);
+	installGpu(off, "ok");
+	const started = off.run(["start"]);
+	assert.equal(started.code, 0, started.out + started.err);
+	try {
+		assert.ok(!stubLog(off).includes("whisper-gpu"));
+	} finally {
+		silenceCurl(off);
+		off.run(["stop"]);
+	}
+
+	const on = makeBox("PORT=3456\nWHISPER_GPU=on\n");
+	installFakes(on);
+	installGpu(on, "dies");
+	const refused = on.run(["start"]);
+	assert.notEqual(refused.code, 0);
+	assert.match(refused.err, /WHISPER_GPU=on/);
+	silenceCurl(on);
+	on.run(["stop"]);
+
+	const bad = makeBox("WHISPER_GPU=maybe\n").run(["pair"]);
+	assert.notEqual(bad.code, 0);
+	assert.match(bad.err, /WHISPER_GPU/);
 });

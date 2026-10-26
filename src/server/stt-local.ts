@@ -16,6 +16,7 @@ import {
 	type SttEngine,
 	type SttModelSpec,
 } from "../core/language.ts";
+import { parsePieceSeconds, type PieceLimits } from "../core/dictation-pieces.ts";
 import { prepareWhisperCpp, transcribeWhisperCpp, whisperCppStatuses } from "./stt/whispercpp.ts";
 
 /**
@@ -156,6 +157,11 @@ function specs(language: LessonLanguage): { model: SttModelSpec; fallback: SttMo
 /** Which local engine this server process runs (LH_STT_ENGINE, Android plan M4). */
 export function sttEngine(): SttEngine {
 	return parseSttEngine(process.env.LH_STT_ENGINE);
+}
+
+/** The live-dictation piece limits this engine asks of the client (LH_STT_PIECE_S, Android plan M7b); null = the client's own defaults. */
+export function sttPieceLimits(): PieceLimits | null {
+	return sttEngine() === "whispercpp" ? parsePieceSeconds(process.env.LH_STT_PIECE_S) : null;
 }
 
 /** Which device the transformers.js engine may use (LH_STT_DEVICE, Android plan M6). */

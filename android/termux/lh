@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-LH_VERSION="0.1.0"
+LH_VERSION="0.2.0"
 REPO="TobiasSamsonsen/learnharness"
 RAW_URL="https://raw.githubusercontent.com/${REPO}/main/android/termux/lh"
 RELEASE_URL="https://github.com/${REPO}/releases/download/android-latest"
@@ -35,6 +35,12 @@ PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 LH_DIR="${LH_HOME:-$HOME/.lh}"
 ROOTFS="$PREFIX/var/lib/proot-distro/containers/$DISTRO/rootfs"
 WHISPER_BIN="$LH_DIR/src/whisper.cpp/build/bin/whisper-server"
+WHISPER_VK_BIN="$LH_DIR/src/whisper.cpp/build-vk/bin/whisper-server"
+# The whisper servers run with a short audio window (-ac 640 = 12.8 s of audio),
+# so the app is told to cut live pieces at 3-8 s and never to send a request
+# over 12 s (docs/android/stt-tuning.md). Both reach the guest app as env vars.
+PIECE_SECONDS="3-8"
+MAX_REQUEST_SECONDS=12
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'lh: %s\n' "$*" >&2; exit 1; }
@@ -53,18 +59,24 @@ PORT=3000
 # whisper-server languages to run (each costs about 400 MB): nb, en, or "nb en"
 STT_LANGS="nb en"
 WHISPER_THREADS=4
+# whisper-server on the phone's GPU (Vulkan): auto = use it if built and working, else CPU;
+# on = require it; off = CPU only
+WHISPER_GPU=auto
+# extra whisper-server flags: -nf stops the slow re-decoding fallback, -ac 640 shortens Whisper's audio window
+WHISPER_ARGS="-nf -ac 640"
 # live `claude` processes the app may keep (the phone's RAM budget)
 MAX_SESSIONS=2
 EOF
 }
 
 load_config() {
-	PORT=3000 STT_LANGS="nb en" WHISPER_THREADS=4 MAX_SESSIONS=2
+	PORT=3000 STT_LANGS="nb en" WHISPER_THREADS=4 MAX_SESSIONS=2 WHISPER_GPU=auto WHISPER_ARGS="-nf -ac 640"
 	# shellcheck disable=SC1091
 	[ -f "$LH_DIR/config" ] && . "$LH_DIR/config"
 	case "$PORT" in '' | *[!0-9]*) die "config: PORT must be a number" ;; esac
 	case "$WHISPER_THREADS" in '' | *[!0-9]*) die "config: WHISPER_THREADS must be a number" ;; esac
 	case "$MAX_SESSIONS" in '' | *[!0-9]*) die "config: MAX_SESSIONS must be a number" ;; esac
+	case "$WHISPER_GPU" in auto | on | off) ;; *) die "config: WHISPER_GPU must be auto, on or off" ;; esac
 	local l
 	for l in $STT_LANGS; do
 		case "$l" in nb | en) ;; *) die "config: STT_LANGS may only name nb and en (got '$l')" ;; esac
@@ -258,6 +270,8 @@ write_guest_env() { # non-secret settings the guest start script sources
 	{
 		echo "export PORT=$PORT"
 		echo "export LH_CLAUDE_CODE_MAX_SESSIONS=$MAX_SESSIONS"
+		echo "export LH_STT_PIECE_S=$PIECE_SECONDS"
+		echo "export LH_WHISPER_MAX_S=$MAX_REQUEST_SECONDS"
 		if [ -n "$nb" ]; then echo "export LH_WHISPER_URL_NB=$nb"; fi
 		if [ -n "$en" ]; then echo "export LH_WHISPER_URL_EN=$en"; fi
 	} > "$ROOTFS/opt/lh/env"
@@ -284,11 +298,30 @@ build_whisper() {
 		git -C "$src" remote add origin "$WHISPER_REPO"
 	fi
 	git -C "$src" fetch -q --depth 1 origin "$WHISPER_REF"
-	git -C "$src" checkout -q --detach FETCH_HEAD
+	git -C "$src" checkout -q -f --detach FETCH_HEAD
 	( cd "$src"
 		cmake -B build -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_TESTS=OFF > "$LH_DIR/logs/whisper-build.log" 2>&1
 		cmake --build build -j"$(nproc)" --target whisper-server >> "$LH_DIR/logs/whisper-build.log" 2>&1 ) \
 		|| die "whisper.cpp build failed; see $LH_DIR/logs/whisper-build.log"
+}
+
+# Optional: the GPU build of whisper-server (Vulkan, about 1.5x the CPU's speed on a Pixel 7 Pro).
+# Returns non-zero if it cannot be built; the CPU build is then all there is.
+build_whisper_vulkan() {
+	local src="$LH_DIR/src/whisper.cpp" log="$LH_DIR/logs/whisper-vk-build.log"
+	if [ -x "$WHISPER_VK_BIN" ] && [ "$(git -C "$src" rev-parse HEAD 2>/dev/null || true)" = "$WHISPER_REF" ]; then
+		say "GPU backend already built"
+		return 0
+	fi
+	pkg install -y vulkan-headers vulkan-loader-android shaderc spirv-headers glslang > "$log" 2>&1 || return 1
+	local f="$src/ggml/src/ggml-vulkan/ggml-vulkan-buffers.cpp"
+	# Termux's libc has no aligned_alloc, so std::aligned_alloc does not compile; posix_memalign does
+	if grep -q 'std::aligned_alloc' "$f" 2> /dev/null; then
+		sed -i 's|return std::aligned_alloc(align, size);|void *p = nullptr; return posix_memalign(\&p, align, size) == 0 ? p : nullptr;|' "$f"
+	fi
+	( cd "$src"
+		cmake -B build-vk -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_TESTS=OFF -DGGML_VULKAN=1 >> "$log" 2>&1
+		cmake --build build-vk -j"$(nproc)" --target whisper-server >> "$log" 2>&1 ) || return 1
 }
 
 cmd_install() {
@@ -304,6 +337,8 @@ cmd_install() {
 	guest bash /opt/lh/install.sh
 	step "whisper.cpp ${WHISPER_REF:0:7} (compiles on the device, about 10 minutes)"
 	build_whisper
+	step "whisper.cpp GPU backend (Vulkan, optional)"
+	build_whisper_vulkan || say "GPU backend not built; dictation will use the CPU (see $LH_DIR/logs/whisper-vk-build.log)"
 	step "Whisper models (365 MB)"
 	download_model "$NB_MODEL_URL" "$LH_DIR/models/nb.bin" "$NB_MODEL_BYTES"
 	download_model "$EN_MODEL_URL" "$LH_DIR/models/en.bin" "$EN_MODEL_BYTES"
@@ -390,6 +425,64 @@ whisper_args() { # lang → model, port
 	esac
 }
 
+# 0.5 s of silence as a 16 kHz mono WAV, for the start-up self-test
+silent_wav() {
+	{
+		printf 'RIFF\xa4\x3e\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00\x80\x3e\x00\x00\x00\x7d\x00\x00\x02\x00\x10\x00data\x80\x3e\x00\x00'
+		head -c 16000 /dev/zero
+	} > "$1"
+}
+
+# Waits until a whisper-server answers on its port; non-zero if it died or never did (60 s).
+wait_whisper() { # name port
+	local pid _
+	pid="$(running_pid "$1")" || return 1
+	for _ in $(seq 1 120); do
+		alive "$pid" || return 1
+		if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$2/"; then return 0; fi
+		sleep 0.5
+	done
+	return 1
+}
+
+# One real inference request: a server that loads but cannot compute (a GPU driver quirk) fails here.
+whisper_selftest() { # port
+	local wav out
+	wav="$(mktemp "$LH_DIR/selftest.XXXXXX")"
+	silent_wav "$wav"
+	out="$(curl -s --max-time 30 -F "file=@$wav" -F language=en -F temperature=0 -F response_format=json "http://127.0.0.1:$1/inference" 2> /dev/null || true)"
+	rm -f "$wav"
+	case "$out" in *'"text"'*) return 0 ;; *) return 1 ;; esac
+}
+
+launch_whisper() { # lang bin model port
+	# shellcheck disable=SC2086
+	spawn "whisper-$1" "$LH_DIR/logs/whisper-$1.log" "$2" -m "$3" --host 127.0.0.1 --port "$4" -t "$WHISPER_THREADS" $WHISPER_ARGS
+}
+
+# Starts one language's whisper-server: on the GPU when it is built and passes the
+# self-test (WHISPER_GPU auto/on), otherwise on the CPU. Records which in run/.
+start_whisper() { # lang
+	local lang="$1" model port backend=cpu
+	read -r model port <<< "$(whisper_args "$lang")"
+	[ -f "$model" ] || die "missing model $model; run lh install"
+	if [ "$WHISPER_GPU" != off ] && [ -x "$WHISPER_VK_BIN" ]; then
+		launch_whisper "$lang" "$WHISPER_VK_BIN" "$model" "$port"
+		if wait_whisper "whisper-$lang" "$port" && whisper_selftest "$port"; then
+			backend=gpu
+		else
+			stop_proc "whisper-$lang"
+			mv "$LH_DIR/logs/whisper-$lang.log" "$LH_DIR/logs/whisper-$lang.gpu-failed.log" 2> /dev/null || true
+			if [ "$WHISPER_GPU" = on ]; then die "whisper $lang: the GPU backend failed (WHISPER_GPU=on); see $LH_DIR/logs/whisper-$lang.gpu-failed.log"; fi
+			say "whisper $lang: the GPU backend failed; using the CPU (log: $LH_DIR/logs/whisper-$lang.gpu-failed.log)"
+		fi
+	elif [ "$WHISPER_GPU" = on ]; then
+		die "WHISPER_GPU=on but the GPU build is missing; run lh install"
+	fi
+	if [ "$backend" = cpu ]; then launch_whisper "$lang" "$WHISPER_BIN" "$model" "$port"; fi
+	echo "$backend" > "$LH_DIR/run/whisper-$lang.backend"
+}
+
 cmd_start() {
 	guest_installed || die "not installed; run lh install"
 	[ -x "$WHISPER_BIN" ] || die "whisper-server is not built; run lh install"
@@ -397,13 +490,10 @@ cmd_start() {
 	load_config; ensure_token
 	if running_pid server > /dev/null; then say "already running"; cmd_pair; return 0; fi
 	if command -v termux-wake-lock > /dev/null; then termux-wake-lock || true; fi
-	local lang model port
+	local lang
 	for lang in $STT_LANGS; do
 		running_pid "whisper-$lang" > /dev/null && continue
-		read -r model port <<< "$(whisper_args "$lang")"
-		[ -f "$model" ] || die "missing model $model; run lh install"
-		spawn "whisper-$lang" "$LH_DIR/logs/whisper-$lang.log" \
-			"$WHISPER_BIN" -m "$model" --host 127.0.0.1 --port "$port" -t "$WHISPER_THREADS"
+		start_whisper "$lang"
 	done
 	sync_token_to_guest
 	write_guest_scripts
@@ -425,6 +515,7 @@ cmd_stop() {
 	stop_proc server
 	local lang
 	for lang in nb en; do stop_proc "whisper-$lang"; done
+	rm -f "$LH_DIR"/run/whisper-*.backend
 	if command -v termux-wake-unlock > /dev/null; then termux-wake-unlock || true; fi
 	if health > /dev/null; then die "something still answers on port $PORT"; fi
 	say "stopped"
@@ -454,9 +545,15 @@ cmd_pair() {
 cmd_status() {
 	load_config
 	say "lh $LH_VERSION · server $(installed_version)"
-	local name pid
+	local name pid backend
 	for name in server whisper-nb whisper-en; do
-		if pid="$(running_pid "$name")"; then say "  $name: running (pid $pid, $(rss_mb "$pid") MB)"; else say "  $name: stopped"; fi
+		if pid="$(running_pid "$name")"; then
+			backend=""
+			if [ -f "$LH_DIR/run/$name.backend" ]; then backend=", $(cat "$LH_DIR/run/$name.backend")"; fi
+			say "  $name: running (pid $pid, $(rss_mb "$pid") MB$backend)"
+		else
+			say "  $name: stopped"
+		fi
 	done
 	local h
 	if h="$(health)"; then say "  health: $h"; else say "  health: no answer on port $PORT"; fi

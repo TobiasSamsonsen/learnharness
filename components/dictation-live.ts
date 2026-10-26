@@ -16,6 +16,8 @@
  * recent level), within absolute bounds — mics differ.
  */
 
+import type { PieceLimits } from "@/src/core";
+
 export const MIN_PIECE_S = 8;
 export const PAUSE_S = 0.6;
 export const MAX_PIECE_S = 25;
@@ -59,7 +61,11 @@ export interface Segmenter {
 	flush(): Uint8Array<ArrayBuffer> | null;
 }
 
-export function createSegmenter(sampleRate = 16000): Segmenter {
+/** The desktop limits; a server can ask for others (`LH_STT_PIECE_S`, Android plan M7b). */
+export const DEFAULT_PIECE_LIMITS: PieceLimits = { minS: MIN_PIECE_S, maxS: MAX_PIECE_S };
+
+/** `limits` is read on every frame, so limits that arrive from the server a moment after recording starts still apply. */
+export function createSegmenter(sampleRate = 16000, limits: () => PieceLimits = () => DEFAULT_PIECE_LIMITS): Segmenter {
 	let frames: Int16Array[] = [];
 	let levels: number[] = [];
 	let samples = 0;
@@ -77,6 +83,7 @@ export function createSegmenter(sampleRate = 16000): Segmenter {
 
 	return {
 		push(frame) {
+			const { minS, maxS } = limits();
 			const rms = frameRms(frame);
 			floor = Math.min(rms, floor === Infinity ? rms : floor * FLOOR_RISE);
 			const quiet = rms < Math.min(MAX_QUIET_RMS, Math.max(floor * FLOOR_FACTOR, MIN_QUIET_RMS));
@@ -84,8 +91,8 @@ export function createSegmenter(sampleRate = 16000): Segmenter {
 			levels.push(rms);
 			samples += frame.length;
 			quietSamples = quiet ? quietSamples + frame.length : 0;
-			if (samples >= MIN_PIECE_S * sampleRate && quietSamples >= PAUSE_S * sampleRate) return take(frames.length);
-			if (samples >= MAX_PIECE_S * sampleRate) {
+			if (samples >= minS * sampleRate && quietSamples >= PAUSE_S * sampleRate) return take(frames.length);
+			if (samples >= maxS * sampleRate) {
 				// cut after the quietest frame of the last few seconds
 				let lookback = 0;
 				let start = frames.length;
