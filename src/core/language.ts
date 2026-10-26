@@ -143,8 +143,8 @@ export function parseSttEngine(value: string | undefined): SttEngine {
 }
 
 /** One GGML model for the whisper.cpp engine: a file in a Hugging Face repo.
- *  PROVISIONAL (Android plan M4): the defaults are fixed by the bench
- *  (docs/android/stt-bench.md), not guessed. */
+ *  The defaults are the SMALL q5 models (owner, M4 bench, docs/android/stt-bench.md):
+ *  the only ones that stay ahead of live speech on a tablet CPU. */
 export interface WhisperCppModel {
 	language: LessonLanguage;
 	repo: string;
@@ -156,7 +156,7 @@ export interface WhisperCppModel {
 }
 
 export const WHISPERCPP_MODELS: Record<LessonLanguage, WhisperCppModel> = {
-	en: { language: "en", repo: "ggerganov/whisper.cpp", file: "ggml-large-v3-turbo-q5_0.bin", code: "en", sizeMb: 574 },
+	en: { language: "en", repo: "ggerganov/whisper.cpp", file: "ggml-small.en-q5_1.bin", code: "en", sizeMb: 190 },
 	nb: { language: "nb", repo: "NbAiLab/nb-whisper-small", file: "ggml-model-q5_0.bin", code: "no", sizeMb: 175 },
 };
 

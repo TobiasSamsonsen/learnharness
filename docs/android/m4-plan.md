@@ -1,6 +1,6 @@
 # M4 plan: STT engine seam + whisper.cpp adapter + vocabulary prompt
 
-Status: **awaiting owner approval** (2026-10-26). Parent: [plan.md](plan.md) §6, §7 (M4).
+Status: **approved and implemented** (2026-10-26); see STATUS.md and stt-bench.md. Parent: [plan.md](plan.md) §6, §7 (M4).
 
 ## Owner decisions (this session)
 
