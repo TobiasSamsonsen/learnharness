@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # the rolling android-latest release at the end
 
 concurrency:
   group: android-server-${{ github.ref }}
@@ -27,6 +27,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+      - name: Lint the Termux script
+        run: shellcheck -s bash android/termux/lh
       - uses: actions/setup-node@v7
         with:
           node-version: "26"
@@ -54,3 +56,23 @@ jobs:
           path: ${{ steps.pack.outputs.path }}
           retention-days: 7
           if-no-files-found: error
+      - name: Publish the rolling android-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARBALL_PATH: ${{ steps.pack.outputs.path }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/release"
+          mkdir -p "$out"
+          asset=learnharness-server-linux-arm64.tar.zst
+          cp "$TARBALL_PATH" "$out/$asset"
+          (cd "$out" && sha256sum "$asset" > "$asset.sha256")
+          version=$(node -p "require('./package.json').version")
+          stamp="$version+${GITHUB_SHA::7}"
+          echo "$stamp" > "$out/version.txt"
+          # delete and recreate so the tag always points at the built commit
+          gh release delete android-latest --cleanup-tag --yes || true
+          gh release create android-latest --prerelease --target "$GITHUB_SHA" \
+            --title "Android server (rolling)" \
+            --notes "linux-arm64 standalone server for the Termux lh scripts (docs/android/plan.md). Build $stamp." \
+            "$out/$asset" "$out/$asset.sha256" "$out/version.txt"
