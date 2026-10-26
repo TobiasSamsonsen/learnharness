@@ -29,6 +29,16 @@ Piece sets are the app's own segmenter run on the owner's "tech" recording (nb, 
 - NPU/TPU: not reachable by third-party code for Whisper on this phone.
 - Chrome's on-device Web Speech API: `available()` says `unavailable` for nb-NO and en-US (Chrome 156 on Android), `install()` returns false, starting with `processLocally` fails with `language-not-supported`, no phrase biasing. Not usable from a web page here. A native app (M8) could still use Android's own on-device recognizer; not tested.
 
-## Left to decide
+## Built (M7b) and measured through the app
 
-See the session notes: which model, whether to take the GPU, shorter pieces, and whether to pursue the Android recognizer in the M8 shell.
+`lh` starts whisper-server with `-nf -ac 640` on the GPU build when it passes a start-up self-test (CPU otherwise); the app is told `LH_STT_PIECE_S=3-8` (live pieces) and `LH_WHISPER_MAX_S=12` (a request never carries more). On the phone, through `POST /api/stt/local`, one request per recording (so the adapter's splitting runs), warm, Termux in the background:
+
+| Clip | Before (lesson, CPU, default flags) | Now (GPU, M7b) | WER now |
+|---|---|---|---|
+| nb, 50.2 s | 64 s (0.78x) | 16.6 s (3.0x) | 25.8% |
+| en, 58.5 s | 51 s (1.14x) | 21.5 s (2.7x) | 2.5% |
+
+- **Memory:** on the GPU the two servers show 711 MB and 657 MB (the GPU buffers count), against 265 and 279 MB on the CPU. `lh restart` takes 21 s instead of 9.5 s (each server's GPU start-up and self-test).
+- **From scratch:** `lh install` including the Vulkan build took 8 min 46 s on this phone.
+- **Failure paths checked on the device:** `WHISPER_GPU=off` runs on the CPU; a GPU binary that exits at start is replaced by the CPU one with a message and a kept `whisper-<lang>.gpu-failed.log`.
+- **Not fixed:** the junk text on a tiny trailing piece (`Hva?-A.`), and Norwegian technical terms (`Thévenin` came out as `TV9-køalenten`). The Android system recognizer in the M8 shell is untested.

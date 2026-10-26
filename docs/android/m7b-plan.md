@@ -1,6 +1,6 @@
 # M7b plan: faster dictation on the phone, and sketch-completeness grading
 
-Status: **awaiting approval** (2026-10-26). Follows M7 ([m7-plan.md](m7-plan.md)). Evidence: [stt-tuning.md](stt-tuning.md) (what made the first lesson's dictation wait 30-60 s, and what each fix measured) and the owner's lesson review of the same day.
+Status: **approved and implemented** (2026-10-26); see STATUS.md. Follows M7 ([m7-plan.md](m7-plan.md)). Evidence: [stt-tuning.md](stt-tuning.md) (what made the first lesson's dictation wait 30-60 s, and what each fix measured) and the owner's lesson review of the same day.
 
 ## Owner decisions (this session)
 

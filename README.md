@@ -161,6 +161,8 @@ Dictation can run on [whisper.cpp](https://github.com/ggml-org/whisper.cpp)'s `w
 
 - `LH_WHISPER_BIN=<path to whisper-server>`: the app starts it on first use, downloads the model once into `models/stt/ggml` in the data folder, and stops it after 10 idle minutes. `LH_WHISPER_THREADS` sets its `-t`.
 - `LH_WHISPER_URL_NB` / `LH_WHISPER_URL_EN`: use a server that is already running (nothing is spawned or downloaded).
+- `LH_STT_PIECE_S=3-8`: how long a live dictation piece may be (the shortest, then the longest, in seconds); the default is 8-25. A phone wants short pieces: they transcribe sooner and lose fewer sentences. The dictation hook learns it from the prepare route.
+- `LH_WHISPER_MAX_S=12`: the longest audio one whisper request may carry. Set it to match a `whisper-server` started with a short `-ac` audio context (`-ac 640` is 12.8 s), which truncates anything longer; a longer clip is then split at its quietest frames and the texts joined. Unset = no cap.
 
 If whisper.cpp fails, the transcription fails (the recording is kept; **Retry** sends it again); there is no fallback to the other engine. The engine biases the transcript toward the lesson's own terms (the active question or problem, the plan's titles, recent bold terms) through whisper.cpp's prompt. Numbers: [docs/android/stt-bench.md](docs/android/stt-bench.md).
 
