@@ -19,6 +19,7 @@
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import { healEncodedArguments } from "./argument-heal.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
 import type { SketchRef } from "./contracts/sketch.ts";
 import { sketchOfMessage } from "./sketch.ts";
@@ -46,9 +47,27 @@ export function isConfirmed(state: SketchState | undefined): boolean {
 	return !!state?.read && state.read.uncertain.length === 0 && !state.disputed;
 }
 
+/** The display-side twin of the tool's schema (the tool-parts law: the
+ *  record keeps the model's RAW arguments, so every read of them heals the
+ *  same wobbles the agent boundary healed — a leaked `</parameter>` boundary
+ *  in `sketchId` (seen live, 2026-10-26), a JSON-string `uncertain`). */
+const READ_SKETCH_DISPLAY_SCHEMA = {
+	properties: { sketchId: { type: "string" }, reading: { type: "string" }, uncertain: { type: "array" } },
+};
+
+/** A read_sketch call's arguments, healed for reading. */
+export function healReadSketchArguments(args: unknown): unknown {
+	return healEncodedArguments(args, READ_SKETCH_DISPLAY_SCHEMA);
+}
+
 /** Parse a read_sketch call's arguments (the model authored them — the
  *  tool's schema vouches, this stays defensive for old or odd records). */
-function readingOf(args: unknown): { sketchId: string; reading: SketchReading } | null {
+export function readSketchCall(rawArgs: unknown): { sketchId: string; reading: SketchReading } | null {
+	return readingOf(rawArgs);
+}
+
+function readingOf(rawArgs: unknown): { sketchId: string; reading: SketchReading } | null {
+	const args = healReadSketchArguments(rawArgs);
 	if (typeof args !== "object" || args === null) return null;
 	const a = args as { sketchId?: unknown; reading?: unknown; uncertain?: unknown };
 	if (typeof a.sketchId !== "string" || typeof a.reading !== "string") return null;

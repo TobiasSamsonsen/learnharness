@@ -26,6 +26,7 @@ import {
 	serializeForSummary,
 	sketchConcludeProblems,
 	sketchGateOf,
+	readSketchCall,
 	sketchIdsOf,
 	sketchLabel,
 	sketchRefOf,
@@ -99,6 +100,34 @@ describe("sketchStatesOf", () => {
 	it("knows every sketch the record carries", () => {
 		const record = [...posed(), thinking("call_p1", ref1), { ...newAnswerResult("q1", "explain", { kind: "explain", text: "", sketch: ref2 } as QuestionAnswerData), id: nextId() } as LhMessage];
 		assert.deepEqual([...sketchIdsOf(asAgent(record))].sort(), [SK1, SK2]);
+	});
+});
+
+// The model's own tool-call syntax bled into the JSON (seen live,
+// 2026-10-26): the reading rode inside `sketchId`. The agent boundary heals
+// it; the RECORD keeps the raw arguments, so every read of them must too.
+describe("a raw record with leaked parameter markup", () => {
+	const MASHED = { sketchId: `${SK1}</parameter>
+<parameter name="reading">Z then x — maybe $2x$.`, uncertain: ["the first glyph"] };
+	const mashedRead = (callId: string): LhMessage[] => [call(callId, "read_sketch", MASHED), result(callId, "read_sketch", "Reading recorded, with doubts.")];
+
+	it("still counts as a reading, with its doubts", () => {
+		const state = sketchStatesOf(asAgent([...posed(), thinking("call_p1"), ...mashedRead("r1")])).get(SK1)!;
+		assert.equal(state.read?.reading, "Z then x — maybe $2x$.");
+		assert.deepEqual(state.read?.uncertain, ["the first glyph"]);
+		assert.equal(readSketchCall(MASHED)?.sketchId, SK1);
+	});
+
+	it("a JSON-string `uncertain` heals to a list", () => {
+		const call = readSketchCall({ sketchId: SK1, reading: "$x$", uncertain: '["a", "b"]' });
+		assert.deepEqual(call?.reading.uncertain, ["a", "b"]);
+	});
+
+	it("feeds the gate and the elision like a clean call", () => {
+		const record = [...posed(), thinking("call_p1"), ...mashedRead("r1"), ...readCall("r2", SK1)];
+		assert.deepEqual(sketchConcludeProblems(sketchGateOf(asAgent(record), "call_p1"), "solved"), []);
+		assert.equal(sketchReplayPlan(asAgent([...record, ...posed("call_p2")])).size, 1);
+		assert.match(serializeForSummary(record), /read as:/);
 	});
 });
 

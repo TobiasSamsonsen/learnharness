@@ -2,7 +2,7 @@
 
 Plan: [plan.md](plan.md). Branch `feat/sketch-answers` holds the M1 and M2 work, by Claude for the owner.
 
-## Being worked on now: M2 (transcribe-first), implemented, in its final checks. M1 is done. Don't start M2/M3 in parallel.
+## M1 and M2 are done and verified (2026-10-26). Next: M3 (full sketch view), or M0/M4/M5/M6, which are free to pick up.
 
 ### M1 decisions made after the plan
 - **Strokes on the wire, server renders.** Producers send vector strokes (`SketchPayload`). Core plans the pages; resvg renders PNG for the model and SVG for the UI.
@@ -37,6 +37,8 @@ Owner decisions: the dispute is a new recorded `dispute` input, available only w
 - Compaction summaries: `[sketch sk_x — read as: …]` / `— not read]`. `skills/learnharness` documents sketches and the dispute/read markers; its reader knows `read_sketch` and `sketch-dispute`.
 - Tests: `tests/sketch-reading.test.ts`, `tests/read-sketch-card.test.tsx`, additions in `practice-flow` (gate + dispute through the real handler), `session-core`, `courses`/`tool-toggles-bridge`/`practice-agents` (tool-list pins), `prompt-overrides`. `npm run typecheck`, `npm run lint` clean; `npm test` 2370/2380, the 10 failures are the known Windows ones (one more auth test flaked once under full-suite load and passes alone).
 - **Open question for M3 (not decided):** a dispute after a clean `solved` conclude leaves that mastery credit standing on a reading the learner says was wrong. The gate acts only at conclude time (as planned). Should a dispute after the conclude revoke or re-open it?
-- **Left:** the live manual check (ambiguous sketch: the tutor asks instead of grading; a dispute makes it re-read; and dispute an OLDER problem's sketch after one submission on the next problem, the path unit tests cannot reach).
+- **Live check passed (2026-10-26, Chrome, Claude Sonnet 5 via Claude Code):** a deliberately ambiguous glyph (a Z-shaped 2 and an x) made the tutor read it with doubts ("Zx" or "2x") and say it would not grade until answered; the card showed "I read:" and the doubts; "That's not what I wrote" (with "it's the number 2…") made it re-read and conclude SOLVED. The advisor's path: posed problem 2, one text submission (fresh process, sketch 1 a stub), then disputed sketch 1 from its card: the tutor described the drawing correctly, so the page reached the live process through the dispute marker. Only the newest reading of a sketch shows the button.
+- **Found live and fixed:** the model's `read_sketch` call once arrived with its XML parameter markup leaked into `sketchId` (the reading rode inside it). The agent boundary healed it, but the record keeps raw arguments, so the card, the gate fold and the elision ignored that read. Reads of the record now heal the same way (`healReadSketchArguments` / `readSketchCall` in `sketch-gate.ts`, the display-seam rule of `core/argument-heal.ts`): the fold, the card and the dispute-button lookup. Regression tests use the exact leaked shape.
+- **Noticed, not changed:** the read-back card repeats the sketch thumbnail directly under the learner's own submission thumbnail (two stacked copies); the model also counted the Z's three strokes as one (vision, not delivery).
 
 ### Not started (free to pick up): M0 (phone spike), M4, M5, M6. M3 builds on M1/M2.

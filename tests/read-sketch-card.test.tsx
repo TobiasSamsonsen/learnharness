@@ -87,6 +87,14 @@ describe("ReadSketchCard", () => {
 		assert.equal(el("read-sketch-doubts").querySelectorAll("li").length, 1, "blank doubts are dropped");
 	});
 
+	it("heals the raw arguments the record keeps (leaked parameter markup)", async () => {
+		await mount({ part: { input: { sketchId: `${SK}</parameter>
+<parameter name="reading">Z then x</parameter>`, uncertain: ["the first glyph"] } } });
+		assert.ok(has("read-sketch-card"), "the reading was in the wrong field, not lost");
+		assert.match(el("read-sketch-reading").textContent ?? "", /Z then x/);
+		assert.match(host!.innerHTML, /sketches\/sk_cardtest0000001\/0/, "and the id is the clean one");
+	});
+
 	it("renders nothing without an id or a reading, and no thumbnail without a chat", async () => {
 		await mount({ part: { input: { sketchId: SK } } });
 		assert.ok(!has("read-sketch-card"));

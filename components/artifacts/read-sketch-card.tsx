@@ -5,7 +5,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { ChatActionsContext } from "@/components/chat";
 import { SketchThumbnail } from "@/components/sketch/sketch-thumbnail";
 import { Button } from "@/components/ui/button";
-import { repairMathForDisplay, type ArtifactPartProps } from "@/src/core";
+import { healReadSketchArguments, repairMathForDisplay, type ArtifactPartProps } from "@/src/core";
 
 /**
  * The read-back card (Android plan M2, owner wording "I read:"): the
@@ -27,7 +27,8 @@ interface ReadSketchInput {
 
 export function ReadSketchCard({ part }: ArtifactPartProps) {
 	const actions = useContext(ChatActionsContext);
-	const input = (part.input ?? {}) as ReadSketchInput;
+	// The record keeps the model's RAW arguments: heal them the way the agent did.
+	const input = (healReadSketchArguments(part.input) ?? {}) as ReadSketchInput;
 	const sketchId = typeof input.sketchId === "string" ? input.sketchId : "";
 	const reading = typeof input.reading === "string" ? input.reading : "";
 	const doubts = Array.isArray(input.uncertain) ? input.uncertain.filter((u): u is string => typeof u === "string" && u.trim() !== "") : [];

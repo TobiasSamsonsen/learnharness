@@ -59,7 +59,7 @@ import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-c
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
 import { TopBar } from "@/components/top-bar";
 import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, SketchPayload, TurnUsage, SessionPricing } from "@/src/core";
-import { READ_SKETCH_TOOL, sketchStatesOf } from "@/src/core";
+import { READ_SKETCH_TOOL, readSketchCall, sketchStatesOf } from "@/src/core";
 import { SketchDisputeLine } from "@/components/artifacts/read-sketch-card";
 import { useModelCatalog } from "@/components/model-picker";
 import type { LhViewMessage } from "@/src/core";
@@ -751,8 +751,8 @@ export function Chat({
 			if ((m as { role?: string }).role !== "assistant") continue;
 			for (const b of (m as { content: Array<{ type: string; id?: string; name?: string; arguments?: unknown }> }).content) {
 				if (b.type !== "toolCall" || b.name !== READ_SKETCH_TOOL || !b.id) continue;
-				const id = (b.arguments as { sketchId?: unknown } | null)?.sketchId;
-				if (typeof id === "string") newestRead.set(id, b.id);
+				const id = readSketchCall(b.arguments)?.sketchId;
+				if (id) newestRead.set(id, b.id);
 			}
 		}
 		const idle = !busy && !pending && !compacting;
