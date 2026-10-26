@@ -4,7 +4,7 @@ Five fenced blocks render as real drawn figures anywhere markdown renders: messa
 
 - ` ```blocks ` — a block diagram (summing points with signs, gains, integrators, transfer functions, PID, saturation, delay; feedback loops). Drawn textbook style, and simulatable.
 - ` ```plot ` — a graph the app computes: expressions, ODE solutions, a diagram's simulated response, a circuit's transient, sampled signals, markers.
-- ` ```circuit ` — a schematic from a netlist (resistors, capacitors, inductors, sources, diodes, switches, dependent sources). Drawn with European symbols, and solvable.
+- ` ```circuit ` — a schematic from a netlist (resistors, capacitors, inductors, sources, switches, dependent sources, op-amps, diodes, BJTs, MOSFETs). Drawn with European (IEC) symbols; solvable unless it has diodes or transistors (ideal op-amps solve).
 - ` ```logic ` — gates, flip-flops and latches in signal-flow form. Simulatable.
 - ` ```timing ` — a timing diagram (WaveJSON); linked to a logic diagram it computes the outputs, and a computed signal can be a blank row to fill in.
 

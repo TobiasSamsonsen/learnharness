@@ -51,6 +51,47 @@ function body(el: Element): string {
 	}
 }
 
+/**
+ * A BJT or MOSFET in its frame: x along collector/drain (−L/2) →
+ * emitter/source (+L/2), y toward the base/gate lead (which ends at y =
+ * `toBase`). IEC 60617 shapes: the BJT's base bar with collector and
+ * emitter diagonals in an envelope circle, the emitter arrow out (npn) or
+ * in (pnp); the enhancement MOSFET's gate plate over a broken channel, the
+ * body tied to the source with its arrow in (nmos) or out (pmos).
+ */
+function transistorBody(el: Element, L: number, toBase: number, arrowId: string): string {
+	const h = L / 2;
+	if (el.kind === "Q") {
+		const npn = el.model === "npn";
+		const arrow = npn ? `M7 12L18 0` : `M18 0L7 12`;
+		return (
+			`<circle cx="0" cy="8" r="23" ${STROKE}/>` +
+			`<path d="M-14 12H14M0 12V${toBase}" ${STROKE} stroke-width="2"/>` +
+			`<path d="M-${h} 0H-18L-7 12M18 0H${h}" ${STROKE}/>` +
+			`<path d="${arrow}" ${STROKE} marker-end="url(#${arrowId})"/>`
+		);
+	}
+	const nmos = el.model === "nmos";
+	return (
+		`<path d="M-14 19H14M0 19V${toBase}" ${STROKE} stroke-width="2"/>` +
+		`<path d="M-14 12H-6M-3 12H3M6 12H14" ${STROKE} stroke-width="2.4"/>` +
+		`<path d="M-${h} 0H-10V12M10 12V0H${h}M0 0H10" ${STROKE}/>` +
+		`<path d="${nmos ? "M0 0V10" : "M0 12V2"}" ${STROKE} marker-end="url(#${arrowId})"/>`
+	);
+}
+
+/** An op-amp in its frame: x from the input side (0) to the output (L),
+ *  y toward the − input (at y = `inputs`; + at −`inputs`). */
+function opampBody(L: number, inputs: number): string {
+	const back = 14;
+	const tip = L - 14;
+	const half = inputs + 14;
+	return (
+		`<path d="M${back} ${-half}L${tip} 0L${back} ${half}Z" ${STROKE}/>` +
+		`<path d="M0 ${inputs}H${back}M0 ${-inputs}H${back}M${tip} 0H${L}" ${STROKE}/>`
+	);
+}
+
 /** "R1" → R_{1}, "Vs" → V_{s}, "Rload" → R_{load}. */
 function nameLatex(name: string): string {
 	const m = /^([A-Za-z])([A-Za-z0-9_]*)$/.exec(name);
@@ -73,10 +114,48 @@ export function renderCircuitSvg(c: Circuit, fontPx: number): string {
 		pts.push({ x: cx - l.w / 2, y: cy - l.h / 2 }, { x: cx + l.w / 2, y: cy + l.h / 2 });
 	};
 
-	for (const { el, a: ga, b: gb } of placed) {
+	for (const { el, a: ga, b: gb, c: gc, d: gd } of placed) {
 		const A = at(ga);
 		const B = at(gb);
 		pts.push(A, B);
+		if (el.kind === "Q" || el.kind === "M" || el.opamp) {
+			// three-terminal parts, drawn in their own frame: x along the main
+			// axis, y toward the base/gate (transistor) or the − input (op-amp)
+			const C = at(gc!);
+			const toward = el.opamp ? at(gd!) : C;
+			const origin = el.opamp ? A : { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+			const L = Math.hypot(B.x - A.x, B.y - A.y);
+			const ux = (B.x - A.x) / L;
+			const uy = (B.y - A.y) / L;
+			const sl = Math.hypot(toward.x - origin.x, toward.y - origin.y);
+			const sx = (toward.x - origin.x) / sl;
+			const sy = (toward.y - origin.y) / sl;
+			const local = (x: number, y: number) => ({ x: origin.x + ux * x + sx * y, y: origin.y + uy * x + sy * y });
+			const frame = `matrix(${ux.toFixed(4)} ${uy.toFixed(4)} ${sx.toFixed(4)} ${sy.toFixed(4)} ${origin.x.toFixed(1)} ${origin.y.toFixed(1)})`;
+			const terminals = el.opamp ? [el.n1, ...el.control!] : [el.n1, el.n2, el.third!];
+			for (const n of terminals) if (n !== GROUND) degree.set(n, (degree.get(n) ?? 0) + 1);
+			if (el.opamp) {
+				const D = at(gd!);
+				pts.push(C, D);
+				parts.push(`<g transform="${frame}">${opampBody(L, sl)}</g>`);
+				// upright signs beside the inputs: − at the top input, + at the other
+				const minus = local(24, sl);
+				const plus = local(24, -sl);
+				parts.push(`<path d="M${(minus.x - 4).toFixed(1)} ${minus.y.toFixed(1)}h8M${(plus.x - 4).toFixed(1)} ${plus.y.toFixed(1)}h8M${plus.x.toFixed(1)} ${(plus.y - 4).toFixed(1)}v8" ${STROKE} stroke-width="1.3"/>`);
+				const l = measure(el.label !== undefined ? labelHtml(el.label) : mathHtml(nameLatex(el.name)), small);
+				const spot = local(L * 0.42, -(sl + 30));
+				place(l, spot.x, spot.y);
+				for (const [n, p] of [[el.control![0], C], [el.control![1], D]] as const) if (n === GROUND) grounds.push(p);
+			} else {
+				pts.push(C);
+				parts.push(`<g transform="${frame}">${transistorBody(el, L, sl, arrowId)}</g>`);
+				const l = measure(el.label !== undefined ? labelHtml(el.label) : mathHtml(nameLatex(el.name)), small);
+				const spot = local(0, -(l.w / 2 + 12));
+				place(l, spot.x, spot.y);
+				for (const [n, p] of [[el.n1, A], [el.n2, B], [el.third!, C]] as const) if (n === GROUND) grounds.push(p);
+			}
+			continue;
+		}
 		for (const n of [el.n1, el.n2]) if (n !== GROUND) degree.set(n, (degree.get(n) ?? 0) + 1);
 		// open terminals stay terminals, even on ground
 		if (el.n1 === GROUND && el.kind !== "P") grounds.push(A);

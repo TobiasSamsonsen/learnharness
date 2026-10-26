@@ -19,16 +19,27 @@
 import { FigureError, statements, type Statement } from "./lines.ts";
 import { METRICS, metric, type Metric } from "./metrics.ts";
 
-export type ElementKind = "R" | "C" | "L" | "V" | "I" | "D" | "S" | "W" | "P" | "E" | "G";
+export type ElementKind = "R" | "C" | "L" | "V" | "I" | "D" | "S" | "W" | "P" | "E" | "G" | "Q" | "M";
 export type Direction = "right" | "left" | "up" | "down";
+export type TransistorModel = "npn" | "pnp" | "nmos" | "pmos";
+export const TRANSISTOR_MODELS: readonly TransistorModel[] = ["npn", "pnp", "nmos", "pmos"];
 
 export interface Element {
 	kind: ElementKind;
 	name: string;
-	/** The two drawn terminals (first → second along `dir`). */
+	/** The two drawn terminals (first → second along `dir`). Transistors:
+	 *  collector/drain → emitter/source. Op-amp: the output and its
+	 *  reference (not drawn). */
 	n1: string;
 	n2: string;
-	/** E/G: the controlling node pair. */
+	/** Transistors: the base or gate, beside the main axis. */
+	third?: string;
+	model?: TransistorModel;
+	/** E: an ideal op-amp (control = [in+, in−]). */
+	opamp?: boolean;
+	/** Transistors: the base/gate on the other side; op-amp: + on top. */
+	mirror?: boolean;
+	/** E/G: the controlling node pair; op-amp: [in+, in−]. */
 	control?: [string, string];
 	/** SI value (Ω, F, H, V, A, gain or S); absent for D, S, W, P. */
 	value?: number;
@@ -88,7 +99,7 @@ export function elementUnit(kind: ElementKind): string {
 
 // ─── parsing ─────────────────────────────────────────────────────────────────
 
-const KINDS: ElementKind[] = ["R", "C", "L", "V", "I", "D", "S", "W", "P", "E", "G"];
+const KINDS: ElementKind[] = ["R", "C", "L", "V", "I", "D", "S", "W", "P", "E", "G", "Q", "M"];
 const NODE = /^[A-Za-z0-9_]+$/;
 
 function parseElement(st: Statement): Element {
@@ -97,19 +108,41 @@ function parseElement(st: Statement): Element {
 	const name = words[0]!;
 	const kind = name[0]!.toUpperCase() as ElementKind;
 	if (!KINDS.includes(kind) || !/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) {
-		throw new FigureError(st.line, `"${name}" is not an element — names start with R, C, L, V, I, D, S, W, P, E or G (R1, C2, V1, W …)`);
+		throw new FigureError(st.line, `"${name}" is not an element — names start with R, C, L, V, I, D, S, W, P, E, G, Q or M (R1, C2, V1, Q1, W …)`);
 	}
-	const nodeCount = kind === "E" || kind === "G" ? 4 : 2;
-	const nodes = words.slice(1, 1 + nodeCount);
-	if (nodes.length < nodeCount || nodes.some((n) => !NODE.test(n))) {
-		throw new FigureError(st.line, kind === "E" || kind === "G" ? `${name} needs four nodes then its gain: "${name} out 0 a b 10"` : `${name} needs two nodes: "${name} a b${kind === "W" || kind === "S" || kind === "D" || kind === "P" ? "" : " <value>"}; right"`);
+	const base = { kind, name, line: st.line, ...(st.label !== undefined ? { label: st.label } : {}) };
+	const nodeOk = (ns: Array<string | undefined>) => ns.every((n) => n !== undefined && NODE.test(n));
+	let el: Element;
+	let rest: string[];
+	if (kind === "Q" || kind === "M") {
+		// SPICE order: Q collector base emitter model · M drain gate source model
+		const [a, b, c, model, ...extra] = words.slice(1);
+		const models = kind === "Q" ? TRANSISTOR_MODELS.slice(0, 2) : TRANSISTOR_MODELS.slice(2);
+		if (!nodeOk([a, b, c]) || !model || extra.length > 0) {
+			throw new FigureError(st.line, kind === "Q" ? `${name} needs collector, base, emitter and its type: "${name} c b e npn; down"` : `${name} needs drain, gate, source and its type: "${name} d g s nmos; down"`);
+		}
+		if (!(models as string[]).includes(model)) throw new FigureError(st.line, `${name}'s type is ${models.join(" or ")}, got "${model}"`);
+		el = { ...base, n1: a!, n2: c!, third: b!, model: model as TransistorModel, dir: "down" };
+		rest = [];
+	} else if (kind === "E" && words[3] === "opamp") {
+		// lcapy: E1 out ref opamp in+ in− — an ideal op-amp
+		const [out, ref, , plus, minus, ...extra] = words.slice(1);
+		if (!nodeOk([out, ref, plus, minus]) || extra.length > 0) throw new FigureError(st.line, `an op-amp is "${name} out 0 opamp in+ in-; right"`);
+		el = { ...base, n1: out!, n2: ref!, control: [plus!, minus!], opamp: true, dir: "right" };
+		rest = [];
+	} else {
+		const nodeCount = kind === "E" || kind === "G" ? 4 : 2;
+		const nodes = words.slice(1, 1 + nodeCount);
+		if (nodes.length < nodeCount || !nodeOk(nodes)) {
+			throw new FigureError(st.line, kind === "E" || kind === "G" ? `${name} needs four nodes then its gain: "${name} out 0 a b 10" (or an op-amp: "${name} out 0 opamp in+ in-")` : `${name} needs two nodes: "${name} a b${kind === "W" || kind === "S" || kind === "D" || kind === "P" ? "" : " <value>"}; right"`);
+		}
+		rest = words.slice(1 + nodeCount);
+		el = { ...base, n1: nodes[0]!, n2: nodes[1]!, dir: "right" };
+		if (nodeCount === 4) el.control = [nodes[2]!, nodes[3]!];
 	}
-	const rest = words.slice(1 + nodeCount);
-	const el: Element = { kind, name, n1: nodes[0]!, n2: nodes[1]!, dir: "right", line: st.line, ...(st.label !== undefined ? { label: st.label } : {}) };
-	if (nodeCount === 4) el.control = [nodes[2]!, nodes[3]!];
 	if (el.n1 === el.n2) throw new FigureError(st.line, `${name} connects ${el.n1} to itself`);
-	if (el.n1 === GROUND && el.n2 === GROUND) throw new FigureError(st.line, `${name} has both ends on ground`);
-	const needsValue = ["R", "C", "L", "V", "I", "E", "G"].includes(kind);
+	if (el.n1 === GROUND && el.n2 === GROUND && !el.opamp) throw new FigureError(st.line, `${name} has both ends on ground`);
+	const needsValue = ["R", "C", "L", "V", "I", "E", "G"].includes(kind) && !el.opamp;
 	if (needsValue) {
 		if (rest.length !== 1) throw new FigureError(st.line, `${name} needs one value after its nodes, e.g. ${kind === "R" ? "2k" : kind === "C" ? "10u" : kind === "L" ? "5m" : kind === "V" ? "5V" : kind === "I" ? "2mA" : "10"}`);
 		const v = parseSI(rest[0]!);
@@ -148,7 +181,12 @@ function parseElement(st: Statement): Element {
 			el.led = true;
 			continue;
 		}
-		throw new FigureError(st.line, `unknown option "${raw}" — options are a direction (right, left, up, down, with an optional length: "right 2"), v=…, i=…${kind === "C" || kind === "L" ? ", ic=…" : ""}${kind === "S" ? ", open/closed/opens/closes" : ""}${kind === "D" ? ", led" : ""}`);
+		if ((kind === "Q" || kind === "M" || el.opamp) && raw === "mirror") {
+			el.mirror = true;
+			continue;
+		}
+		const extra = kind === "C" || kind === "L" ? ", ic=…" : kind === "S" ? ", open/closed/opens/closes" : kind === "D" ? ", led" : kind === "Q" || kind === "M" || el.opamp ? ", mirror" : "";
+		throw new FigureError(st.line, `unknown option "${raw}" — options are a direction (right, left, up, down, with an optional length: "right 2"), v=…, i=…${extra}`);
 	}
 	if (kind === "S" && !el.switch) throw new FigureError(st.line, `${name} needs its state: open, closed, opens (at t = 0) or closes (at t = 0)`);
 	return el;
@@ -184,7 +222,7 @@ export function parseCircuit(source: string): Circuit {
 		elements.push(el);
 	}
 	if (elements.length === 0) throw new FigureError(1, "the circuit has no elements");
-	const nodes = new Set(elements.flatMap((e) => [e.n1, e.n2]));
+	const nodes = new Set(elements.flatMap((e) => [e.n1, e.n2, ...(e.third ? [e.third] : []), ...(e.opamp ? e.control! : [])]));
 	for (const e of elements) for (const c of e.control ?? []) if (!nodes.has(c)) throw new FigureError(e.line, `${e.name} is controlled by node "${c}", which no element connects to`);
 	for (const n of shownNodes) if (!nodes.has(n)) throw new FigureError(1, `nodes lists "${n}", which no element connects to`);
 	layoutCircuit({ elements, shownNodes, ...(horizon !== undefined ? { horizon } : {}) });
@@ -197,13 +235,66 @@ export interface Point {
 	x: number;
 	y: number;
 }
+/** A placed element. Two-terminal: a = n1, b = n2. Transistor: a =
+ *  collector/drain, b = emitter/source, c = base/gate. Op-amp: a = the
+ *  middle of its input side, b = the output, c = in+, d = in−. */
 export interface PlacedElement {
 	el: Element;
 	a: Point;
 	b: Point;
+	c?: Point;
+	d?: Point;
 }
 
 const UNIT_VEC: Record<Direction, Point> = { right: { x: 1, y: 0 }, left: { x: -1, y: 0 }, up: { x: 0, y: -1 }, down: { x: 0, y: 1 } };
+
+/** The side a three-terminal part's odd terminal goes to, whatever the
+ *  direction: left of a vertical part, below a horizontal one (a
+ *  transistor's base/gate). Mirror takes the other side. */
+function sideOf(u: Point, mirror: boolean | undefined, horizontal: Point): Point {
+	const s = u.x === 0 ? { x: -1, y: 0 } : horizontal;
+	return mirror ? { x: -s.x, y: -s.y } : s;
+}
+
+function transistorSide(el: Element, u: Point): Point | null {
+	if (el.kind !== "Q" && el.kind !== "M") return null;
+	return sideOf(u, el.mirror, { x: 0, y: 1 });
+}
+
+/** The op-amp's input spacing (grid units from the input-side middle). */
+const OPAMP_IN = 0.25;
+
+/** Place an op-amp from any one placed terminal of out, in+, in−: the
+ *  inputs on its back, − on top of + (left of +, for a vertical op-amp;
+ *  mirror swaps),
+ *  the output `len` (default 1) further along the direction. */
+function placeOpamp(el: Element, u: Point, at: (n: string) => Point | undefined, set: (n: string, p: Point) => void): PlacedElement | null {
+	const len = el.len ?? 1;
+	// the − input's side: on top of a horizontal op-amp, left of a vertical one
+	const up = sideOf(u, false, { x: 0, y: -1 });
+	const sign = el.mirror ? -1 : 1;
+	const [plus, minus] = el.control!;
+	const offsets: Array<[string, Point]> = [
+		[el.n1, { x: u.x * len, y: u.y * len }],
+		[minus, { x: up.x * OPAMP_IN * sign, y: up.y * OPAMP_IN * sign }],
+		[plus, { x: -up.x * OPAMP_IN * sign, y: -up.y * OPAMP_IN * sign }],
+	];
+	const anchor = offsets.find(([n]) => at(n));
+	if (!anchor) return null;
+	const p = at(anchor[0])!;
+	const back = { x: p.x - anchor[1].x, y: p.y - anchor[1].y };
+	const point = (o: Point) => ({ x: back.x + o.x, y: back.y + o.y });
+	for (const [n, o] of offsets) {
+		const want = point(o);
+		const known = at(n);
+		if (known && (Math.abs(known.x - want.x) > 1e-9 || Math.abs(known.y - want.y) > 1e-9)) {
+			const role = n === el.n1 ? "output" : n === minus ? "− input" : "+ input";
+			throw new FigureError(el.line, `${el.name}'s ${role} ${n} should be ${describe(want.x - p.x, want.y - p.y)} of ${anchor[0]}, but other lines put it elsewhere — the inputs are ${OPAMP_IN} above and below the input side, the output ${len} along "${el.dir}"`);
+		}
+		if (n !== GROUND) set(n, want);
+	}
+	return { el, a: back, b: point(offsets[0]![1]), c: point(offsets[2]![1]), d: point(offsets[1]![1]) };
+}
 
 /** Place every node on a grid from the directions (y grows downward).
  *  Ground terminals are not nodes of the drawing — each gets its own
@@ -220,6 +311,23 @@ export function layoutCircuit(c: Circuit): { nodes: Map<string, Point>; placed: 
 		for (const i of [...remaining]) {
 			const el = c.elements[i]!;
 			const u = UNIT_VEC[el.dir];
+			if (el.opamp) {
+				const done = placeOpamp(el, u, at, (n, p) => pos.set(n, p));
+				if (!done) continue;
+				placed[i] = done;
+				remaining.delete(i);
+				progressed = true;
+				continue;
+			}
+			// a transistor may be anchored by its base/gate alone
+			const side = transistorSide(el, u);
+			if (side && !at(el.n1) && !at(el.n2) && at(el.third!)) {
+				const t = at(el.third!)!;
+				const len = el.len ?? 1;
+				const mid = { x: t.x - side.x * 0.5, y: t.y - side.y * 0.5 };
+				if (el.n1 !== GROUND) pos.set(el.n1, { x: mid.x - (u.x * len) / 2, y: mid.y - (u.y * len) / 2 });
+				else pos.set(el.n2, { x: mid.x + (u.x * len) / 2, y: mid.y + (u.y * len) / 2 });
+			}
 			const p1 = at(el.n1);
 			const p2 = at(el.n2);
 			if (!p1 && !p2) continue;
@@ -248,7 +356,16 @@ export function layoutCircuit(c: Circuit): { nodes: Map<string, Point>; placed: 
 				[a, b] = [{ x: p2!.x - u.x * len, y: p2!.y - u.y * len }, p2!];
 				if (el.n1 !== GROUND) pos.set(el.n1, a);
 			}
-			placed[i] = { el, a, b };
+			if (side) {
+				// the base/gate: half a unit beside the middle of the main axis
+				const t = { x: (a.x + b.x) / 2 + side.x * 0.5, y: (a.y + b.y) / 2 + side.y * 0.5 };
+				const known = at(el.third!);
+				if (known && (Math.abs(known.x - t.x) > 1e-9 || Math.abs(known.y - t.y) > 1e-9)) {
+					throw new FigureError(el.line, `${el.name}'s ${el.kind === "Q" ? "base" : "gate"} ${el.third} must sit half a unit beside the middle of ${el.n1}–${el.n2}, but other lines put it ${describe(known.x - t.x, known.y - t.y)} of there — move those lines (or use "mirror" for the other side)`);
+				}
+				if (el.third !== GROUND) pos.set(el.third!, t);
+				placed[i] = { el, a, b, c: t };
+			} else placed[i] = { el, a, b };
 			remaining.delete(i);
 			progressed = true;
 		}
@@ -267,7 +384,7 @@ export function layoutCircuit(c: Circuit): { nodes: Map<string, Point>; placed: 
 	for (const [n, p] of pos) {
 		const other = owner.get(key(p));
 		if (other) {
-			const line = c.elements.find((e) => e.n1 === n || e.n2 === n)!.line;
+			const line = c.elements.find((e) => [e.n1, e.n2, e.third, ...(e.control ?? [])].includes(n))?.line ?? 1;
 			throw new FigureError(line, `nodes ${other} and ${n} land on the same point of the drawing — change a direction or a length`);
 		}
 		owner.set(key(p), n);
@@ -291,7 +408,8 @@ interface Stamp {
 	/** Voltage sources (extra unknown: their current a → b inside): V(a) − V(b) = v. */
 	v: Array<{ a: string; b: string; v: number; name: string }>;
 	/** VCVS: V(a) − V(b) = k (V(c) − V(d)). */
-	e: Array<{ a: string; b: string; c: string; d: string; k: number; name: string }>;
+	/** ideal: an op-amp — infinite gain, so the row is V(c) − V(d) = 0. */
+	e: Array<{ a: string; b: string; c: string; d: string; k: number; name: string; ideal?: boolean }>;
 	/** VCCS: current k (V(c) − V(d)) from a to b through the source. */
 	gm: Array<{ a: string; b: string; c: string; d: string; k: number }>;
 }
@@ -363,10 +481,16 @@ function solveStamp(st: Stamp, nodes: string[], ground: string): Map<string, num
 		addA(r, I(b), -1);
 		rhs[r] = v;
 	});
-	st.e.forEach(({ a, b, c, d, k }, j) => {
+	st.e.forEach(({ a, b, c, d, k, ideal }, j) => {
 		const r = nv + st.v.length + j;
 		addA(I(a), r, 1);
 		addA(I(b), r, -1);
+		if (ideal) {
+			// the virtual short: V(+) = V(−), the output current whatever it takes
+			addA(r, I(c), 1);
+			addA(r, I(d), -1);
+			return;
+		}
 		addA(r, I(a), 1);
 		addA(r, I(b), -1);
 		addA(r, I(c), -k);
@@ -382,8 +506,10 @@ function solveStamp(st: Stamp, nodes: string[], ground: string): Map<string, num
 
 /** Why the circuit cannot be solved (only drawn), or null. */
 export function notSolvable(c: Circuit): string | null {
-	const d = c.elements.find((e) => e.kind === "D");
-	return d ? `${d.name} is a diode — circuits with diodes are drawn, not solved; compute by hand` : null;
+	const d = c.elements.find((e) => e.kind === "D" || e.kind === "Q" || e.kind === "M");
+	if (!d) return null;
+	const what = d.kind === "D" ? "a diode" : "a transistor";
+	return `${d.name} is ${what} — circuits with diodes or transistors are drawn, not solved; compute by hand`;
 }
 
 interface Mode {
@@ -421,7 +547,7 @@ function stampOf(c: Circuit, mode: Mode): Stamp {
 				if (!mode.zeroSources || el.name === PROBE) st.i.push([a, b, el.value!]);
 				break;
 			case "E":
-				st.e.push({ a, b, c: el.control![0], d: el.control![1], k: el.value!, name: el.name });
+				st.e.push({ a, b, c: el.control![0], d: el.control![1], k: el.value ?? Infinity, name: el.name, ...(el.opamp ? { ideal: true } : {}) });
 				break;
 			case "G":
 				st.gm.push({ a, b, c: el.control![0], d: el.control![1], k: el.value! });
@@ -487,7 +613,7 @@ function branchCurrents(c: Circuit, v: Map<string, number>, mode: Mode): Map<str
 	return i;
 }
 
-const allNodes = (c: Circuit) => [...new Set([GROUND, ...c.elements.flatMap((e) => [e.n1, e.n2, ...(e.control ?? [])])])];
+const allNodes = (c: Circuit) => [...new Set([GROUND, ...c.elements.flatMap((e) => [e.n1, e.n2, ...(e.third ? [e.third] : []), ...(e.control ?? [])])])];
 
 function solveMode(c: Circuit, mode: Mode, ground = GROUND): Solution {
 	const why = notSolvable(c);
