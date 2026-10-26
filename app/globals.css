@@ -30,6 +30,13 @@
 /* Palette (owner's hexes): main #141414, raised #1C1C1C, edges #434343.
    Mono chrome = JetBrains Mono; prose = Source Sans 3; titles = CMU Serif. */
 :root {
+	/* Safe-area insets (M5): the notch / system-bar / gesture-bar reach, for
+	   edge UI to pad by. `viewport-fit=cover` (app/layout.tsx) is what makes
+	   env() nonzero; on desktop and in a plain browser all four are 0. */
+	--lh-safe-top: env(safe-area-inset-top, 0px);
+	--lh-safe-right: env(safe-area-inset-right, 0px);
+	--lh-safe-bottom: env(safe-area-inset-bottom, 0px);
+	--lh-safe-left: env(safe-area-inset-left, 0px);
 	color-scheme: dark;
 	--radius: 8px;
 	--background: #141414;
@@ -181,7 +188,16 @@
 	border-color: var(--color-border);
 }
 
+/* A 60px page header band that also clears the top safe-area inset (M5).
+   Unlayered on purpose: it beats the h-15 utility it rides beside. */
+.lh-safe-bar {
+	height: calc(3.75rem + var(--lh-safe-top));
+	padding-top: var(--lh-safe-top);
+}
+
 body {
+	padding-left: var(--lh-safe-left);
+	padding-right: var(--lh-safe-right);
 	background: var(--color-background);
 	color: var(--color-foreground);
 	font-family: var(--font-ui);

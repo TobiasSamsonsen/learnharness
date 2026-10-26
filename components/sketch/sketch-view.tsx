@@ -187,7 +187,7 @@ export function SketchView({
 			data-testid="sketch-view"
 			role="dialog"
 			aria-label="Sketch"
-			className="lh-no-drag fixed inset-0 z-50 flex flex-col bg-background"
+			className="lh-no-drag fixed inset-0 z-50 flex flex-col bg-background pb-[var(--lh-safe-bottom)] pl-[var(--lh-safe-left)] pr-[var(--lh-safe-right)] pt-[var(--lh-safe-top)]"
 		>
 			{/* The whole page is canvas; the problem floats above it (owner,
 			    2026-10-26) — draggable, collapsible to a pill. */}

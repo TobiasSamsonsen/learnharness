@@ -37,6 +37,31 @@
 import { useEffect, useRef } from "react";
 import { isTypingSurface } from "@/src/core";
 
+/** Touch devices (M5, owner): the PRIMARY pointer is coarse. Read at event
+ *  time — no hook, no re-render, no hydration question — and guarded for
+ *  hosts without matchMedia (linkedom, SSR). A tablet with a keyboard
+ *  attached still counts as coarse; ⌘/Ctrl+Enter sends there. */
+export function isCoarsePointer(): boolean {
+	try {
+		return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+	} catch {
+		return false;
+	}
+}
+
+/** THE chord every text field shares: does this keydown SEND? Enter sends
+ *  and Shift+Enter is a newline — except on a coarse pointer, where plain
+ *  Enter is a newline too (the soft keyboard's return key) and the send
+ *  button submits; ⌘/Ctrl+Enter sends everywhere. Pure given `coarse`. */
+export function enterSends(
+	e: { key: string; shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
+	coarse: boolean = isCoarsePointer(),
+): boolean {
+	if (e.key !== "Enter") return false;
+	if (e.metaKey || e.ctrlKey) return true;
+	return !e.shiftKey && !coarse;
+}
+
 /** Overlay roots whose buttons keep native Enter (hand-rolled menus mark
  *  themselves data-lh-menu; Radix poppers/dialogs carry their own attrs). */
 const OVERLAY_ROOTS = '[data-lh-menu], [data-radix-popper-content-wrapper], [role="menu"], [role="dialog"]';

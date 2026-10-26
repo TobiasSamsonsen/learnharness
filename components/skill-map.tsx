@@ -5,6 +5,7 @@ import { ExpandIcon, MaximizeIcon, MinusIcon, PlusIcon, ShrinkIcon } from "lucid
 import type { PlanNodeStatus } from "@/src/core";
 import { blockLayout, GRAPH_PAD, NODE_H, NODE_W_MIN, PlanDiagram, type LayoutNode } from "@/components/plan-block";
 import { FIT_PAD, fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/components/pan-zoom";
+import { usePanZoomGestures } from "@/components/use-pan-zoom-gestures";
 import { cn } from "@/lib/utils";
 
 /**
@@ -152,25 +153,18 @@ export function SkillMap({
 		return () => document.removeEventListener("keydown", onKey);
 	}, [expanded]);
 
-	const [panning, setPanning] = useState(false);
-	const dragRef = useRef<{ px: number; py: number; x: number; y: number; moved: boolean } | null>(null);
-	const startDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-		if (e.button !== 0 || (e.target as HTMLElement).closest("button") || atFloor) return;
-		dragRef.current = { px: e.clientX, py: e.clientY, x: view.x, y: view.y, moved: false };
-		setPanning(true);
-		e.currentTarget.setPointerCapture(e.pointerId);
-	};
-	const moveDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-		const d = dragRef.current;
-		if (!d) return;
-		d.moved = true;
-		setView((v) => (v.zoom <= floor + 1e-9 ? v : { ...v, x: d.x + (e.clientX - d.px), y: d.y + (e.clientY - d.py) }));
-	};
-	const endDrag = () => {
-		if (dragRef.current?.moved) userAdjustedRef.current = true;
-		dragRef.current = null;
-		setPanning(false);
-	};
+	// Mouse drags; touch pans and pinches. Inline, one finger is the page's
+	// scroll and two fingers are the map's (the Ctrl+wheel analogue).
+	const { panning, handlers } = usePanZoomGestures({
+		viewportRef,
+		view,
+		setView,
+		surface: { floor, box, viewport: size },
+		onAdjusted: () => {
+			userAdjustedRef.current = true;
+		},
+		touchPanNeedsTwo: !expanded,
+	});
 	const stepZoom = (factor: number) => {
 		userAdjustedRef.current = true;
 		setView((v) => zoomedGraphView(v, factor, floor, { x: size.w / 2, y: size.h / 2 }, box, size));
@@ -189,22 +183,20 @@ export function SkillMap({
 			data-testid="skill-map"
 			data-expanded={expanded}
 			className={cn(
-				expanded && "lh-no-drag fixed inset-x-0 bottom-0 top-13 z-40 flex flex-col bg-background/95 p-4 backdrop-blur-sm",
+				expanded && "lh-no-drag fixed inset-x-0 bottom-0 top-13 z-40 flex flex-col bg-background/95 p-4 pb-[calc(1rem+var(--lh-safe-bottom))] backdrop-blur-sm",
 			)}
 		>
 			<div
 				ref={viewportRef}
 				data-testid="skill-map-viewport"
 				className={cn(
-					"relative touch-none overflow-hidden rounded-xl border border-border/60 select-none",
-					expanded ? "min-h-0 flex-1" : "",
+					"relative overflow-hidden rounded-xl border border-border/60 select-none",
+					// Inline, one finger scrolls the page (pan-y); expanded, the map owns every touch.
+					expanded ? "min-h-0 flex-1 touch-none" : "touch-pan-y",
 					atFloor ? "cursor-default" : panning ? "cursor-grabbing" : "cursor-grab",
 				)}
 				style={expanded ? undefined : { height: inlineHeight }}
-				onPointerDown={startDrag}
-				onPointerMove={moveDrag}
-				onPointerUp={endDrag}
-				onPointerCancel={endDrag}
+				{...handlers}
 			>
 				<div
 					className="absolute top-0 left-0 origin-top-left"
@@ -218,7 +210,12 @@ export function SkillMap({
 				</div>
 				<div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-2">
 					<span className="truncate text-[11px] text-muted-foreground/60">
-						{atFloor ? "Zoom in to pan" : expanded ? "Drag to pan · scroll to zoom" : "Drag to pan · Ctrl+scroll to zoom"}
+						<span className="[@media(hover:none)]:hidden">
+							{atFloor ? "Zoom in to pan" : expanded ? "Drag to pan · scroll to zoom" : "Drag to pan · Ctrl+scroll to zoom"}
+						</span>
+						<span className="hidden [@media(hover:none)]:inline">
+							{expanded ? "Drag to pan · pinch to zoom" : "Two fingers to pan and pinch"}
+						</span>
 					</span>
 					<div className="flex shrink-0 gap-1">
 						<button type="button" aria-label="Zoom out" className={control} onClick={() => stepZoom(1 / 1.25)}>

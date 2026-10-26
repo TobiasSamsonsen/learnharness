@@ -656,6 +656,10 @@ export class GraphCanvasRenderer {
 
 	private resizeObserver: ResizeObserver;
 	private downPos: Pt | null = null;
+	/** A long-press just opened the context menu: the release that follows
+	 *  belongs to the menu, never to a node click or a stage click (touch,
+	 *  M5). Set by the contextmenu event, cleared by the next press. */
+	private pressOpenedMenu = false;
 
 	// ── Cached world geometry ─────────────────────────────────────────────
 	// Everything above is drawn per frame; everything below is derived from
@@ -985,6 +989,7 @@ export class GraphCanvasRenderer {
 	};
 
 	private onPointerDown = (e: PointerEvent) => {
+		this.pressOpenedMenu = false;
 		// Primary button only (owner, polish round): a right-press must not
 		// pin the node — right-click belongs to the context menu alone, and
 		// the right-pointerup must never read as a click (the detail card
@@ -1042,16 +1047,22 @@ export class GraphCanvasRenderer {
 				// detects the settle and schedules the commit.
 				this.sim?.alphaTarget(0);
 				this.markDirty();
-			} else {
-				// Never heated: a plain click on the node.
+			} else if (!this.pressOpenedMenu) {
+				// Never heated: a plain click on the node — unless this release
+				// ends the long-press that opened the context menu.
 				this.callbacks.onSelect(id, this.eventPos(e));
 			}
+			this.pressOpenedMenu = false;
 			return;
 		}
 		if (!this.downPos) return;
 		const pos = this.eventPos(e);
 		const moved = Math.hypot(pos.x - this.downPos.x, pos.y - this.downPos.y);
 		this.downPos = null;
+		if (this.pressOpenedMenu) {
+			this.pressOpenedMenu = false;
+			return; // the release of a menu-opening long-press is not a stage click
+		}
 		if (moved > CLICK_SLOP) return; // that was a drag (pan), not a click
 		const node = this.pickAt(pos.x, pos.y);
 		if (node) this.callbacks.onSelect(node.id, pos);
@@ -1062,6 +1073,7 @@ export class GraphCanvasRenderer {
 	 *  the caller (empty stage = null — the caller closes any open menu). */
 	private onContextMenu = (e: MouseEvent) => {
 		e.preventDefault();
+		this.pressOpenedMenu = true;
 		const pos = this.eventPos(e);
 		const node = this.pickAt(pos.x, pos.y);
 		this.callbacks.onContext(node?.id ?? null, pos);

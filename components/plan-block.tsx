@@ -13,6 +13,7 @@ import { layout as dagreLayout } from "dagre-d3-es/src/dagre/index.js";
 // d3's curveBasis (the exact recipe dagre-d3's own renderer uses).
 import { curveBasis, line } from "d3-shape";
 import { fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/components/pan-zoom";
+import { usePanZoomGestures } from "@/components/use-pan-zoom-gestures";
 import type { PlanBlockData, PlanNodeStatus, PlanTree } from "@/src/core";
 import { derivedNodeStatus, derivePlanStatuses } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
@@ -838,34 +839,16 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 	// Smooth zoom: the transform eases between states (CSS retargets from the
 	// current computed value, so chained wheel ticks stay fluid). Panning is
 	// per-frame — the transition is off while dragging or it rubber-bands.
-	const [panning, setPanning] = useState(false);
-	const dragRef = useRef<{ px: number; py: number; x: number; y: number; moved: boolean } | null>(null);
-	const startDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-		if (e.button !== 0) return;
-		if ((e.target as HTMLElement).closest("button")) return;
-		if (atFloor) return;
-		dragRef.current = { px: e.clientX, py: e.clientY, x: view.x, y: view.y, moved: false };
-		setPanning(true);
-		e.currentTarget.classList.add("cursor-grabbing");
-		e.currentTarget.setPointerCapture(e.pointerId);
-	};
-	const moveDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-		const d = dragRef.current;
-		if (!d) return;
-		d.moved = true;
-		setView((v) =>
-			v.zoom <= fitZoom + 1e-9 ? v : { ...v, x: d.x + (e.clientX - d.px), y: d.y + (e.clientY - d.py) },
-		);
-	};
-	const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-		const d = dragRef.current;
-		if (d) {
-			dragRef.current = null;
-			if (d.moved) userAdjustedRef.current = true;
-		}
-		setPanning(false);
-		e.currentTarget.classList.remove("cursor-grabbing");
-	};
+	// Mouse drags; touch pans with one finger and pinches with two.
+	const { panning, handlers } = usePanZoomGestures({
+		viewportRef,
+		view,
+		setView,
+		surface: { floor: fitZoom, box, viewport: size },
+		onAdjusted: () => {
+			userAdjustedRef.current = true;
+		},
+	});
 	const stepZoom = (factor: number) => {
 		userAdjustedRef.current = true;
 		setView((v) => zoomedGraphView(v, factor, fitZoom, { x: size.w / 2, y: size.h / 2 }, box, size));
@@ -911,12 +894,9 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 				ref={viewportRef}
 				className={cn(
 					"relative min-h-0 flex-1 touch-none overflow-hidden rounded-xl border select-none",
-					atFloor ? "cursor-default" : "cursor-grab",
+					atFloor ? "cursor-default" : panning ? "cursor-grabbing" : "cursor-grab",
 				)}
-				onPointerDown={startDrag}
-				onPointerMove={moveDrag}
-				onPointerUp={endDrag}
-				onPointerCancel={endDrag}
+				{...handlers}
 			>
 				{tree ? (
 					<>
@@ -947,7 +927,10 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 							/>
 						</div>
 						<div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-2">
-							<span className="text-xs text-muted-foreground/60">Drag to pan · scroll to zoom</span>
+							<span className="text-xs text-muted-foreground/60">
+									<span className="[@media(hover:none)]:hidden">Drag to pan · scroll to zoom</span>
+									<span className="hidden [@media(hover:none)]:inline">Drag to pan · pinch to zoom</span>
+								</span>
 							<div className="flex gap-1">
 								<Hint label="Zoom out" side="bottom">
 <button

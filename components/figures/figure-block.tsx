@@ -88,7 +88,7 @@ export function FigureInline({ lang, source, copy }: { lang: FigureLang; source:
 									type="button"
 									aria-label="Expand figure"
 									data-testid="md-figure-expand"
-									className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/md:opacity-100"
+									className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity [@media(hover:none)]:opacity-100 hover:bg-accent hover:text-foreground group-hover/md:opacity-100"
 									onClick={(e) => {
 										blurAfterPointerClick(e);
 										overlay.openFigure(withInk(svg), true);

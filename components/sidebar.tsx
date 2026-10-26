@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
@@ -55,6 +55,22 @@ const SIDEBAR_AUTOCLOSE = 928;
 // Module scope, guarded for SSR (the server has no navigator).
 const IS_ELECTRON = typeof navigator !== "undefined" && navigator.userAgent.includes("Electron");
 
+/*
+ * THE DRAWER (M5, owner 2026-10-26): below 1024px (Tailwind's `lg`, the
+ * same line the settings dialog goes full-screen at) a plain browser or
+ * WebView shows the sidebar as a MODAL overlay drawer — dimmed backdrop,
+ * closed by default, closed by the backdrop, Esc, or picking anything —
+ * instead of squeezing the page. Its open state is its own: it never reads
+ * or writes the stored inline preference (`lh:sidebar-open`), which keeps
+ * meaning "open on a wide screen". Electron keeps its 928px auto-close
+ * above and never takes the drawer.
+ */
+export const DRAWER_QUERY = "(width < 64rem)";
+
+/** A click this soon after a row's context menu opened is the release of the
+ *  long-press that opened it, not a tap (ms). */
+const CTX_RELEASE_GUARD_MS = 600;
+
 declare global {
 	interface Window {
 		/** Preload bridge (electron/preload.cjs) — Electron only, absent in the browser. */
@@ -73,9 +89,19 @@ declare global {
 	}
 }
 
-const SidebarContext = createContext<{ open: boolean; toggle: () => void }>({
+const SidebarContext = createContext<{
+	/** Effective: is the sidebar showing right now (inline column or drawer)? */
+	open: boolean;
+	toggle: () => void;
+	/** Below the drawer breakpoint (plain browser/WebView only). */
+	overlay: boolean;
+	/** Close the drawer (no-op inline) — picking a destination calls it. */
+	close: () => void;
+}>({
 	open: false,
 	toggle: () => {},
+	overlay: false,
+	close: () => {},
 });
 
 export function useSidebar() {
@@ -95,6 +121,24 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	const [open, setOpen] = useState(false);
 	const [narrow, setNarrow] = useState(false);
 	const [mounted, setMounted] = useState(false);
+	// The drawer: its own state, never persisted. `overlay` is read in a
+	// LAYOUT effect so a tablet never paints the inline-open sidebar first.
+	const [overlay, setOverlay] = useState(false);
+	const [drawerOpen, setDrawerOpen] = useState(false);
+	useLayoutEffect(() => {
+		if (IS_ELECTRON || typeof window.matchMedia !== "function") return;
+		const mq = window.matchMedia(DRAWER_QUERY);
+		const sync = () => setOverlay(mq.matches);
+		sync();
+		mq.addEventListener("change", sync);
+		return () => mq.removeEventListener("change", sync);
+	}, []);
+	const pathname = usePathname();
+	// Any navigation closes the drawer (links, session rows, the keyboard).
+	useEffect(() => {
+		setDrawerOpen(false);
+	}, [pathname]);
+	const close = useCallback(() => setDrawerOpen(false), []);
 
 	useEffect(() => {
 		// Electron shell detection (merged chrome, 2026-09-17): keys the
@@ -137,6 +181,10 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	}, []);
 
 	const toggle = useCallback(() => {
+		if (overlay) {
+			setDrawerOpen((v) => !v);
+			return;
+		}
 		// Opening while narrow (auto-closed, or the user's own closed-at-
 		// narrow): ask the shell to widen to the threshold — the resize
 		// listener flips `narrow` and the sidebar appears. The preference
@@ -152,7 +200,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 			localStorage.setItem(STORAGE_KEY, v ? "0" : "1");
 			return !v;
 		});
-	}, [narrow, open]);
+	}, [narrow, open, overlay]);
 
 	// ⌘B: the global shortcut dispatches kbdEventForAction("toggle-sidebar")
 	// and the context answers on exactly that name — the shared spelling
@@ -168,7 +216,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	}, [toggle]);
 
 	return (
-		<SidebarContext.Provider value={{ open: open && !narrow, toggle }}>
+		<SidebarContext.Provider value={{ open: overlay ? drawerOpen : open && !narrow, toggle, overlay, close }}>
 			{/* transitions gated on mount: no slide-in flash on page load */}
 			<div className={cn("flex h-dvh", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
 		</SidebarContext.Provider>
@@ -301,6 +349,7 @@ export function SessionRow({
 			type="button"
 			onClick={onOpen}
 			onContextMenu={onContextMenu}
+			data-drawer-close
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
 			className={cn(
 				"relative mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent",
@@ -388,7 +437,7 @@ export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {
-	const { open, toggle } = useSidebar();
+	const { open, toggle, overlay, close } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	// The course list (fork addition): titles for the session rows' labels.
 	const [courses, setCourses] = useState<CourseSummary[]>([]);
@@ -551,8 +600,13 @@ function SessionsSidebar() {
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
 
+	// A touch long-press fires contextmenu and may still deliver the release
+	// as a click on the same row — which would open the session under the
+	// menu. Rows ignore a click that lands right after their menu opened.
+	const ctxOpenedAtRef = useRef(0);
 	const openContext = (e: React.MouseEvent<HTMLButtonElement>, chat: ChatListItem) => {
 		e.preventDefault(); // suppress the native menu
+		ctxOpenedAtRef.current = performance.now();
 		ctxAnchorRef.current = e.currentTarget;
 		setCtxChatId(chat.id);
 	};
@@ -645,12 +699,52 @@ function SessionsSidebar() {
 		// freshness (S6) — no interval, nothing standing.
 	}, [open, pathname, refresh]);
 
+	// The drawer's Esc (modal, so Esc closes it): claimed at the document
+	// level like every surfaced layer (THE ONE-ESC LAW) — but an open row menu
+	// or an inline rename owns its own Esc first, and the search field's blur
+	// never reaches here (its handler stops the event).
+	useEffect(() => {
+		if (!overlay || !open) return;
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key !== "Escape" || ctxChatId !== null || renamingId !== null) return;
+			e.preventDefault();
+			e.stopPropagation();
+			close();
+		};
+		document.addEventListener("keydown", onKey);
+		return () => document.removeEventListener("keydown", onKey);
+	}, [overlay, open, close, ctxChatId, renamingId]);
+
 	return (
-		<aside
-			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0")}
-			aria-hidden={!open}
-		>
-			<div className="flex h-full w-72 flex-col border-r bg-background">
+		<>
+			{overlay && open && (
+				<div
+					data-testid="sidebar-backdrop"
+					aria-hidden="true"
+					className="fixed inset-0 z-[44] bg-background/60"
+					onClick={close}
+				/>
+			)}
+			<aside
+				data-testid="sidebar"
+				data-overlay={overlay || undefined}
+				className={cn(
+					overlay
+						? cn(
+								"fixed inset-y-0 left-0 z-[45] w-72 max-w-[85vw] overflow-hidden transition-transform duration-200",
+								open ? "translate-x-0 shadow-xl" : "-translate-x-full",
+							)
+						: cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0"),
+				)}
+				aria-hidden={!open}
+				inert={overlay && !open}
+				// A destination picked in the drawer closes it: links, rows, the
+				// new-session doors, settings (elements opt in with data-drawer-close).
+				onClickCapture={(e) => {
+					if (overlay && (e.target as Element).closest("[data-drawer-close], a[href]")) close();
+				}}
+			>
+				<div className="flex h-full w-72 max-w-[85vw] flex-col border-r bg-background pb-[var(--lh-safe-bottom)] pl-[var(--lh-safe-left)] pt-[var(--lh-safe-top)]">
 				{/* LH wordmark — the owner's header; close toggle sits at the edge.
 				    Merged chrome (2026-09-17): in Electron this band is the
 				    window's drag surface and starts after the traffic lights
@@ -700,6 +794,7 @@ function SessionsSidebar() {
 					<button
 						type="button"
 						data-testid="new-session"
+						data-drawer-close
 						onClick={() => void newSession()}
 						className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
@@ -710,6 +805,7 @@ function SessionsSidebar() {
 					<button
 						type="button"
 						data-testid="new-session-practice"
+						data-drawer-close
 						onClick={() => router.push("/chat/new?mode=practice")}
 						className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
@@ -833,6 +929,7 @@ function SessionsSidebar() {
 									active={pathname === `/chat/${c.id}`}
 									kbdSelected={i === kbdIndex}
 									onOpen={() => {
+										if (performance.now() - ctxOpenedAtRef.current < CTX_RELEASE_GUARD_MS) return;
 										setKbdIndex(null);
 										router.push(`/chat/${c.id}`);
 									}}
@@ -860,6 +957,7 @@ function SessionsSidebar() {
 								type="button"
 								onClick={() => openSettings()}
 								data-testid="settings-entry"
+								data-drawer-close
 								className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 							>
 								<SettingsIcon className="size-3" />
@@ -893,7 +991,7 @@ function SessionsSidebar() {
 								setRenamingId(ctxChatId);
 								setCtxChatId(null);
 							}}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent [@media(pointer:coarse)]:min-h-11"
 						>
 							Rename
 						</button>
@@ -915,7 +1013,7 @@ function SessionsSidebar() {
 								a.click();
 								a.remove();
 							}}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent [@media(pointer:coarse)]:min-h-11"
 						>
 							Export as Markdown…
 						</button>
@@ -927,7 +1025,7 @@ function SessionsSidebar() {
 								if (target) setDeleting(target);
 								setCtxChatId(null);
 							}}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-muted-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
+							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-muted-foreground/80 transition-colors hover:bg-accent hover:text-foreground [@media(pointer:coarse)]:min-h-11"
 						>
 							Delete…
 						</button>
@@ -944,6 +1042,7 @@ function SessionsSidebar() {
 					onDeleted={onDeleted}
 				/>
 			</aside>
+		</>
 	);
 }
 

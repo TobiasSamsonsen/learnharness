@@ -615,7 +615,7 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 	const hasSkills = data.skills.length > 0;
 	return (
 		<div className="relative h-dvh overflow-y-auto">
-			<header className="lh-drag sticky top-0 z-10 flex items-center gap-3 bg-background/85 px-3 py-2 backdrop-blur">
+			<header className="lh-drag sticky top-0 z-10 flex items-center gap-3 bg-background/85 px-3 pb-2 pt-[calc(0.5rem+var(--lh-safe-top))] backdrop-blur">
 				<SidebarToggle />
 				<input
 					value={title}
