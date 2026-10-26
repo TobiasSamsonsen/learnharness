@@ -27,16 +27,23 @@ export const readSketchInputObject = Type.Object({
 			"(blocks, arrows, labels, values).",
 	}),
 	uncertain: Type.Array(Type.String(), {
-		description: "REQUIRED — every doubtful mark, one plain-language line each; [] when there are none.",
+		description: "REQUIRED — every doubtful mark you could NOT settle, one plain-language line each; [] when there are none.",
 	}),
+	settled: Type.Optional(
+		Type.Array(Type.String(), {
+			description:
+				"Unclear marks you settled against the committed answer, one plain line each (what it could be, what you took). " +
+				"Omit when there are none.",
+		}),
+	),
 });
 
 export type ReadSketchInput = Static<typeof readSketchInputObject>;
 
 export const READ_SKETCH_ACK = "Reading recorded. Now respond to the work.";
 export const READ_SKETCH_DOUBT_ACK =
-	"Reading recorded, with doubts. If a doubt could change your verdict, ask the learner about it and do not grade yet; " +
-	"read the sketch again once they answer.";
+	"Reading recorded, with doubts. STOP: write nothing now — the learner sees the doubts on the card and will clarify. " +
+	"Read the sketch again once they answer.";
 
 export interface ReadSketchContext {
 	/** The sketches the transcript carries (read fresh per call). */
@@ -51,7 +58,7 @@ export function readSketchTool(ctx: ReadSketchContext): AgentTool<typeof readSke
 		label: "read_sketch",
 		description:
 			"Record your transcription of the learner's handwritten sketch: its id, exactly what is written (errors included, never corrected), " +
-			"and every doubtful mark. Call it first on any turn that carries a sketch, before feedback or grading. The learner sees your reading " +
+			"every doubtful mark you could not settle, and any you settled against the committed answer. Call it first on any turn that carries a sketch, before feedback or grading. The learner sees your reading " +
 			"and may dispute it.",
 		parameters: readSketchInputObject,
 		executionMode: "sequential",
@@ -65,9 +72,13 @@ export function readSketchTool(ctx: ReadSketchContext): AgentTool<typeof readSke
 				return invalidInputResult("read_sketch", ["reading is empty — transcribe what is written"]);
 			}
 			ctx.onRead?.(input.sketchId, input.uncertain);
+			const doubtful = input.uncertain.length > 0;
 			return {
-				content: [{ type: "text", text: input.uncertain.length > 0 ? READ_SKETCH_DOUBT_ACK : READ_SKETCH_ACK }],
-				details: { sketchId: input.sketchId, doubts: input.uncertain.length },
+				content: [{ type: "text", text: doubtful ? READ_SKETCH_DOUBT_ACK : READ_SKETCH_ACK }],
+				details: { sketchId: input.sketchId, doubts: input.uncertain.length, settled: input.settled?.length ?? 0 },
+				// Open doubts end the turn: the card asks for the clarification, and
+				// the paragraph waits until everything is verified (owner, 2026-10-26).
+				...(doubtful ? { terminate: true } : {}),
 			};
 		},
 	};

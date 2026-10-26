@@ -352,7 +352,7 @@ export function serializeForSummary(messages: readonly LhMessage[]): string {
 		if (!ref) return null;
 		const reading = sketchStates.get(ref.id)?.read;
 		return reading
-			? `[sketch ${ref.id} — read as: ${reading.reading}${reading.uncertain.length > 0 ? ` (doubts: ${reading.uncertain.join("; ")})` : ""}]`
+			? `[sketch ${ref.id} — read as: ${reading.reading}${reading.uncertain.length > 0 ? ` (doubts: ${reading.uncertain.join("; ")})` : ""}${reading.settled.length > 0 ? ` (settled: ${reading.settled.join("; ")})` : ""}]`
 			: `[sketch ${ref.id} — not read]`;
 	};
 	for (const m of messages) {

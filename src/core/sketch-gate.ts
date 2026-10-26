@@ -31,7 +31,11 @@ export const SKETCH_DISPUTE_MARKER = "sketch-dispute";
 /** What the tutor recorded about one sketch. */
 export interface SketchReading {
 	reading: string;
+	/** Doubts the tutor could NOT settle — the only ones that block grading. */
 	uncertain: string[];
+	/** Unclear marks it settled against the committed answer (what it could
+	 *  be, what it took): shown to the learner, never a block. */
+	settled: string[];
 }
 
 export interface SketchState {
@@ -52,7 +56,7 @@ export function isConfirmed(state: SketchState | undefined): boolean {
  *  same wobbles the agent boundary healed — a leaked `</parameter>` boundary
  *  in `sketchId` (seen live, 2026-10-26), a JSON-string `uncertain`). */
 const READ_SKETCH_DISPLAY_SCHEMA = {
-	properties: { sketchId: { type: "string" }, reading: { type: "string" }, uncertain: { type: "array" } },
+	properties: { sketchId: { type: "string" }, reading: { type: "string" }, uncertain: { type: "array" }, settled: { type: "array" } },
 };
 
 /** A read_sketch call's arguments, healed for reading. */
@@ -69,10 +73,10 @@ export function readSketchCall(rawArgs: unknown): { sketchId: string; reading: S
 function readingOf(rawArgs: unknown): { sketchId: string; reading: SketchReading } | null {
 	const args = healReadSketchArguments(rawArgs);
 	if (typeof args !== "object" || args === null) return null;
-	const a = args as { sketchId?: unknown; reading?: unknown; uncertain?: unknown };
+	const a = args as { sketchId?: unknown; reading?: unknown; uncertain?: unknown; settled?: unknown };
 	if (typeof a.sketchId !== "string" || typeof a.reading !== "string") return null;
-	const uncertain = Array.isArray(a.uncertain) ? a.uncertain.filter((u): u is string => typeof u === "string") : [];
-	return { sketchId: a.sketchId, reading: { reading: a.reading, uncertain } };
+	const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((u): u is string => typeof u === "string") : []);
+	return { sketchId: a.sketchId, reading: { reading: a.reading, uncertain: strings(a.uncertain), settled: strings(a.settled) } };
 }
 
 /** Every sketch's state, folded in record order. A read counts only
@@ -109,6 +113,16 @@ export function sketchStatesOf(messages: readonly AgentMessage[]): Map<string, S
 		}
 	}
 	return states;
+}
+
+/** Is this tool result a clean read_sketch that left doubts open? Such a
+ *  result ENDS the turn (the learner clarifies on the card; the tutor writes
+ *  nothing until it can read again with no doubts) — the turn stopper and the
+ *  continuation fold both read this one test, so they cannot disagree. */
+export function isDoubtfulReadResult(m: { toolName?: string; isError?: boolean; details?: unknown }): boolean {
+	if (m.toolName !== READ_SKETCH_TOOL || m.isError) return false;
+	const doubts = (m.details as { doubts?: unknown } | null)?.doubts;
+	return typeof doubts === "number" && doubts > 0;
 }
 
 /** The ids of every sketch the record carries (what read_sketch may name). */

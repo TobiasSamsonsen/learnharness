@@ -179,7 +179,11 @@ a choice question it is thinking). The files are under `sketches/<chat-id>/<id>/
 
 The tutor transcribes each sketch with a `read_sketch` tool call
 (`arguments.sketchId`, `arguments.reading` as the learner wrote it — errors included —
-and `arguments.uncertain`, a list of doubtful marks). **That reading is the durable
+`arguments.uncertain`, a list of doubtful marks it could not settle, and optionally
+`arguments.settled`, unclear marks it resolved against the problem's committed answer —
+what the mark could be and what it took; a settled mark is a guess the learner could
+dispute). A `read_sketch` result whose `details.doubts` is above zero ended its turn on
+purpose: the tutor writes nothing until the learner clarifies and it can read again. **That reading is the durable
 text record of the sketch**; it is a model transcription, not the learner's own words,
 and a `sketch-dispute` marker after it means the learner said it was wrong (a later
 `read_sketch` for the same `sketchId` replaces it). A practice `conclude` as `solved`

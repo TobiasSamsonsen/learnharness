@@ -47,7 +47,7 @@ import { ANSWER_NEXT_TEXT, PROSE_GATED_TOOLS, SKETCH_ANSWER_NEXT_TEXT, SKETCH_RE
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import type { SketchRef } from "./contracts/sketch.ts";
 import { SKETCH_MAX_REQUEST_PAGES, sketchLabel, sketchStubText } from "./sketch.ts";
-import { SKETCH_DISPUTE_MARKER, sketchOccurrencesOf, sketchReplayPlan, type SketchOccurrence } from "./sketch-gate.ts";
+import { SKETCH_DISPUTE_MARKER, isDoubtfulReadResult, sketchOccurrencesOf, sketchReplayPlan, type SketchOccurrence } from "./sketch-gate.ts";
 
 /** The hard-invariant wording for an aborted turn's unanswered calls —
  *  carried over verbatim from the pre-native era so the model's view
@@ -889,6 +889,10 @@ export function needsContinuation(messages: readonly LhMessage[]): boolean {
 		(m) => m.toolName === PRACTICE_PROBLEM_TOOL && !m.isError && m.details == null,
 	);
 	if (posedProblem) return false;
+	// A read with open doubts ENDED its turn deliberately (the learner
+	// clarifies on the card; the tutor writes nothing until it can read again
+	// clean) — a reload must not wake a phantom turn that writes the paragraph.
+	if (results.some(isDoubtfulReadResult)) return false;
 	const answered = new Set(results.map((m) => m.toolCallId));
 	const calls = (content as Array<{ type?: string; id?: string }>).filter(
 		(b) => b.type === "toolCall" && typeof b.id === "string",

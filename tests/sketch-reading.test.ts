@@ -26,6 +26,8 @@ import {
 	serializeForSummary,
 	sketchConcludeProblems,
 	sketchGateOf,
+	isDoubtfulReadResult,
+	needsContinuation,
 	readSketchCall,
 	sketchIdsOf,
 	sketchLabel,
@@ -131,6 +133,75 @@ describe("a raw record with leaked parameter markup", () => {
 	});
 });
 
+// A mark the tutor settled against the committed answer (owner, 2026-10-26):
+// recorded and shown, never a block.
+describe("settled marks", () => {
+	const settledCall = (callId: string, settled: unknown, uncertain: string[] = []): LhMessage[] => [
+		call(callId, "read_sketch", { sketchId: SK1, reading: "$(AB)_{21} = -5$", uncertain, settled }),
+		result(callId, "read_sketch", "Reading recorded."),
+	];
+	const SETTLED = ["bottom-left entry: -5, or 5 with a stroke through it; took -5, the committed answer"];
+
+	it("are recorded with the reading and do not unconfirm it", () => {
+		const record = [...posed(), thinking("call_p1"), ...settledCall("r1", SETTLED)];
+		const state = sketchStatesOf(asAgent(record)).get(SK1)!;
+		assert.deepEqual(state.read?.settled, SETTLED);
+		assert.deepEqual(state.read?.uncertain, []);
+		assert.ok(isConfirmed(state), "a settled mark is not a doubt");
+	});
+
+	it("let a solved conclude through — an unsettled doubt beside them still blocks", () => {
+		const gate = (extra: LhMessage[]) => sketchGateOf(asAgent([...posed(), thinking("call_p1"), ...extra]), "call_p1");
+		assert.deepEqual(sketchConcludeProblems(gate(settledCall("r1", SETTLED)), "solved"), []);
+		assert.match(sketchConcludeProblems(gate(settledCall("r2", SETTLED, ["the exponent"])), "solved")[0]!, /open doubts/);
+	});
+
+	it("default to none for old records, and a JSON-string list heals", () => {
+		assert.deepEqual(readSketchCall({ sketchId: SK1, reading: "x", uncertain: [] })?.reading.settled, []);
+		assert.deepEqual(readSketchCall({ sketchId: SK1, reading: "x", uncertain: [], settled: '["a mark"]' })?.reading.settled, ["a mark"]);
+	});
+
+	it("reach compaction summaries", () => {
+		const text = serializeForSummary([...posed(), thinking("call_p1"), ...settledCall("r1", SETTLED)]);
+		assert.match(text, /\(settled: bottom-left entry: -5/);
+	});
+
+	it("the tool takes the optional field and reports it", async () => {
+		const tool = readSketchTool({ known: () => new Set([SK1]) });
+		const ok = await tool.execute("c", { sketchId: SK1, reading: "$-5$", uncertain: [], settled: SETTLED });
+		assert.equal(ok.isError, undefined);
+		assert.deepEqual(ok.details, { sketchId: SK1, doubts: 0, settled: 1 });
+		const without = await tool.execute("c", { sketchId: SK1, reading: "$-5$", uncertain: [] });
+		assert.equal(without.isError, undefined, "optional");
+	});
+});
+
+// A read with open doubts ENDS its turn: the learner clarifies on the card
+// and the paragraph waits (owner, 2026-10-26).
+describe("a doubtful read ends the turn", () => {
+	const doubtfulResult = (callId: string, doubts: number): LhMessage =>
+		result(callId, "read_sketch", "Reading recorded.", { sketchId: SK1, doubts, settled: 0 });
+
+	it("isDoubtfulReadResult: clean and doubtful only", () => {
+		assert.equal(isDoubtfulReadResult({ toolName: "read_sketch", details: { doubts: 2 } }), true);
+		assert.equal(isDoubtfulReadResult({ toolName: "read_sketch", details: { doubts: 0 } }), false);
+		assert.equal(isDoubtfulReadResult({ toolName: "read_sketch", isError: true, details: { doubts: 2 } }), false);
+		assert.equal(isDoubtfulReadResult({ toolName: "conclude", details: { doubts: 2 } }), false);
+		assert.equal(isDoubtfulReadResult({ toolName: "read_sketch" }), false, "an old record without the count");
+	});
+
+	it("the record owes no continuation after one — a reload must not wake the paragraph", () => {
+		const record = (doubts: number) => [
+			...posed(),
+			thinking("call_p1"),
+			call("r1", "read_sketch", { sketchId: SK1, reading: "x", uncertain: doubts ? ["a mark"] : [] }),
+			doubtfulResult("r1", doubts),
+		];
+		assert.equal(needsContinuation(record(1)), false, "open doubts: the learner's clarification is the next turn");
+		assert.equal(needsContinuation(record(0)), true, "a clean read still owes its reaction");
+	});
+});
+
 // ─── the conclude gate ───────────────────────────────────────────────────────
 
 describe("the conclude gate", () => {
@@ -205,7 +276,9 @@ describe("read_sketch", () => {
 		assert.equal(clean.isError, undefined);
 		assert.match((clean.content[0] as { text: string }).text, /^Reading recorded\./);
 		const doubt = await t.execute("c", { sketchId: SK1, reading: "$x$", uncertain: ["a"] });
-		assert.match((doubt.content[0] as { text: string }).text, /ask the learner/);
+		assert.match((doubt.content[0] as { text: string }).text, /write nothing now/);
+		assert.equal((doubt as { terminate?: boolean }).terminate, true, "open doubts end the turn");
+		assert.equal((clean as { terminate?: boolean }).terminate, undefined, "a clean read does not");
 		assert.equal((await t.execute("c", { sketchId: "sk_unknown00000000", reading: "x", uncertain: [] })).isError, true);
 		assert.equal((await t.execute("c", { sketchId: SK1, reading: "  ", uncertain: [] })).isError, true);
 	});

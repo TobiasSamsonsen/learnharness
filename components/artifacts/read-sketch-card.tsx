@@ -5,6 +5,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { ChatActionsContext } from "@/components/chat";
 import { SketchThumbnail } from "@/components/sketch/sketch-thumbnail";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { healReadSketchArguments, repairMathForDisplay, type ArtifactPartProps } from "@/src/core";
 
 /**
@@ -23,6 +24,7 @@ interface ReadSketchInput {
 	sketchId?: unknown;
 	reading?: unknown;
 	uncertain?: unknown;
+	settled?: unknown;
 }
 
 export function ReadSketchCard({ part }: ArtifactPartProps) {
@@ -31,7 +33,11 @@ export function ReadSketchCard({ part }: ArtifactPartProps) {
 	const input = (healReadSketchArguments(part.input) ?? {}) as ReadSketchInput;
 	const sketchId = typeof input.sketchId === "string" ? input.sketchId : "";
 	const reading = typeof input.reading === "string" ? input.reading : "";
-	const doubts = Array.isArray(input.uncertain) ? input.uncertain.filter((u): u is string => typeof u === "string" && u.trim() !== "") : [];
+	const lines = (v: unknown): string[] => (Array.isArray(v) ? v.filter((u): u is string => typeof u === "string" && u.trim() !== "") : []);
+	const doubts = lines(input.uncertain);
+	// Marks the tutor settled against the committed answer (owner, 2026-10-26):
+	// shown, so a wrong guess can be spotted and disputed.
+	const settled = lines(input.settled);
 	const [asking, setAsking] = useState(false);
 	// Uncontrolled: the words are read on submit, nothing renders from them.
 	const wroteRef = useRef<HTMLInputElement>(null);
@@ -41,22 +47,45 @@ export function ReadSketchCard({ part }: ArtifactPartProps) {
 	// fact) — and the chat's say on whether a dispute can go out right now.
 	const dispute =
 		part.state === "output-available" ? (actions?.sketchDispute?.state(sketchId, part.toolCallId) ?? "none") : "none";
+	// OPEN doubts on the newest reading: the card asks for the clarification
+	// (red) and the tutor writes nothing until it can read again clean
+	// (owner, 2026-10-26). An older reading's doubts are history, shown muted.
+	const open = doubts.length > 0 && part.state === "output-available" && (actions?.sketchDispute?.isNewest(sketchId, part.toolCallId) ?? false);
 
 	return (
-		<div data-testid="read-sketch-card" className="lh-card-enter my-1 rounded-xl border bg-card p-3">
+		<div
+			data-testid="read-sketch-card"
+			data-needs-clarification={open ? "true" : undefined}
+			className={cn("lh-card-enter my-1 rounded-xl border p-3", open ? "border-destructive/60 bg-destructive/5" : "bg-card")}
+		>
 			{actions && <SketchThumbnail chatId={actions.chatId} sketch={{ id: sketchId, pages: [] }} />}
 			<div className="text-xs font-medium text-muted-foreground">I read:</div>
 			<div data-testid="read-sketch-reading" className="lh-prose mt-1 text-[15px]">
 				<MessageResponse>{repairMathForDisplay(reading)}</MessageResponse>
 			</div>
+			{settled.length > 0 && (
+				<div data-testid="read-sketch-settled" className="mt-2 text-sm text-muted-foreground">
+					<div className="text-xs font-medium">Took these as:</div>
+					<ul className="mt-0.5 list-disc pl-5">
+						{settled.map((d, i) => (
+							<li key={i}>{d}</li>
+						))}
+					</ul>
+				</div>
+			)}
 			{doubts.length > 0 && (
-				<div data-testid="read-sketch-doubts" className="mt-2 text-sm text-muted-foreground">
-					<div className="text-xs font-medium">Not sure about:</div>
+				<div data-testid="read-sketch-doubts" className={cn("mt-2 text-sm", open ? "text-destructive" : "text-muted-foreground")}>
+					<div className="text-xs font-medium">{open ? "Needs your clarification:" : "Not sure about:"}</div>
 					<ul className="mt-0.5 list-disc pl-5">
 						{doubts.map((d, i) => (
 							<li key={i}>{d}</li>
 						))}
 					</ul>
+				</div>
+			)}
+			{open && (
+				<div data-testid="read-sketch-clarify" className="mt-1.5 text-xs text-destructive/80">
+					Answer below to continue.
 				</div>
 			)}
 			{dispute === "disputed" && (

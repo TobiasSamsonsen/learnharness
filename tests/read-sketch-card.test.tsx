@@ -48,7 +48,7 @@ function part(over: Record<string, unknown> = {}) {
 	};
 }
 
-async function mount(opts: { part?: Record<string, unknown>; dispute?: Dispute; sent?: Array<[string, string | undefined]>; noContext?: boolean }) {
+async function mount(opts: { part?: Record<string, unknown>; dispute?: Dispute; newest?: boolean; sent?: Array<[string, string | undefined]>; noContext?: boolean }) {
 	host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
@@ -62,6 +62,7 @@ async function mount(opts: { part?: Record<string, unknown>; dispute?: Dispute; 
 				openSetup: () => {},
 				sketchDispute: {
 					state: () => opts.dispute ?? "none",
+					isNewest: () => opts.newest ?? false,
 					send: (id: string, text?: string) => void sent.push([id, text]),
 				},
 			};
@@ -85,6 +86,39 @@ describe("ReadSketchCard", () => {
 		assert.ok(has("read-sketch-reading"));
 		assert.match(el("read-sketch-doubts").textContent ?? "", /the exponent could be 3/);
 		assert.equal(el("read-sketch-doubts").querySelectorAll("li").length, 1, "blank doubts are dropped");
+	});
+
+	it("turns red and asks for the clarification while the newest reading has open doubts", async () => {
+		const doubtful = { input: { sketchId: SK, reading: "$-5$", uncertain: ["the bottom-left entry: -5 or 5 crossed out"] } };
+		await mount({ part: doubtful, newest: true });
+		assert.equal(el("read-sketch-card").getAttribute("data-needs-clarification"), "true");
+		assert.match(el("read-sketch-card").className, /border-destructive/);
+		assert.match(el("read-sketch-doubts").textContent ?? "", /Needs your clarification:.*bottom-left entry/s);
+		assert.match(el("read-sketch-doubts").className, /text-destructive/);
+		assert.match(el("read-sketch-clarify").textContent ?? "", /Answer below to continue/);
+		// An older reading's doubts are history, not a request.
+		await act(async () => root!.unmount());
+		await mount({ part: doubtful, newest: false });
+		assert.equal(el("read-sketch-card").getAttribute("data-needs-clarification"), null);
+		assert.ok(!has("read-sketch-clarify"));
+		assert.match(el("read-sketch-doubts").textContent ?? "", /Not sure about:/);
+		assert.ok(!/text-destructive/.test(el("read-sketch-doubts").className));
+		// Not red before the call has its result, nor when only marks were settled.
+		await act(async () => root!.unmount());
+		await mount({ part: { ...doubtful, state: "input-available", output: undefined }, newest: true });
+		assert.ok(!has("read-sketch-clarify"));
+		await act(async () => root!.unmount());
+		await mount({ part: { input: { sketchId: SK, reading: "$-5$", uncertain: [], settled: ["took -5"] } }, newest: true });
+		assert.ok(!has("read-sketch-clarify") && el("read-sketch-card").getAttribute("data-needs-clarification") === null);
+	});
+
+	it("lists the marks the tutor settled, apart from the doubts", async () => {
+		await mount({ part: { input: { sketchId: SK, reading: "$-5$", uncertain: [], settled: ["bottom-left entry: -5 or 5 crossed out; took -5"] } } });
+		assert.match(el("read-sketch-settled").textContent ?? "", /Took these as:.*took -5/s);
+		assert.ok(!has("read-sketch-doubts"), "nothing unresolved");
+		await act(async () => root!.unmount());
+		await mount({ part: { input: { sketchId: SK, reading: "$x$", uncertain: ["the exponent"] } } });
+		assert.ok(!has("read-sketch-settled") && has("read-sketch-doubts"));
 	});
 
 	it("heals the raw arguments the record keeps (leaked parameter markup)", async () => {

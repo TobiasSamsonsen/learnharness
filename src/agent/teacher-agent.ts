@@ -21,7 +21,7 @@ import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { figureInputProblems } from "../core/figures/index.ts";
 import { circuitSolveTool, figureGuideTool } from "./tools/figures.ts";
 import { readSketchTool } from "./tools/sketch.ts";
-import { READ_SKETCH_TOOL, sketchIdsOf } from "../core/sketch-gate.ts";
+import { READ_SKETCH_TOOL, isDoubtfulReadResult, sketchIdsOf } from "../core/sketch-gate.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
 import { toLlmMessages, nativeInputCause, type SketchImageResolver } from "../core/native-messages.ts";
 import { PROSE_GATE_REASON, proseGateBlocks } from "../core/prose-gate.ts";
@@ -175,8 +175,12 @@ export interface AgentBuildOptions {
 function makeQuestionStopper() {
 	return (context: {
 		message: { content: Array<{ type: string; id?: string; name?: string }> };
-		toolResults: Array<{ toolCallId: string; isError?: boolean }>;
+		toolResults: Array<{ toolCallId: string; toolName?: string; isError?: boolean; details?: unknown }>;
 	}): boolean => {
+		// A read_sketch that left doubts open ends the turn even in a mixed batch
+		// (a refused conclude beside it would otherwise let the model carry on
+		// and write the paragraph the card is waiting to hold back).
+		if (context.toolResults.some(isDoubtfulReadResult)) return true;
 		const called = new Set(
 			context.message.content
 				.filter((c) => c.type === "toolCall" && c.name !== undefined && (QUESTION_TOOLS as readonly string[]).includes(c.name!))

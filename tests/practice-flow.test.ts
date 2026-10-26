@@ -360,6 +360,72 @@ describe("practice flow — sketch readings", () => {
 		assert.equal(activeProblemOf(chatStore.getChat(chat.id)!.messages), null, "only the clean conclude freed the problem");
 	});
 
+	it("a mark settled against the committed answer concludes at once — no refusal, no question", async () => {
+		const chat = createPracticeChat("Test: sketch settled");
+		const { engine } = scripted([
+			() => fauxAssistantMessage([fauxToolCall("problem", POSE, { id: "call-t1" })], { stopReason: "toolUse" }),
+			() =>
+				fauxAssistantMessage(
+					[
+						fauxToolCall("read_sketch", { sketchId: SKETCH.id, reading: "$|G| = p$", uncertain: [], settled: ["the exponent: 2 or 3; took 2, the committed answer"] }, { id: "call-s1" }),
+						fauxToolCall("conclude", CONCLUDE, { id: "call-c1" }),
+					],
+					{ stopReason: "toolUse" },
+				),
+			() => fauxAssistantMessage([fauxText("I took the unclear exponent as 2. Clean proof.")]),
+		]);
+		const factory = sketchFactory(chat.id, engine);
+		await drainTurn(post(chat.id, { type: "text", text: "go" }), factory);
+		await drainTurn(post(chat.id, { type: "thinking", problemCallId: "call-t1", text: "", sketch: SKETCH }), factory);
+		const concludes = results(chat.id, "conclude");
+		assert.equal(concludes.length, 1);
+		assert.equal(concludes[0]!.isError, false, "settled marks do not block the gate");
+		assert.equal(activeProblemOf(chatStore.getChat(chat.id)!.messages), null);
+	});
+
+	it("open doubts end the turn with no paragraph — even beside a refused conclude — and the clarification brings it", async () => {
+		const chat = createPracticeChat("Test: sketch doubt stop");
+		const { engine, calls } = scripted([
+			() => fauxAssistantMessage([fauxToolCall("problem", POSE, { id: "call-u1" })], { stopReason: "toolUse" }),
+			// The model reads with a doubt AND tries to conclude in the same batch...
+			() =>
+				fauxAssistantMessage(
+					[
+						fauxToolCall("read_sketch", { sketchId: SKETCH.id, reading: "$x^?$", uncertain: ["the exponent: 2 or 3"] }, { id: "call-s1" }),
+						fauxToolCall("conclude", CONCLUDE, { id: "call-c1" }),
+					],
+					{ stopReason: "toolUse" },
+				),
+			// (No step here: the turn must end after the batch — the call count below
+			// proves no further model call was made.)
+			// After the learner clarifies:
+			() => fauxAssistantMessage([fauxToolCall("read_sketch", { sketchId: SKETCH.id, reading: "$x^2$", uncertain: [] }, { id: "call-s2" })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([fauxToolCall("conclude", CONCLUDE, { id: "call-c2" })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([fauxText("Verified: x squared. Clean proof.")]),
+		]);
+		const factory = sketchFactory(chat.id, engine);
+		await drainTurn(post(chat.id, { type: "text", text: "go" }), factory);
+		await drainTurn(post(chat.id, { type: "thinking", problemCallId: "call-u1", text: "", sketch: SKETCH }), factory);
+
+		const afterFirst = chatStore.getChat(chat.id)!.messages;
+		assert.equal(calls.length, 2, "pose + the doubtful read: no third model call");
+		assert.equal(
+			afterFirst.filter((m) => (m as { role?: string }).role === "assistant" && JSON.stringify(m).includes('"type":"text"')).length,
+			0,
+			"no assistant prose at all",
+		);
+		assert.equal((afterFirst.at(-1) as ToolResultMessage).role, "toolResult", "the turn ends on the tool results — no paragraph");
+		assert.equal(needsContinuation(afterFirst), false, "and a reload owes nothing");
+		assert.equal(activeProblemOf(afterFirst)?.toolCallId, "call-u1", "the refused conclude left the problem active");
+
+		await drainTurn(post(chat.id, { type: "thinking", problemCallId: "call-u1", text: "it's x squared" }), factory);
+		const messages = chatStore.getChat(chat.id)!.messages;
+		assert.equal(activeProblemOf(messages), null, "verified, then concluded");
+		const last = messages.at(-1) as { role: string; content: Array<{ text?: string }> };
+		assert.equal(last.role, "assistant");
+		assert.match(last.content[0]!.text!, /Verified: x squared/, "the paragraph came after verification");
+	});
+
 	it("a dispute is a recorded input: the marker lands, the model re-reads", async () => {
 		const chat = createPracticeChat("Test: sketch dispute");
 		const { engine, calls } = scripted([

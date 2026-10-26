@@ -138,6 +138,9 @@ export const ChatActionsContext = createContext<{
 	 *  the newest reading of a sketch while idle with no question waiting. */
 	sketchDispute?: {
 		state: (sketchId: string, toolCallId: string) => "available" | "disputed" | "none";
+		/** Is this call the newest reading of its sketch? (An older reading's
+		 *  doubts are history, not a request.) */
+		isNewest: (sketchId: string, toolCallId: string) => boolean;
 		send: (sketchId: string, text?: string) => void;
 	};
 } | null>(null);
@@ -757,6 +760,7 @@ export function Chat({
 		}
 		const idle = !busy && !pending && !compacting;
 		return {
+			isNewest: (sketchId: string, toolCallId: string): boolean => newestRead.get(sketchId) === toolCallId,
 			state: (sketchId: string, toolCallId: string): "available" | "disputed" | "none" =>
 				newestRead.get(sketchId) !== toolCallId ? "none" : states.get(sketchId)?.disputed ? "disputed" : idle ? "available" : "none",
 			send: (sketchId: string, text?: string) => {
