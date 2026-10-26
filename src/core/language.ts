@@ -130,6 +130,36 @@ export const LOCAL_STT_MODELS: Record<LessonLanguage, LocalSttModel> = {
 	},
 };
 
+/** Which local speech engine runs (LH_STT_ENGINE, Android plan M4):
+ *  transformers.js in a worker (the desktop default) or a whisper.cpp
+ *  `whisper-server` (the Android path; also runnable on the desktop). */
+export type SttEngine = "transformers" | "whispercpp";
+
+export const DEFAULT_STT_ENGINE: SttEngine = "transformers";
+
+/** An unset or unknown LH_STT_ENGINE value is the default engine. */
+export function parseSttEngine(value: string | undefined): SttEngine {
+	return value?.trim().toLowerCase() === "whispercpp" ? "whispercpp" : DEFAULT_STT_ENGINE;
+}
+
+/** One GGML model for the whisper.cpp engine: a file in a Hugging Face repo.
+ *  The defaults are the SMALL q5 models (owner, M4 bench, docs/android/stt-bench.md):
+ *  the only ones that stay ahead of live speech on a tablet CPU. */
+export interface WhisperCppModel {
+	language: LessonLanguage;
+	repo: string;
+	/** The file in the repo; also its name on disk under <data>/models/stt/ggml. */
+	file: string;
+	/** Whisper's language code for the request's `language` field. */
+	code: string;
+	sizeMb: number;
+}
+
+export const WHISPERCPP_MODELS: Record<LessonLanguage, WhisperCppModel> = {
+	en: { language: "en", repo: "ggerganov/whisper.cpp", file: "ggml-small.en-q5_1.bin", code: "en", sizeMb: 190 },
+	nb: { language: "nb", repo: "NbAiLab/nb-whisper-small", file: "ggml-model-q5_0.bin", code: "no", sizeMb: 175 },
+};
+
 const DTYPE_SUFFIX: Record<SttDtype, string> = { q8: "_quantized", q4: "_q4", fp16: "_fp16" };
 
 /** The files a model needs on disk (transformers.js's naming by dtype). */

@@ -153,6 +153,15 @@ If the GPU path can't run (no WebGPU adapter, a driver error), dictation falls b
 
 The model for a lesson's language downloads the first time you dictate in that language. The dictation bar shows the progress, or you can download in advance under Settings → General → Dictation. Models are stored in the app's data folder under `models/stt`. Transcription runs in a separate worker process that exits after 10 idle minutes to free its memory (~1 GB).
 
+#### whisper.cpp engine (optional, `LH_STT_ENGINE=whispercpp`)
+
+Dictation can run on [whisper.cpp](https://github.com/ggml-org/whisper.cpp)'s `whisper-server` instead of the transformers.js worker; the Android setup uses it. It is chosen only by environment variable, with one server per language (the small q5 models: `nb-whisper-small` and `whisper small.en`):
+
+- `LH_WHISPER_BIN=<path to whisper-server>`: the app starts it on first use, downloads the model once into `models/stt/ggml` in the data folder, and stops it after 10 idle minutes. `LH_WHISPER_THREADS` sets its `-t`.
+- `LH_WHISPER_URL_NB` / `LH_WHISPER_URL_EN`: use a server that is already running (nothing is spawned or downloaded).
+
+If whisper.cpp fails, the transcription fails (the recording is kept; **Retry** sends it again); there is no fallback to the other engine. The engine biases the transcript toward the lesson's own terms (the active question or problem, the plan's titles, recent bold terms) through whisper.cpp's prompt. Numbers: [docs/android/stt-bench.md](docs/android/stt-bench.md).
+
 To use Deepgram's cloud engine instead, choose *Deepgram (cloud)* under Settings → General → Dictation engine and add a Deepgram key; it gets the lesson's language too.
 
 ## Your keys, your data

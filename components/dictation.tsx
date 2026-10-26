@@ -181,9 +181,10 @@ export const METER_TICK_MS = 60;
 export const METER_CELLS = 48;
 
 /** POST one piece of a local run (16 kHz Int16 LE) and read its text. */
-async function postLocalPiece(piece: Uint8Array<ArrayBuffer>, language: LessonLanguage): Promise<PieceResult> {
+async function postLocalPiece(piece: Uint8Array<ArrayBuffer>, language: LessonLanguage, chatId?: string): Promise<PieceResult> {
 	try {
-		const res = await fetch(`/api/stt/local?language=${language}`, {
+		// &chat= lets the server bias the transcript toward the lesson's terms (whisper.cpp engine)
+		const res = await fetch(`/api/stt/local?language=${language}${chatId ? `&chat=${encodeURIComponent(chatId)}` : ""}`, {
 			method: "POST",
 			headers: { "Content-Type": "application/octet-stream" },
 			body: piece,
@@ -582,7 +583,7 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 			deliveredRef.current = [];
 			segmenterRef.current = createSegmenter();
 			queueRef.current = createPieceQueue({
-				transcribe: (piece) => postLocalPiece(piece, config.language),
+				transcribe: (piece) => postLocalPiece(piece, config.language, chatId),
 				deliver: (text) => {
 					if (gen !== genRef.current) return;
 					const target = questionTarget ?? appendRef.current;
@@ -714,7 +715,7 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 			}, 1000);
 			try {
 				if (retried) {
-					const result = await postLocalPiece(retried.clip, language);
+					const result = await postLocalPiece(retried.clip, language, chatId);
 					if (gen !== genRef.current) return; // cancelled meanwhile: discard
 					if (!result.ok) keepForRetry(result.error, retried.clip);
 					else if (result.text) bufferRef.current.push(result.text);

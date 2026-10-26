@@ -1,6 +1,6 @@
 # Android plan — status (2026-10-26)
 
-**M3 implemented and merged 2026-10-26 (see the M3 section at the end); the owner has no pen or touch screen, so the pen test is not done.**
+**M4 implemented on `feat/stt-whispercpp` (see the M4 section at the end).** M3 implemented and merged 2026-10-26 (see the M3 section at the end); the owner has no pen or touch screen, so the pen test is not done.**
 
 Plan: [plan.md](plan.md). Branch `feat/sketch-answers` holds the M1 and M2 work, by Claude for the owner.
 
@@ -60,3 +60,12 @@ Owner approved the defaults below ("go" on the written plan).
 - **Tests:** `sketch-contract`, `practice-flow` (re-send by id, unknown id), `sketch-view` (kept-page submit, blocked submit, erase undo, page growth, choices), `render-practice-surface` (chip). typecheck and lint clean; `npm test` 2403/2413, the 10 failures are the known Windows ones.
 - **Not done:** the manual pen test (pressure, palm rejection, eraser end, two-finger pan) — the owner has no pen or touch hardware; a Chrome check of the new UI against a real model turn. Prompt `18-sketches.md` gained one line (owner took the recommended wording): on a whole-page resubmit, respond to the bracketed new ink.
 - **Known limits:** after a reload in a narrower window, strokes past the edge are clipped, not reflowed. A dispute after a clean `solved` conclude is still the M2 open question (left out of M3 by default).
+
+### M4 (STT engine seam + whisper.cpp + vocabulary prompt): implemented 2026-10-26, plan approved by the owner ([m4-plan.md](m4-plan.md))
+Owner decisions: spawn mode and URL mode both; engine chosen by env var only (`LH_STT_ENGINE`, default `transformers`); GGML models auto-download (spawn mode); vocabulary from lesson terms only (stem, plan titles, bold spans then rare words from the last 6 teacher messages); failures surface (no fallback to transformers.js); URL mode is per language (`LH_WHISPER_URL_NB` / `_EN`); bench on the CPU build with the owner's own recordings; after the bench: **small q5 models for both languages, prompt on, threads left to whisper-server**.
+- Code: `src/server/stt/whispercpp.ts` (adapter), `stt/wav.ts`, `src/server/stt-local.ts` (engine dispatch, `sttEngine()`), `src/server/stt-vocabulary.ts` (per-chat cache by `updatedAt`), `src/core/dictation-vocabulary.ts` (`dictationVocabulary`, `dropPromptEcho`), `WHISPERCPP_MODELS` / `parseSttEngine` in `core/language.ts`; `POST /api/stt/local?chat=<id>`; `components/dictation.tsx` sends the chat id. `GET /api/stt/local` reports the active engine's models.
+- Tests: `tests/stt-whispercpp.test.ts` (WAV header, vocabulary, echo guard, spawn lifecycle, URL mode, statuses) against `tests/fixtures/whisper/fake-whisper-server.mjs`. Also run against the real `whisper-server.exe` through the adapter (both languages). typecheck and lint clean; `npm test` 2423/2433, the 10 failures are the known Windows ones.
+- Bench: [stt-bench.md](stt-bench.md) (`scripts/bench-stt.ts`). Summary: nb small 6.3% / medium 4.5% FLEURS WER; en small 8.1% / turbo 5.6%; medium and turbo are 0.9–2.8x real time on this PC, so too slow for a tablet. The prompt fixed technical terms in English (1.7→0.8%) and was mixed in Norwegian; costs about 1 point on unrelated speech. One recording per language, so small differences are noise.
+- **Deviation from the plan:** the prompt-echo guard is text-only (a run of 3+ consecutive prompt words becomes silence); the plan's "and the clip is short/quiet" had no threshold. Not caught: a doubled last word ("harmonics. harmonics.") and a stray "Thank you."; whisper.cpp's own silence behaviour is the M7 thing to watch.
+- **Not done / for M6–M7:** `LH_STT_DEVICE`, the Android start script (`lh start` launching one whisper-server per language and exporting `LH_WHISPER_URL_*`), and the on-device speed and thread numbers. Desktop packaging does not ship whisper-server; the engine is env-only.
+
