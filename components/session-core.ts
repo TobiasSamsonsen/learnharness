@@ -32,6 +32,7 @@ import {
 	type LhViewMessage,
 	type LiveExecution,
 	type QuestionAnswerData,
+	sketchOfMessage,
 	sketchRefOf,
 	type SketchPayload,
 } from "../src/core";
@@ -570,7 +571,14 @@ export class SessionModel {
 			// moment the button fires.
 			// A sketch's ref is derived exactly as the server derives it, so
 			// the write-ahead copy absorbs this card (details match).
-			const ref = input.sketch ? sketchRefOf(input.sketch) : undefined;
+			// A kept page re-sent by id (M3) reuses the ref the record holds.
+			const ref = input.sketch
+				? sketchRefOf(input.sketch)
+				: input.sketchRef
+					? [...this.base, ...this.tail]
+							.map((m) => sketchOfMessage(m as unknown as Parameters<typeof sketchOfMessage>[0]))
+							.find((r) => r?.id === input.sketchRef) ?? undefined
+					: undefined;
 			optimistic.push({ ...newThinkingMessage(input.problemCallId, input.text, ref), id: localId() });
 		} else if (input.type === "dispute") {
 			// A disputed reading (Android plan M2): the marker lands the

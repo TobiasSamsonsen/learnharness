@@ -26,6 +26,10 @@ export interface SketchPayload {
 	id: string;
 	producer: SketchProducer;
 	strokes: SketchStroke[];
+	/** Kept page (M3): the whole page is resubmitted, and strokes from this
+	 *  index on are the NEW ink since the last submit — the render brackets
+	 *  them in the margin. Absent (or 0) = nothing to bracket. */
+	newFrom?: number;
 }
 
 /** One rendered page (a band of the sketch, top to bottom). */

@@ -42,6 +42,7 @@ describe("PracticeDock", () => {
 	it("expanded: statement renders, the two lanes sit in the thinking field", () => {
 		const html = renderToStaticMarkup(
 			<PracticeDock
+				chatId="chat-1"
 				problemCallId="call_p1"
 				input={{ statement: "Show that the sum is even." }}
 				expanded={true}
@@ -66,6 +67,7 @@ describe("PracticeDock", () => {
 	it("collapsed: the slim bar carries the statement excerpt", () => {
 		const html = renderToStaticMarkup(
 			<PracticeDock
+				chatId="chat-1"
 				problemCallId="call_p1"
 				input={{ statement: "Show that the sum is even." }}
 				expanded={false}
@@ -267,6 +269,7 @@ describe("sketch answers (Android plan M1)", () => {
 	const dock = (sketchAvailable?: boolean) =>
 		renderToStaticMarkup(
 			<PracticeDock
+				chatId="chat-1"
 				problemCallId="call_p1"
 				input={{ statement: "Draw the circuit." }}
 				expanded={true}
@@ -280,6 +283,23 @@ describe("sketch answers (Android plan M1)", () => {
 		assert.match(dock(true), /data-testid="practice-open-sketch"/);
 		assert.ok(!dock(false).includes("practice-open-sketch"));
 		assert.ok(!dock(undefined).includes("practice-open-sketch"), "unknown counts as no");
+	});
+
+	it("a kept page shows the removable chip (M3); none without one", () => {
+		const kept = { id: "sk_keptkept00000001", producer: "web-canvas" as const, pages: [{ width: 300, height: 120 }], strokeCount: 1, pointCount: 4 };
+		const html = renderToStaticMarkup(
+			<PracticeDock chatId="chat-1" problemCallId="call_p1" input={{ statement: "S" }} expanded={true} onExpand={() => {}} onSubmit={() => {}} sketchAvailable keptSketch={kept} />,
+		);
+		assert.match(html, /data-testid="practice-sketch-chip"/);
+		assert.match(html, /Sketch attached/);
+		assert.match(html, /practice-sketch-chip-remove/);
+		assert.ok(!dock(true).includes("practice-sketch-chip"), "no page, no chip");
+		assert.ok(
+			!renderToStaticMarkup(
+				<PracticeDock chatId="chat-1" problemCallId="call_p1" input={{ statement: "S" }} expanded={true} onExpand={() => {}} onSubmit={() => {}} keptSketch={kept} />,
+			).includes("practice-sketch-chip"),
+			"a text-only model never attaches pages",
+		);
 	});
 
 	it("a sketch submission's card shows the page, with or without words", () => {

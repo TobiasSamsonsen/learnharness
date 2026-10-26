@@ -63,7 +63,17 @@ function writeBox(box: BoxState): void {
 	}
 }
 
-export function FloatingProblem({ label, statement }: { label: string; statement: string }) {
+export function FloatingProblem({
+	label,
+	statement,
+	children,
+}: {
+	label: string;
+	statement: string;
+	/** The question's answer controls (MC options, confidence — M3), below
+	 *  the statement and scrolling with it. */
+	children?: React.ReactNode;
+}) {
 	const [box, setBox] = useState<BoxState>(readBox);
 	const boxRef = useRef(box);
 	const rootRef = useRef<HTMLDivElement>(null);
@@ -186,6 +196,7 @@ export function FloatingProblem({ label, statement }: { label: string; statement
 			</div>
 			<div className="lh-prose max-h-[45vh] overflow-y-auto px-3 pb-3 text-[15px]">
 				<MessageResponse>{repairMathForDisplay(statement)}</MessageResponse>
+				{children}
 			</div>
 		</div>
 	);

@@ -1,5 +1,7 @@
 # Android plan — status (2026-10-26)
 
+**M3 implemented and merged 2026-10-26 (see the M3 section at the end); the owner has no pen or touch screen, so the pen test is not done.**
+
 Plan: [plan.md](plan.md). Branch `feat/sketch-answers` holds the M1 and M2 work, by Claude for the owner.
 
 ## M1 and M2 are done and verified (2026-10-26). Next: M3 (full sketch view), or M0/M4/M5/M6, which are free to pick up.
@@ -45,3 +47,16 @@ Owner decisions: the dispute is a new recorded `dispute` input, available only w
 - **Noticed, not changed:** the read-back card repeats the sketch thumbnail directly under the learner's own submission thumbnail (two stacked copies); the model also counted the Z's three strokes as one (vision, not delivery).
 
 ### Not started (free to pick up): M0 (phone spike), M4, M5, M6. M3 builds on M1/M2.
+
+
+### M3 (full sketch view): implemented 2026-10-26, plan approved by the owner
+Owner approved the defaults below ("go" on the written plan).
+- **Eraser:** stroke eraser (toolbar toggle, or the pen's eraser end / button). Ink history is now a list of operations (`InkOp`: add / erase), so undo restores an erased stroke at its place; ink restored after a reload has no history and undo takes the newest stroke. Hit test `sketchStrokeHit` is in `core/sketch.ts` (shared with a future native overlay).
+- **Tall page:** a viewport-sized sticky canvas redrawn under the scroll offset (no page-tall backing store). Room below the lowest ink, up to 12000 px. Pen seen → touch pans natively (`touch-action: pan-y`) and is ignored for drawing; no pen → one finger draws, two fingers pan; mouse uses the wheel.
+- **Kept page (practice problems only; a question is answered once):** `components/sketch/ink-memory.ts` holds the kept page (submitted strokes, drawn dimmed and locked) and the unsent ink on top (memory + localStorage `lh:ink:<key>`). A submit sends the WHOLE page: new `SketchPayload.newFrom` marks where the new ink starts and `planSketch` draws a blue "[" bracket in the left margin over those rows (page sizes unchanged). After a reload the kept strokes come from the server (`GET /api/chats/[id]/sketches/[sketchId]/strokes`, `useKeptPage`); `keptSketchOf` (core) finds the problem's newest sketch.
+- **Chip:** the practice dock shows a removable "Sketch attached" chip whenever a text submit would attach the page (unsent ink, or a kept page). With new ink the text submit sends the whole page; with none it sends only the id: `thinking.sketchRef`, resolved by the server against the stored strokes (`resolveSketchRef`; unknown id → 400; stored pages are not rewritten). Removing the chip sends the text alone; opening the sketch view re-attaches.
+- **MC in the box:** "Open in sketch" shows for every question mode. In choice modes the box holds the options, I don't know / Other, and the confidence stops (`sketch-choices.tsx`), bound to the dock's own `sel` / `confIdx` / `other`; the sketch rides as thinking, the pick stays the answer. Submit stays disabled, with the dock's reason, until the dock's own gate passes.
+- **Mic:** a toolbar button dispatches the app's own `lh:kbd-toggle-dictation` (the ⌘D event); no new claim.
+- **Tests:** `sketch-contract`, `practice-flow` (re-send by id, unknown id), `sketch-view` (kept-page submit, blocked submit, erase undo, page growth, choices), `render-practice-surface` (chip). typecheck and lint clean; `npm test` 2403/2413, the 10 failures are the known Windows ones.
+- **Not done:** the manual pen test (pressure, palm rejection, eraser end, two-finger pan) — the owner has no pen or touch hardware; a Chrome check of the new UI against a real model turn. Prompt `18-sketches.md` gained one line (owner took the recommended wording): on a whole-page resubmit, respond to the bracketed new ink.
+- **Known limits:** after a reload in a narrower window, strokes past the edge are clipped, not reflowed. A dispute after a clean `solved` conclude is still the M2 open question (left out of M3 by default).

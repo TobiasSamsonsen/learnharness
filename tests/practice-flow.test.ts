@@ -273,6 +273,29 @@ describe("practice flow — sketch submissions", () => {
 		assert.equal(Buffer.from(last[1]!.data!, "base64").subarray(0, 4).toString("hex"), "89504e47");
 	});
 
+	it("a kept page re-sent by id reuses the stored sketch; an unknown id is a 400", async () => {
+		const chat = createPracticeChat("Test: practice sketch ref");
+		const { engine } = scripted([
+			() => fauxAssistantMessage([fauxToolCall("problem", POSE, { id: "call-s4" })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([fauxText("I see your two lines.")]),
+			() => fauxAssistantMessage([fauxText("Still the same page.")]),
+		]);
+		const factory = sketchFactory(chat.id, engine);
+		await drainTurn(post(chat.id, { type: "text", text: "go" }), factory);
+		await drainTurn(post(chat.id, { type: "thinking", problemCallId: "call-s4", text: "first", sketch: SKETCH }), factory);
+		const png = path.join(sketchDir(chat.id), SKETCH.id, "0.png");
+		const before = fs.statSync(png).mtimeMs;
+
+		await drainTurn(post(chat.id, { type: "thinking", problemCallId: "call-s4", text: "again", sketchRef: SKETCH.id }), factory);
+		const markers = chatStore.getChat(chat.id)!.messages.filter((m) => (m as { customType?: string }).customType === "practice-thinking");
+		const ids = markers.map((m) => (m as { details: { sketch?: { id: string } } }).details.sketch?.id);
+		assert.deepEqual(ids, [SKETCH.id, SKETCH.id], "both submissions carry the page");
+		assert.equal(fs.statSync(png).mtimeMs, before, "the stored page is not rewritten");
+
+		const res = await handleChatRequest(post(chat.id, { type: "thinking", problemCallId: "call-s4", text: "x", sketchRef: "sk_doesnotexist0001" }), factory);
+		assert.equal(res.status, 400);
+	});
+
 	it("a bad sketch is a 400 and nothing is written", async () => {
 		const chat = createPracticeChat("Test: practice sketch 400");
 		const { engine } = scripted([

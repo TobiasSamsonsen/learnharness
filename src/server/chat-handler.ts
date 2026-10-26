@@ -51,7 +51,7 @@ import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.
 import { emit } from "../core/events.ts";
 import { resolveLessonLanguage } from "../core/language.ts";
 import { materialsForTurn } from "./materials.ts";
-import { persistInputSketch, sketchImagesFor } from "./sketches.ts";
+import { persistInputSketch, resolveSketchRef, sketchImagesFor } from "./sketches.ts";
 import { courseForTurn } from "./courses.ts";
 import { finishLessonTool, finishSessionTool } from "../agent/tools/course.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
@@ -192,7 +192,9 @@ export async function handleChatRequest(
 		}
 		throw err;
 	}
-	return handleChatInput(chatId, input, buildAgent);
+	const resolved = resolveSketchRef(chatId, input);
+	if (!resolved) return Response.json({ error: "Unknown sketch" }, { status: 400 });
+	return handleChatInput(chatId, resolved, buildAgent);
 }
 
 /**

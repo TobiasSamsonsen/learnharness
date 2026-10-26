@@ -32,6 +32,8 @@ import {
 	serializeForSummary,
 	sketchLabel,
 	sketchOfMessage,
+	sketchStrokeHit,
+	keptSketchOf,
 	sketchRefOf,
 	toLlmMessages,
 	type LhMessage,
@@ -288,5 +290,56 @@ describe("compaction sees sketches", () => {
 		assert.ok(!text.includes("QUFBQUFB"), text);
 		assert.match(text, /\[RESULT for read\] the file\n\[image\]/);
 		assert.match(text, /\[LEARNER\] look\n\[image\]/);
+	});
+});
+
+// ─── the kept page (Android plan M3) ─────────────────────────────────────────
+
+describe("the kept page", () => {
+	const old = line(0, 0, 400, 40);
+	const fresh = line(0, 200, 400, 240);
+
+	it("newFrom brackets the new ink in the margin and changes no page size", () => {
+		const plain = planSketch(payload([old, fresh]));
+		const marked = planSketch({ ...payload([old, fresh], "sk_bracket00000001"), newFrom: 1 });
+		assert.match(marked[0]!.svg, /stroke="#2563eb"/, "a blue bracket");
+		assert.doesNotMatch(plain[0]!.svg, /#2563eb/);
+		assert.equal(marked[0]!.width, plain[0]!.width);
+		assert.equal(marked[0]!.height, plain[0]!.height);
+	});
+
+	it("newFrom is validated; 0 means no bracket", () => {
+		assert.throws(() => parseSketchPayload({ ...payload([old, fresh]), newFrom: 2 }), SketchPayloadError);
+		assert.throws(() => parseSketchPayload({ ...payload([old, fresh]), newFrom: 0.5 }), SketchPayloadError);
+		assert.equal(parseSketchPayload({ ...payload([old, fresh]), newFrom: 0 }).newFrom, undefined);
+		assert.equal(parseSketchPayload({ ...payload([old, fresh]), newFrom: 1 }).newFrom, 1);
+	});
+
+	it("the stroke eraser's hit test uses distance to the polyline plus half the width", () => {
+		const s = line(0, 0, 100, 0, 5, 4);
+		assert.ok(sketchStrokeHit(s, 50, 8, 10), "within reach of the middle");
+		assert.ok(!sketchStrokeHit(s, 50, 30, 10), "too far");
+		assert.ok(sketchStrokeHit(s, 104, 0, 4), "past the end, within reach");
+	});
+
+	it("keptSketchOf: the newest sketch after the problem's pose", () => {
+		const ref = (id: string) => sketchRefOf(payload([old], id));
+		const pose = (id: string) =>
+			({ id: `a-${id}`, role: "assistant", content: [{ type: "toolCall", id, name: "problem", arguments: { statement: "s" } }], timestamp: 1 }) as unknown as AgentMessage;
+		const marker = (id: string, r: ReturnType<typeof ref>) => newThinkingMessage(id, "t", r) as unknown as AgentMessage;
+		const messages = [pose("p1"), marker("p1", ref("sk_firstfirst000001")), marker("p1", ref("sk_secondsecond0001")), pose("p2")];
+		assert.equal(keptSketchOf(messages.slice(0, 3), "p1")?.id, "sk_secondsecond0001");
+		assert.equal(keptSketchOf(messages, "p2"), null, "a new problem starts a clean page");
+		assert.equal(keptSketchOf(messages, "p9"), null);
+	});
+
+	it("a thinking input may re-send the kept page by id, never with a sketch", () => {
+		const parsed = parseChatInput({ type: "thinking", problemCallId: "c1", text: "more", sketchRef: ID });
+		assert.equal((parsed as { sketchRef?: string }).sketchRef, ID);
+		assert.throws(() => parseChatInput({ type: "thinking", problemCallId: "c1", text: "x", sketchRef: "nope" }), ChatInputError);
+		assert.throws(
+			() => parseChatInput({ type: "thinking", problemCallId: "c1", text: "x", sketchRef: ID, sketch: payload([old]) }),
+			ChatInputError,
+		);
 	});
 });

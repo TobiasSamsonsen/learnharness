@@ -1,14 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRightIcon, PenLineIcon } from "lucide-react";
+import { ChevronRightIcon, PenLineIcon, XIcon } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
+import { pagePayload, sendPage, useInk } from "@/components/sketch/ink-memory";
+import { useKeptPage } from "@/components/sketch/kept-page";
 import { SketchView } from "@/components/sketch/sketch-view";
 import { cn } from "@/lib/utils";
-import { repairMathForDisplay, type SketchPayload } from "@/src/core";
+import { repairMathForDisplay, SketchPayloadError, type SketchPayload, type SketchRef } from "@/src/core";
 
 /**
  * The practice dock (practice sessions, owner design 2026-10-04): an
@@ -41,8 +43,13 @@ export interface PracticeDockProps {
 	onExpand: () => void;
 	/** text — POST {type:"thinking"} (one lane; the register is read from
 	 *  the text). A sketch submit (Android plan M1) adds the handwriting;
-	 *  its text may then be empty. */
-	onSubmit: (text: string, sketch?: SketchPayload) => Promise<boolean> | void;
+	 *  its text may then be empty. `sketchRef` re-sends the problem's kept
+	 *  page by id (no new ink). */
+	onSubmit: (text: string, sketch?: SketchPayload, sketchRef?: string) => Promise<boolean> | void;
+	/** The chat (the kept page's strokes are fetched from it after a reload). */
+	chatId: string;
+	/** The problem's newest sketch — its kept page (M3). */
+	keptSketch?: SketchRef | null;
 	/** The session's model reads images — "Open in sketch" shows only then
 	 *  (a text-only model would silently drop the pages). */
 	sketchAvailable?: boolean;
@@ -61,12 +68,21 @@ export function PracticeDock({
 	expanded,
 	onExpand,
 	onSubmit,
+	chatId,
+	keptSketch = null,
 	onEscape,
 	compactionRunning = false,
 	sketchAvailable = false,
 }: PracticeDockProps) {
 	const [thinking, setThinking] = useState("");
 	const [sketching, setSketching] = useState(false);
+	// The kept page (M3): the problem's earlier sketch plus unsent ink. A
+	// text submit attaches them (the chip) unless the learner removed it.
+	const { kept, status: keptStatus } = useKeptPage(chatId, problemCallId, keptSketch);
+	const ink = useInk(problemCallId);
+	const [detached, setDetached] = useState(false);
+	const [sketchError, setSketchError] = useState<string | null>(null);
+	const attach = sketchAvailable && !detached && (ink.strokes.length > 0 || keptSketch !== null);
 	// A switch to a text-only model closes an open sketch (its ink stays).
 	useEffect(() => {
 		if (!sketchAvailable) setSketching(false);
@@ -92,9 +108,26 @@ export function PracticeDock({
 		if (compactionRunning) return;
 		const text = thinkingRef.current.trim();
 		if (text.length === 0) return;
+		let payload: SketchPayload | undefined;
+		if (attach && ink.strokes.length > 0) {
+			if (keptStatus === "loading") return; // the earlier page is still on its way
+			try {
+				payload = pagePayload(kept, ink.strokes);
+			} catch (err) {
+				if (!(err instanceof SketchPayloadError)) throw err;
+				setSketchError(err.message);
+				return;
+			}
+		}
+		setSketchError(null);
 		thinkingRef.current = "";
 		setThinking("");
-		onSubmit(text);
+		if (payload) {
+			// The ink folds into the kept page once the server accepts it.
+			const unsent = ink.strokes;
+			void sendPage(problemCallId, payload, unsent, async () => (await onSubmit(text, payload)) ?? true);
+		} else if (attach && keptSketch) onSubmit(text, undefined, keptSketch.id);
+		else onSubmit(text);
 	};
 
 	/* The sketch submit: the thinking's dictated tail lands first (the
@@ -183,20 +216,44 @@ export function PracticeDock({
 						"field-sizing-content lh-input max-h-64 min-h-16 w-full resize-none bg-transparent px-2.5 pb-2 outline-none placeholder:text-muted-foreground",
 					)}
 				/>
+				{attach && (
+					<div className="px-2.5 pb-1.5">
+						<span
+							data-testid="practice-sketch-chip"
+							className="inline-flex items-center gap-1 rounded-full border bg-muted/50 py-0.5 pr-1 pl-2 text-xs text-muted-foreground"
+						>
+							<PenLineIcon className="size-3" />
+							Sketch attached
+							<button
+								type="button"
+								data-testid="practice-sketch-chip-remove"
+								aria-label="Don't attach the sketch"
+								title="Send the text alone"
+								onClick={() => setDetached(true)}
+								className="flex size-4 items-center justify-center rounded-full transition-colors hover:bg-muted hover:text-foreground"
+							>
+								<XIcon className="size-3" />
+							</button>
+						</span>
+					</div>
+				)}
 				{/* The submit row (owner round 4, 2026-10-05): IDENTICAL to the
 				    question dock's — hint left, the SAME Button (h-9, px-3.5),
 				    one p-1 row. Corner radii concentric: shell 16 − m-1.5 (6) =
 				    field 10 − p-1 (4) = button 6. */}
 				<div className="flex items-center justify-between gap-2 p-1">
 					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
-						{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
+						{compactionRunning ? "compacting session…" : (sketchError ?? "↵ submits · ⇧↵ newline")}
 					</span>
 					{sketchAvailable && (
 						<Button
 							type="button"
 							variant="ghost"
 							data-testid="practice-open-sketch"
-							onClick={() => setSketching(true)}
+							onClick={() => {
+								setDetached(false);
+								setSketching(true);
+							}}
 							className="ml-auto h-9 gap-1.5 rounded-[6px] px-3 text-sm"
 						>
 							<PenLineIcon className="size-4" />
@@ -223,6 +280,7 @@ export function PracticeDock({
 					onClose={() => setSketching(false)}
 					onCancelDictation={onEscape}
 					disabled={compactionRunning}
+					keptStatus={keptStatus}
 				/>
 			)}
 		</div>

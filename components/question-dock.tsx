@@ -7,6 +7,7 @@ import { finishDictation, isDictationActive, joinDictation, useDictationTarget }
 import { useEnterSubmits } from "@/components/enter-submits";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { FigureScope } from "@/components/figures/figure-scope";
+import { SketchChoices } from "@/components/sketch/sketch-choices";
 import { SketchView } from "@/components/sketch/sketch-view";
 import { cn } from "@/lib/utils";
 import {
@@ -400,9 +401,7 @@ function QuestionDockForm({
 		}
 		void finishDictation().then(doSubmit);
 	};
-	const doSubmit = () => {
-		if (!canSubmit) return;
-		const req: AnswerRequest = {
+	const buildRequest = (): AnswerRequest => ({
 			dontKnow: sel.dontKnow,
 			values: [...sel.selected].map((i) => qd.options[i]!.value),
 			other: sel.otherSelected ? other : undefined,
@@ -411,26 +410,28 @@ function QuestionDockForm({
 			// Always chosen on a picked quiz answer (canSubmit waits for it);
 			// buildAnswer drops it on "I don't know".
 			confidence: kind === "quiz" && confIdx !== null ? CONFIDENCE_STOPS[confIdx] : undefined,
-		};
-		onSubmit(buildAnswer(qd, req, toolName));
+	});
+	const doSubmit = () => {
+		if (!canSubmit) return;
+		onSubmit(buildAnswer(qd, buildRequest(), toolName));
 	};
-	/* The sketch submit (Android plan M1, text mode only): the sketch
-	 * answers on its own or with the typed/dictated text; dictation's tail
-	 * lands first, exactly as for the Submit button. */
+	/* The sketch submit (Android plan M1 + M3): in text mode the sketch
+	 * answers on its own or with the typed/dictated text; in a choice mode
+	 * the picked answer (and confidence) is the answer and the sketch rides
+	 * as thinking. Dictation's tail lands first, exactly as for the Submit
+	 * button. */
 	const submitSketch = async (sketch: SketchPayload): Promise<boolean> => {
-		if (compactionRunning || qd.mode !== "text") return false;
+		if (compactionRunning) return false;
 		setSketching(false);
 		if (isDictationActive()) await finishDictation();
-		// The dock's own gate: text mode answers on a sketch alone.
+		// The dock's own gate (the view disables Submit with the same one).
 		if (!dockSubmitGate({ kind, mode: qd.mode, sel, other, text: answerTextRef.current, confidenceSet: confIdx !== null, hasSketch: true }).canSubmit) return false;
-		const req: AnswerRequest = {
-			dontKnow: false,
-			values: [],
-			text: answerTextRef.current,
-			sketch: sketchRefOf(sketch),
-		};
+		const req: AnswerRequest = { ...buildRequest(), sketch: sketchRefOf(sketch) };
 		return (await onSubmit(buildAnswer(qd, req, toolName), sketch)) ?? true;
 	};
+	// Why the sketch view's Submit waits (a choice question needs its pick).
+	const sketchGate = dockSubmitGate({ kind, mode: qd.mode, sel, other, text, confidenceSet: confIdx !== null, hasSketch: true });
+	const sketchBlocked = sketchGate.canSubmit ? undefined : sketchGate.needsConfidence ? "Set your confidence first" : "Pick an answer first";
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): the same
 	 * law as the practice dock — dictated answers rarely focus the field.
@@ -944,7 +945,7 @@ function QuestionDockForm({
 						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
 								{compactionRunning ? "compacting session…" : "↵ submits · ⇧↵ newline"}
 						</span>
-						{qd.mode === "text" && sketchAvailable && (
+						{sketchAvailable && (
 							<Button
 								type="button"
 								variant="ghost"
@@ -960,7 +961,7 @@ function QuestionDockForm({
 							type="submit"
 							disabled={!canSubmit || compactionRunning}
 							title={needsConfidence ? "Set your confidence first" : undefined}
-							className={cn("h-9 rounded-[6px] px-3.5 text-sm font-medium", !(qd.mode === "text" && sketchAvailable) && "ml-auto")}
+							className={cn("h-9 rounded-[6px] px-3.5 text-sm font-medium", !sketchAvailable && "ml-auto")}
 						>
 							Submit answer
 						</Button>
@@ -976,6 +977,26 @@ function QuestionDockForm({
 					onClose={() => setSketching(false)}
 					onCancelDictation={onEscape}
 					disabled={compactionRunning}
+					blocked={qd.mode === "text" ? undefined : sketchBlocked}
+					choices={
+						qd.mode === "text" ? undefined : (
+							<SketchChoices
+								kind={kind as "quiz" | "ask" | "explain"}
+								multi={qd.mode === "multi-select"}
+								options={qd.options}
+								sel={sel}
+								onToggle={toggle}
+								onDontKnow={() =>
+									setSel((prev) => ({ ...prev, selected: new Set(), otherSelected: false, dontKnow: !prev.dontKnow }))
+								}
+								onOther={selectOther}
+								other={other}
+								onOtherText={setOther}
+								confIdx={confIdx}
+								onConfidence={setConfIdx}
+							/>
+						)
+					}
 				/>
 			)}
 		</div>

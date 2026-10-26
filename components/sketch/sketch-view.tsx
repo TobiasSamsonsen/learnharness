@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Redo2Icon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
+import { EraserIcon, MicIcon, PenLineIcon, Redo2Icon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isDictationActive } from "@/components/dictation";
 import { FloatingProblem } from "@/components/sketch/floating-problem";
-import { SketchCanvas } from "@/components/sketch/sketch-canvas";
-import { clearInk, readInk, writeInk, type InkState } from "@/components/sketch/ink-memory";
-import { newSketchId, parseSketchPayload, SketchPayloadError, type SketchPayload } from "@/src/core";
+import { SketchCanvas, type SketchTool } from "@/components/sketch/sketch-canvas";
+import { applyOp, pagePayload, readInk, revertOp, sendPage, useInk, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
+import { cn } from "@/lib/utils";
+import { SketchPayloadError, type SketchPayload } from "@/src/core";
 
 /**
  * The sketch view (Android plan M1): a full-screen plain canvas opened
@@ -40,6 +41,15 @@ export interface SketchViewProps {
 	onCancelDictation?: () => void;
 	/** Submitting is blocked (compaction running). */
 	disabled?: boolean;
+	/** The kept page's earlier strokes are still being fetched ("failed":
+	 *  they could not be — new ink then goes alone). */
+	keptStatus?: "ready" | "loading" | "failed";
+	/** A multiple-choice question's answer controls (M3), shown in the
+	 *  floating box under the statement. */
+	choices?: React.ReactNode;
+	/** Why the dock would refuse this submit (a pick or confidence is
+	 *  missing) — disables Submit and shows as its hint. */
+	blocked?: string;
 }
 
 function focusVisible(el: HTMLElement): boolean {
@@ -50,32 +60,84 @@ function focusVisible(el: HTMLElement): boolean {
 	}
 }
 
-export function SketchView({ label, statement, inkKey, onSubmit, onClose, onCancelDictation, disabled = false }: SketchViewProps) {
-	const [ink, setInkState] = useState<InkState>(() => readInk(inkKey));
+/** The toolbar's mic (M3): the app's own dictation toggle (⌘D) — no new
+ *  claim; text lands in the dock's field exactly as with the key. */
+function SketchMic() {
+	const [live, setLive] = useState(isDictationActive());
+	useEffect(() => {
+		const t = window.setInterval(() => setLive(isDictationActive()), 250);
+		return () => window.clearInterval(t);
+	}, []);
+	return (
+		<Button
+			type="button"
+			variant="ghost"
+			size="icon"
+			data-testid="sketch-mic"
+			aria-label={live ? "Stop dictation" : "Start dictation"}
+			aria-pressed={live}
+			onClick={() => window.dispatchEvent(new CustomEvent("lh:kbd-toggle-dictation"))}
+			className={cn(live && "bg-destructive/10 text-destructive hover:bg-destructive/20")}
+		>
+			<MicIcon className="size-4" />
+		</Button>
+	);
+}
+
+export function SketchView({
+	label,
+	statement,
+	inkKey,
+	onSubmit,
+	onClose,
+	onCancelDictation,
+	disabled = false,
+	keptStatus = "ready",
+	choices,
+	blocked,
+}: SketchViewProps) {
+	const ink = useInk(inkKey);
+	const kept = useKept(inkKey);
+	const [tool, setTool] = useState<SketchTool>("pen");
 	const [error, setError] = useState<string | null>(null);
-	const inkRef = useRef(ink);
 	const setInk = (next: InkState) => {
-		inkRef.current = next;
 		writeInk(inkKey, next);
-		setInkState(next);
 		setError(null);
 	};
 
+	/** Record an operation: it joins the history and clears redo. */
+	const record = (state: InkState, strokes: InkState["strokes"], op: InkOp) =>
+		setInk({ strokes, undo: [...state.undo, op], redo: [] });
 	const undo = () => {
-		const { strokes, redo } = inkRef.current;
-		if (strokes.length === 0) return;
-		setInk({ strokes: strokes.slice(0, -1), redo: [...redo, strokes[strokes.length - 1]!] });
+		const state = readInk(inkKey);
+		// Ink restored from a reload has no history: undo takes the newest stroke.
+		const fromStack = state.undo[state.undo.length - 1];
+		const op: InkOp | undefined = fromStack ?? (state.strokes.length > 0 ? { kind: "add", stroke: state.strokes[state.strokes.length - 1]! } : undefined);
+		if (!op) return;
+		setInk({ strokes: revertOp(state.strokes, op), undo: fromStack ? state.undo.slice(0, -1) : [], redo: [...state.redo, op] });
 	};
 	const redo = () => {
-		const { strokes, redo } = inkRef.current;
-		if (redo.length === 0) return;
-		setInk({ strokes: [...strokes, redo[redo.length - 1]!], redo: redo.slice(0, -1) });
+		const state = readInk(inkKey);
+		const op = state.redo[state.redo.length - 1];
+		if (!op) return;
+		setInk({ strokes: applyOp(state.strokes, op), undo: [...state.undo, op], redo: state.redo.slice(0, -1) });
+	};
+	const addStroke = (stroke: InkState["strokes"][number]) => {
+		const state = readInk(inkKey);
+		record(state, [...state.strokes, stroke], { kind: "add", stroke });
+	};
+	const erase = (indices: number[]) => {
+		const state = readInk(inkKey);
+		const removed = [...indices].sort((a, b) => a - b).flatMap((index) => (state.strokes[index] ? [{ index, stroke: state.strokes[index]! }] : []));
+		if (removed.length === 0) return;
+		record(state, applyOp(state.strokes, { kind: "erase", removed }), { kind: "erase", removed });
 	};
 	const submit = () => {
-		if (disabled || inkRef.current.strokes.length === 0) return;
+		const unsent = readInk(inkKey).strokes;
+		if (disabled || blocked || keptStatus === "loading" || unsent.length === 0) return;
 		let payload: SketchPayload;
 		try {
-			payload = parseSketchPayload({ id: newSketchId(), producer: "web-canvas", strokes: inkRef.current.strokes });
+			payload = pagePayload(kept, unsent);
 		} catch (err) {
 			if (err instanceof SketchPayloadError) {
 				setError(err.message);
@@ -83,12 +145,10 @@ export function SketchView({ label, statement, inkKey, onSubmit, onClose, onCanc
 			}
 			throw err;
 		}
-		// The ink is cleared only once the server has the sketch (a 409/500/
-		// 400 keeps it for a retry) — and only if nothing was drawn since.
-		const sent = inkRef.current.strokes;
-		void onSubmit(payload).then((accepted) => {
-			if (accepted && readInk(inkKey).strokes === sent) clearInk(inkKey);
-		});
+		// The ink folds into the kept page only once the server has the
+		// sketch (a 409/500/400 keeps it for a retry); anything drawn since
+		// stays unsent.
+		void sendPage(inkKey, payload, unsent, () => onSubmit(payload));
 	};
 
 	const handlers = useRef({ undo, redo, submit, onClose, onCancelDictation });
@@ -121,6 +181,7 @@ export function SketchView({ label, statement, inkKey, onSubmit, onClose, onCanc
 
 	if (typeof document === "undefined") return null;
 	const empty = ink.strokes.length === 0;
+	const canUndo = ink.undo.length > 0 || ink.strokes.length > 0;
 	return createPortal(
 		<div
 			data-testid="sketch-view"
@@ -131,14 +192,16 @@ export function SketchView({ label, statement, inkKey, onSubmit, onClose, onCanc
 			{/* The whole page is canvas; the problem floats above it (owner,
 			    2026-10-26) — draggable, collapsible to a pill. */}
 			<div className="relative min-h-0 flex-1 bg-white">
-				<SketchCanvas strokes={ink.strokes} onStroke={(s) => setInk({ strokes: [...inkRef.current.strokes, s], redo: [] })} />
-				<FloatingProblem label={label} statement={statement} />
+				<SketchCanvas strokes={ink.strokes} kept={kept?.strokes} tool={tool} onStroke={addStroke} onErase={erase} />
+				<FloatingProblem label={label} statement={statement}>
+					{choices}
+				</FloatingProblem>
 			</div>
 			<div className="flex items-center gap-1 border-t px-3 py-2">
 				<Button type="button" variant="ghost" size="icon" data-testid="sketch-close" aria-label="Close sketch" onClick={onClose}>
 					<XIcon className="size-4" />
 				</Button>
-				<Button type="button" variant="ghost" size="icon" data-testid="sketch-undo" aria-label="Undo" disabled={empty} onClick={undo}>
+				<Button type="button" variant="ghost" size="icon" data-testid="sketch-undo" aria-label="Undo" disabled={!canUndo} onClick={undo}>
 					<Undo2Icon className="size-4" />
 				</Button>
 				<Button type="button" variant="ghost" size="icon" data-testid="sketch-redo" aria-label="Redo" disabled={ink.redo.length === 0} onClick={redo}>
@@ -151,17 +214,38 @@ export function SketchView({ label, statement, inkKey, onSubmit, onClose, onCanc
 					data-testid="sketch-clear"
 					aria-label="Clear"
 					disabled={empty}
-					onClick={() => setInk({ strokes: [], redo: [] })}
+					onClick={() => setInk({ strokes: [], undo: [], redo: [] })}
 				>
 					<Trash2Icon className="size-4" />
 				</Button>
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon"
+					data-testid="sketch-eraser"
+					aria-label={tool === "eraser" ? "Switch to pen" : "Switch to eraser"}
+					aria-pressed={tool === "eraser"}
+					onClick={() => setTool(tool === "eraser" ? "pen" : "eraser")}
+					className={cn(tool === "eraser" && "bg-accent")}
+				>
+					{tool === "eraser" ? <PenLineIcon className="size-4" /> : <EraserIcon className="size-4" />}
+				</Button>
+				<SketchMic />
 				<span aria-hidden className="ml-2 min-w-0 flex-1 truncate text-xs text-muted-foreground">
-					{error ?? (disabled ? "compacting session…" : "⌘↵ submits · esc closes")}
+					{error ??
+						(disabled
+							? "compacting session…"
+							: keptStatus === "loading"
+								? "loading your earlier page…"
+								: blocked ??
+									(keptStatus === "failed"
+										? "couldn't load your earlier page — new ink goes alone"
+										: "⌘↵ submits · esc closes"))}
 				</span>
 				<Button
 					type="button"
 					data-testid="sketch-submit"
-					disabled={empty || disabled}
+					disabled={empty || disabled || !!blocked || keptStatus === "loading"}
 					onClick={submit}
 					className="h-9 rounded-[6px] px-3.5 text-sm font-medium"
 				>
