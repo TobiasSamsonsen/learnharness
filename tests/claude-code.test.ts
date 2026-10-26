@@ -14,6 +14,7 @@ import {
 	ClaudeCodeTranslator,
 	claudeCodeEffort,
 	claudeCodeModels,
+	parseMaxSessions,
 	renderClaudeCodeRequest,
 	renderToolCallRecord,
 	salvageTextToolCalls,
@@ -332,4 +333,12 @@ test("tool results become the MCP reply Claude Code waits for", async () => {
 		content: [{ type: "image", data: "AA", mimeType: "image/png" }],
 		isError: true,
 	});
+});
+
+test("LH_CLAUDE_CODE_MAX_SESSIONS: a positive integer, anything else is the default 6", () => {
+	assert.equal(parseMaxSessions(undefined), 6);
+	for (const bad of ["", " ", "0", "-1", "1.5", "two", "2x", "0x10", "1e3", "99999999999999999999"]) assert.equal(parseMaxSessions(bad), 6, bad);
+	assert.equal(parseMaxSessions("1"), 1);
+	assert.equal(parseMaxSessions(" 2 "), 2);
+	assert.equal(parseMaxSessions("12"), 12);
 });

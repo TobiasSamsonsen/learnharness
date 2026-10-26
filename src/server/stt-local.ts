@@ -4,7 +4,10 @@ import * as path from "node:path";
 import { PATHS } from "../../config.ts";
 import {
 	LESSON_LANGUAGES,
+	parseSttDevice,
 	parseSttEngine,
+	sttModelFor,
+	type SttDevice,
 	LOCAL_STT_MODELS,
 	lessonLanguageInfo,
 	sttModelFiles,
@@ -125,12 +128,14 @@ function request(op: "prepare" | "transcribe", body: Record<string, unknown>): P
 
 function markRun(language: LessonLanguage, reply: Reply): Reply {
 	const s = shared();
-	const { repo } = LOCAL_STT_MODELS[language];
+	const { repo } = sttModelFor(language, sttDevice());
 	if (!reply.ok) s.models.set(repo, { state: "error", error: reply.error });
 	else if (reply.ranOn) {
-		s.ranOn.set(language, reply.ranOn);
+		// cpu device: the worker's "primary" is already the CPU model
+		const ranOn = sttDevice() === "cpu" && reply.ranOn === "gpu" ? "cpu" : reply.ranOn;
+		s.ranOn.set(language, ranOn);
 		// the fallback ran: the GPU model is not what is warm
-		if (reply.ranOn === "gpu") s.models.set(repo, { state: "ready" });
+		if (ranOn === "gpu" || ranOn === "cpu") s.models.set(repo, { state: "ready" });
 		else if (s.models.get(repo)?.state !== "error") s.models.delete(repo);
 	}
 	return reply;
@@ -139,14 +144,13 @@ function markRun(language: LessonLanguage, reply: Reply): Reply {
 /** Mark a language's GPU model as loading (or downloading) until it replies. */
 function markLoading(language: LessonLanguage): void {
 	const s = shared();
-	const model = LOCAL_STT_MODELS[language];
+	const model = sttModelFor(language, sttDevice());
 	if (s.models.get(model.repo)?.state !== "ready") s.models.set(model.repo, { state: onDisk(model) ? "loading" : "downloading", progress: 0 });
 }
 
 /** A language's two models, as the worker protocol carries them. */
 function specs(language: LessonLanguage): { model: SttModelSpec; fallback: SttModelSpec } {
-	const { repo, dtype, device, sizeMb, fallback } = LOCAL_STT_MODELS[language];
-	return { model: { repo, dtype, device, sizeMb }, fallback };
+	return { model: sttModelFor(language, sttDevice()), fallback: LOCAL_STT_MODELS[language].fallback };
 }
 
 /** Which local engine this server process runs (LH_STT_ENGINE, Android plan M4). */
@@ -154,12 +158,17 @@ export function sttEngine(): SttEngine {
 	return parseSttEngine(process.env.LH_STT_ENGINE);
 }
 
+/** Which device the transformers.js engine may use (LH_STT_DEVICE, Android plan M6). */
+export function sttDevice(): SttDevice {
+	return parseSttDevice(process.env.LH_STT_DEVICE);
+}
+
 /** Every language's local model, with its live (or on-disk) state. */
 export function localSttStatuses(): LocalSttStatus[] {
 	if (sttEngine() === "whispercpp") return whisperCppStatuses();
 	const s = shared();
 	return LESSON_LANGUAGES.map(({ id }) => {
-		const model = LOCAL_STT_MODELS[id];
+		const model = sttModelFor(id, sttDevice());
 		const live = s.models.get(model.repo);
 		const state = live?.state ?? (onDisk(model) ? "cached" : "absent");
 		const ranOn = s.ranOn.get(id);

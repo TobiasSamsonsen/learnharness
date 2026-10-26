@@ -142,6 +142,24 @@ export function parseSttEngine(value: string | undefined): SttEngine {
 	return value?.trim().toLowerCase() === "whispercpp" ? "whispercpp" : DEFAULT_STT_ENGINE;
 }
 
+/** Where the transformers.js engine may run (LH_STT_DEVICE, Android plan M6):
+ *  auto = the GPU model first, the small CPU model as fallback (default) ·
+ *  cpu = the small CPU model only, so a device without WebGPU never
+ *  downloads the 1.3–1.6 GB GPU weights. */
+export type SttDevice = "auto" | "cpu";
+
+/** An unset or unknown LH_STT_DEVICE value is "auto". */
+export function parseSttDevice(value: string | undefined): SttDevice {
+	return value?.trim().toLowerCase() === "cpu" ? "cpu" : "auto";
+}
+
+/** The model a language's primary load uses: the GPU model, or with the
+ *  cpu device the existing CPU fallback (which then has no fallback of its own). */
+export function sttModelFor(language: LessonLanguage, device: SttDevice): SttModelSpec {
+	const { repo, dtype, device: dev, sizeMb, fallback } = LOCAL_STT_MODELS[language];
+	return device === "cpu" ? fallback : { repo, dtype, device: dev, sizeMb };
+}
+
 /** One GGML model for the whisper.cpp engine: a file in a Hugging Face repo.
  *  The defaults are the SMALL q5 models (owner, M4 bench, docs/android/stt-bench.md):
  *  the only ones that stay ahead of live speech on a tablet CPU. */
@@ -179,7 +197,8 @@ export interface LocalSttStatus {
 	state: "absent" | "downloading" | "loading" | "cached" | "ready" | "error";
 	progress?: number;
 	error?: string;
-	/** Where the last transcription or warm-up ran: the GPU model, or the
-	 *  CPU fallback. Absent until one has run in this server process. */
-	ranOn?: "gpu" | "cpu-fallback";
+	/** Where the last transcription or warm-up ran: the GPU model, the
+	 *  CPU fallback, or the CPU model by choice (LH_STT_DEVICE=cpu). Absent
+	 *  until one has run in this server process. */
+	ranOn?: "gpu" | "cpu-fallback" | "cpu";
 }
