@@ -31,13 +31,22 @@ export interface SketchViewProps {
 	statement: string;
 	/** The question's or problem's tool-call id: unsent ink is kept per key. */
 	inkKey: string;
-	/** The sketch is ready; the caller finishes dictation and sends. */
-	onSubmit: (sketch: SketchPayload) => void;
+	/** The sketch is ready; the caller finishes dictation and sends, and
+	 *  resolves to whether the server accepted it. */
+	onSubmit: (sketch: SketchPayload) => Promise<boolean>;
 	onClose: () => void;
 	/** Cancel a live dictation run (the page's Esc behaviour). */
 	onCancelDictation?: () => void;
 	/** Submitting is blocked (compaction running). */
 	disabled?: boolean;
+}
+
+function focusVisible(el: HTMLElement): boolean {
+	try {
+		return el.matches(":focus-visible");
+	} catch {
+		return false; // a selector engine without the pseudo (linkedom)
+	}
 }
 
 export function SketchView({ label, statement, inkKey, onSubmit, onClose, onCancelDictation, disabled = false }: SketchViewProps) {
@@ -73,8 +82,12 @@ export function SketchView({ label, statement, inkKey, onSubmit, onClose, onCanc
 			}
 			throw err;
 		}
-		clearInk(inkKey);
-		onSubmit(payload);
+		// The ink is cleared only once the server has the sketch (a 409/500/
+		// 400 keeps it for a retry) — and only if nothing was drawn since.
+		const sent = inkRef.current.strokes;
+		void onSubmit(payload).then((accepted) => {
+			if (accepted && readInk(inkKey).strokes === sent) clearInk(inkKey);
+		});
 	};
 
 	const handlers = useRef({ undo, redo, submit, onClose, onCancelDictation });
@@ -87,6 +100,10 @@ export function SketchView({ label, statement, inkKey, onSubmit, onClose, onCanc
 				if (isDictationActive() && h.onCancelDictation) h.onCancelDictation();
 				else h.onClose();
 			} else if (e.key === "Enter") {
+				// A KEYBOARD-focused button activates natively (a pointer-clicked
+				// one doesn't: plain Enter does nothing in the sketch view).
+				const t = e.target as HTMLElement | null;
+				if (!mod && t?.tagName === "BUTTON" && focusVisible(t)) return;
 				if (mod) h.submit();
 			} else if (mod && e.key.toLowerCase() === "z") {
 				if (e.shiftKey) h.redo();

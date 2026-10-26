@@ -77,7 +77,7 @@ export interface QuestionDockProps {
 	onExpand: () => void;
 	/** A sketch submit (Android plan M1, text mode) passes the handwriting;
 	 *  the answer then carries its ref. */
-	onSubmit: (output: QuestionAnswerData, sketch?: SketchPayload) => void;
+	onSubmit: (output: QuestionAnswerData, sketch?: SketchPayload) => Promise<boolean> | void;
 	/** The session's model reads images — text mode then offers "Open in
 	 *  sketch" (a text-only model would silently drop the pages). */
 	sketchAvailable?: boolean;
@@ -341,6 +341,10 @@ function QuestionDockForm({
 	// unmounts between questions, so each question starts unset.
 	const [confIdx, setConfIdx] = useState<number | null>(null);
 	const [sketching, setSketching] = useState(false);
+	// A switch to a text-only model closes an open sketch (its ink stays).
+	useEffect(() => {
+		if (!sketchAvailable) setSketching(false);
+	}, [sketchAvailable]);
 	const selectMode: SelectMode = qd.mode === "multi-select" ? "multi-select" : "single-select";
 
 	// The PRIMARY dictation input (owner, STT round 1): while a question
@@ -413,20 +417,19 @@ function QuestionDockForm({
 	/* The sketch submit (Android plan M1, text mode only): the sketch
 	 * answers on its own or with the typed/dictated text; dictation's tail
 	 * lands first, exactly as for the Submit button. */
-	const submitSketch = (sketch: SketchPayload) => {
-		if (compactionRunning || qd.mode !== "text") return;
+	const submitSketch = async (sketch: SketchPayload): Promise<boolean> => {
+		if (compactionRunning || qd.mode !== "text") return false;
 		setSketching(false);
-		const send = () => {
-			const req: AnswerRequest = {
-				dontKnow: false,
-				values: [],
-				text: answerTextRef.current,
-				sketch: sketchRefOf(sketch),
-			};
-			onSubmit(buildAnswer(qd, req, toolName), sketch);
+		if (isDictationActive()) await finishDictation();
+		// The dock's own gate: text mode answers on a sketch alone.
+		if (!dockSubmitGate({ kind, mode: qd.mode, sel, other, text: answerTextRef.current, confidenceSet: confIdx !== null, hasSketch: true }).canSubmit) return false;
+		const req: AnswerRequest = {
+			dontKnow: false,
+			values: [],
+			text: answerTextRef.current,
+			sketch: sketchRefOf(sketch),
 		};
-		if (isDictationActive()) void finishDictation().then(send);
-		else send();
+		return (await onSubmit(buildAnswer(qd, req, toolName), sketch)) ?? true;
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): the same
@@ -964,7 +967,7 @@ function QuestionDockForm({
 					</div>
 				</div>
 			</form>
-			{sketching && (
+			{sketching && sketchAvailable && (
 				<SketchView
 					label="Question"
 					statement={qd.context ? `${qd.context}\n\n${qd.question}` : qd.question}

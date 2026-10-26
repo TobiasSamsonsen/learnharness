@@ -26,6 +26,9 @@ export const SKETCH_MAX_BYTES = 4_000_000;
 export const SKETCH_MAX_EDGE = 2000;
 /** Pages (bands) one sketch may render to. */
 export const SKETCH_MAX_PAGES = 6;
+/** Sketch pages one model request carries as images, newest first (owner,
+ *  M1 review): older pages ride as text stubs. */
+export const SKETCH_MAX_REQUEST_PAGES = 20;
 const MAX_UPSCALE = 2;
 /** A tiny sketch is enlarged until its long edge reaches this (≤ 2×). */
 const MIN_EDGE = 480;

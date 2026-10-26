@@ -7,6 +7,7 @@
  */
 
 import { planSketch, type SketchImageResolver, type TurnInput } from "../core/index.ts";
+import { providerSafePng } from "../agent/subagents/headless.ts";
 import { stores } from "./stores.ts";
 
 /** Render and store an input's sketch, if it carries one. Called before
@@ -19,7 +20,11 @@ export async function persistInputSketch(chatId: string, input: TurnInput): Prom
 	const { Resvg } = await import("@resvg/resvg-js");
 	const pages = planSketch(sketch).map((page) => ({
 		svg: page.svg,
-		png: new Uint8Array(new Resvg(page.svg, { fitTo: { mode: "width", value: page.width }, background: "#ffffff" }).render().asPng()),
+		// Canonical IDAT, like every PNG the app sends a provider (headless.ts:
+		// some vision decoders reject split image-data chunks).
+		png: new Uint8Array(
+			providerSafePng(new Resvg(page.svg, { fitTo: { mode: "width", value: page.width }, background: "#ffffff" }).render().asPng()),
+		),
 	}));
 	stores.sketchStore.save(chatId, { id: sketch.id, strokesJson: JSON.stringify(sketch.strokes), pages });
 }

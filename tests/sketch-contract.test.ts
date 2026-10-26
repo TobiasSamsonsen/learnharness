@@ -13,7 +13,11 @@ import {
 	ChatInputError,
 	SKETCH_MAX_EDGE,
 	SKETCH_MAX_PAGES,
+	SKETCH_MAX_REQUEST_PAGES,
 	SketchPayloadError,
+	estimateSketchRequestTokens,
+	requestSketchPages,
+	sketchPageTokens,
 	compactAnswerForModel,
 	dockSubmitGate,
 	estimateMessageTokens,
@@ -171,6 +175,19 @@ describe("toLlmMessages with sketches", () => {
 		}
 	});
 
+	it("attaches only the newest SKETCH_MAX_REQUEST_PAGES pages; older ones become stubs", () => {
+		const markers = Array.from({ length: SKETCH_MAX_REQUEST_PAGES + 5 }, (_, i) => {
+			const id = `sk_window${String(i).padStart(10, "0")}`;
+			return { ...newThinkingMessage("c", `t${i}`, { ...ref, id }), id: `m${i}` } as AgentMessage;
+		});
+		const out = toLlmMessages(markers, { sketchImage: () => png }) as UserMessage[];
+		const images = out.map((m) => (m.content as Array<{ type: string }>).filter((b) => b.type === "image").length);
+		assert.deepEqual(images, [...Array(5).fill(0), ...Array(SKETCH_MAX_REQUEST_PAGES).fill(1)]);
+		assert.match(JSON.stringify(out[0]!.content), /omitted — older than the newest 20 sketch pages/);
+		assert.equal(requestSketchPages(markers).length, SKETCH_MAX_REQUEST_PAGES);
+		assert.equal(estimateSketchRequestTokens(markers), SKETCH_MAX_REQUEST_PAGES * sketchPageTokens(ref.pages[0]!.width, ref.pages[0]!.height));
+	});
+
 	it("reads the sketch off markers and answers only", () => {
 		assert.equal(sketchOfMessage(newThinkingMessage("c", "x", ref) as AgentMessage)?.id, ref.id);
 		assert.equal(sketchOfMessage(newThinkingMessage("c", "x") as AgentMessage), null);
@@ -236,16 +253,23 @@ describe("parseChatInput with sketches", () => {
 // ─── compaction ──────────────────────────────────────────────────────────────
 
 describe("compaction sees sketches", () => {
-	it("counts a record message's pages, and the projection's images only once", () => {
+	it("counts a record message's pages at their real vision cost", () => {
+		assert.equal(sketchPageTokens(2000, 2000), 72 * 72, "⌈w/28⌉×⌈h/28⌉");
+		const big = { ...ref, pages: [{ width: 2000, height: 1400 }, { width: 2000, height: 600 }] };
 		const plain = estimateMessageTokens(newThinkingMessage("c", "words"));
-		const sketched = newThinkingMessage("c", "words", ref);
-		const withSketch = estimateMessageTokens(sketched);
-		assert.ok(withSketch - plain >= 1000, `a page adds the image allowance (${withSketch - plain})`);
-		const answer = newAnswerResult("q", "explain", { kind: "explain", text: "x", sketch: ref } as QuestionAnswerData);
-		const [projected] = toLlmMessages([answer as AgentMessage], { sketchImage: () => png });
-		const once = estimateMessageTokens(answer);
-		const projectedTokens = estimateMessageTokens(projected as AgentMessage);
-		assert.ok(Math.abs(projectedTokens - once) < 50, `record ${once} vs projection ${projectedTokens}`);
+		const sketched = estimateMessageTokens(newThinkingMessage("c", "words", big));
+		const pages = sketchPageTokens(2000, 1400) + sketchPageTokens(2000, 600);
+		assert.ok(Math.abs(sketched - plain - pages) <= 20, `adds ${sketched - plain}, pages cost ${pages}`);
+	});
+
+	it("the wire projection is sized once: text stubs plus the request's image window", () => {
+		const big = { ...ref, pages: [{ width: 2000, height: 1400 }] };
+		const record = [newAnswerResult("q", "explain", { kind: "explain", text: "x", sketch: big } as QuestionAnswerData)];
+		const projected = toLlmMessages(record as AgentMessage[]);
+		const projectedText = projected.reduce((n, m) => n + estimateMessageTokens(m as AgentMessage), 0);
+		const wire = projectedText + estimateSketchRequestTokens(record);
+		const recordSide = estimateMessageTokens(record[0]!);
+		assert.ok(Math.abs(wire - recordSide) < 60, `wire ${wire} vs record ${recordSide}`);
 	});
 
 	it("writes [image] for image blocks, never their base64", () => {

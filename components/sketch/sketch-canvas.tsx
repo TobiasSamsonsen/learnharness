@@ -28,7 +28,10 @@ export function SketchCanvas({
 	onStroke: (stroke: SketchStroke) => void;
 }) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const live = useRef<{ pointerId: number; points: number[] } | null>(null);
+	// The stroke being drawn; `rect` is read once at pointerdown (a layout
+	// read per sample would stall a 240 Hz pen).
+	const live = useRef<{ pointerId: number; points: number[]; rect: DOMRect } | null>(null);
+	const frame = useRef<number | null>(null);
 	const penSeen = useRef(false);
 	// Path2D per finished stroke — redraws stay cheap on a busy page.
 	const paths = useRef(new WeakMap<SketchStroke, Path2D>());
@@ -76,14 +79,24 @@ export function SketchCanvas({
 	}, []); // draw reads refs only
 
 	useEffect(draw, [strokes]);
+	useEffect(() => () => {
+		if (frame.current !== null) cancelAnimationFrame(frame.current);
+	}, []);
+	/** At most one redraw per frame while the pen moves. */
+	const drawSoon = () => {
+		if (frame.current !== null) return;
+		frame.current = requestAnimationFrame(() => {
+			frame.current = null;
+			draw();
+		});
+	};
 
 	const accepts = (e: React.PointerEvent) => {
 		if (e.pointerType === "pen") penSeen.current = true;
 		return !(penSeen.current && e.pointerType === "touch");
 	};
 
-	const sample = (e: PointerEvent, out: number[]) => {
-		const rect = canvasRef.current!.getBoundingClientRect();
+	const sample = (e: PointerEvent, rect: DOMRect, out: number[]) => {
 		// Mice and fingers report no real pressure: a steady middle value.
 		const pressure = e.pointerType === "pen" && e.pressure > 0 ? e.pressure : 0.5;
 		out.push(Math.round((e.clientX - rect.left) * 10) / 10, Math.round((e.clientY - rect.top) * 10) / 10, Math.round(pressure * 100) / 100);
@@ -99,16 +112,17 @@ export function SketchCanvas({
 				e.preventDefault();
 				e.currentTarget.setPointerCapture(e.pointerId);
 				const points: number[] = [];
-				sample(e.nativeEvent, points);
-				live.current = { pointerId: e.pointerId, points };
+				const rect = e.currentTarget.getBoundingClientRect();
+				sample(e.nativeEvent, rect, points);
+				live.current = { pointerId: e.pointerId, points, rect };
 				draw();
 			}}
 			onPointerMove={(e) => {
 				if (!live.current || live.current.pointerId !== e.pointerId) return;
 				const native = e.nativeEvent;
 				const events = typeof native.getCoalescedEvents === "function" ? native.getCoalescedEvents() : [];
-				for (const ev of events.length > 0 ? events : [native]) sample(ev, live.current.points);
-				draw();
+				for (const ev of events.length > 0 ? events : [native]) sample(ev, live.current.rect, live.current.points);
+				drawSoon();
 			}}
 			onPointerUp={(e) => {
 				if (!live.current || live.current.pointerId !== e.pointerId) return;

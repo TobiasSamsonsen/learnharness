@@ -503,10 +503,10 @@ export function Chat({
 	// the dock stays mounted (the problem is still active until the agent
 	// concludes).
 	const submitThinking = useCallback(
-		(text: string, sketch?: SketchPayload) => {
+		(text: string, sketch?: SketchPayload): Promise<boolean> => {
 			const problem = activeProblemRef.current;
-			if (!problem) return;
-			void send(
+			if (!problem) return Promise.resolve(false);
+			return send(
 				sketch
 					? { type: "thinking", problemCallId: problem.toolCallId, text, sketch }
 					: { type: "thinking", problemCallId: problem.toolCallId, text },
@@ -1725,7 +1725,7 @@ export function Chat({
 						/>
 					}
 					onSubmitAnswer={(output, sketch) => {
-						if (!pending) return;
+						if (!pending) return Promise.resolve(false);
 						// THE ANSWER IS THE QUESTION CALL'S TOOL RESULT (fork 1, owner
 						// 2026-09-26): one input event, one turn — the hook appends
 						// the optimistic graded result (the AnsweredCard shows at
@@ -1736,7 +1736,7 @@ export function Chat({
 						// check answer is its only carrier.
 						const reading = readingThinkingRef.current.trim() || undefined;
 						clearReadingThinking();
-						submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output, sketch);
+						return submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output, sketch);
 					}}
 				/>
 				</Conversation>
@@ -1924,7 +1924,8 @@ function DockOverlay({
 	 *  question (the composer is replaced); null in teaching sessions. */
 	practice: { toolCallId: string; input: unknown } | null;
 	/** (commit, text) — the practice dock's two submit lanes. */
-	onSubmitThinking: (text: string, sketch?: SketchPayload) => void;
+	/** Resolves to whether the server accepted the submission. */
+	onSubmitThinking: (text: string, sketch?: SketchPayload) => Promise<boolean>;
 	/** The session's model reads images — the docks offer "Open in sketch". */
 	sketchAvailable: boolean;
 	/** The stats bar's model control reports the session's effective model. */
@@ -1942,7 +1943,8 @@ function DockOverlay({
 	contextTokens: number | null;
 	pricing?: SessionPricing;
 	composer: React.ReactNode;
-	onSubmitAnswer: (output: QuestionAnswerData, sketch?: SketchPayload) => void;
+	/** Resolves to whether the server accepted the answer. */
+	onSubmitAnswer: (output: QuestionAnswerData, sketch?: SketchPayload) => Promise<boolean>;
 	/** The model control's pass-through (the stats bar hosts it). */
 	chatId: string;
 	/** Reports the dock's settled height (block + gradient) — ChatView's

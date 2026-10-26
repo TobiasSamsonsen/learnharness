@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRightIcon, PenLineIcon } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
@@ -42,7 +42,7 @@ export interface PracticeDockProps {
 	/** text — POST {type:"thinking"} (one lane; the register is read from
 	 *  the text). A sketch submit (Android plan M1) adds the handwriting;
 	 *  its text may then be empty. */
-	onSubmit: (text: string, sketch?: SketchPayload) => void;
+	onSubmit: (text: string, sketch?: SketchPayload) => Promise<boolean> | void;
 	/** The session's model reads images — "Open in sketch" shows only then
 	 *  (a text-only model would silently drop the pages). */
 	sketchAvailable?: boolean;
@@ -67,6 +67,10 @@ export function PracticeDock({
 }: PracticeDockProps) {
 	const [thinking, setThinking] = useState("");
 	const [sketching, setSketching] = useState(false);
+	// A switch to a text-only model closes an open sketch (its ink stays).
+	useEffect(() => {
+		if (!sketchAvailable) setSketching(false);
+	}, [sketchAvailable]);
 	// Ref MIRRORS the field ("nothing gets lost", the question-dock
 	// discipline): a submit resuming after `await finishDictation()` reads
 	// the tail, never a stale closure.
@@ -96,17 +100,14 @@ export function PracticeDock({
 	/* The sketch submit: the thinking's dictated tail lands first (the
 	 * question dock's finish-dictation discipline), then text + sketch go
 	 * out as one submission. */
-	const submitSketch = (sketch: SketchPayload) => {
-		if (compactionRunning) return;
+	const submitSketch = async (sketch: SketchPayload): Promise<boolean> => {
+		if (compactionRunning) return false;
 		setSketching(false);
-		const send = () => {
-			const text = thinkingRef.current.trim();
-			thinkingRef.current = "";
-			setThinking("");
-			onSubmit(text, sketch);
-		};
-		if (isDictationActive()) void finishDictation().then(send);
-		else send();
+		if (isDictationActive()) await finishDictation();
+		const text = thinkingRef.current.trim();
+		thinkingRef.current = "";
+		setThinking("");
+		return (await onSubmit(text, sketch)) ?? true;
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): dictation
@@ -213,7 +214,7 @@ export function PracticeDock({
 					</Button>
 				</div>
 			</div>
-			{sketching && (
+			{sketching && sketchAvailable && (
 				<SketchView
 					label="Problem"
 					statement={typeof input.statement === "string" ? input.statement : ""}

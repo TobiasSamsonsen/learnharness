@@ -46,7 +46,7 @@ import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.
 import { ANSWER_NEXT_TEXT, PROSE_GATED_TOOLS } from "./prose-gate.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import type { SketchRef } from "./contracts/sketch.ts";
-import { isSketchRef, sketchLabel } from "./sketch.ts";
+import { isSketchRef, SKETCH_MAX_REQUEST_PAGES, sketchLabel } from "./sketch.ts";
 
 /** The hard-invariant wording for an aborted turn's unanswered calls —
  *  carried over verbatim from the pre-native era so the model's view
@@ -526,11 +526,20 @@ function resultIdsFrom(messages: readonly AgentMessage[]): Set<string> {
 export type SketchImageResolver = (sketchId: string, page: number) => { data: string; mimeType: string } | null;
 
 /** The model-facing blocks of a sketch: per page, its label then its
- *  image. A missing page degrades to a text stub — never a throw. */
-function sketchBlocks(ref: SketchRef, resolve?: SketchImageResolver): (TextContent | ImageContent)[] {
+ *  image. A missing page degrades to a text stub — never a throw; a page
+ *  outside the request's newest-pages window is a stub too. */
+function sketchBlocks(
+	ref: SketchRef,
+	resolve: SketchImageResolver | undefined,
+	attached: ReadonlySet<string>,
+): (TextContent | ImageContent)[] {
 	const n = ref.pages.length;
 	const out: (TextContent | ImageContent)[] = [];
 	for (let i = 0; i < n; i++) {
+		if (!attached.has(`${ref.id}/${i}`)) {
+			out.push({ type: "text", text: `${sketchLabel(ref.id, i, n)} (omitted — older than the newest ${SKETCH_MAX_REQUEST_PAGES} sketch pages)` });
+			continue;
+		}
 		let image: { data: string; mimeType: string } | null = null;
 		try {
 			image = resolve?.(ref.id, i) ?? null;
@@ -562,6 +571,31 @@ export function sketchOfMessage(m: AgentMessage): SketchRef | null {
 		return isSketchRef(sketch) ? sketch : null;
 	}
 	return null;
+}
+
+/** The image budget (owner, M1 review 2026-10-26): the sketch pages one
+ *  request carries as images — the newest SKETCH_MAX_REQUEST_PAGES of the
+ *  span the request renders (from `start`, the compaction cut; omitted =
+ *  the cut toLlmMessages applies). Older pages ride as stubs, so a long
+ *  session never passes the provider's per-request image cap. (M2's
+ *  read_sketch elision replaces this window.) */
+export function requestSketchPages(
+	messages: readonly AgentMessage[],
+	start?: number,
+): { ref: SketchRef; page: number }[] {
+	let from = start;
+	if (from === undefined) {
+		const active = activeCompactionOf(messages as readonly LhMessage[]);
+		const kept = active ? keptIndexFor(messages as readonly LhMessage[], active) : 0;
+		from = kept > 0 ? kept : 0;
+	}
+	const out: { ref: SketchRef; page: number }[] = [];
+	for (let i = messages.length - 1; i >= from && out.length < SKETCH_MAX_REQUEST_PAGES; i--) {
+		const ref = sketchOfMessage(messages[i]!);
+		if (!ref) continue;
+		for (let p = ref.pages.length - 1; p >= 0 && out.length < SKETCH_MAX_REQUEST_PAGES; p--) out.push({ ref, page: p });
+	}
+	return out;
 }
 
 /** Model-facing projection options (the server wires the sketch resolver). */
@@ -604,6 +638,7 @@ export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOpti
 	// context.systemPrompt + context.tools around its projection.
 	const leading =
 		(messages[0] as { role?: string } | undefined)?.role === "system" ? (messages[0] as Message) : null;
+	const attached = new Set(requestSketchPages(messages, start).map(({ ref, page }) => `${ref.id}/${page}`));
 	const out: Message[] = [];
 	if (leading) out.push(leading);
 	if (head) out.push(head);
@@ -624,7 +659,7 @@ export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOpti
 			const sketch = sketchOfMessage(marker);
 			out.push({
 				role: "user",
-				content: [...(sketch ? sketchBlocks(sketch, opts.sketchImage) : []), { type: "text", text: marker.content }],
+				content: [...(sketch ? sketchBlocks(sketch, opts.sketchImage, attached) : []), { type: "text", text: marker.content }],
 				timestamp: marker.timestamp,
 			});
 			continue;
@@ -635,7 +670,7 @@ export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOpti
 		if (answerSketch) {
 			// The answer's JSON first (it names the sketch), then its pages.
 			const result = native as ToolResultMessage;
-			out.push({ ...result, content: [...result.content, ...sketchBlocks(answerSketch, opts.sketchImage)] });
+			out.push({ ...result, content: [...result.content, ...sketchBlocks(answerSketch, opts.sketchImage, attached)] });
 		} else {
 			out.push(native as Message);
 		}

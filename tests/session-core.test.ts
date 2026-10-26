@@ -1145,3 +1145,30 @@ describe("sketch submissions (Android plan M1)", () => {
 		assert.deepEqual((JSON.parse(posted) as { input: { sketch: unknown } }).input.sketch, SKETCH);
 	});
 });
+
+describe("sketch submissions — review fixes (M1, 2026-10-26)", () => {
+	const SKETCH: SketchPayload = {
+		id: "sk_sessioncore000002",
+		producer: "web-canvas",
+		strokes: [{ size: 4, points: [10, 10, 0.5, 90, 50, 0.7, 200, 30, 0.5] }],
+	};
+
+	it("absorbs by the sketch's id, whatever page sizes each engine computed", () => {
+		const ref = sketchRefOf(SKETCH);
+		const optimistic = { ...newThinkingMessage("call-p1", "t", ref), id: "c_opt2" } as LhMessage;
+		const offByOne = { ...ref, pages: ref.pages.map((p) => ({ ...p, width: p.width + 1 })) };
+		const serverCopy = { ...newThinkingMessage("call-p1", "t", offByOne), id: "srv_3" } as LhMessage;
+		assert.ok(absorbed(optimistic, [...poseRecord(), serverCopy]));
+		const otherSketch = { ...newThinkingMessage("call-p1", "t", { ...ref, id: "sk_someotherone00001" }), id: "srv_4" } as LhMessage;
+		assert.ok(!absorbed(optimistic, [...poseRecord(), otherSketch]), "a different sketch is its own submission");
+	});
+
+	it("send resolves to whether the server accepted the input", async () => {
+		globalThis.fetch = dietFetch({ stream: () => sseResponse({ type: "agent_end", messages: [] }, "[DONE]") });
+		assert.equal(await model({ initialMessages: poseRecord() }).send({ type: "thinking", problemCallId: "call-p1", text: "x", sketch: SKETCH }), true);
+		globalThis.fetch = dietFetch({ stream: () => sseResponse("[DONE]"), post: () => new Response("busy", { status: 409 }) });
+		assert.equal(await model({ initialMessages: poseRecord() }).send({ type: "thinking", problemCallId: "call-p1", text: "x", sketch: SKETCH }), false, "409");
+		globalThis.fetch = dietFetch({ stream: () => sseResponse("[DONE]"), post: () => Response.json({ error: "The sketch could not be saved" }, { status: 500 }) });
+		assert.equal(await model({ initialMessages: poseRecord() }).send({ type: "thinking", problemCallId: "call-p1", text: "x", sketch: SKETCH }), false, "500");
+	});
+});

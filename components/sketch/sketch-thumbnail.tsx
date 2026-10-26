@@ -7,12 +7,14 @@ import type { SketchRef } from "@/src/core";
  * A sent sketch in the transcript (Android plan M1): page 1 as a small
  * image (the stored SVG); a click opens it full-size in a new tab (owner,
  * M1), and every further page gets its own link. The optimistic card
- * renders while the POST is still storing the pages, so a failed load
- * retries a few times before it gives up.
+ * renders while the POST is still storing the pages — which can wait on
+ * a running compaction — so a failed load retries with backoff for about
+ * two minutes before it gives up.
  */
 
-const RETRIES = 5;
-const RETRY_MS = 800;
+const RETRIES = 20;
+/** 0.8 s, doubling, capped at 8 s. */
+const retryDelay = (attempt: number) => Math.min(800 * 2 ** attempt, 8000);
 
 export function SketchThumbnail({ chatId, sketch }: { chatId: string; sketch: SketchRef }) {
 	const pageUrl = (page: number) => `/api/chats/${encodeURIComponent(chatId)}/sketches/${sketch.id}/${page}`;
@@ -24,9 +26,9 @@ export function SketchThumbnail({ chatId, sketch }: { chatId: string; sketch: Sk
 		const t = window.setTimeout(() => {
 			setRetryAt(null);
 			setAttempt((n) => n + 1);
-		}, RETRY_MS);
+		}, retryDelay(attempt));
 		return () => window.clearTimeout(t);
-	}, [retryAt]);
+	}, [retryAt, attempt]);
 
 	const first = sketch.pages[0];
 	return (

@@ -159,9 +159,15 @@ export function absorbed(m: LhMessage, record: readonly LhMessage[]): boolean {
 }
 
 /** Structural deep-equal for marker details (JSON-stable payloads — the
- *  constructors mint plain data). */
+ *  constructors mint plain data). A sketch compares by its producer-minted
+ *  id: its page sizes come from float math the browser and the server
+ *  need not round identically (M1 review, 2026-10-26). */
 function sameDetails(a: unknown, b: unknown): boolean {
-	return JSON.stringify(a) === JSON.stringify(b);
+	return JSON.stringify(sketchById(a)) === JSON.stringify(sketchById(b));
+}
+function sketchById(details: unknown): unknown {
+	const sketch = (details as { sketch?: { id?: unknown } } | null)?.sketch;
+	return sketch && typeof sketch === "object" ? { ...(details as object), sketch: sketch.id } : details;
 }
 
 export interface SessionState {
@@ -545,8 +551,8 @@ export class SessionModel {
 	 * POST + consume. Ready-gated: one turn per client at a time (the
 	 * server's 409 + identity retry covers the wake-race window).
 	 */
-	async send(input: ChatInput): Promise<void> {
-		if (!this.readyRef) return;
+	async send(input: ChatInput): Promise<boolean> {
+		if (!this.readyRef) return false;
 		this.consumeAbort?.abort();
 		const controller = new AbortController();
 		this.consumeAbort = controller;
@@ -580,6 +586,7 @@ export class SessionModel {
 		if (optimistic.length > 0) this.mutate(() => {
 			this.tail = [...this.tail, ...optimistic];
 		});
+		let accepted = false;
 		try {
 			// SUBMITS ARE NOT ABORTABLE BY VIEW TEARDOWN (owner, 2026-10-10 —
 			// the dead-session-start postmortem): the POST must NOT ride
@@ -597,7 +604,7 @@ export class SessionModel {
 			if (res.status === 409) {
 				this.setError("A turn is already running — try again in a moment.");
 				this.setStatus("error");
-				return;
+				return false;
 			}
 			if (!res.ok) {
 				// Refusal envelopes (503 BYOK/key gates) and 400s: the RAW body
@@ -612,17 +619,21 @@ export class SessionModel {
 			// the server's write-ahead copy of our optimistic messages, then the
 			// replay lands on top). One live view connection per page, always —
 			// the browser's 6-per-origin pool is the scarce resource.
+			// The server accepted the input (write-ahead done): what send
+			// resolves to — a sketch's ink is cleared only then.
+			accepted = true;
 			await res.text().catch(() => {}); // drain the tiny ack; release the socket
 			// A stop() or a newer send/consume won while the ack was in
 			// flight: the turn is live server-side either way — do not attach
 			// a stream from a view that is gone or superseded.
-			if (this.consumeAbort !== controller) return;
+			if (this.consumeAbort !== controller) return true;
 			await this.resumeStream(true);
 		} catch (err) {
-			if ((err as Error).name === "AbortError") return; // stop() or a newer consume won
+			if ((err as Error).name === "AbortError") return accepted; // stop() or a newer consume won
 			this.setError((err as Error).message);
 			this.setStatus("error");
 		}
+		return accepted;
 	}
 
 	/**
@@ -669,7 +680,7 @@ export class SessionModel {
 
 	/** The answer path (the dock): the answer IS the question call's tool
 	 *  result (fork 1), riding as its input event. */
-	submitAnswer(tool: string, toolCallId: string, output: QuestionAnswerData, sketch?: SketchPayload): Promise<void> {
+	submitAnswer(tool: string, toolCallId: string, output: QuestionAnswerData, sketch?: SketchPayload): Promise<boolean> {
 		void tool;
 		return this.send(sketch ? { type: "answer", toolCallId, answer: output, sketch } : { type: "answer", toolCallId, answer: output });
 	}

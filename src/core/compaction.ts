@@ -37,7 +37,7 @@ import type { PlanTree } from "./contracts/plan.ts";
 import { derivePlanStatusesLh, derivedNodeStatus } from "./contracts/plan.ts";
 import { COMPACTED_HISTORY_HEADER } from "./contracts/chat.ts";
 import type { LhMessage, LhMarkerMessage } from "./native-messages.ts";
-import { newMessageId, sketchOfMessage } from "./native-messages.ts";
+import { newMessageId, requestSketchPages, sketchOfMessage } from "./native-messages.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolResultMessage, SystemMessage } from "@earendil-works/pi-ai";
 
@@ -100,11 +100,12 @@ export function estimateMessageTokens(message: LhMessage | AgentMessage): number
 		}
 	} else {
 		chars += textCharsOfContent(content);
-		// A record message's sketch (fork addition, 2026-10-26): its pages
-		// ride as images only at the model boundary — count them here, unless
-		// this is already the projection (its image blocks counted above).
-		const sketch = sketchOfMessage(message as AgentMessage);
-		if (sketch && !hasImageBlock(content)) chars += sketch.pages.length * ESTIMATED_IMAGE_CHARS;
+		// A RECORD message's sketch (fork addition, 2026-10-26): its pages
+		// ride as images only at the model boundary — counted here at their
+		// real vision cost. Record messages carry ids; the wire projection
+		// strips them and is sized by estimateSketchRequestTokens instead.
+		const sketch = typeof (message as { id?: unknown }).id === "string" ? sketchOfMessage(message as AgentMessage) : null;
+		if (sketch) for (const p of sketch.pages) chars += sketchPageTokens(p.width, p.height) * 4;
 		if (message.role === "system") {
 			const system = message as SystemMessage;
 			for (const section of Object.values(system.sections ?? {})) chars += section?.length ?? 0;
@@ -129,8 +130,22 @@ function textCharsOfContent(content: unknown): number {
 	return chars;
 }
 
-function hasImageBlock(content: unknown): boolean {
-	return Array.isArray(content) && content.some((b) => (b as { type?: string } | null)?.type === "image");
+/** A sketch page's vision cost: ⌈w/28⌉×⌈h/28⌉ tokens (current Claude
+ *  models — docs/android/plan.md §5). */
+export function sketchPageTokens(width: number, height: number): number {
+	return Math.ceil(width / 28) * Math.ceil(height / 28);
+}
+
+/** The sketch images one request carries (the newest-pages window that
+ *  toLlmMessages applies), at their vision cost — the wire projection's
+ *  estimate adds this to its text (its sketches ride as stubs there). */
+export function estimateSketchRequestTokens(messages: readonly (LhMessage | AgentMessage)[]): number {
+	let tokens = 0;
+	for (const { ref, page } of requestSketchPages(messages as readonly AgentMessage[])) {
+		const p = ref.pages[page]!;
+		tokens += sketchPageTokens(p.width, p.height);
+	}
+	return tokens;
 }
 
 /** Summary text of a content value: text blocks as-is, an image as
