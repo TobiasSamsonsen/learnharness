@@ -243,26 +243,30 @@ describe("the dispute input", () => {
 
 describe("replay elision", () => {
 	const png = { data: "iVBORw0KGgo=", mimeType: "image/png" };
-	const imagesIn = (m: AgentMessage[]) =>
-		(toLlmMessages(m, { sketchImage: () => png }) as UserMessage[]).flatMap((x) => (Array.isArray(x.content) ? x.content : [])).filter((b) => b.type === "image").length;
+	const project = (m: readonly LhMessage[]) => toLlmMessages(asAgent(m), { sketchImage: () => png }) as UserMessage[];
+	const imagesIn = (m: readonly LhMessage[]) =>
+		project(m).flatMap((x) => (Array.isArray(x.content) ? x.content : [])).filter((b) => b.type === "image").length;
+	const indexOfMarker = (record: readonly LhMessage[], sketchId: string) =>
+		record.findIndex((m) => (m as { customType?: string }).customType === "practice-thinking" && JSON.stringify(m).includes(sketchId));
 
 	it("a confirmed sketch stays an image until a newer problem is posed", () => {
 		const open = [...posed(), thinking("call_p1"), ...readCall("r1", SK1)];
 		assert.equal(sketchReplayPlan(asAgent(open)).size, 0, "same problem still running");
-		assert.equal(imagesIn(asAgent(open)), 1);
+		assert.equal(imagesIn(open), 1);
 		const closed = [...open, ...posed("call_p2")];
-		assert.deepEqual([...sketchReplayPlan(asAgent(closed))], [SK1]);
-		assert.equal(imagesIn(asAgent(closed)), 0, "the reading is the record");
-		const text = JSON.stringify(toLlmMessages(asAgent(closed), { sketchImage: () => png }));
+		assert.deepEqual([...sketchReplayPlan(asAgent(closed))], [indexOfMarker(closed, SK1)]);
+		assert.equal(imagesIn(closed), 0, "the reading is the record");
+		const text = JSON.stringify(project(closed));
 		assert.ok(text.includes(sketchStubText(SK1, 0, 1, "elided")));
 		assert.match(text, /omitted; its confirmed reading is your read_sketch call/);
 	});
 
-	it("an unread, doubtful or disputed sketch is never elided", () => {
+	it("an unread or doubtful sketch is never elided", () => {
 		const closedWith = (extra: LhMessage[]) => [...posed(), thinking("call_p1"), ...extra, ...posed("call_p2")];
 		assert.equal(sketchReplayPlan(asAgent(closedWith([]))).size, 0, "unread");
 		assert.equal(sketchReplayPlan(asAgent(closedWith(readCall("r1", SK1, ["the 3"])))).size, 0, "doubtful");
-		assert.equal(sketchReplayPlan(asAgent(closedWith([...readCall("r1", SK1), dispute(SK1)]))).size, 0, "disputed: the re-read needs the image");
+		// A doubtful read, then a clean one: confirmed at the second.
+		assert.equal(sketchReplayPlan(asAgent(closedWith([...readCall("r1", SK1, ["the 3"]), ...readCall("r2", SK1)]))).size, 1);
 	});
 
 	it("an answer's sketch closes when a later question is answered", () => {
@@ -270,12 +274,75 @@ describe("replay elision", () => {
 		const first = [call("q1", "explain", { question: "?" }), answer("q1", ref1), ...readCall("r1", SK1)];
 		assert.equal(sketchReplayPlan(asAgent(first)).size, 0);
 		const second = [...first, call("q2", "explain", { question: "??" }), answer("q2", ref2)];
-		assert.deepEqual([...sketchReplayPlan(asAgent(second))], [SK1], "only the earlier sketch; the newest is still live");
+		assert.deepEqual([...sketchReplayPlan(asAgent(second))], [1], "only the earlier answer; the newest is still live");
+	});
+
+	it("ONLY clean results close a scope: an errored pose or a blocked question closes nothing", () => {
+		const open = [...posed(), thinking("call_p1"), ...readCall("r1", SK1)];
+		// The model forgot to conclude and posed again: refused ("already active").
+		const erroredPose = [...open, call("call_p2", "problem", { statement: "again" }), result("call_p2", "problem", "a problem is already active", null, true)];
+		assert.equal(sketchReplayPlan(asAgent(erroredPose)).size, 0, "a refused pose closes nothing");
+		// An answer's sketch, then a prose-gate-blocked quiz (an errored result).
+		const answer = { ...newAnswerResult("q1", "explain", { kind: "explain", text: "", sketch: ref2 } as QuestionAnswerData), id: nextId() } as LhMessage;
+		const base = [call("q1", "explain", { question: "?" }), answer, ...readCall("r2", SK2)];
+		const blocked = [...base, call("q2", "quiz", { question: "?" }), result("q2", "quiz", "write text first", null, true)];
+		assert.equal(sketchReplayPlan(asAgent(blocked)).size, 0, "a blocked question closes nothing");
+		const answered = [...base, call("q3", "quiz", { question: "?" }), { ...newAnswerResult("q3", "quiz", { kind: "quiz", correct: true } as unknown as QuestionAnswerData), id: nextId() } as LhMessage];
+		assert.equal(sketchReplayPlan(asAgent(answered)).size, 1, "a real answer does");
+		// A dismissal is not an answer either.
+		const dismissed = [...base, call("q4", "quiz", { question: "?" }), { ...newAnswerResult("q4", "quiz", { kind: "quiz", dismissed: true } as unknown as QuestionAnswerData), id: nextId() } as LhMessage];
+		assert.equal(sketchReplayPlan(asAgent(dismissed)).size, 0, "a dismissal is not an answer");
+	});
+
+	it("a dispute re-sends the pages itself; the old pages stay stubs (one-way)", () => {
+		// Problem 1: sketch read, confirmed, closed by problem 2's pose.
+		const closed = [...posed(), thinking("call_p1"), ...readCall("r1", SK1), ...posed("call_p2")];
+		const marker = indexOfMarker(closed, SK1);
+		assert.deepEqual([...sketchReplayPlan(asAgent(closed))], [marker]);
+		// …the learner disputes it, from the scrolled-up card.
+		const disputed = [...closed, dispute(SK1, "it was x^3")];
+		const plan = sketchReplayPlan(asAgent(disputed));
+		assert.ok(plan.has(marker), "the old pages are NOT re-opened: elision never flips back");
+		assert.ok(!plan.has(disputed.length - 1), "the dispute's own copy is an image");
+		const out = project(disputed);
+		const last = out.at(-1)!;
+		assert.deepEqual((last.content as Array<{ type: string }>).map((b) => b.type), ["text", "image", "text"], "label, the page, then the instruction");
+		assert.equal(imagesIn(disputed), 1, "exactly one copy of the page rides");
+		// A clean re-read, then a newer problem: the copy stubs too (once).
+		const settled = [...disputed, ...readCall("r2", SK1, [], "$x^3$"), ...posed("call_p3")];
+		assert.ok(sketchReplayPlan(asAgent(settled)).has(disputed.length - 1));
+		assert.equal(imagesIn(settled), 0);
+		// Before the re-read it must still be an image, even with the problem closed.
+		assert.equal(imagesIn([...disputed, ...posed("call_p3")]), 1);
+	});
+
+	it("is monotone: growing the record never turns a stub back into an image", () => {
+		const record = [
+			...posed(),
+			thinking("call_p1", ref1),
+			...readCall("r1", SK1),
+			...posed("call_p2"),
+			dispute(SK1),
+			...readCall("r2", SK1),
+			thinking("call_p2", ref2),
+			...readCall("r3", SK2, ["the 3"]),
+			dispute(SK2),
+			...readCall("r4", SK2),
+			...posed("call_p3"),
+			dispute(SK1, "again"),
+		];
+		let previous = new Set<number>();
+		for (let n = 1; n <= record.length; n++) {
+			const plan = sketchReplayPlan(asAgent(record.slice(0, n)));
+			for (const i of previous) assert.ok(plan.has(i), `prefix ${n}: message ${i} was a stub and came back`);
+			previous = plan;
+		}
+		assert.ok(previous.size > 0, "the scenario does elide something");
 	});
 
 	it("the 20-page window stays as the backstop over open sketches", () => {
 		const many = Array.from({ length: SKETCH_MAX_REQUEST_PAGES + 3 }, (_, i) => thinking("call_p1", sketchRefOf(payload(`sk_backstop${String(i).padStart(8, "0")}`))));
-		assert.equal(imagesIn(asAgent([...posed(), ...many])), SKETCH_MAX_REQUEST_PAGES);
+		assert.equal(imagesIn([...posed(), ...many]), SKETCH_MAX_REQUEST_PAGES);
 	});
 });
 

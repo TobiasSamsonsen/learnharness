@@ -20,6 +20,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import { QUESTION_TOOLS } from "./pending.ts";
+import type { SketchRef } from "./contracts/sketch.ts";
 import { sketchOfMessage } from "./sketch.ts";
 
 export const READ_SKETCH_TOOL = "read_sketch";
@@ -161,32 +162,105 @@ export function sketchConcludeProblems(gate: SketchGate | null, outcome: string)
 
 // ─── replay elision ──────────────────────────────────────────────────────────
 
-/** The sketches whose pages ride as text stubs instead of images in a
- *  request: CONFIRMED (read, no doubts, no open dispute) and CLOSED. A
- *  practice submission closes when a newer problem is posed; an answer's
- *  sketch closes when a later question is answered. Each projection then
- *  changes at most once per sketch (a dispute re-opens it: the re-read
- *  needs the image). */
-export function sketchReplayPlan(messages: readonly AgentMessage[]): Set<string> {
-	let lastPose = -1;
-	let lastAnswer = -1;
+/** Where a sketch's pages can ride in a request: the message that carries
+ *  the sketch (a practice submission, or a question's answer), or a dispute
+ *  marker re-sending it (the re-read needs the image, and the live process
+ *  only receives what arrives in a NEW message). */
+export interface SketchOccurrence {
+	/** Index into the message list. */
+	index: number;
+	ref: SketchRef;
+	kind: "submission" | "answer" | "dispute";
+}
+
+/** The sketch a dispute marker names, if it is one. */
+function disputedSketchId(m: AgentMessage): string | null {
+	const marker = m as { role?: string; customType?: string; details?: unknown };
+	if (marker.role !== "custom" || marker.customType !== SKETCH_DISPUTE_MARKER) return null;
+	const id = (marker.details as { sketchId?: unknown } | null)?.sketchId;
+	return typeof id === "string" ? id : null;
+}
+
+/** Every sketch the record carries, by id (its submission's ref). */
+export function sketchRefsById(messages: readonly AgentMessage[]): Map<string, SketchRef> {
+	const refs = new Map<string, SketchRef>();
+	for (const m of messages) {
+		const ref = sketchOfMessage(m);
+		if (ref) refs.set(ref.id, ref);
+	}
+	return refs;
+}
+
+/** Every place a sketch's pages ride, in record order. */
+export function sketchOccurrencesOf(messages: readonly AgentMessage[]): SketchOccurrence[] {
+	const refs = sketchRefsById(messages);
+	const out: SketchOccurrence[] = [];
+	messages.forEach((m, index) => {
+		const ref = sketchOfMessage(m);
+		if (ref) {
+			out.push({ index, ref, kind: (m as { role?: string }).role === "custom" ? "submission" : "answer" });
+			return;
+		}
+		const disputed = disputedSketchId(m);
+		const known = disputed ? refs.get(disputed) : undefined;
+		if (known) out.push({ index, ref: known, kind: "dispute" });
+	});
+	return out;
+}
+
+/** The occurrences whose pages ride as text stubs instead of images: a
+ *  CONFIRMED sketch (a clean, doubt-free read after it) whose scope has
+ *  CLOSED (a newer problem was posed / a later question answered, after it).
+ *
+ *  ONE-WAY by construction: both conditions are "an event after this
+ *  occurrence", and events only ever append — so an occurrence flips from
+ *  image to stub at most once and never back. A dispute therefore does NOT
+ *  re-open the old pages; its own marker re-sends them (a new message the
+ *  live process receives), and that copy is stubbed by the same rule once a
+ *  clean read follows IT and the scope closes.
+ *
+ *  Only CLEAN results count as events (the activeProblemOf rule): an
+ *  errored pose, or a prose-gate-blocked question, closes nothing. */
+export function sketchReplayPlan(messages: readonly AgentMessage[]): Set<number> {
+	const confirmations = new Map<string, number[]>();
+	const poses: number[] = [];
+	const answers: number[] = [];
+	const calls = new Map<string, { sketchId: string; reading: SketchReading }>();
 	messages.forEach((m, i) => {
 		const role = (m as { role?: string }).role;
 		if (role === "assistant") {
-			if ((m as AssistantMessage).content.some((b) => b.type === "toolCall" && b.name === "problem")) lastPose = i;
-		} else if (role === "toolResult") {
-			if ((QUESTION_TOOLS as readonly string[]).includes((m as ToolResultMessage).toolName)) lastAnswer = i;
+			for (const block of (m as AssistantMessage).content) {
+				if (block.type !== "toolCall" || block.name !== READ_SKETCH_TOOL) continue;
+				const parsed = readingOf(block.arguments);
+				if (parsed) calls.set(block.id, parsed);
+			}
+			return;
+		}
+		if (role !== "toolResult") return;
+		const result = m as ToolResultMessage;
+		if (result.isError) return;
+		if (result.toolName === READ_SKETCH_TOOL) {
+			const call = calls.get(result.toolCallId);
+			if (call && call.reading.uncertain.length === 0) {
+				const list = confirmations.get(call.sketchId) ?? [];
+				list.push(i);
+				confirmations.set(call.sketchId, list);
+			}
+		} else if (result.toolName === "problem") {
+			poses.push(i);
+		} else if ((QUESTION_TOOLS as readonly string[]).includes(result.toolName)) {
+			const details = result.details as { dismissed?: unknown } | null;
+			if (details && !details.dismissed) answers.push(i);
 		}
 	});
-	const states = sketchStatesOf(messages);
-	const elided = new Set<string>();
-	messages.forEach((m, i) => {
-		const ref = sketchOfMessage(m);
-		if (!ref || !isConfirmed(states.get(ref.id))) return;
-		const role = (m as { role?: string }).role;
-		const closed = role === "custom" ? lastPose > i : lastAnswer > i;
-		if (closed) elided.add(ref.id);
-	});
+	const after = (events: readonly number[], index: number) => events.some((e) => e > index);
+	const elided = new Set<number>();
+	for (const o of sketchOccurrencesOf(messages)) {
+		if (!after(confirmations.get(o.ref.id) ?? [], o.index)) continue;
+		const closed =
+			o.kind === "submission" ? after(poses, o.index) : o.kind === "answer" ? after(answers, o.index) : after(poses, o.index) || after(answers, o.index);
+		if (closed) elided.add(o.index);
+	}
 	return elided;
 }
 

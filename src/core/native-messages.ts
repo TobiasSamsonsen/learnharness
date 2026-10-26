@@ -46,8 +46,8 @@ import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.
 import { ANSWER_NEXT_TEXT, PROSE_GATED_TOOLS, SKETCH_ANSWER_NEXT_TEXT, SKETCH_READ_FIRST_TEXT } from "./prose-gate.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import type { SketchRef } from "./contracts/sketch.ts";
-import { SKETCH_MAX_REQUEST_PAGES, sketchLabel, sketchOfMessage, sketchStubText } from "./sketch.ts";
-import { SKETCH_DISPUTE_MARKER, sketchReplayPlan } from "./sketch-gate.ts";
+import { SKETCH_MAX_REQUEST_PAGES, sketchLabel, sketchStubText } from "./sketch.ts";
+import { SKETCH_DISPUTE_MARKER, sketchOccurrencesOf, sketchReplayPlan, type SketchOccurrence } from "./sketch-gate.ts";
 
 /** The hard-invariant wording for an aborted turn's unanswered calls —
  *  carried over verbatim from the pre-native era so the model's view
@@ -554,20 +554,21 @@ export type SketchImageResolver = (sketchId: string, page: number) => { data: st
  *  image. A missing page degrades to a text stub — never a throw; a page
  *  outside the request's newest-pages window is a stub too. */
 function sketchBlocks(
-	ref: SketchRef,
+	occurrence: SketchOccurrence,
 	resolve: SketchImageResolver | undefined,
 	attached: ReadonlySet<string>,
-	elided: ReadonlySet<string>,
+	elided: ReadonlySet<number>,
 ): (TextContent | ImageContent)[] {
+	const { ref, index } = occurrence;
 	const n = ref.pages.length;
 	const out: (TextContent | ImageContent)[] = [];
 	for (let i = 0; i < n; i++) {
 		// A confirmed sketch whose scope closed: its reading is the record.
-		if (elided.has(ref.id)) {
+		if (elided.has(index)) {
 			out.push({ type: "text", text: sketchStubText(ref.id, i, n, "elided") });
 			continue;
 		}
-		if (!attached.has(`${ref.id}/${i}`)) {
+		if (!attached.has(`${index}/${i}`)) {
 			out.push({ type: "text", text: sketchStubText(ref.id, i, n, "window") });
 			continue;
 		}
@@ -590,13 +591,13 @@ function sketchBlocks(
 /** The image budget (owner, M1 review 2026-10-26): the sketch pages one
  *  request carries as images — the newest SKETCH_MAX_REQUEST_PAGES of the
  *  span the request renders (from `start`, the compaction cut; omitted =
- *  the cut toLlmMessages applies). Older pages ride as stubs, so a long
- *  session never passes the provider's per-request image cap. (M2's
- *  read_sketch elision replaces this window.) */
+ *  the cut toLlmMessages applies), among the occurrences elision left as
+ *  images. Older pages ride as stubs, so a long session never passes the
+ *  provider's per-request image cap (the backstop under M2's elision). */
 export function requestSketchPages(
 	messages: readonly AgentMessage[],
 	start?: number,
-): { ref: SketchRef; page: number }[] {
+): { index: number; ref: SketchRef; page: number }[] {
 	let from = start;
 	if (from === undefined) {
 		const active = activeCompactionOf(messages as readonly LhMessage[]);
@@ -604,11 +605,12 @@ export function requestSketchPages(
 		from = kept > 0 ? kept : 0;
 	}
 	const elided = sketchReplayPlan(messages);
-	const out: { ref: SketchRef; page: number }[] = [];
-	for (let i = messages.length - 1; i >= from && out.length < SKETCH_MAX_REQUEST_PAGES; i--) {
-		const ref = sketchOfMessage(messages[i]!);
-		if (!ref || elided.has(ref.id)) continue;
-		for (let p = ref.pages.length - 1; p >= 0 && out.length < SKETCH_MAX_REQUEST_PAGES; p--) out.push({ ref, page: p });
+	const out: { index: number; ref: SketchRef; page: number }[] = [];
+	const occurrences = sketchOccurrencesOf(messages);
+	for (let k = occurrences.length - 1; k >= 0 && out.length < SKETCH_MAX_REQUEST_PAGES; k--) {
+		const { index, ref } = occurrences[k]!;
+		if (index < from || elided.has(index)) continue;
+		for (let p = ref.pages.length - 1; p >= 0 && out.length < SKETCH_MAX_REQUEST_PAGES; p--) out.push({ index, ref, page: p });
 	}
 	return out;
 }
@@ -654,7 +656,8 @@ export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOpti
 	const leading =
 		(messages[0] as { role?: string } | undefined)?.role === "system" ? (messages[0] as Message) : null;
 	const elided = sketchReplayPlan(messages);
-	const attached = new Set(requestSketchPages(messages, start).map(({ ref, page }) => `${ref.id}/${page}`));
+	const occurrenceAt = new Map(sketchOccurrencesOf(messages).map((o) => [o.index, o]));
+	const attached = new Set(requestSketchPages(messages, start).map(({ index, page }) => `${index}/${page}`));
 	const out: Message[] = [];
 	if (leading) out.push(leading);
 	if (head) out.push(head);
@@ -671,18 +674,21 @@ export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOpti
 			// marker whose cut could not resolve has no head and renders as
 			// its user text — honest degradation.)
 			if (marker.customType === "compaction" && head !== null && marker.id === active!.id) continue;
-			// A sketch's pages lead its thinking (images before text reads best).
-			const sketch = sketchOfMessage(marker);
+			// A sketch's pages lead its thinking (images before text reads best);
+			// a DISPUTE marker re-sends the disputed sketch's pages itself — the
+			// re-read needs the image, and a live process only receives what
+			// arrives in a new message.
+			const occurrence = occurrenceAt.get(i);
 			out.push({
 				role: "user",
-				content: [...(sketch ? sketchBlocks(sketch, opts.sketchImage, attached, elided) : []), { type: "text", text: marker.content }],
+				content: [...(occurrence ? sketchBlocks(occurrence, opts.sketchImage, attached, elided) : []), { type: "text", text: marker.content }],
 				timestamp: marker.timestamp,
 			});
 			continue;
 		}
 		// Strip the record id: the wire carries the native shape only.
 		const { id: _id, ...native } = m as LhMessage;
-		const answerSketch = role === "toolResult" ? sketchOfMessage(m) : null;
+		const answerSketch = role === "toolResult" ? occurrenceAt.get(i) : undefined;
 		if (answerSketch) {
 			// The answer's JSON first (it names the sketch), then its pages.
 			const result = native as ToolResultMessage;
