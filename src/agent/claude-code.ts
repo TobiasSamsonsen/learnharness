@@ -593,7 +593,16 @@ const WORK_ROOT = path.join(os.tmpdir(), "learnharness-claude-code");
  *  it, and a stable request keeps the cache stable. */
 const CWD = path.join(WORK_ROOT, "cwd");
 /** Live processes kept at most (each holds a model conversation). */
-const MAX_SESSIONS = 6;
+const DEFAULT_MAX_SESSIONS = 6;
+
+/** LH_CLAUDE_CODE_MAX_SESSIONS (Android plan M6): a positive integer; an
+ *  unset, empty, non-integer or < 1 value is the default. Pure, for tests. */
+export function parseMaxSessions(value: string | undefined): number {
+	const text = value?.trim() ?? "";
+	if (!/^[0-9]+$/.test(text)) return DEFAULT_MAX_SESSIONS;
+	const n = Number(text);
+	return Number.isSafeInteger(n) && n >= 1 ? n : DEFAULT_MAX_SESSIONS;
+}
 /** An idle session dies after this — inside the 1-hour prompt cache. */
 const IDLE_MS = 40 * 60_000;
 
@@ -892,11 +901,12 @@ export function closeClaudeCodeSessions(): void {
 	for (const s of [...live().sessions.values()]) kill(s);
 }
 
-/** Keep at most MAX_SESSIONS: the least recently used non-streaming go. */
+/** Keep at most LH_CLAUDE_CODE_MAX_SESSIONS: the least recently used non-streaming go. */
 function evict(): void {
 	const st = live();
+	const max = parseMaxSessions(process.env.LH_CLAUDE_CODE_MAX_SESSIONS);
 	const idle = [...st.sessions.values()].filter((s) => s.state !== "streaming").sort((a, b) => a.lastUsed - b.lastUsed);
-	while (st.sessions.size >= MAX_SESSIONS && idle.length) kill(idle.shift()!);
+	while (st.sessions.size >= max && idle.length) kill(idle.shift()!);
 }
 
 /** Would Claude Code itself accept this call — a declared tool, with

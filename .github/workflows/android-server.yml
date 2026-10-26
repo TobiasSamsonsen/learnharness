@@ -1,0 +1,56 @@
+name: Android server (linux-arm64)
+
+# Builds the standalone server natively on an arm64 runner, smoke-tests it in
+# token mode against the fake `claude` CLI, and uploads the tarball the Termux
+# `lh update` script will pull (docs/android/plan.md §4, milestone M6).
+# Separate from ci.yml / release.yml on purpose: upstream's workflows stay untouched.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-server-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  linux-arm64:
+    name: Standalone server (linux-arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: node scripts/smoke-provider-runtime.mjs
+      - run: node scripts/build-server.mjs
+      - name: Headless smoke (token mode + fake claude CLI)
+        run: node scripts/smoke-headless.mjs
+      - name: Pack the tarball
+        id: pack
+        run: |
+          zstd --version
+          version=$(node -p "require('./package.json').version")
+          name="learnharness-server-${version}-linux-arm64.tar.zst"
+          # the smoke leaves no state in .next/standalone (throwaway LH_DATA_DIR); a data/ there would fail build-server.mjs
+          tar --zstd -cf "$RUNNER_TEMP/$name" -C .next/standalone .
+          ls -l "$RUNNER_TEMP/$name"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "path=$RUNNER_TEMP/$name" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.pack.outputs.name }}
+          path: ${{ steps.pack.outputs.path }}
+          retention-days: 7
+          if-no-files-found: error

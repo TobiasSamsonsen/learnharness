@@ -100,7 +100,7 @@ How it works: each conversation keeps one live `claude -p` process with Claude C
 
 It also extracts the graph in 12k-token batches and compacts the context at 100k tokens. Measured on a Team plan: a 20-step lesson with graph extraction used about 4% of the 5-hour window and under 1% of the week. Each model call read the conversation from cache and wrote only the new part, about 6× less input-side usage than replaying the transcript every call. The **Plan** pill under the composer shows the 5-hour window, with the week in its tooltip, as Claude Code last reported it. The cost meter shows $0 for these models because they aren't billed per token.
 
-Options: `LH_CLAUDE_CODE_BIN=/path/to/claude` pins the executable (useful when a GUI-launched app's `PATH` misses it), and `LH_CLAUDE_CODE=0` turns the provider off.
+Options: `LH_CLAUDE_CODE_BIN=/path/to/claude` pins the executable (useful when a GUI-launched app's `PATH` misses it), and `LH_CLAUDE_CODE=0` turns the provider off. `LH_CLAUDE_CODE_MAX_SESSIONS=<n>` caps the live `claude` processes kept warm (default 6; a positive integer, anything else is the default). Fewer suits a small device.
 
 ### Lesson language: English or Norwegian
 
@@ -153,6 +153,8 @@ If the GPU path can't run (no WebGPU adapter, a driver error), dictation falls b
 
 The model for a lesson's language downloads the first time you dictate in that language. The dictation bar shows the progress, or you can download in advance under Settings → General → Dictation. Models are stored in the app's data folder under `models/stt`. Transcription runs in a separate worker process that exits after 10 idle minutes to free its memory (~1 GB).
 
+`LH_STT_DEVICE=cpu` makes this engine use only the small CPU models, so a machine without WebGPU (a phone or tablet) never downloads the 1.3–1.6 GB GPU weights; Settings shows "CPU". The default is `auto`, as described above. The whisper.cpp engine below ignores it.
+
 #### whisper.cpp engine (optional, `LH_STT_ENGINE=whispercpp`)
 
 Dictation can run on [whisper.cpp](https://github.com/ggml-org/whisper.cpp)'s `whisper-server` instead of the transformers.js worker; the Android setup uses it. It is chosen only by environment variable, with one server per language (the small q5 models: `nb-whisper-small` and `whisper small.en`):
@@ -163,6 +165,16 @@ Dictation can run on [whisper.cpp](https://github.com/ggml-org/whisper.cpp)'s `w
 If whisper.cpp fails, the transcription fails (the recording is kept; **Retry** sends it again); there is no fallback to the other engine. The engine biases the transcript toward the lesson's own terms (the active question or problem, the plan's titles, recent bold terms) through whisper.cpp's prompt. Numbers: [docs/android/stt-bench.md](docs/android/stt-bench.md).
 
 To use Deepgram's cloud engine instead, choose *Deepgram (cloud)* under Settings → General → Dictation engine and add a Deepgram key; it gets the lesson's language too.
+
+### Headless server (optional)
+
+Run the standalone server (`node .next/standalone/server.js`) on a device you reach through a browser, as the Android setup does (see [docs/android/plan.md](docs/android/plan.md)). By default it is open to anything that can reach its port, as on a desktop. To lock it down, set:
+
+- `LH_ACCESS_TOKEN=<at least 32 characters>`: pages and API then need a paired browser. Visit `http://127.0.0.1:<port>/?lh_token=<token>` once: the server sets an HttpOnly, SameSite=Strict cookie and redirects to the same page without the token. Without the cookie, pages answer a 403 and the API a JSON 403. A shorter token locks everything out.
+- `HOSTNAME=127.0.0.1`: Next's default is `0.0.0.0`.
+- `LH_ALLOWED_HOSTS=<name>,<name>`: with a token set, the `Host` header must be `127.0.0.1`, `localhost` or `[::1]` (any port), against DNS rebinding; list other names here. A write (POST/PUT/PATCH/DELETE) must also carry an `Origin` equal to the `Host`.
+
+`GET /api/health` is public (Host-checked only) and returns `{ok, version, tokenMode}`. The Electron app ignores `LH_ACCESS_TOKEN` and keeps its own per-launch secret. CI builds a linux-arm64 tarball for this setup (`.github/workflows/android-server.yml`, run by hand or on a version tag), and `node scripts/smoke-headless.mjs` checks the token mode and a chat turn against a fake `claude` after `npm run build` and `node scripts/build-server.mjs`.
 
 ## Your keys, your data
 

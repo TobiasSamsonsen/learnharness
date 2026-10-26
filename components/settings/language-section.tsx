@@ -27,8 +27,9 @@ import { SettingsGroup, SettingsRow, ThinSelect } from "@/components/settings/co
 /** A model row's status line. Pure — exported for pins. */
 export function localModelLine(status: LocalSttStatus): string {
 	// where the last dictation ran (owner, 2026-10-25): the GPU model, or
-	// the small CPU fallback when the GPU path could not run
-	const where = status.ranOn === "gpu" ? " · GPU" : status.ranOn === "cpu-fallback" ? " · GPU unavailable, using the small CPU model" : "";
+	// the small CPU fallback when the GPU path could not run, or the CPU
+	// model by choice (LH_STT_DEVICE=cpu)
+	const where = status.ranOn === "gpu" ? " · GPU" : status.ranOn === "cpu" ? " · CPU" : status.ranOn === "cpu-fallback" ? " · GPU unavailable, using the small CPU model" : "";
 	return modelState(status) + where;
 }
 
