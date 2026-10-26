@@ -4,13 +4,16 @@ import * as path from "node:path";
 import { PATHS } from "../../config.ts";
 import {
 	LESSON_LANGUAGES,
+	parseSttEngine,
 	LOCAL_STT_MODELS,
 	lessonLanguageInfo,
 	sttModelFiles,
 	type LessonLanguage,
 	type LocalSttStatus,
+	type SttEngine,
 	type SttModelSpec,
 } from "../core/language.ts";
+import { prepareWhisperCpp, transcribeWhisperCpp, whisperCppStatuses } from "./stt/whispercpp.ts";
 
 /**
  * Local dictation (fork addition, 2026-10-24): the server half of the
@@ -24,15 +27,22 @@ import {
  * the whole utterance and posts it once, at stop — so a batch Whisper
  * call is the natural fit; there is no streaming to emulate.
  *
+ * LH_STT_ENGINE=whispercpp swaps this worker for a whisper.cpp
+ * `whisper-server` (stt/whispercpp.ts; Android plan M4) behind the same
+ * three entry points at the bottom of this file.
+ *
  * Each language has a GPU model and a small CPU fallback (core/language.ts,
  * owner 2026-10-25); the worker picks (stt/engine.mjs) and reports which
  * one ran — the status's `ranOn`.
  */
 
+/** One engine's answer to a prepare or transcribe request. */
+export type SttReply = { ok: true; text?: string; ranOn?: LocalSttStatus["ranOn"] } | { ok: false; error: string };
+
 const WORKER = path.join(PATHS.root, "src", "server", "stt", "worker.mjs");
 const CACHE_DIR = path.join(PATHS.models, "stt");
 const IDLE_MS = 10 * 60_000;
-type Reply = { ok: true; text?: string; ranOn?: LocalSttStatus["ranOn"] } | { ok: false; error: string };
+type Reply = SttReply;
 type WorkerMessage =
 	| ({ id: number } & Reply)
 	| { op: "progress"; repo: string; progress: number }
@@ -139,8 +149,14 @@ function specs(language: LessonLanguage): { model: SttModelSpec; fallback: SttMo
 	return { model: { repo, dtype, device, sizeMb }, fallback };
 }
 
+/** Which local engine this server process runs (LH_STT_ENGINE, Android plan M4). */
+export function sttEngine(): SttEngine {
+	return parseSttEngine(process.env.LH_STT_ENGINE);
+}
+
 /** Every language's local model, with its live (or on-disk) state. */
 export function localSttStatuses(): LocalSttStatus[] {
+	if (sttEngine() === "whispercpp") return whisperCppStatuses();
 	const s = shared();
 	return LESSON_LANGUAGES.map(({ id }) => {
 		const model = LOCAL_STT_MODELS[id];
@@ -161,12 +177,16 @@ export function localSttStatuses(): LocalSttStatus[] {
 
 /** Download (first time) and load a language's model. Resolves when warm. */
 export async function prepareLocalStt(language: LessonLanguage): Promise<Reply> {
+	if (sttEngine() === "whispercpp") return prepareWhisperCpp(language);
 	markLoading(language);
 	return markRun(language, await request("prepare", specs(language)));
 }
 
-/** Transcribe one utterance: 16 kHz mono Int16 little-endian PCM. */
-export async function transcribeLocal(language: LessonLanguage, pcm: Uint8Array): Promise<Reply> {
+/** Transcribe one utterance: 16 kHz mono Int16 little-endian PCM. `vocabulary`
+ *  (the lesson's terms, core/dictation-vocabulary.ts) biases the whisper.cpp
+ *  engine; the transformers worker has no prompt support and ignores it. */
+export async function transcribeLocal(language: LessonLanguage, pcm: Uint8Array, vocabulary?: string): Promise<Reply> {
+	if (sttEngine() === "whispercpp") return transcribeWhisperCpp(language, pcm, vocabulary);
 	markLoading(language);
 	return markRun(language, await request("transcribe", { ...specs(language), whisper: lessonLanguageInfo(language).whisper, pcm }));
 }
