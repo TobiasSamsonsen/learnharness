@@ -1,6 +1,6 @@
 # M10 plan (DRAFT, conditional): native ink overlay
 
-Status: **the M9 decision is made: build it (owner, 2026-10-27).** The owner compared the Ink spike with the shell's web canvas by eye on the Pixel 7 Pro with a stylus: the web canvas' line trails the stylus by 2-3 cm at medium speed; on the spike it stays under the tip even without prediction ("day and night"). That is far past the proposed 30 ms rule, so the camera test is skipped. The build plan below is **proposed** and waits for the owner's approval and two decisions (A, B). The earlier sections (design questions Q1-Q7, accepted 2026-10-27) still stand except where the build plan says it refines them. Per AGENTS.md "No guessing", nothing is built before approval.
+Status: **the M9 decision is made: build it (owner, 2026-10-27).** The owner compared the Ink spike with the shell's web canvas by eye on the Pixel 7 Pro with a stylus: the web canvas' line trails the stylus by 2-3 cm at medium speed; on the spike it stays under the tip even without prediction ("day and night"). That is far past the proposed 30 ms rule, so the camera test is skipped. The build plan below is **proposed**; the owner decided A and B on 2026-10-27 (both as recommended) and has not yet said to start. The earlier sections (design questions Q1-Q7, accepted 2026-10-27) still stand except where the build plan says it refines them. Per AGENTS.md "No guessing", nothing is built before approval.
 
 ## Owner decisions (2026-10-27): all seven proposals accepted
 
@@ -46,10 +46,10 @@ Rough size: step 0 half a day, steps 1 and 2 about a day each, step 3 half a day
 - Live fade of strokes under the eraser (the web canvas does it) is not in the first version: the erase lands on lift.
 - Process death drops native-only state, which is why Decision B keeps all strokes in the web store.
 
-### Decisions needed
+### Decisions (owner, 2026-10-27: both as recommended)
 
-- **A. Input policy for touch.** Proposed: mirror the web canvas. The stylus tool type draws; **until a real stylus has been seen, one finger draws too and two fingers scroll the page; once a stylus is seen, touch scrolls** (the web `penSeen` rule). On the owner's phone that means the capacitive stylus and a finger both draw, two fingers scroll.
-- **B. Who owns the strokes.** Proposed: the web store (`ink-memory.ts`) stays the single owner; native draws and reports strokes and eraser gestures, and the web pushes the finished set back.
+- **A. Input policy for touch.** DECIDED: mirror the web canvas. The stylus tool type draws; **until a real stylus has been seen, one finger draws too and two fingers scroll the page; once a stylus is seen, touch scrolls** (the web `penSeen` rule). On the owner's phone that means the capacitive stylus and a finger both draw, two fingers scroll.
+- **B. Who owns the strokes.** DECIDED: the web store (`ink-memory.ts`) stays the single owner; native draws and reports strokes and eraser gestures, and the web pushes the finished set back.
 
 ## What is already decided (plan.md §2, §3, §7)
 
