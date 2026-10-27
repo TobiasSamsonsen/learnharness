@@ -157,3 +157,12 @@ Owner decision: "I will not be present, do whatever you can without me", so Clau
 - **Measured on the Pixel 7 Pro (same injected swipes into both stacks):** delivery stage, native **1.0 ms** median (1 ms clock) against the WebView page's **9.7 ms** median (p90 11.1, max 19.4); event to the next animation frame 6.6 ms. The gap is Chromium's once-per-frame input delivery; photon latency (camera) is expected to differ by more. Injected touch is not a pen.
 - **Not done (owner):** the 240 fps camera test on Chrome, the shell and the spike; the dense-notation sheet; the decision (a proposed rule is in the plan).
 - **Noticed:** the first launch of the spike right after `adb install -r` fell back to the main screen once (it ran fine on the second start); not reproduced.
+
+### M9 decision and M10 (native ink overlay): done 2026-10-27, the default in the shell ([m10-plan.md](m10-plan.md))
+
+- **Decision:** the owner compared the Ink spike with the web canvas by eye on the Pixel 7 Pro (stylus): the web canvas' line trailed by 2-3 cm at medium speed, the spike's stayed under the tip. The camera test was skipped and M10 was built.
+- **Built:** an androidx.ink layer under a transparent WebView (`android/app`: `InkFrame`, `InkLayer`, `InkRouter`, `InkBridge`, `InkWire`), `window.lhAndroid` as an origin-restricted WebMessageListener, and the web side (`src/core/ink-bridge.ts`, `components/sketch/use-native-ink.ts`). Owner decisions: touch policy mirrors the web canvas (a stylus draws; until a real stylus is seen one finger draws and two fingers scroll), and the web store stays the single owner of the strokes (the shell draws and reports; no export step). The capacitive stylus reports `TOOL_TYPE_FINGER` (logged on the device).
+- **Verified:** 27 JVM tests, 10 new web tests with a fake `lhAndroid`, full suite green. On the Pixel over adb in a real lesson: open/draw/undo/redo/erase/back/reopen/submit, and the tutor's "I read:" card described the strokes. Owner on the phone: feel like the Ink spike, two-finger scroll works, floating box works, nothing smeared, the tutor read the sketch correctly; a resting hand leaves marks with a capacitive stylus (expected).
+- **Default:** on in the shell unless the "Native ink" setting (Settings, Appearance, shell only) is off; a plain browser is unaffected.
+- **Not tried:** a touch on the floating box (unit-tested), rotation, a real active pen (eraser end, barrel button).
+
