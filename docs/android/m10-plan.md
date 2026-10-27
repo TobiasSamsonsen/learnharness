@@ -9,6 +9,13 @@ Status: **draft, not approved, and only needed if the M9 decision says so** ([m9
 - It exports to the **same** `SketchPayload` (`src/core/contracts/sketch.ts`, `producer: "android-ink"`) through a bridge, `window.lhAndroid.ink`, so the web sketch view, the dock, the server and the tutor are unchanged. The web canvas stays the default everywhere else (desktop, Chrome).
 - The mic stays in the web layer. Dictation, the floating question box, the confidence rail and Submit stay web UI; only the drawing surface moves.
 
+## Built so far on `feat/m10-prep` (safe either way, no overlay yet)
+
+- **Wire format, both sides.** `src/core/ink-bridge.ts` (`encodeInkOp`, `parseNativeStrokes`) and `android/app/.../InkWire.kt` (`InkWire.parse`, `InkWire.strokesJson`): one short text line per operation (`open <key> x y w h`, `holes x,y,w,h …`, `tool pen|eraser`, `undo|redo|clear|close|export`), and the export is a JSON array of `SketchStroke`, validated by the same rules as a web sketch. Because the contract already sends vector strokes and already allows `producer: "android-ink"`, **no server change is needed** (Q3 turned out to be the natural path).
+- **Touch routing rule.** `InkRouting.route`: the pen (tip or eraser end) goes to the ink layer unless it lands on a hole (the floating box); fingers, mice and anything outside the surface go to the WebView; the target is decided once, on DOWN.
+- **Tests:** `tests/ink-bridge.test.ts` (4) and `InkWireTest` (4, `./gradlew test`).
+- **Not built (waits for the M9 decision):** the overlay view and the Activity layering under the transparent WebView, the `WebMessageListener` for `lhAndroid.ink`, the web seam in `SketchView`, the Settings switch (Q2) and the fallback (Q7). On the phone `adb shell input stylus swipe` may be able to drive a pen-typed touch for the later device tests (not checked yet).
+
 ## What the code already gives us
 
 - `components/sketch/sketch-view.tsx` owns the toolbar, the floating box, undo/redo, Esc/back (`useBackLayer`) and the submit flow (`sendPage`, `pagePayload` in `components/sketch/ink-memory.ts`). `SketchCanvas` is the only part that draws. The overlay replaces `SketchCanvas` behind a seam (the view asks `window.lhAndroid?.ink` whether a native surface exists).
