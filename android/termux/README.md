@@ -27,13 +27,15 @@ You need an arm64 Android device (tested on a Pixel 7 Pro, Android 17), about 6 
    `lh install` installs the packages, the Ubuntu guest (Node 26, `claude`, Playwright's arm64 Chromium), builds whisper.cpp, downloads the two small whisper models (365 MB) and the server, then asks you to sign in to Claude. Re-running it is safe; it skips what is done.
 5. `lh start`. It prints a link; **long-press it → Open URL**. Chrome opens learnharness and the page sets a pairing cookie. You do this once per token.
 
+   Or use the **Android app** (`android/app`, see its README): it starts the server and pairs by itself. That needs one more Termux setting: `mkdir -p ~/.termux && echo 'allow-external-apps=true' >> ~/.termux/termux.properties && termux-reload-settings`, and the app's "Run commands in Termux environment" permission.
+
 ## Commands
 
 | | |
 |---|---|
 | `lh start` / `stop` / `restart` | Start or stop the server and the whisper servers, and hold or release the wake lock |
 | `lh status` | Processes, their memory, `MemAvailable`, `/api/health` |
-| `lh pair` | Print the pairing link again. `lh pair --rotate` makes a new token (old cookies stop working) and restarts |
+| `lh pair` | Print the pairing link again. `lh pair --rotate` makes a new token (old cookies stop working) and restarts. `lh pair --print-token` prints the bare token (the Android app reads it this way) |
 | `lh login` | Sign in to Claude again (`--force` to sign in as someone else) |
 | `lh update` | Refresh `lh` itself and the server from the `android-latest` release; restarts if it was running. Your data and token are not touched |
 | `lh logs [server\|nb\|en] [-f]` | Show or follow a log |
