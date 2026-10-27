@@ -145,6 +145,17 @@ test("lh pair: one persistent token, mode 600; --rotate makes a new one", opts, 
 	assert.ok(next && next[1] !== token, "a new token");
 });
 
+test("lh pair --print-token: only the token on stdout, the same one the link carries", opts, () => {
+	const b = makeBox();
+	const r = b.run(["pair", "--print-token"]);
+	assert.equal(r.code, 0, r.err);
+	assert.match(r.out.trim(), /^[0-9a-f]{48}$/);
+	assert.equal(r.out.trim().split("\n").length, 1, "nothing but the token");
+	assert.equal(fs.readFileSync(path.join(b.lhHome, "token"), "utf8").trim(), r.out.trim());
+	if (process.platform !== "win32") assert.equal(fs.statSync(path.join(b.lhHome, "token")).mode & 0o777, 0o600);
+	assert.ok(b.run(["pair"]).out.includes(r.out.trim()), "the link carries the same token");
+});
+
 test("lh config: PORT is used, bad values are refused", opts, () => {
 	const b = makeBox('PORT=3456\nSTT_LANGS="nb"\n');
 	assert.match(b.run(["pair"]).out, /127\.0\.0\.1:3456\/\?lh_token=/);

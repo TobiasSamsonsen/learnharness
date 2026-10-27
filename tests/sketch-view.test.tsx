@@ -43,6 +43,7 @@ Object.assign(globalThis, {
 const { SketchView } = await import("../components/sketch/sketch-view.tsx");
 const { readInk, writeInk, inkFromStrokes, readKept, writeKept, applyOp, revertOp, pagePayload } = await import("../components/sketch/ink-memory.ts");
 const { clampBoxPosition } = await import("../components/sketch/floating-problem.tsx");
+const { handleBack } = await import("../components/back-layers.ts");
 import type { SketchPayload, SketchStroke } from "../src/core";
 
 const STROKE: SketchStroke = { size: 4, points: [10, 10, 0.5, 90, 50, 0.6, 200, 30, 0.5] };
@@ -114,6 +115,18 @@ describe("SketchView", () => {
 		assert.equal(readInk("k-keys").strokes.length, 2);
 		await key({ key: "Escape" });
 		assert.equal(closed, 1);
+	});
+});
+
+describe("the back stack (Android plan M8)", () => {
+	it("the view is a back layer: handleBack closes it like Esc, and an unmounted view leaves none", async () => {
+		writeInk("k-back", inkFromStrokes([STROKE]));
+		let closed = 0;
+		await mount({ inkKey: "k-back", onSubmit: async () => true, onClose: () => closed++ });
+		assert.equal(handleBack(), true);
+		assert.equal(closed, 1);
+		await act(async () => root!.unmount());
+		assert.equal(handleBack(), false, "an unmounted view leaves no back layer behind");
 	});
 });
 

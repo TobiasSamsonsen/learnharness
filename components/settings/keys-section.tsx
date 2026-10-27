@@ -24,6 +24,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useBackLayer } from "../back-layers.ts";
 import { AUTH_KEYS, type AuthKeyStatus } from "@/src/core";
 import { SettingsGroup } from "./controls.tsx";
 import { ChatGPTConnection } from "./chatgpt-connection.tsx";
@@ -282,6 +283,7 @@ function AddProviderRow({
 			document.removeEventListener("keydown", onKeyDown);
 		};
 	}, [open]);
+	useBackLayer(open, () => setOpen(false));
 
 	return (
 		<div ref={anchorRef} className="relative">
@@ -353,6 +355,10 @@ export function KeysSection({
 		document.addEventListener("keydown", onKeyDown, true);
 		return () => document.removeEventListener("keydown", onKeyDown, true);
 	}, [openRow, adding]);
+	useBackLayer(openRow !== null || adding !== null, () => {
+		setOpenRow(null);
+		setAdding(null);
+	});
 
 	const reload = () =>
 		fetch("/api/keys")

@@ -7,6 +7,7 @@ import {
 	sameSessionRange, sessionFindRanges, sessionRangeIdentity, type SessionRangeIdentity,
 } from "@/components/session-find-dom";
 import { scrollSessionTarget, type SessionScrollContext } from "@/components/session-navigation";
+import { useBackLayer } from "@/components/back-layers";
 
 export const SESSION_FIND_HIGHLIGHT = "lh-session-find";
 export const SESSION_FIND_ACTIVE_HIGHLIGHT = "lh-session-find-active";
@@ -108,6 +109,9 @@ export function SessionFind({ scopeRef, scrollContextRef }: {
 		document.addEventListener("keydown", onEscape);
 		return () => document.removeEventListener("keydown", onEscape);
 	}, [open, close]);
+	// Back (Android): a layer opened after the bar sits above it in the stack, so the
+	// foreground check Esc needs is not needed here.
+	useBackLayer(open, close);
 
 	useEffect(() => {
 		if (!open || !scopeRef.current) return;

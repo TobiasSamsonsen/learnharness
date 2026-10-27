@@ -6,6 +6,7 @@ import type { ChatGPTStatus } from "@/src/core";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "./controls";
+import { useBackLayer } from "../back-layers.ts";
 
 export const CHATGPT_NOTICE = "LearnHarness stores your ChatGPT account details and credentials in an unencrypted local file on this device. When this connection is used, relevant conversation context, learning material, and tool results are sent directly to OpenAI. ChatGPT plan limits apply; any additional credits are authorized and managed in ChatGPT, not LearnHarness.";
 export const CHATGPT_BACKGROUND_HINT = "Background work counts toward your ChatGPT plan usage.";
@@ -327,6 +328,8 @@ function AccountDialog({ children, onClose, busy }: { children: React.ReactNode;
 	const ref = useRef<HTMLDivElement>(null);
 	const closeRef = useRef(onClose);
 	closeRef.current = onClose;
+	// Mounted only while a ChatGPT dialog is open; back = Esc (close, never a turn abort).
+	useBackLayer(true, onClose);
 	const backdropDismiss = useBackdropDismiss(onClose);
 	useEffect(() => {
 		const previous = document.activeElement as HTMLElement | null;

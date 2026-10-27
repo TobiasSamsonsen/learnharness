@@ -10,6 +10,7 @@ import { SketchCanvas, type SketchTool } from "@/components/sketch/sketch-canvas
 import { applyOp, pagePayload, readInk, revertOp, sendPage, useInk, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
 import { cn } from "@/lib/utils";
 import { SketchPayloadError, type SketchPayload } from "@/src/core";
+import { useBackLayer } from "../back-layers.ts";
 
 /**
  * The sketch view (Android plan M1): a full-screen plain canvas opened
@@ -178,6 +179,11 @@ export function SketchView({
 		window.addEventListener("keydown", onKey, true);
 		return () => window.removeEventListener("keydown", onKey, true);
 	}, []);
+	useBackLayer(true, () => {
+		const h = handlers.current;
+		if (isDictationActive() && h.onCancelDictation) h.onCancelDictation();
+		else h.onClose();
+	});
 
 	if (typeof document === "undefined") return null;
 	const empty = ink.strokes.length === 0;

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useBackLayer } from "./back-layers.ts";
 import type { ChatDeleteMode, ChatListItem } from "@/src/core";
 
 /** The graph-traces checkbox copy (owner, 2026-09-24 flow rework — was
@@ -70,6 +71,7 @@ export function DeleteSessionDialog({
 		}
 	}, [chat]);
 
+	useBackLayer(!!chat, onClose);
 	// Esc closes (claimed — a menu/dialog Esc must not also abort a turn).
 	useEffect(() => {
 		if (!chat) return;

@@ -11,6 +11,7 @@ import {
 	type LessonLanguage,
 } from "@/src/core";
 import { MenuShell } from "@/components/menu-shell";
+import { useBackLayer } from "./back-layers.ts";
 import { Hint } from "@/components/ui/hint";
 import { CONTROL_CLASS, type ControlVariant } from "@/components/control-variant";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
@@ -58,6 +59,7 @@ export function LanguageControl({ chatId, variant = "pill" }: { chatId?: string;
 		? resolveLessonLanguage(session)
 		: (general?.language ?? DEFAULT_LESSON_LANGUAGE);
 
+	useBackLayer(open, () => setOpen(false));
 	// Same dismissal contract as the model menu: outside pointerdown or Esc.
 	useEffect(() => {
 		if (!open) return;

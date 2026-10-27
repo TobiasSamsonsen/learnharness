@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useBackLayer } from "./back-layers.ts";
 
 /** The 409 extraction_running line (owner phrasing, node interlude):
  *  the server's error names the extraction; the ACTIVITY DOCK is the
@@ -160,6 +161,7 @@ export function DeleteNodeDialog({
 		}
 	}, [nodes]);
 
+	useBackLayer(!!nodes && nodes.length > 0, onClose);
 	// Esc closes (claimed — a dialog Esc must not also abort a turn).
 	useEffect(() => {
 		if (!nodes || nodes.length === 0) return;

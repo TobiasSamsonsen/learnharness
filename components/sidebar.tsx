@@ -23,6 +23,7 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem, CourseSummary } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
+import { useBackLayer } from "./back-layers.ts";
 
 /**
  * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
@@ -714,6 +715,7 @@ function SessionsSidebar() {
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, [overlay, open, close, ctxChatId, renamingId]);
+	useBackLayer(overlay && open && ctxChatId === null && renamingId === null, close);
 
 	return (
 		<>

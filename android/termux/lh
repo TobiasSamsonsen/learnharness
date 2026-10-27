@@ -2,7 +2,7 @@
 # lh — run learnharness on an Android phone or tablet, inside Termux.
 #
 #   lh install | login | start | stop | restart | status | update
-#      pair [--rotate] | logs [server|nb|en] [-f] | version | help
+#      pair [--rotate|--print-token] | logs [server|nb|en] [-f] | version | help
 #
 # The Next server, `claude`, Python and headless Chromium live in one proot
 # Ubuntu; whisper-server runs natively in Termux (docs/android/plan.md §4).
@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-LH_VERSION="0.2.0"
+LH_VERSION="0.3.0"
 REPO="TobiasSamsonsen/learnharness"
 RAW_URL="https://raw.githubusercontent.com/${REPO}/main/android/termux/lh"
 RELEASE_URL="https://github.com/${REPO}/releases/download/android-latest"
@@ -526,6 +526,12 @@ cmd_restart() { cmd_stop; cmd_start; }
 # ── pair / status / logs ────────────────────────────────────────────────────
 
 cmd_pair() {
+	if [ "${1:-}" = "--print-token" ]; then
+		# for the Android app (Termux RUN_COMMAND): the token alone on stdout, nothing else
+		ensure_token
+		printf '%s\n' "$(token)"
+		return 0
+	fi
 	init_dirs; load_config
 	if [ "${1:-}" = "--rotate" ]; then
 		( umask 077; new_token > "$LH_DIR/token" )
@@ -582,6 +588,7 @@ lh — learnharness on Android (Termux)
   lh start | stop | restart
   lh status             processes, memory, server health
   lh pair [--rotate]    print the pairing link for Chrome (--rotate: new token, restarts)
+  lh pair --print-token print only the token (the Android app reads it this way)
   lh update [--force]   refresh lh and the server from the android-latest release
   lh logs [server|nb|en] [-f]
   lh version
