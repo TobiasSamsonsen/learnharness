@@ -50,7 +50,7 @@ class InkSpikeActivity : ComponentActivity() {
 	override fun onCreate(savedInstanceState: Bundle?) {
 		enableEdgeToEdge()
 		super.onCreate(savedInstanceState)
-		val root = FrameLayout(this).apply { setBackgroundColor(0xFF141414.toInt()) }
+		val root = FrameLayout(this).apply { setBackgroundColor(0xFF151210.toInt()) }
 		finished = FinishedStrokesView(this)
 		inProgress = InProgressStrokesView(this)
 		predictor = MotionEventPredictor.newInstance(inProgress)

@@ -1,8 +1,8 @@
 <resources>
-	<!-- the app's own palette: main #141414 -->
+	<!-- the app's own palette: main #151210 -->
 	<style name="Theme.LearnHarness" parent="android:Theme.DeviceDefault.NoActionBar">
-		<item name="android:windowBackground">#141414</item>
-		<item name="android:colorBackground">#141414</item>
+		<item name="android:windowBackground">#151210</item>
+		<item name="android:colorBackground">#151210</item>
 		<item name="android:statusBarColor">@android:color/transparent</item>
 		<item name="android:navigationBarColor">@android:color/transparent</item>
 		<item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>

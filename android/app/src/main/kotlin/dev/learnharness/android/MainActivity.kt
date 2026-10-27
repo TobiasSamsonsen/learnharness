@@ -509,7 +509,7 @@ base64` here; the system picker picks where the
 	}
 
 	private companion object {
-		const val BACKGROUND = 0xFF141414.toInt()
+		const val BACKGROUND = 0xFF151210.toInt()
 
 		/**
 		 * The web app saves files with an `<a download>`: a detached blob link revoked right after the click

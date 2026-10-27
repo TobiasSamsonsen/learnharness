@@ -27,7 +27,9 @@
 	outline: none;
 }
 
-/* Palette (owner's hexes): main #141414, raised #1C1C1C, edges #434343.
+/* Palette (owner, 2026-10-27: warm, the opposite of a dopamine app, "locked in"): a charcoal with a brown undertone,
+   cream text, one muted brass accent (the same amber the skill nodes use). Main #151210, raised #1D1916, edges #4A433B,
+   text #ECE5DA, muted text #A1978A (6.5:1 on the main), accent #E0B45A (9.6:1). Before: neutral greys, main #141414.
    Mono chrome = JetBrains Mono; prose = Source Sans 3; titles = CMU Serif. */
 :root {
 	/* Safe-area insets (M5): the notch / system-bar / gesture-bar reach, for
@@ -39,25 +41,25 @@
 	--lh-safe-left: env(safe-area-inset-left, 0px);
 	color-scheme: dark;
 	--radius: 8px;
-	--background: #141414;
-	--foreground: #e6e6e6;
-	--card: #1c1c1c;
-	--card-foreground: #e6e6e6;
-	--popover: #1c1c1c;
-	--popover-foreground: #e6e6e6;
-	--primary: #e6e6e6;
-	--primary-foreground: #141414;
+	--background: #151210;
+	--foreground: #ece5da;
+	--card: #1d1916;
+	--card-foreground: #ece5da;
+	--popover: #1d1916;
+	--popover-foreground: #ece5da;
+	--primary: #e0b45a;
+	--primary-foreground: #1a1410;
 	--lh-skill: #e0b45a;
-	--secondary: #1c1c1c;
-	--secondary-foreground: #e6e6e6;
-	--muted: #1c1c1c;
-	--muted-foreground: #8d8d8d;
-	--accent: #2a2a2a;
-	--accent-foreground: #e6e6e6;
+	--secondary: #1d1916;
+	--secondary-foreground: #ece5da;
+	--muted: #1d1916;
+	--muted-foreground: #a1978a;
+	--accent: #2b2622;
+	--accent-foreground: #ece5da;
 	--destructive: oklch(0.704 0.191 22.216);
-	--border: #434343;
-	--input: #434343;
-	--ring: #8d8d8d;
+	--border: #4a433b;
+	--input: #4a433b;
+	--ring: #e0b45a;
 	/* Emphasis inks default to the REGULAR TEXT COLOR (owner ruling,
 	   appearance wave 2026-09-26 — the old #ee928c/#6fa9d6 factory
 	   emphasis colors are gone). Explicit overrides land via the
@@ -78,25 +80,25 @@
 /* The app is always dark (<html class="dark">); mirror the same values so
    the block stays coherent under Tailwind's variant. */
 .dark {
-	--background: #141414;
-	--foreground: #e6e6e6;
-	--card: #1c1c1c;
-	--card-foreground: #e6e6e6;
-	--popover: #1c1c1c;
-	--popover-foreground: #e6e6e6;
-	--primary: #e6e6e6;
-	--primary-foreground: #141414;
+	--background: #151210;
+	--foreground: #ece5da;
+	--card: #1d1916;
+	--card-foreground: #ece5da;
+	--popover: #1d1916;
+	--popover-foreground: #ece5da;
+	--primary: #e0b45a;
+	--primary-foreground: #1a1410;
 	--lh-skill: #e0b45a;
-	--secondary: #1c1c1c;
-	--secondary-foreground: #e6e6e6;
-	--muted: #1c1c1c;
-	--muted-foreground: #8d8d8d;
-	--accent: #2a2a2a;
-	--accent-foreground: #e6e6e6;
+	--secondary: #1d1916;
+	--secondary-foreground: #ece5da;
+	--muted: #1d1916;
+	--muted-foreground: #a1978a;
+	--accent: #2b2622;
+	--accent-foreground: #ece5da;
 	--destructive: oklch(0.704 0.191 22.216);
-	--border: #434343;
-	--input: #434343;
-	--ring: #8d8d8d;
+	--border: #4a433b;
+	--input: #4a433b;
+	--ring: #e0b45a;
 	/* Same emphasis ruling as the block above: unset = text color. */
 	--lh-ink-strong: var(--foreground);
 	--lh-ink-italic: var(--foreground);
@@ -309,6 +311,15 @@ html.lh-native-ink body > *:not([data-testid="sketch-view"]) {
 
 ::-webkit-scrollbar-thumb:hover {
 	background: var(--color-muted-foreground);
+}
+
+/* No scrollbar at all (a strip that scrolls by touch: the settings tabs, the native sketch page). Unlayered like the
+   rules above: Tailwind's utilities sit in a cascade layer and cannot override them. */
+.lh-no-scrollbar {
+	scrollbar-width: none;
+}
+.lh-no-scrollbar::-webkit-scrollbar {
+	display: none;
 }
 
 /* Dock variant swap — quick fade/rise on content change; the shell's HEIGHT
