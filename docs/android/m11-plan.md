@@ -49,13 +49,17 @@ Wake lock: `lh start` takes `termux-wake-lock` (Termux notification); nothing in
 | Q1 | How should a submission reach a process that still holds an open `problem` call? | (a) answer the held `problem` call with the learner's submission text as its result, so the process and the record agree (needs a record/replay rendering that matches, or fingerprints diverge); (b) keep the respawn per problem and only make it cheaper (Q2); (c) stop the pose from terminating its call (changes "the turn ends here"). **Lean (b) first:** it needs no change to the turn model; revisit (a) only if the measured replay is slow on the phone |
 | Q2 | How many sketch pages may a replay carry, and are old problems elided from it? | Elide everything before the active problem once concluded; cap 6 pages. Measure first (task 8) |
 | Q3 | Idle timeout on the phone (40 min today) and the session cap (2)? | Keep 40 min and 2; add `LH_CLAUDE_IDLE_MIN` only if you want it tunable |
-| Q4 | `listChats`: (a) in-memory cache keyed on mtime and size (no format change), (b) a persisted summary index (new file and migration), (c) move `turns`/`extractions`/`tree` out of the chat file? | **(a)** now (no migration, big win because most calls are repeats); consider (c) later |
+| Q4 | `listChats`: (a) in-memory cache keyed on mtime and size (no format change), (b) a persisted summary index (new file and migration), (c) move `turns`/`extractions`/`tree` out of the chat file? | **Decided by the owner (2026-10-27): (a).** Built on `feat/m11-prep`: a per-chat summary reused while mtime and size are unchanged; our own writes and deletes drop the entry; callers get copies. Measured on the PC (`scripts/bench-list-chats.ts`): 150 chats 36.8 -> 3.0 ms, 400 chats 96 -> 8 ms per call (what remains is one `stat` per file). 5 tests in `tests/chat-list-cache.test.ts`; full suite 2527 tests, only the 10 known Windows failures. `graphCosts` still parses each record once in full (it needs the `extractions` the summary drops), no longer twice. Phone timings not measured yet |
 | Q5 | Whisper on the phone: keep the GPU build for both languages (~1.2 GB together, ~3× real time), or CPU (~550 MB, slower), or drop one language (`STT_LANGS="nb"`)? Today's snapshot shows swap exhausted | Drop the language you do not use in a given lesson (`STT_LANGS`); that is a config change you can make today with no code |
 | Q6 | A foreground service or wake lock inside the app, or a runbook only (battery Unrestricted, the Android 14+ toggle, Termux wake lock)? | Runbook only for now; revisit if the screen-off test fails |
 
 ## If approved, how it would be verified
 
 PC: tests for any state-machine change (the `continuation` table, a live-continuation round trip with the fake CLI), a cache test (hit, invalidate on write/delete, mtime change), `graphCosts`/`courseChats` parse-once tests. Device (Claude over adb, a debug probe like M9's): a timed practice lesson before and after (time from submit to first token on the first submission after a pose; `GET /api/chats` latency at 10 / 50 / 150 chats via a generated test data directory, never the owner's); memory snapshots with and without a whisper server. The owner: the screen-off turn and a real session.
+
+## Found while starting (for the owner)
+
+- **`pendingProblem` is never set.** `ChatSummary.pendingProblem` is declared and the sidebar's "Problem waiting" meta reads it (`components/sidebar.tsx` L314), but nothing in `listChats` computes it, so the label never shows. An unchecked type guard in the old code hid it; the cache work kept the behaviour as it was and left a note in `src/store/chats.ts`. Whether and how to compute it (a posed problem with no `conclude`) is a small behaviour change for you to approve.
 
 ## Not in M11
 
