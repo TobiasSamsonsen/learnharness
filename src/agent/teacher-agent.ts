@@ -1,5 +1,5 @@
 import { Agent } from "@earendil-works/pi-agent-core";
-import type { AgentEvent, AgentMessage, AgentTool, BeforeToolCallContext } from "@earendil-works/pi-agent-core";
+import type { AgentEvent, AgentMessage, AgentTool, BeforeToolCallContext, PrepareNextTurnContext } from "@earendil-works/pi-agent-core";
 import { invalidInputResult, questionResult } from "./tool-execute.ts";
 import { providerEventObserver } from "./provider-events.ts";
 import type { Usage } from "@earendil-works/pi-ai";
@@ -24,7 +24,7 @@ import { readSketchTool } from "./tools/sketch.ts";
 import { READ_SKETCH_TOOL, isDoubtfulReadResult, sketchIdsOf } from "../core/sketch-gate.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
 import { toLlmMessages, nativeInputCause, type SketchImageResolver } from "../core/native-messages.ts";
-import { PROSE_GATE_REASON, proseGateBlocks } from "../core/prose-gate.ts";
+import { PROSE_GATED_TOOLS, PROSE_GATE_REASON, proseGateBlocks, proseGateRefusedLast } from "../core/prose-gate.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } from "../core/language.ts";
 
@@ -195,6 +195,16 @@ function makeQuestionStopper() {
 	};
 }
 
+/** The force-text step (owner, 2026-10-27): after the prose gate refuses a
+ *  question, the next request is sent without the gated tools, so only text
+ *  can come back; the one after it gets them back. Not on Claude Code, for
+ *  now: it cannot change tools inside a live session, so each change would
+ *  respawn `claude` and replay the transcript. */
+const FORCE_TEXT_OFF_PROVIDERS: readonly string[] = ["claude-code"];
+
+const hasGatedTool = (list: ReadonlyArray<{ name: string }> | undefined): boolean =>
+	(list ?? []).some((t) => PROSE_GATED_TOOLS.includes(t.name));
+
 function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: AgentTool<any, any>[]) {
 	// Practice never reaches the role fallback (the handler ALWAYS injects
 	// the session's conversation engine — practice rides the same
@@ -202,6 +212,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	// ("practice" is not a ModelRole) honest about that.
 	const engine = opts.engine ?? piEngineFor(kind as "prober" | "teacher");
 	const stopper = makeQuestionStopper();
+	const forceText = kind === "teacher" && !FORCE_TEXT_OFF_PROVIDERS.includes(engine.model.provider);
 	const composed = opts.promptSwitches ? composeInstructions(kind, opts.promptSwitches) : composedInstructions[kind]!;
 	const systemPrompt = withLanguageDirective(
 		[composed, opts.materials?.section, opts.course?.section].filter(Boolean).join("\n\n"),
@@ -250,7 +261,34 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		// exits BEFORE the steering poll — the parked-marker stranding our
 		// Wave C registerLiveAgent-before-runPiTurn design depends on.
 		// undefined preserves normal scheduling (the old boolean false).
-		finishTurn: (turn) => (stopper(turn) ? { action: "end" } : undefined),
+		finishTurn: (turn) => {
+			if (stopper(turn)) return { action: "end" };
+			// The forced text-only reply is in: one more request, tools back.
+			if (
+				forceText &&
+				hasGatedTool(tools) &&
+				!hasGatedTool(turn.context.tools) &&
+				turn.message.stopReason === "stop" &&
+				turn.message.content.some((b) => b.type === "text" && b.text.trim().length > 0) &&
+				!turn.message.content.some((b) => b.type === "toolCall")
+			)
+				return { action: "continue" };
+			return undefined;
+		},
+		...(forceText
+			? {
+					prepareNextTurnWithContext: (turn: PrepareNextTurnContext) => {
+						if (!hasGatedTool(tools)) return undefined;
+						const hidden = !hasGatedTool(turn.context.tools);
+						const refused = proseGateRefusedLast(turn.context.messages);
+						if (refused && !hidden) {
+							return { context: { ...turn.context, tools: (turn.context.tools ?? []).filter((t) => !PROSE_GATED_TOOLS.includes(t.name)) } };
+						}
+						if (!refused && hidden) return { context: { ...turn.context, tools } };
+						return undefined;
+					},
+				}
+			: {}),
 		// Wave C (2026-09-26, owner correction same day): markers handed to a
 		// live run drain from pi's STEERING queue — the lesson loop is one
 		// continuous teach→quiz→teach run, so delivery must inject at turn

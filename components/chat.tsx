@@ -26,6 +26,7 @@ import { SubagentSteerCard } from "@/components/artifacts/steer-card";
 import { Composer } from "@/components/composer";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
+import { retryPlan, withoutRetries } from "@/components/retry-steps";
 import { dockStateKey } from "@/components/dock-state-key";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { DictationBar, finishDictation, joinDictation, useDictation } from "@/components/dictation";
@@ -591,6 +592,7 @@ export function Chat({
 	// color-coded dotted divider at each boundary; the header chip reads the
 	// session's current phase.
 	const phases = useMemo(() => phaseTimeline(messages), [messages]);
+	const retryPlans = useMemo(() => messages.map((m) => retryPlan(m.parts)), [messages]);
 
 	const [text, setText] = useState("");
 	/* The composer's value MIRROR ("nothing gets lost" round, owner
@@ -1513,7 +1515,7 @@ export function Chat({
 									mi > 0 &&
 									phases[mi] === "teach" &&
 									phases[mi - 1] !== "teach" &&
-									teachStepIndex(m.parts) === -1 ? (
+									teachStepIndex(withoutRetries(m.parts, retryPlans[mi]!)) === -1 ? (
 										<PhaseDivider key={`teach-${m.id || `m-${mi}`}`} phase="teach" />
 									) : null}
 									{m.role === "user" ? (
@@ -1558,25 +1560,21 @@ export function Chat({
 													mi > 0 &&
 													phases[mi] === "teach" &&
 													phases[mi - 1] !== "teach" &&
-													teachStepIndex(m.parts) === pi;
-												// A tool call that errored BACK TO THE AGENT (validation
-												// failure, malformed args) is invisible work — the agent
-												// reads the error and retries. Owner ruling 2026-09-26:
-												// surface the retry loop as one quiet line, any tool,
-												// instead of silence (question tools used to render null,
-												// so a flailing quiz loop read as a stall). Aborts are
-												// terminal — nothing retries — so they stay silent.
-												if (
-													part.state === "output-error" &&
-													part.type.startsWith("tool-") &&
-													part.errorText !== "Operation aborted"
-												) {
+													teachStepIndex(withoutRetries(m.parts, retryPlans[mi]!)) === pi;
+												// Retries (owner, 2026-10-27; components/retry-steps.ts): a step
+												// whose calls all errored back to the agent is invisible work.
+												// Once the lesson moves on it renders nothing; while it is the
+												// newest thing, one quiet line stands in the place the next step
+												// will fill, so nothing jumps (and a failure never goes silent).
+												const retry = retryPlans[mi]!;
+												if (retry.lineAt === pi) {
 													return (
 														<SystemLine key={`retry-${pi}`} testId="tool-retry">
 															Retrying…
 														</SystemLine>
 													);
 												}
+												if (retry.hidden.has(pi)) return null;
 												switch (part.type) {
 													case "text": {
 														const sourceId = textPartMessageId(part.id);
@@ -1597,7 +1595,7 @@ export function Chat({
 													case "step-start":
 														if (teachBoundary)
 															return <PhaseDivider key={`teach-step-${pi}`} phase="teach" />;
-														return pi > 0 ? <Separator key={pi} className="my-3" /> : null;
+														return pi > retryPlans[mi]!.first ? <Separator key={pi} className="my-3" /> : null;
 													case "data-plan-block":
 														// The plan in the chat (wave 4): a frozen snapshot
 														// block — rendered as carried, never re-derived.
