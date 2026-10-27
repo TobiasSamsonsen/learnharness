@@ -17,6 +17,7 @@ Status: **draft, not approved** (2026-10-27). Parent: [plan.md](plan.md) §4 and
 
 - `src/store/chats.ts` L83-128: reads and `JSON.parse`s **every** chat file, synchronously, on every call; no cache, no mtime check. `writeChat` rewrites the whole file on every persist, and `turns`/`extractions` arrays grow inside the record and are parsed then discarded by the list.
 - Callers: `GET /api/chats` (the sidebar: at least two calls per turn, plus each event it listens to, 250 ms debounced), `activityFeed` (on `activity-changed`/`jobs-changed`, which fire often during extraction), `graphCosts` (parses every record **twice**), `courseChats`/`learnChatsBySkill`, `graphSessionIndex`, and `recoverStaleJobs` (throttled to 30 s).
+- **Measured (PC, `npx tsx scripts/bench-list-chats.ts`, synthetic 20-message chats of ~18 KB each, a throw-away data dir):** 10 chats 2.3 ms, 50 chats 10.8 ms, 150 chats 36.8 ms, 400 chats 96 ms per call, linear (about 0.24 ms per chat). The phone is slower (proot, a slower core); a factor of 3-6 is plausible but **not measured**, which would put 150 chats at roughly 110-220 ms per call, several calls per turn, on the thread that also streams the reply.
 - Dev data: 160 files, 494 KB, largest 19 KB. Sketches are not in the record (only `SketchRef`), so they do not inflate the list. The cost is O(total bytes of all chats) per call, and it blocks the Node event loop, which is shared with SSE. Estimate, not measured: 100 chats × 20 KB = 2 MB of parse per call, a few times slower under proot.
 
 ### 3. RAM and lifecycle on the Pixel 7 Pro

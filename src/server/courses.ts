@@ -18,7 +18,6 @@ import {
 	courseFirstMessage,
 	coursePromptSection,
 	courseSessionTitle,
-	sessionFinishOf,
 	newCourseContextMessage,
 	type SessionSkill,
 } from "../core/course-session.ts";
@@ -248,7 +247,9 @@ export function courseView(courseId: string): CourseView | null {
 			title: c.title,
 			mode: c.course!.mode,
 			updatedAt: c.updatedAt,
-			...(sessionFinishOf(stores.chatStore.getChat(c.id)?.messages ?? []) ? { finished: true } : {}),
+			// listChats already folded this (sessionFinishOf over the record) while it had the
+			// record open — re-reading the chat file here only to ask again cost a full parse.
+			...(c.finished ? { finished: true } : {}),
 		}));
 	const reused: CourseView["reused"] = {};
 	for (const d of course.draft?.skills ?? []) {
