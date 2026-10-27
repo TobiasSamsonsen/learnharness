@@ -73,8 +73,8 @@ const rpc = (method, params) =>
 await rpc("initialize", { protocolVersion: "2025-06-18" });
 
 // ─── one API message per step ────────────────────────────────────────────────
-async function message() {
-	const step = nextStep();
+async function message(claimed) {
+	const step = claimed ?? nextStep();
 	if (!step) return; // script exhausted: idle
 	const id = `msg_${pid}_${++msgSeq}`;
 	ev({ type: "message_start", message: { id, model: "claude-sonnet-5-5", usage: { input_tokens: 1, output_tokens: 0 } } });
@@ -93,11 +93,15 @@ async function message() {
 	ev({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(call.args) } });
 	ev({ type: "content_block_stop", index: 0 });
 	if (step.reject) {
+		// "it moves on by itself": the NEXT step belongs to this process, claimed before anything
+		// is written. Claimed after, a loaded runner could let the app kill this process first and
+		// the fresh one would take that step (a race the tests must not depend on).
+		const following = nextStep();
 		// Claude Code's own schema check: answered here, never reaches MCP
 		out({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: "InputValidationError", is_error: true }] } });
 		ev({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 3 } });
 		ev({ type: "message_stop" });
-		return message(); // it moves on by itself
+		return message(following); // it moves on by itself
 	}
 	if (step.lateReject) {
 		ev({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 3 } });
