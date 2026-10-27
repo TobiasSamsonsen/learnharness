@@ -14,6 +14,7 @@ import {
 	ClaudeCodeTranslator,
 	claudeCodeEffort,
 	claudeCodeModels,
+	parseIdleMs,
 	parseMaxSessions,
 	renderClaudeCodeRequest,
 	renderToolCallRecord,
@@ -341,4 +342,11 @@ test("LH_CLAUDE_CODE_MAX_SESSIONS: a positive integer, anything else is the defa
 	assert.equal(parseMaxSessions("1"), 1);
 	assert.equal(parseMaxSessions(" 2 "), 2);
 	assert.equal(parseMaxSessions("12"), 12);
+});
+
+test("LH_CLAUDE_IDLE_MIN: minutes as a positive integer, anything else is the default 40", () => {
+	assert.equal(parseIdleMs(undefined), 40 * 60_000);
+	for (const bad of ["", " ", "0", "-1", "1.5", "ten", "10m", "0x10", "1e3", "99999999999999999999"]) assert.equal(parseIdleMs(bad), 40 * 60_000, bad);
+	assert.equal(parseIdleMs("15"), 15 * 60_000);
+	assert.equal(parseIdleMs(" 1 "), 60_000);
 });

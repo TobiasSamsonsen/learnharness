@@ -232,6 +232,48 @@ export function salvageTextToolCalls(text: string, tools: readonly Tool[]): { te
 	return { text: rest.trim(), calls };
 }
 
+/** A concluded practice problem the replay leaves out (Android plan M11 Q2). */
+export interface ElidedProblem {
+	/** Index of the message that holds the `problem` pose (where the omitted-note goes). */
+	from: number;
+	/** Index of the last omitted message: the successful `conclude` tool result. */
+	to: number;
+	statement: string;
+	outcome: string;
+}
+
+/** The practice problems a fresh process does not need replayed: every problem that was
+ *  concluded (a `conclude` result that is not an error) before a LATER problem was posed. The
+ *  span runs from the pose through that conclude result, so the problem's thinking markers,
+ *  sketches and its read_sketch calls drop out, and the active problem always stays in full.
+ *  Only the replay is shortened: a live session already holds this history, and the fed
+ *  fingerprints still cover every message. Pure. */
+export function elidedProblems(messages: readonly Message[]): ElidedProblem[] {
+	const poses: Array<{ index: number; statement: string }> = [];
+	const outcomes = new Map<string, string>(); // conclude call id -> outcome
+	const concludes: Array<{ index: number; outcome: string }> = [];
+	messages.forEach((message, index) => {
+		if (message.role === "assistant") {
+			for (const block of message.content) {
+				if (block.type !== "toolCall") continue;
+				const args = block.arguments as { statement?: unknown; outcome?: unknown };
+				if (block.name === "problem") poses.push({ index, statement: typeof args.statement === "string" ? args.statement : "" });
+				else if (block.name === "conclude") outcomes.set(block.id, typeof args.outcome === "string" ? args.outcome : "concluded");
+			}
+		} else if (message.role === "toolResult" && message.toolName === "conclude" && !message.isError) {
+			concludes.push({ index, outcome: outcomes.get(message.toolCallId) ?? "concluded" });
+		}
+	});
+	const out: ElidedProblem[] = [];
+	poses.forEach((pose, k) => {
+		const next = poses[k + 1];
+		if (!next) return; // the active problem stays in full, concluded or not
+		const done = concludes.find((c) => c.index > pose.index && c.index < next.index);
+		if (done) out.push({ from: pose.index, to: done.index, statement: pose.statement, outcome: done.outcome });
+	});
+	return out;
+}
+
 /** Render a normalized pi transcript into one Claude Code request: the
  *  replayed system prompt + tool set, and the history as a single
  *  user message (text runs merged, images inline). Pure. */
@@ -247,7 +289,17 @@ export function renderClaudeCodeRequest(context: TranscriptContext): ClaudeCodeR
 		content.push({ type: "image", source: { type: "base64", media_type: mimeType, data } });
 
 	text("<transcript>\n");
-	for (const message of context.messages as Message[]) {
+	const elided = new Map(elidedProblems(context.messages as Message[]).map((e) => [e.from, e]));
+	const all = context.messages as Message[];
+	for (let i = 0; i < all.length; i++) {
+		const message = all[i]!;
+		const gone = elided.get(i);
+		if (gone) {
+			const stem = gone.statement.replace(/\s+/g, " ").trim();
+			text(`<omitted>An earlier practice problem (${stem.length > 120 ? `${stem.slice(0, 120)}…` : stem}) was concluded as ${gone.outcome}; its messages are left out of this replay.</omitted>\n`);
+			i = gone.to;
+			continue;
+		}
 		if (message.role === "system") continue; // replayed into the system prompt above
 		if (message.role === "user") {
 			text("<user>\n");
@@ -604,7 +656,16 @@ export function parseMaxSessions(value: string | undefined): number {
 	return Number.isSafeInteger(n) && n >= 1 ? n : DEFAULT_MAX_SESSIONS;
 }
 /** An idle session dies after this — inside the 1-hour prompt cache. */
-const IDLE_MS = 40 * 60_000;
+const DEFAULT_IDLE_MIN = 40;
+
+/** LH_CLAUDE_IDLE_MIN (Android plan M11 Q3): minutes an idle session lives, a positive
+ *  integer; an unset, empty, non-integer or < 1 value is the default (40). Returns
+ *  milliseconds. Pure, for tests. */
+export function parseIdleMs(value: string | undefined): number {
+	const text = value?.trim() ?? "";
+	const n = /^[0-9]+$/.test(text) ? Number(text) : DEFAULT_IDLE_MIN;
+	return (Number.isSafeInteger(n) && n >= 1 ? n : DEFAULT_IDLE_MIN) * 60_000;
+}
 
 function stubPath(): string {
 	const file = path.join(WORK_ROOT, "mcp-bridge-stub.mjs");
@@ -877,7 +938,7 @@ function ensureBridge(): Promise<number> {
 		}
 	}
 	st.sweeper ??= setInterval(() => {
-		for (const s of live().sessions.values()) if (s.state !== "streaming" && Date.now() - s.lastUsed > IDLE_MS) kill(s);
+		for (const s of live().sessions.values()) if (s.state !== "streaming" && Date.now() - s.lastUsed > parseIdleMs(process.env.LH_CLAUDE_IDLE_MIN)) kill(s);
 	}, 60_000);
 	st.sweeper.unref?.();
 	return st.bridge;
@@ -896,7 +957,7 @@ function kill(s: LiveSession): void {
 }
 
 /** End every live Claude Code process (tests; a server that shuts down
- *  without exiting). Idle sessions otherwise live on for IDLE_MS. */
+ *  without exiting). Idle sessions otherwise live on for parseIdleMs() (40 min by default). */
 export function closeClaudeCodeSessions(): void {
 	for (const s of [...live().sessions.values()]) kill(s);
 }
