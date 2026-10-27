@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FileTextIcon, ImageIcon, LinkIcon, Loader2Icon, PaperclipIcon, XIcon } from "lucide-react";
+import { useBackLayer } from "./back-layers.ts";
 import { MATERIAL_ACCEPT, isMaterialUrl, type LessonMaterial } from "@/src/core";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
@@ -117,6 +118,7 @@ export function MaterialsControl({
 			document.removeEventListener("keydown", onKey, true);
 		};
 	}, [open]);
+	useBackLayer(open, () => setOpen(false)); // Android back closes the popover
 
 	const addFiles = async (files: File[]) => {
 		if (files.length === 0) return;

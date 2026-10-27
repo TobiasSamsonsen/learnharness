@@ -1,4 +1,5 @@
 import { useEffect, type RefObject } from "react";
+import { useBackLayer } from "./back-layers.ts";
 
 /**
  * Close-on-dismissal for floating panels (graph chrome, 2026-09-17):
@@ -14,6 +15,7 @@ export function usePopoverDismiss(
 	open: boolean,
 	close: () => void,
 ): void {
+	useBackLayer(open, close); // the Android back gesture closes the popover too
 	useEffect(() => {
 		if (!open) return;
 		const onPointerDown = (e: PointerEvent) => {

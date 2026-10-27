@@ -31,6 +31,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useBackLayer } from "../back-layers.ts";
 import {
 	EXTRACTION_CHUNK_TOKENS_FLOOR,
 	resolveSettings,
@@ -183,6 +184,7 @@ export function AppearanceSection({
 			document.removeEventListener("keydown", onKeyDown);
 		};
 	}, [fontMenuOpen]);
+	useBackLayer(fontMenuOpen, () => setFontMenuOpen(false));
 
 	return (
 		<>

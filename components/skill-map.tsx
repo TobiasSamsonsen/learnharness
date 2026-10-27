@@ -7,6 +7,7 @@ import { blockLayout, GRAPH_PAD, NODE_H, NODE_W_MIN, PlanDiagram, type LayoutNod
 import { FIT_PAD, fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/components/pan-zoom";
 import { usePanZoomGestures } from "@/components/use-pan-zoom-gestures";
 import { cn } from "@/lib/utils";
+import { useBackLayer } from "./back-layers.ts";
 
 /**
  * The course's skill map (owner, 2026-10-25 — "way too large for the size
@@ -152,6 +153,8 @@ export function SkillMap({
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, [expanded]);
+	// Android back collapses the expanded map too (same as Esc).
+	useBackLayer(expanded, () => setExpanded(false));
 
 	// Mouse drags; touch pans and pinches. Inline, one finger is the page's
 	// scroll and two fingers are the map's (the Ctrl+wheel analogue).

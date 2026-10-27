@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { useBackLayer } from "./back-layers.ts";
 
 /**
  * The ESC-abort guard (owner, 2026-10-02): the global Esc → abort chain
@@ -119,6 +120,8 @@ export function AbortTurnDialog({
 	onConfirm: (mode: AbortMode) => void;
 	busy?: boolean;
 }) {
+	// Back cancels the popup too (same as Esc) — never aborts the turn.
+	useBackLayer(mode !== null, onClose);
 	// Esc cancels the popup (claimed — never a chained abort).
 	useEffect(() => {
 		if (mode === null) return;

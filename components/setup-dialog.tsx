@@ -40,6 +40,7 @@ import { type ModelCatalogEntry, type ModelSlotName, type ModelsSettings } from 
 import { prettyModel } from "@/components/usage-format";
 import { ModelMenuList } from "@/components/settings/model-menu";
 import { MenuShell } from "@/components/menu-shell";
+import { useBackLayer } from "./back-layers.ts";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { Hint } from "@/components/ui/hint";
 import { type ProviderKeyInfo } from "@/components/settings/keys-section";
@@ -300,6 +301,12 @@ export function SetupDialog({
 		return () => { cancelled = true; };
 	}, [open, keysTick]);
 
+	// Back mirrors Esc's branches (open key menu, then open slot menu, then close).
+	useBackLayer(open, () => {
+		if (keyMenuOpen) setKeyMenuOpen(false);
+		else if (openMenu !== null) setOpenMenu(null);
+		else onClose();
+	});
 	// Esc + outside-click — layered dismissal, closable WITHOUT
 	// configuring (browsing stays possible; the gate is the send
 	// interception, not this dialog). An open slot menu eats Esc first

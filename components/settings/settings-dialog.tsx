@@ -51,6 +51,7 @@ import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
 import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
+import { useBackLayer } from "../back-layers.ts";
 
 /** Owner (2026-09-20): hints earn their place — mechanics-explaining
  *  prose is out; only the keyboard note stays (storage location is a
@@ -222,6 +223,8 @@ export function SettingsDialogBody({
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, [onClose]);
+	// Android back closes the dialog too (mounted only while open).
+	useBackLayer(true, onClose);
 
 	/** The Claude-subscription preset (fork addition): one server write over
 	 *  several sections; the dialog takes the stored record back and every

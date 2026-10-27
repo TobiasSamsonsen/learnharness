@@ -55,6 +55,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { useBackLayer } from "./back-layers.ts";
 import {
 	ChevronDownIcon,
 	ChevronRightIcon,
@@ -652,6 +653,7 @@ export function ChainTableOverlay({
 		document.addEventListener("keydown", onKeyDown);
 		return () => document.removeEventListener("keydown", onKeyDown);
 	}, [open, deleteOpen, onClose]);
+	useBackLayer(open && !deleteOpen, onClose); // Android back closes the panel
 
 	if (!open) return null;
 

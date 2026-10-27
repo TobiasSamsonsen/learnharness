@@ -5,6 +5,7 @@ import type { SessionPricing, TurnUsage } from "@/src/core";
 import { formatTokens, formatUsd, prettyModel } from "@/components/usage-format";
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
 import { PlanUsage } from "@/components/plan-usage";
+import { useBackLayer } from "./back-layers.ts";
 
 export function formatContextMeasurement(tokens: number | null, limit: number | null): string {
 	const numerator = tokens === null ? "?" : formatTokens(tokens);
@@ -66,6 +67,7 @@ export function StatsBar({
 		setSelectedModel(model);
 		onModelChangeRef.current?.(model);
 	}, []);
+	useBackLayer(open, () => setOpen(false));
 	// Same dropdown discipline as the model control (owner, df4433f treatment,
 	// stats round 1): close on any pointerdown outside the bar or on Escape.
 	const barRef = useRef<HTMLDivElement>(null);

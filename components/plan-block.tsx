@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
+import { useBackLayer } from "./back-layers.ts";
 import { cn } from "@/lib/utils";
 // The placement engine — literally mermaid's: dagre-d3-es, the fork
 // mermaid 11 ships with (owner, plan-graph round 8: same engine as the
@@ -775,6 +776,7 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, [onClose]);
+	useBackLayer(true, onClose); // Android back closes the popup (mounted only while open)
 
 	// ── pan/zoom viewport (harvested semantics: fit floor = the default) ──
 	const viewportRef = useRef<HTMLDivElement>(null);

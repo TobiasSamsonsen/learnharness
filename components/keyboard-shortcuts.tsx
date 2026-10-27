@@ -37,6 +37,7 @@ import {
 } from "@/src/core";
 import { isDictationActive } from "@/components/dictation";
 import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
+import { useBackLayer } from "./back-layers.ts";
 
 // Re-exported for the contract pin (tests/keyboard-toggle-sidebar.test.ts):
 // the dispatcher composes event names through the ONE helper — a second
@@ -56,6 +57,7 @@ export function KeyboardShortcuts() {
 		openSettings: () => void;
 	}>({ router, setCheatOpen, openSettings });
 	handlersRef.current = { router, setCheatOpen, openSettings };
+	useBackLayer(cheatOpen, () => setCheatOpen(false));
 
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {

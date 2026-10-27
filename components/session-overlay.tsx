@@ -8,6 +8,7 @@ import { usePanZoomGestures } from "@/components/use-pan-zoom-gestures";
 import { renderMermaid } from "@/components/mermaid-render";
 import { MermaidError } from "@/components/mermaid-error";
 import { Hint } from "@/components/ui/hint";
+import { useBackLayer } from "./back-layers.ts";
 
 /**
  * SESSION-SCOPED OVERLAYS (owner wave, 2026-09-19): the "fullscreen"
@@ -124,6 +125,8 @@ export function MermaidOverlay({
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, [onClose]);
+	// Android back closes the overlay too (mounted only while open).
+	useBackLayer(true, onClose);
 
 	// ── pan/zoom viewport (same wiring as the plan popup) ──
 	const viewportRef = useRef<HTMLDivElement>(null);

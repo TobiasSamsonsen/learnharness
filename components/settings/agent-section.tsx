@@ -52,6 +52,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useBackLayer } from "../back-layers.ts";
 import { MenuShell } from "@/components/menu-shell";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { defaultOrderLevel, populateLevel } from "@/components/thinking-default";
@@ -478,6 +479,7 @@ export function AgentSection({
 			document.removeEventListener("keydown", onKeyDown);
 		};
 	}, [openMenu]);
+	useBackLayer(openMenu !== null, () => setOpenMenu(null));
 
 	async function saveSegment(path: string, text: string) {
 		setSegmentStatus(null);
