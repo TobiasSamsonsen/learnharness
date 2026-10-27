@@ -1,10 +1,55 @@
 # M10 plan (DRAFT, conditional): native ink overlay
 
-Status: **design questions answered by the owner 2026-10-27 (all seven proposals accepted); still only built if the M9 decision says so** ([m9-plan.md](m9-plan.md): build M10 if the camera median on the shell's web canvas is about 30 ms or more above the Ink spike's, or the dense-notation sheet is clearly worse on the web canvas). Written by Claude while the owner was away so the decision has something concrete behind it; nothing here is built. Per AGENTS.md "No guessing", every choice below that is not forced by the code is listed under "Questions for the owner" and nothing is implemented before they are answered.
+Status: **the M9 decision is made: build it (owner, 2026-10-27).** The owner compared the Ink spike with the shell's web canvas by eye on the Pixel 7 Pro with a stylus: the web canvas' line trails the stylus by 2-3 cm at medium speed; on the spike it stays under the tip even without prediction ("day and night"). That is far past the proposed 30 ms rule, so the camera test is skipped. The build plan below is **proposed** and waits for the owner's approval and two decisions (A, B). The earlier sections (design questions Q1-Q7, accepted 2026-10-27) still stand except where the build plan says it refines them. Per AGENTS.md "No guessing", nothing is built before approval.
 
 ## Owner decisions (2026-10-27): all seven proposals accepted
 
 Q1 bridge = origin-restricted `window.lhAndroid.ink` (`open/close/setHoles/export/undo/redo/clear/setTool`) through a `WebMessageListener` like M8's save bridge. Q2 opt-in "Native ink" switch in Settings, default off at first. Q3 vector strokes go to the web and the existing pure export makes the PNGs (one tested code path). Q4 tall pages scroll with the web's offset. Q5 the pen's eraser end and barrel button erase like the web canvas; hover does nothing. Q6 prediction on, colour follows the page. Q7 automatic fallback to the web canvas if the native view cannot be shown, said once. The overlay itself waits for the M9 camera numbers.
+
+## BUILD PLAN (proposed 2026-10-27, after reading the web and Android code)
+
+### What the code reading changed in the draft
+
+1. **The owner's stylus is a finger to Android.** The Pixel 7 Pro has no stylus digitizer; a soft-tip capacitive stylus arrives as `TOOL_TYPE_FINGER`. The prepared `InkRouting.route` (feat/m10-prep) sends only stylus and eraser tool types to the ink layer, so this stylus would never reach it. The routing policy must be decided (Decision A).
+2. **Strokes already travel as vectors, and rasterising is server-side** (resvg, `src/server/sketches.ts`; there is no grayscale step in `src/core`). So Q3(a) costs nothing extra: native strokes go into the same `SketchStroke[]` and the same `planSketch` / `sendPage` path.
+3. **Two sources of truth is the real risk** (the draft said so). The web already owns the strokes, the undo/redo stacks, the kept page and the persistence (`ink-memory.ts`). Decision B proposes keeping it that way: native only draws and reports.
+4. **Layer order.** The page canvas is an opaque white wrapper (`bg-white`) and the body paints `--color-background`. For the ink to sit *under* the toolbar and the floating box (which are web DOM) the WebView must be transparent while the native layer is open, and the page must stop painting the wrapper white. Whether a transparent WebView over `InProgressStrokesView` keeps the low latency on the Pixel is the first thing to prove (step 0).
+5. `InProgressStrokesView` (1.0.0) is a `FrameLayout` with `setMotionEventToViewTransform` and per-stroke transforms in `startStroke`, so the web's scroll offset can be handled with a matrix instead of redrawing by hand.
+6. The page is always white (`#ffffff`) and the web pen is `#111111`, size 4 (`SKETCH_PEN_SIZE`): "colour follows the page" (Q6) is one constant.
+
+### Design
+
+- **Bridge.** `WebMessageListener` named `lhAndroid`, origin-restricted exactly like `lhShell` (`MainActivity.installBridge`), main frame only. Web to native: `lhAndroid.postMessage(line)` with the prepared text lines (`open <key> x y w h`, `holes x,y,w,h …`, `tool pen|eraser`, `undo|redo|clear|close`) plus new ones: `strokes <json>` (the whole finished set, sent on open and after every undo/redo/clear/erase) and `scroll <y>`. Native to web through the listener's reply proxy: `stroke <json>` (one finished stroke), `erase <x,y,…>` (an eraser gesture), `fallback <reason>`. A small web shim exposes `window.lhAndroid.ink.*` so Q1's method shape holds. `export` from Q1 is dropped: the web already holds the vectors.
+- **Native.** An `InkFrame` (FrameLayout) holds, bottom to top, a white page layer drawing the finished strokes (`CanvasStrokeRenderer`, with the scroll matrix), `InProgressStrokesView` with `MotionEventPredictor` (as in the spike, brush `#111111`, size 4 in CSS px), and the WebView (transparent). The routing sits in `InkFrame.dispatchTouchEvent`, because a view under the WebView never receives touches.
+- **Web.** `components/sketch/use-native-ink.ts` reads `window.lhAndroid?.ink` and the Settings switch; `sketch-view.tsx` swaps `SketchCanvas` for a transparent placeholder that reports its rect (ResizeObserver) and scroll; `FloatingProblem.update()` reports the box as a hole (and the collapsed pill); ingest of `stroke` goes through the existing `addStroke`, `erase` through the existing `sketchStrokeHit` + `erase` (one undoable step), so undo/redo/clear/persistence/kept page/`pagePayload` are unchanged. `pagePayload` gets `producer: "android-ink"` when the surface is native. The Settings switch ("Native ink", Q2) only exists when the bridge exists.
+- **Fallback (Q7).** If the shell cannot show the layer (bridge missing, layer error), it sends `fallback` once and the web keeps `SketchCanvas`, with one quiet line saying so.
+
+### Steps
+
+| # | Step | Done when |
+|---|---|---|
+| 0 | **Layering spike (gating, debug only).** Prototype on the Pixel: the lesson page in a transparent WebView over `InProgressStrokesView`, a DOM element above it. | Ink shows through, the DOM element stays above and clickable, touch routing by region works, the line still stays under the stylus (owner by eye; `ink-latency.mjs native` delivery numbers), and the capacitive stylus' tool type is logged. If it fails: the ink-above variant (strokes over the box), decided with the owner. |
+| 1 | **Android main.** The ink dependencies move from `debugImplementation` to `implementation` (consider `abiFilters` arm64 to limit the APK growth from `libink.so`); `InkFrame`, `InkLayer`, `InkBridge`; routing state machine; fix the NaN/Infinity gap in `InkWire.parse` and `strokesJson`. | `./gradlew test lint assembleDebug` green; Kotlin tests for the routing policy (stylus seen or not, one finger, two fingers, holes, outside the rect, eraser end/barrel) and the wire. |
+| 2 | **Web.** Merge `feat/m10-prep` (`ink-bridge.ts`) and extend it; hook, seam, hole/scroll/rect reports, transparent placeholder, Settings switch, fallback line. | typecheck, lint, full suite; the 13 `sketch-view` tests plus new ones with a fake `lhAndroid.ink` (open/close, holes follow the box, strokes ingest, erase as one step, undo round trip, fallback); the pen/touch policy gets its first tests. |
+| 3 | **Device, over adb (injected touch).** | Draw, submit, tutor answers with the "I read:" card; undo/redo/clear; rotate; keyboard; back closes the sketch; close and reopen keeps the ink (the web pushes `strokes` on `open`); fallback path; delivery numbers. |
+| 4 | **Owner on the phone.** | Feel with the stylus, two-finger scroll, a dense-notation sheet, a full lesson sketch; then the owner decides whether it becomes the default on the shell. |
+| 5 | Docs, STATUS, merge. | |
+
+Rough size: step 0 half a day, steps 1 and 2 about a day each, step 3 half a day.
+
+### Risks
+
+- Transparent WebView over the ink surface (step 0 exists for this): compositing cost, flicker on open/close, the page background that has to go while native.
+- The keyboard (`adjustResize`) and rotation resize both views: the web re-reports the rect; the shell re-sends nothing on its own.
+- Pinch zoom would break the CSS-px mapping: the sketch page must not zoom (to be confirmed in step 0).
+- A very long page (up to 12000 px) redraws finished strokes only when they change.
+- Live fade of strokes under the eraser (the web canvas does it) is not in the first version: the erase lands on lift.
+- Process death drops native-only state, which is why Decision B keeps all strokes in the web store.
+
+### Decisions needed
+
+- **A. Input policy for touch.** Proposed: mirror the web canvas. The stylus tool type draws; **until a real stylus has been seen, one finger draws too and two fingers scroll the page; once a stylus is seen, touch scrolls** (the web `penSeen` rule). On the owner's phone that means the capacitive stylus and a finger both draw, two fingers scroll.
+- **B. Who owns the strokes.** Proposed: the web store (`ink-memory.ts`) stays the single owner; native draws and reports strokes and eraser gestures, and the web pushes the finished set back.
 
 ## What is already decided (plan.md §2, §3, §7)
 
