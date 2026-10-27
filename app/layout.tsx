@@ -28,8 +28,10 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+	// suppressHydrationWarning on <html>: the Android shell injects its safe-area CSS variables onto it (an inline
+	// style) before React hydrates, and the server HTML cannot know them. Only this element's own attributes are exempt.
 	return (
-		<html lang="en" className={`dark ${ui.variable} ${prose.variable}`}>
+		<html lang="en" className={`dark ${ui.variable} ${prose.variable}`} suppressHydrationWarning>
 			<body className="min-h-dvh antialiased">
 			{/* The notification channel rides OUTSIDE everything: sidebar, dock,
 				 and pages all subscribe as the polls retire (push S3, 2026-10-02). */}

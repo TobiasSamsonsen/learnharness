@@ -333,7 +333,7 @@ export function SettingsDialogBody({
 					aria-label="Settings sections"
 					data-testid="settings-nav"
 					// Below 1024px the section nav is a scrollable tab strip under the header.
-					className="flex w-44 shrink-0 flex-col gap-1 border-r border-border p-2 max-lg:w-auto max-lg:flex-row max-lg:overflow-x-auto max-lg:border-b max-lg:border-r-0"
+					className="flex w-44 shrink-0 flex-col gap-1 border-r border-border p-2 max-lg:w-auto max-lg:flex-row max-lg:overflow-x-auto max-lg:[scrollbar-width:none] max-lg:border-b max-lg:border-r-0"
 				>
 					{SECTIONS.map((s) => (
 						<button
