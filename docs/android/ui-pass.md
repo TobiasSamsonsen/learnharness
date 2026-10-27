@@ -12,13 +12,15 @@ Goal (owner): improve the UI on mobile so it is usable and decent. Findings from
 | Settings' tab strip showed a heavy scrollbar | hidden on phones; the cut-off last tab is the cue |
 | A React hydration warning ("1 Issue" badge in dev): the shell injects `--lh-safe-*` onto `<html>` | `suppressHydrationWarning` on `<html>` only |
 
-## Open (design decisions for the owner; nothing below is changed yet)
+## Status after the pass (verified in headless Chrome at 430 px with touch emulation, `pointer: coarse` true, plus the earlier checks on the phone)
 
-1. **Colour.** The theme is neutral only: `--primary #e6e6e6`, `--accent #2a2a2a`, no hue anywhere except the destructive red. Primary actions (Submit answer, Send) read as disabled grey-on-grey. The only colour on screen is inside demos.
-2. **Touch targets** (CSS px; Android guideline 48, Apple 44). On the home screen every control is under 40: "Import notes…" 28 high, Sources 28, language 28, mic 32, model/effort pills 25, the Teach/Practice toggle 19 (text height), sidebar toggle 36. Drawer: new-session rows 27, "New course" 19, filter tabs 25, search 24.
-3. **The question dock covers about two thirds of the screen** during a question (probe card, confidence, thinking box, composer): the transcript is squeezed to a strip while you answer.
-4. **Header.** The session title is set large in a serif and truncated ("Teach me how …"); the status labels (PLAN, TEACHING, PROBING) sit crammed against the right edge; the header is about a tenth of the screen.
-5. **Contrast and type.** Labels are small (11-12 px) uppercase monospace in mid grey on near-black ("CONFIDENCE set before submitting", "key ↗ not set"); UI chrome is monospace, prose is sans.
-6. **Empty home.** A large empty area with a small centred text and an easily missed icon.
-7. **Drawer.** Flat list: no type marker (teach / practice), no separators, tiny section headers.
-8. **Stats line** under the composer (token count, the two pickers) is tiny.
+| # | Finding | State |
+|---|---|---|
+| 1 | Colour: a neutral theme with no hue | **Done.** Owner brief (warm, a contrast to dopamine apps, "locked in"): warm charcoal `#151210`, cream text, one muted brass accent `#E0B45A` through the existing `--primary` token (buttons, selected option, links, focus, plan icon). The Android shell's own background follows. |
+| 2 | Touch targets under 40 px | **Done.** `.lh-touch` (40 px floor, touch screens only) on the composer controls, the model pill, the Teach/Practice switch, the sidebar toggle, the drawer's header buttons, new-session rows, filter tabs, search, New course, Settings and Import notes. Audit on home and the drawer: 0 controls under 40 px (the model popup's search field is 34). |
+| 3 | The question dock covers two thirds of the screen | **Left as it is, by design:** the dock IS the question (statement, options, confidence), the page reserves scroll room under it (`dock-spacer`), and the transcript above stays scrollable. At 932 px it is 64 % of the screen. A compact mode would be a new feature, not a fix. |
+| 4 | Header crowded | **Done.** The title is 20 px on phones (30 px from `sm` up); the header is 60 px (6 % of the screen); the status labels fit. |
+| 5 | Contrast of small labels | **Done by the palette.** Muted text is 6.5:1 on the page; an audit of every text under 18 px on home and a lesson finds none below 4.5:1 except the disabled Submit button (disabled controls are exempt). |
+| 6 | Empty home | **Left as it is:** a quiet empty state above the composer; the brass send button is the one point of colour. |
+| 7 | Drawer flat | **Left as it is:** readable, tall rows, touch-sized. A per-session type marker would be a new feature. |
+| 8 | Stats line | **Done.** The model and effort are one pill ("model · effort"), the effort is changed inside its popup, and the row is one line. |
