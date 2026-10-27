@@ -219,7 +219,7 @@ export function SketchView({
 						ref={native.scrollerRef}
 						data-testid="sketch-native-scroller"
 						onScroll={native.onScroll}
-						className="absolute inset-0 overflow-y-auto overscroll-contain"
+						className="absolute inset-0 overflow-y-auto overscroll-contain [scrollbar-width:none]"
 					>
 						<div style={{ height: sketchPageHeight(native.viewHeight, Math.max(lowestInk(kept?.strokes ?? []), lowestInk(ink.strokes))) }} />
 					</div>
