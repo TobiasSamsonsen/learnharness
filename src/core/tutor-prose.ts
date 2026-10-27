@@ -8,6 +8,8 @@
  * text block written before the call. PURE, browser-safe.
  */
 
+import { repairMathForDisplay } from "./math-delims.ts";
+
 /** The tools whose calls carry a `lead`. */
 export const LEAD_TOOLS: readonly string[] = ["quiz", "explain"];
 
@@ -19,11 +21,15 @@ interface BlockLike {
 	arguments?: unknown;
 }
 
-/** The lead of a question call, or "" (not a lead tool, none, or blank). */
+/** The lead of a question call, or "" (not a lead tool, none, or blank).
+ *  Repaired for display: the lead rides inside JSON arguments, so
+ *  single-backslash LaTeX can arrive eaten by JSON escapes (form feed, tab,
+ *  backspace...) - the same restoration every other rendered call field gets
+ *  (tool-parts.ts). */
 export function leadOf(block: BlockLike): string {
 	if (block.type !== "toolCall" || !block.name || !LEAD_TOOLS.includes(block.name)) return "";
 	const lead = (block.arguments as { lead?: unknown } | null | undefined)?.lead;
-	return typeof lead === "string" && lead.trim() !== "" ? lead : "";
+	return typeof lead === "string" && lead.trim() !== "" ? repairMathForDisplay(lead) : "";
 }
 
 /** The prose of one assistant message, in order: each text block and each

@@ -49,6 +49,12 @@ describe("leadOf / tutorProse", () => {
 		assert.equal(leadOf({ type: "text", text: "hi" }), "");
 	});
 
+	it("repairs LaTeX that JSON escapes ate (a form feed where \\frac began), like every other rendered call field", () => {
+		const eaten = "Right: $\u000crac{1}{2}$ and $\u0009heta$.";
+		assert.equal(leadOf(call("c1", eaten)), "Right: $\\frac{1}{2}$ and $\\theta$.");
+		assert.deepEqual(tutorProse([call("c1", eaten)]), ["Right: $\\frac{1}{2}$ and $\\theta$."]);
+	});
+
 	it("keeps text blocks and leads in order, skipping blanks and rejected calls", () => {
 		const content = [{ type: "text", text: "First." }, call("c1", "Second."), call("c2", "Third."), { type: "text", text: "  " }];
 		assert.deepEqual(tutorProse(content), ["First.", "Second.", "Third."]);
