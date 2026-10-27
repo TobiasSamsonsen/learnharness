@@ -39,6 +39,7 @@ import { COMPACTED_HISTORY_HEADER } from "./contracts/chat.ts";
 import type { LhMessage, LhMarkerMessage } from "./native-messages.ts";
 import { newMessageId, requestSketchPages } from "./native-messages.ts";
 import { sketchOfMessage } from "./sketch.ts";
+import { leadOf } from "./tutor-prose.ts";
 import { sketchStatesOf } from "./sketch-gate.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ToolResultMessage, SystemMessage } from "@earendil-works/pi-ai";
@@ -364,7 +365,13 @@ export function serializeForSummary(messages: readonly LhMessage[]): string {
 			const blocks: string[] = [];
 			for (const b of assistant.content) {
 				if (b.type === "text") blocks.push(b.text);
-				else if (b.type === "toolCall") blocks.push(`(tool call ${b.name}: ${JSON.stringify(b.arguments)})`);
+				else if (b.type === "toolCall") {
+					// a teach question's `lead` is the tutor's prose: said as prose, not buried in the call's JSON
+					const lead = leadOf(b);
+					const { lead: _lead, ...rest } = (b.arguments ?? {}) as Record<string, unknown>;
+					if (lead) blocks.push(lead);
+					blocks.push(`(tool call ${b.name}: ${JSON.stringify(lead ? rest : b.arguments)})`);
+				}
 				// thinking blocks: the model's private scratch — its
 				// conclusions land in text; skip the noise
 			}

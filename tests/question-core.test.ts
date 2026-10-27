@@ -73,7 +73,7 @@ describe("the schema's argument order (reasoning before the pick)", () => {
 				`explanation must precede options and correctAnswer in the emitted schema (got: ${keys.join(", ")})`,
 			);
 			assert.deepEqual(keys, schema === quizInputSchema
-				? ["type", "nodeId", "question", "explanation", "verify", "figureCheck", "options", "multiSelect", "correctAnswer", "details"]
+				? ["type", "nodeId", "lead", "question", "explanation", "verify", "figureCheck", "options", "multiSelect", "correctAnswer", "details"]
 				: ["question", "explanation", "verify", "figureCheck", "options", "multiSelect", "correctAnswer", "details"]);
 		}
 	});
@@ -87,6 +87,7 @@ describe("quizInputSchema / quizInputProblems (the authoring contract)", () => {
 		explanation: "Mercury is the innermost planet.",
 		type: "check",
 		nodeId: "planet-order",
+		lead: "Good start. Next, the order of the planets.",
 	};
 
 	it("accepts a valid single-select quiz (label as correctAnswer)", () => {
@@ -718,7 +719,7 @@ describe("explainInputBase / explainInputProblems (the commitment contract)", ()
 		// least, and the order doubles as the authoring order (role, target,
 		// then the question). Mirrors the quiz reorder (see above).
 		const keys = Object.keys(explainInputObject.properties);
-		assert.deepEqual(keys, ["type", "nodeId", ...Object.keys(explainInputBase.properties)]);
+		assert.deepEqual(keys, ["type", "nodeId", "lead", ...Object.keys(explainInputBase.properties)]);
 	});
 
 	it("an empty commitment is the one authoring problem", () => {
@@ -783,6 +784,7 @@ describe("the quiz role field (predict | check)", () => {
 		explanation: "Mercury is the innermost planet.",
 		type: "check",
 		nodeId: "planet-order",
+		lead: "Good start. Next, the order of the planets.",
 	};
 	it("the teach schema REQUIRES type; the probe schema has no such field", () => {
 		assert.equal(Value.Check(quizInputSchema, valid), true, "fixture (type: check) is boundary-valid");

@@ -27,15 +27,14 @@ import {
 	problemInputForConclude,
 } from "./native-messages.ts";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
+import { tutorProse } from "./tutor-prose.ts";
 
 /** The user-facing text blocks of a native message (string or text parts). */
 function textOf(content: unknown): string[] {
 	if (typeof content === "string") return content.trim() ? [content] : [];
 	if (!Array.isArray(content)) return [];
-	return content
-		.filter((c): c is { type: "text"; text: string } => (c as { type?: string }).type === "text")
-		.map((c) => c.text)
-		.filter((t) => t.trim().length > 0);
+	// text blocks plus a teach question's `lead` (core/tutor-prose.ts)
+	return tutorProse(content as Parameters<typeof tutorProse>[0]);
 }
 
 /** The practice join context (owner-approved, 2026-10-06 export round):

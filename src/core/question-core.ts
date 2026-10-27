@@ -282,6 +282,18 @@ const predictCheckType = Type.Union([Type.Literal("predict"), Type.Literal("chec
 });
 
 
+/** The text the learner reads before a teach question (owner, 2026-10-27).
+ *  The tutor drafted its reply in thinking and fired the next question with no
+ *  visible text, so the reply now rides INSIDE the call: it cannot call without
+ *  writing it. Teach tools only (probe/recall share the bases, not this). */
+const leadField = Type.String({
+	minLength: 1,
+	description:
+		"The text he reads before the question: respond to his last answer (what it shows; if it was wrong, diagnose " +
+		"and repair), then teach the next step. Markdown. The question itself goes in `question`. A one-line filler is " +
+		"not a lead.",
+});
+
 /** The TEACH-side quiz object. The required pair leads the property
  *  order (owner, 2026-10-09): glm-5.3 dropped `type`/`nodeId` on long
  *  calls BECAUSE they trailed every content field — fields generated
@@ -298,6 +310,7 @@ export const quizInputObject = Type.Object({
 			"one node for as many turns as the understanding needs — one reasoning step at a time, never rush forward. " +
 			"For off-map checks use ask_user_question.",
 	}),
+	lead: leadField,
 	...quizInputBase.properties,
 });
 
@@ -320,6 +333,8 @@ export const probeQuizInputSchema = quizInputBase;
 export const quizDisplayInputSchema = Type.Object({
 	...quizInputBase.properties,
 	type: Type.Optional(Type.String()),
+	// OPTIONAL: old records carry none (Value.Clean would strip it otherwise)
+	lead: Type.Optional(Type.String()),
 });
 
 // ─── the explain tool (free-recall quizzing, owner 2026-09-27) ─────────────
@@ -368,6 +383,7 @@ export const explainInputObject = Type.Object({
 			"one node for as many turns as the understanding needs — one reasoning step at a time, never rush forward. " +
 			"For off-map checks use ask_user_question.",
 	}),
+	lead: leadField,
 	...explainInputBase.properties,
 });
 
@@ -379,6 +395,7 @@ export const explainInputObject = Type.Object({
 export const explainDisplayInputSchema = Type.Object({
 	...explainInputBase.properties,
 	type: Type.Optional(Type.String()),
+	lead: Type.Optional(Type.String()),
 });
 
 /** The explain authoring contract: the commitment must exist. Empty

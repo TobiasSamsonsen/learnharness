@@ -23,6 +23,10 @@ const quizArgs = {
 	],
 	correctAnswer: "a",
 };
+/** A call the schema accepts but whose lead is blank: no prose reached the learner. */
+const bareArgs = { ...quizArgs, lead: "   " };
+/** A call that carries the reply the learner reads. */
+const ledArgs = { ...quizArgs, lead: "Not quite — 2+2 is 4 because …" };
 
 const assistant = (content: AssistantMessage["content"]): AssistantMessage => ({
 	role: "assistant",
@@ -34,7 +38,12 @@ const assistant = (content: AssistantMessage["content"]): AssistantMessage => ({
 	stopReason: "toolUse",
 	timestamp: 1,
 });
-const call = (id: string, name = "quiz"): ToolCall => ({ type: "toolCall", id, name, arguments: quizArgs as ToolCall["arguments"] });
+const call = (id: string, name = "quiz", lead?: string): ToolCall => ({
+	type: "toolCall",
+	id,
+	name,
+	arguments: (lead === undefined ? quizArgs : { ...quizArgs, lead }) as ToolCall["arguments"],
+});
 const text = (t: string) => ({ type: "text" as const, text: t });
 const result = (toolCallId: string, toolName: string) => ({
 	role: "toolResult" as const,
@@ -84,6 +93,27 @@ describe("proseGateBlocks (the pure rule)", () => {
 		assert.equal(proseGateBlocks([{ role: "user", content: "quiz me", timestamp: 0 }, assistant([call("q1")]), rejected], next, "q2", "quiz"), false);
 	});
 
+	it("a question call's own lead passes the gate; a blank lead does not", () => {
+		assert.equal(proseGateBlocks(answered, assistant([call("q2", "quiz", "Not quite: …")]), "q2", "quiz"), false);
+		assert.equal(proseGateBlocks(answered, assistant([call("q2", "explain", "Not quite: …")]), "q2", "explain"), false);
+		assert.equal(proseGateBlocks(answered, assistant([call("q2", "quiz", "   ")]), "q2", "quiz"), true);
+	});
+
+	it("a lead on an earlier call since the last answer counts, like text in an earlier message", () => {
+		const prior = assistant([call("q1b", "quiz", "Here is why …")]);
+		const next = assistant([call("q2")]);
+		assert.equal(proseGateBlocks([...answered, prior, next], next, "q2", "quiz"), false, "the earlier lead reached him");
+		// ...but not once he has answered that question
+		assert.equal(proseGateBlocks([...answered, prior, result("q1b", "quiz"), next], next, "q2", "quiz"), true);
+	});
+
+	it("a lead on a call that errored back was never shown: it does not count", () => {
+		const rejected = assistant([call("q1b", "quiz", "Here is why …")]);
+		const error = { ...result("q1b", "quiz"), isError: true };
+		const next = assistant([call("q2")]);
+		assert.equal(proseGateBlocks([...answered, rejected, error, next], next, "q2", "quiz"), true);
+	});
+
 	it("a probe-phase answer counts as a graded answer", () => {
 		const next = assistant([call("q2")]);
 		assert.equal(proseGateBlocks([assistant([call("p1", "probe")]), result("p1", "probe")], next, "q2", "quiz"), true);
@@ -127,12 +157,12 @@ describe("the gate is live in the teacher (and only there)", () => {
 		return { model: provider ? { ...faux.getModel(), provider } : faux.getModel(), streamFn: faux.streamSimple };
 	}
 
-	// On Claude Code force-text is off, so the retry is the model's own: prose and the question in one message.
-	it("a bare quiz after an answer comes back refused; the retry with prose goes through", async () => {
+	// On Claude Code force-text is off, so the retry is the model's own: the question again, now with its lead.
+	it("a quiz with a blank lead after an answer comes back refused; the retry with a lead goes through", async () => {
 		const agent = createTeacherAgent(undefined, {
 			engine: engine([
-				() => fauxAssistantMessage([fauxToolCall("quiz", quizArgs as ToolCall["arguments"], { id: "q2" })], { stopReason: "toolUse" }),
-				() => fauxAssistantMessage([fauxText("Not quite — 2+2 is 4 because …"), fauxToolCall("quiz", quizArgs as ToolCall["arguments"], { id: "q3" })], { stopReason: "toolUse" }),
+				() => fauxAssistantMessage([fauxToolCall("quiz", bareArgs as ToolCall["arguments"], { id: "q2" })], { stopReason: "toolUse" }),
+				() => fauxAssistantMessage([fauxToolCall("quiz", ledArgs as ToolCall["arguments"], { id: "q3" })], { stopReason: "toolUse" }),
 			], "claude-code"),
 			tools: bareQuestionTools(),
 			messages: answered as never,
@@ -142,16 +172,16 @@ describe("the gate is live in the teacher (and only there)", () => {
 		const refused = results.find((r) => r.toolCallId === "q2")!;
 		assert.equal(refused.isError, true);
 		assert.match(refused.content[0]!.text!, new RegExp(PROSE_GATE_REASON.slice(0, 40)));
-		assert.equal(results.find((r) => r.toolCallId === "q3")!.isError, false, "the retry with prose is posed");
+		assert.equal(results.find((r) => r.toolCallId === "q3")!.isError, false, "the retry with a lead is posed");
 	});
 
 	/** Three scripted replies: a bare quiz (refused), a text-only reply, a quiz. Records which tools each request declared. */
 	async function forcedRun(provider?: string) {
 		const faux = createFauxCore({});
 		faux.setResponses([
-			() => fauxAssistantMessage([fauxToolCall("quiz", quizArgs as ToolCall["arguments"], { id: "q2" })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([fauxToolCall("quiz", bareArgs as ToolCall["arguments"], { id: "q2" })], { stopReason: "toolUse" }),
 			() => fauxAssistantMessage([fauxText("Not quite — 2+2 is 4 because …")], { stopReason: "stop" }),
-			() => fauxAssistantMessage([fauxToolCall("quiz", quizArgs as ToolCall["arguments"], { id: "q3" })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([fauxToolCall("quiz", ledArgs as ToolCall["arguments"], { id: "q3" })], { stopReason: "toolUse" }),
 		]);
 		const declared: string[][] = [];
 		const model = provider ? { ...faux.getModel(), provider } : faux.getModel();
@@ -187,7 +217,7 @@ describe("the gate is live in the teacher (and only there)", () => {
 
 	it("other agents are not gated (practice honors an injected registry)", async () => {
 		const agent = createPracticeAgent({} as never, {
-			engine: engine([() => fauxAssistantMessage([fauxToolCall("quiz", quizArgs as ToolCall["arguments"], { id: "q2" })], { stopReason: "toolUse" })]),
+			engine: engine([() => fauxAssistantMessage([fauxToolCall("quiz", bareArgs as ToolCall["arguments"], { id: "q2" })], { stopReason: "toolUse" })]),
 			tools: bareQuestionTools(),
 			messages: answered as never,
 		});

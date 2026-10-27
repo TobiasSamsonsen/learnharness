@@ -64,6 +64,7 @@ const QUIZ_INPUT = {
 	explanation: "Mercury is the innermost planet.",
 	type: "check",
 	nodeId: "planet-order",
+	lead: "Right. Next, which planet is closest to the sun.",
 };
 
 /** Turn 1: a bit of reasoning, then the quiz tool call. Turn 2: plain text.
@@ -329,7 +330,8 @@ describe("teacher chat flow (scripted model)", () => {
 		const view2 = projectView(saved2.messages);
 		assert.equal(view2.length, 2, "the reaction continues the same assistant message (one group)");
 		const finalParts = view2[1]!.parts;
-		const textPart = finalParts.find((p) => p.type === "text");
+		// the quiz's `lead` projects as a text part above its call; the reaction is the last text part
+		const textPart = [...finalParts].reverse().find((p) => p.type === "text");
 		assert.ok(textPart && textPart.type === "text", "reaction text appended after the tool part");
 		assert.match((textPart as { text?: string }).text!, /Mercury it is/);
 		// The answered quiz part is still there, now with its output.
@@ -659,6 +661,7 @@ describe("teacher chat flow (scripted model)", () => {
 			question: "What is Nietzsche's genealogical claim about religion?",
 			type: "check",
 			nodeId: "genealogy",
+			lead: "Next, Nietzsche's claim.",
 			options: [{ label: "A cultural diagnosis" }, { label: "Atheism as a conclusion" }],
 			correctAnswer: "cultural-diagnosis", // the exact live failure shape: a slug, no match
 			explanation: "Genealogy diagnoses, it does not convert.",
@@ -739,6 +742,7 @@ describe("teacher chat flow (scripted model)", () => {
 			question: "Lewis's indexical analysis of 'actual' — which is it?",
 			type: "check",
 			nodeId: "indexicals",
+			lead: "Next, Lewis on indexicals.",
 			options: "definitely not a JSON array — denim all the way down", // ← unhealable garbage
 			correctAnswer: "indexical",
 			explanation: "Indexical: every world is actual to its own inhabitants.",
@@ -1202,6 +1206,7 @@ it("explain tool call persists as a pending part; the free-text answer reveals t
 		correctAnswer: "Its small angular separation from the Sun — it never strays far from the Sun in our sky.",
 		nodeId: "planet-order",
 		type: "check", // the teach explain's role field (owner, 2026-10-09)
+		lead: "Right. Next, why Mercury is hard to see.",
 	};
 	const { engine, calls } = scriptedTeacher((cs) => [
 		(context) => {

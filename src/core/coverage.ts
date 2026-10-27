@@ -23,6 +23,7 @@ import { createHash } from "node:crypto";
 
 import type { CoverageEntry } from "./contracts/graph.ts";
 import type { LhMessage } from "./native-messages.ts";
+import { tutorProse } from "./tutor-prose.ts";
 
 export type { CoverageEntry };
 
@@ -30,10 +31,8 @@ export type { CoverageEntry };
 function textOf(content: unknown): string[] {
 	if (typeof content === "string") return content.trim() ? [content] : [];
 	if (!Array.isArray(content)) return [];
-	return content
-		.filter((c): c is { type: "text"; text: string } => (c as { type?: string }).type === "text")
-		.map((c) => c.text)
-		.filter((t) => t.trim().length > 0);
+	// text blocks plus a teach question's `lead` (core/tutor-prose.ts)
+	return tutorProse(content as Parameters<typeof tutorProse>[0]);
 }
 
 /**

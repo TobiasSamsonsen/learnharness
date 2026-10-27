@@ -140,6 +140,10 @@ export const quizExampleBody = {
 	correctAnswer: "a",
 };
 
+/** The teach example's `lead` (exported for the description pins). */
+export const quizExampleLead =
+	"Right: the inner function sets how fast the phase changes. Next, the same idea with a different inner function.";
+
 /** The quiz mechanics every variant shares; `delta` appends the variant's
  *  own fields (its NAME among them — the probe-phase tools self-reference
  *  as probe/recall, owner 2026-10-09). All mechanics, zero doctrine — plus
@@ -156,7 +160,8 @@ function quizDescription(delta: { name: "quiz" | "probe"; nodeId: boolean; types
 		"field lets the learner attach his reasoning to ANY answer; it reaches you only when non-empty. " +
 		"No free-text answers — for non-graded questions use ask_user_question instead. " +
 		(delta.types
-			? "Every call declares `type` — the question's role in the teaching cycle; the field's own description says when each kind fires. "
+			? "Every call declares `type` — the question's role in the teaching cycle; the field's own description says when each kind fires. " +
+				"It also carries `lead` — the text he reads before the question; the field's own description says what it holds. "
 			: "") +
 		(delta.nodeId
 			? "Set `nodeId` (required) to the plan node this question is about — validated at call time against the session's plan map. For off-map checks use ask_user_question. "
@@ -167,7 +172,14 @@ function quizDescription(delta: { name: "quiz" | "probe"; nodeId: boolean; types
 	// Phase-correct shape: the teach example LEADS with the required pair
 	// (type, nodeId — the 2026-10-09 drop-order ruling); the probe example
 	// carries no phase metadata at all, exactly like the probe schema.
-	const example = delta.nodeId ? { type: "check" as const, nodeId: "chain-rule", ...quizExampleBody } : quizExampleBody;
+	const example = delta.nodeId
+		? {
+				type: "check" as const,
+				nodeId: "chain-rule",
+				lead: quizExampleLead,
+				...quizExampleBody,
+			}
+		: quizExampleBody;
 	return (
 		base +
 		"\nExample arguments — copy the escaping exactly: inside JSON strings a LaTeX backslash is \\\\ and a newline is \\n.\n```json\n" +
@@ -192,7 +204,8 @@ function explainDescription(name: "explain" | "recall", nodeId: boolean): string
 		"sees the question. When his answer returns, grade it strictly against the commitment — never revise it " +
 		"after seeing his words. He sees the committed answer on submit. " +
 		(nodeId
-			? "Set `nodeId` (required) to the plan node this question is about — validated at call time against the session's plan map. "
+			? "Set `nodeId` (required) to the plan node this question is about — validated at call time against the session's plan map. " +
+				"Set `lead` (required) to the text he reads before the question; the field's own description says what it holds. "
 			: "") +
 		"ONE question per turn: call a single " + name + ", then end your turn — his answer determines the next."
 	);

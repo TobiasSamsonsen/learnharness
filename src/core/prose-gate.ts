@@ -17,18 +17,19 @@
  */
 
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import { LEAD_TOOLS, leadOf, tutorProse } from "./tutor-prose.ts";
 
-/** The teach-side question tools the gate guards. */
-export const PROSE_GATED_TOOLS: readonly string[] = ["quiz", "explain"];
+/** The teach-side question tools the gate guards (the ones that carry a
+ *  `lead`: since 2026-10-27 the reply the learner reads rides in the call). */
+export const PROSE_GATED_TOOLS: readonly string[] = LEAD_TOOLS;
 
 /** Tool results that carry the learner's graded answer. */
 const GRADED_ANSWER_TOOLS: ReadonlySet<string> = new Set(["quiz", "explain", "probe", "recall"]);
 
 export const PROSE_GATE_REASON =
 	"Refused: the learner just answered, and nothing you have written since has reached him — your thinking is invisible to him. " +
-	"Respond to his answer in text first (what it shows; if it was wrong, diagnose and repair), then teach the next step in text, " +
-	"and only then call the question again, in the same message after that text. " +
-	"Your last message had no text; calling the question again without text will be refused again. Write the text first.";
+	"Put your response to his answer in `lead` (what it shows; if it was wrong, diagnose and repair), then teach the next step there, " +
+	"and call the question again with that `lead`. A call without it will be refused again.";
 
 /** The just-in-time half (owner, 2026-10-25 — the mutable-types lesson:
  *  the gate fired on 6 of 7 checks and the retries passed it with one
@@ -36,17 +37,17 @@ export const PROSE_GATE_REASON =
  *  the rule is in front of the model at the moment it decides; the gate
  *  stays the backstop. */
 export const ANSWER_NEXT_TEXT =
-	"Reply in text before any tool: what this answer shows (wrong: diagnose and repair). " +
-	"Then teach the next step in text before its question — or finish. " +
-	"Do not plan the reply in thinking: only text reaches him.";
+	"Reply in the next question's `lead`: what this answer shows (wrong: diagnose and repair), " +
+	"then teach the next step there — or finish in text. " +
+	"Do not plan the reply in thinking: only text and `lead` reach him.";
 
 /** The same, for an answer that carries a SKETCH (Android plan M2): the
  *  read comes first — the plain "reply in text before any tool" would have
  *  the tutor grade handwriting it never transcribed. */
 export const SKETCH_ANSWER_NEXT_TEXT =
 	"A sketch is attached: call read_sketch on it first, in this reply — before any other tool or text. " +
-	"Then reply in text: what this answer shows (wrong: diagnose and repair). " +
-	"Then teach the next step in text before its question — or finish.";
+	"Then reply in the next question's `lead`: what this answer shows (wrong: diagnose and repair), " +
+	"then teach the next step there — or finish in text.";
 
 /** And for a sketch on a question that is not prose-gated (ask, probe). */
 export const SKETCH_READ_FIRST_TEXT =
@@ -70,8 +71,10 @@ export function proseGateRefusedLast(history: readonly unknown[]): boolean {
 	return false;
 }
 
-const hasText = (blocks: AssistantMessage["content"]): boolean =>
-	blocks.some((b) => b.type === "text" && b.text.trim().length > 0);
+/** Prose reached the learner: a text block, or a question call's `lead`
+ *  (a call in `rejected` was never posed, so its lead was never shown). */
+const hasText = (blocks: AssistantMessage["content"], rejected?: ReadonlySet<string>): boolean =>
+	tutorProse(blocks, rejected).length > 0;
 
 /**
  * Should this question call be refused? `history` = the conversation
@@ -84,14 +87,22 @@ export function proseGateBlocks(
 	toolName: string,
 ): boolean {
 	if (!PROSE_GATED_TOOLS.includes(toolName)) return false;
-	// text before this call in the calling message itself
+	// the call's own lead, or text before it in the calling message itself
 	const at = assistantMessage.content.findIndex((b) => b.type === "toolCall" && b.id === toolCallId);
+	if (at >= 0 && leadOf(assistantMessage.content[at]!) !== "") return false;
 	if (hasText(assistantMessage.content.slice(0, at < 0 ? assistantMessage.content.length : at))) return false;
+	// calls that errored back (authoring rejections, this gate's own refusals)
+	// were never posed: their lead never reached the learner
+	const rejected = new Set<string>();
+	for (const m of history) {
+		const r = m as ToolResultMessage;
+		if (r.role === "toolResult" && r.isError) rejected.add(r.toolCallId);
+	}
 	for (let i = history.length - 1; i >= 0; i--) {
 		const m = history[i] as { role?: string };
 		if (m === assistantMessage) continue;
 		if (m.role === "assistant") {
-			if (hasText((m as AssistantMessage).content)) return false;
+			if (hasText((m as AssistantMessage).content, rejected)) return false;
 			continue;
 		}
 		if (m.role === "toolResult") {

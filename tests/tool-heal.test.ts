@@ -57,6 +57,7 @@ function whiteheadQuiz(type: unknown, correctAnswer: unknown) {
 		correctAnswer,
 		type,
 		nodeId: "experience-first",
+		lead: "Right. Next, the Parmenides claim.",
 	};
 }
 

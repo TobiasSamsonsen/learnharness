@@ -22,6 +22,7 @@ import {
 	probeQuizTool,
 	probeExplainTool,
 	quizExampleBody,
+	quizExampleLead,
 	teachExplainToolFor,
 	teachQuizToolFor,
 	type TeacherToolContext,
@@ -62,6 +63,7 @@ const validQuiz = {
 	explanation: "Arithmetic.",
 	type: "check",
 	nodeId: "arith",
+	lead: "Right. Next, a small case.",
 };
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -215,7 +217,7 @@ describe("quiz tool descriptions carry the complete, phase-correct example", () 
 	it("the canonical body is schema-valid and authoring-clean (never ship a broken exemplar)", () => {
 		assert.deepEqual(quizInputProblems(quizExampleBody), []);
 		assert.equal(Value.Check(probeQuizInputSchema, quizExampleBody), true);
-		const teachExample = { type: "check", nodeId: "chain-rule", ...quizExampleBody };
+		const teachExample = { type: "check", nodeId: "chain-rule", lead: quizExampleLead, ...quizExampleBody };
 		assert.equal(Value.Check(quizInputObject, teachExample), true);
 	});
 
@@ -236,7 +238,7 @@ describe("quiz tool descriptions carry the complete, phase-correct example", () 
 	it("quiz: the required pair leads the example, with the plan-id caveat", () => {
 		const chatId = newChat("Teacher: description example");
 		const desc = teachQuizToolFor({ chatId, chatStore }).description;
-		const teachExample = { type: "check", nodeId: "chain-rule", ...quizExampleBody };
+		const teachExample = { type: "check", nodeId: "chain-rule", lead: quizExampleLead, ...quizExampleBody };
 		assert.ok(desc.includes("```json\n" + JSON.stringify(teachExample, null, 2) + "\n```"));
 		// The 2026-10-09 drop-order ruling: type+nodeId LEAD the object —
 		// fields generated first get dropped least.
@@ -363,6 +365,7 @@ describe("teachExplainToolFor: the explain variant validates nodeId like the qui
 		correctAnswer: "It ruled out the aether — a stationary aether predicts a fringe shift, and none was seen.",
 		nodeId: "arith",
 		type: "check",
+		lead: "Right. Next, a small case.",
 	};
 
 	it("accepts a nodeId matching a tree node", async () => {

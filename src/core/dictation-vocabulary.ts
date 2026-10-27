@@ -1,6 +1,7 @@
 import { derivePlanStatusesLh, type PlanTree } from "./contracts.ts";
 import type { LessonLanguage } from "./language.ts";
 import type { LhMessage } from "./native-messages.ts";
+import { tutorProse } from "./tutor-prose.ts";
 
 /**
  * The dictation vocabulary prompt (Android plan M4). PURE, browser-safe.
@@ -93,10 +94,8 @@ function textOf(message: LhMessage): string {
 	const content = (message as { content?: unknown }).content;
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
-	return (content as Array<{ type?: string; text?: string }>)
-		.filter((b) => b.type === "text" && typeof b.text === "string")
-		.map((b) => b.text)
-		.join("\n");
+	// text blocks plus a teach question's `lead` (core/tutor-prose.ts)
+	return tutorProse(content as Parameters<typeof tutorProse>[0]).join("\n");
 }
 
 /** The newest question or problem call's stem: what the learner is answering now. */

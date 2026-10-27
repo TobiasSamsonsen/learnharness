@@ -32,6 +32,7 @@ const TEACHER_QUIZ = {
 	explanation: "Convention-T schematizes truth for the object language.",
 	type: "check", // teach-only role field — the display parse KEEPS it (the dock gates by it)
 	nodeId: "convention-t", // teacher-only field — the display parse must accept and strip it
+	lead: "Right. Next, what the convention defines.", // teach-only prose field — the display parse KEEPS it (optional there)
 };
 
 const PROBER_QUIZ = {

@@ -37,6 +37,7 @@ import type { LhMarkerMessage, LhMessage } from "./native-messages.ts";
 import { modelSolutionForConclude, PRACTICE_CONCLUDE_TOOL, problemInputForConclude } from "./native-messages.ts";
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
+import { leadOf } from "./tutor-prose.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
 import type { PlanBlockData } from "./contracts/chat.ts";
 
@@ -153,6 +154,15 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 	// user (full history is never hidden); only the MODEL's context jumps.
 	const compaction = activeCompactionOf(messages);
 
+	// Question calls that errored back were never posed (owner, 2026-10-27):
+	// their `lead` is not shown, so a retry never stacks a second copy of the
+	// reply above the first.
+	const rejectedCalls = new Set<string>();
+	for (const m of messages) {
+		const r = m as ToolResultMessage;
+		if (r.role === "toolResult" && r.isError) rejectedCalls.add(r.toolCallId);
+	}
+
 	for (const m of messages) {
 		const role = (m as { role?: string }).role;
 
@@ -224,6 +234,13 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 					if (block.name === PRACTICE_CONCLUDE_TOOL) {
 						part.reveal = modelSolutionForConclude(messages, block.id);
 						part.problemInput = problemInputForConclude(messages, block.id);
+					}
+					// A teach question's `lead` is the tutor's prose (owner, 2026-10-27): it
+					// renders as an ordinary text part right above the call — live while it
+					// streams, the same on replay.
+					const lead = leadOf(block);
+					if (lead && part.state !== "output-error" && !rejectedCalls.has(block.id)) {
+						rest.push({ type: "text", id: `${m.id}-t${textN++}`, text: lead, state: "done" });
 					}
 					rest.push(part);
 				}
