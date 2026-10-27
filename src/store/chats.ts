@@ -60,6 +60,7 @@ function createChat(title: string, kind?: "practice", course?: ChatCourseLink): 
  *  A future-version guard lives on the read side (getChat). */
 function writeChat(record: ChatRecord): void {
 	fs.writeFileSync(chatFile(record.id), JSON.stringify({ ...record, version: CURRENT_CHAT_VERSION }, null, "\t"), "utf-8");
+	summaryCache.delete(record.id); // our own write: never trust the stat when we know the file changed
 }
 
 function getChat(id: string): ChatRecord | null {
@@ -80,48 +81,77 @@ function getChat(id: string): ChatRecord | null {
 	return parsed as ChatRecord;
 }
 
+/** The list projection of one record (null when the projection fails). */
+function summarize({ messages, tree, turns, extractions, ...summary }: ChatRecord): ChatSummary | null {
+	// Per-record isolation (Wave B): a record whose messages fail the
+	// projection (e.g. pre-Wave-B UIMessage-format scratch — the
+	// zero-back-compat wipe makes these "corrupt") must not blank the
+	// whole sidebar — same isolation getChat's per-file catch gives.
+	try {
+		return {
+			// turns and extractions stay out of the list payload (list =
+			// summaries; usage aggregates ride the full record, the picker
+			// never needs them).
+			...summary,
+			// Normalized kind: absent record field reads as teach.
+			kind: summary.kind ?? "teach",
+			messageCount: messages.length,
+			// Record-derived status for the session picker: phase from the
+			// transcript's explicit events (probe_done concluded / verdict
+			// accepted — docs/probe-teach-split.md §4), pending question
+			// from the native dangling-call scan. Wave D: both folds read
+			// the NATIVE record (core/phases.ts phaseAt3Lh +
+			// native-messages.ts danglingQuestionOf). Liveness (busy) is
+			// NOT record-derived — the API route merges it (ChatListItem).
+			phase: phaseAt3Lh(messages),
+			pendingQuestion: danglingQuestionOf(messages) !== null,
+			// A finished course session (owner, 2026-10-25): the
+			// sidebar row says so.
+			...(summary.course && sessionFinishOf(messages as LhMessage[]) ? { finished: true } : {}),
+			// NOTE (found while caching this, 2026-10-27; behaviour kept as it was): pendingProblem is
+			// declared on ChatSummary and read by the sidebar's "Problem waiting" meta, but nothing here
+			// ever sets it, so that label never shows. The old code hid it behind an unchecked type guard.
+		} as ChatSummary;
+	} catch (err) {
+		console.error(`[chat ${summary.id}] summary projection failed:`, err);
+		return null;
+	}
+}
+
+/** M11 (docs/android/m11-plan.md Q4, owner: in-memory cache): the list used to
+ *  read and parse EVERY chat file on every call (the sidebar asks several times a
+ *  turn). A summary is now kept per file and reused while the file's mtime and size
+ *  are unchanged; our own writes and deletes drop the entry, so only a foreign edit
+ *  that keeps both mtime and size could go unseen. No file-format change. */
+const summaryCache = new Map<string, { mtimeMs: number; size: number; summary: ChatSummary | null }>();
+
 function listChats(): ChatSummary[] {
 	try {
 		fs.mkdirSync(PATHS.chats, { recursive: true });
-		return fs
-			.readdirSync(PATHS.chats)
-			.filter((f) => f.endsWith(".json"))
-			.map((f) => getChat(f.slice(0, -5)))
-			.filter((r): r is ChatRecord => r !== null)
-			.map(({ messages, tree, turns, extractions, ...summary }) => {
-				// Per-record isolation (Wave B): a record whose messages fail the
-				// projection (e.g. pre-Wave-B UIMessage-format scratch — the
-				// zero-back-compat wipe makes these "corrupt") must not blank the
-				// whole sidebar — same isolation getChat's per-file catch gives.
-				try {
-					return {
-						// turns and extractions stay out of the list payload (list =
-						// summaries; usage aggregates ride the full record, the picker
-						// never needs them).
-						...summary,
-						// Normalized kind: absent record field reads as teach.
-						kind: summary.kind ?? "teach",
-						messageCount: messages.length,
-						// Record-derived status for the session picker: phase from the
-						// transcript's explicit events (probe_done concluded / verdict
-						// accepted — docs/probe-teach-split.md §4), pending question
-						// from the native dangling-call scan. Wave D: both folds read
-						// the NATIVE record (core/phases.ts phaseAt3Lh +
-						// native-messages.ts danglingQuestionOf). Liveness (busy) is
-						// NOT record-derived — the API route merges it (ChatListItem).
-						phase: phaseAt3Lh(messages),
-						pendingQuestion: danglingQuestionOf(messages) !== null,
-						// A finished course session (owner, 2026-10-25): the
-						// sidebar row says so.
-						...(summary.course && sessionFinishOf(messages as LhMessage[]) ? { finished: true } : {}),
-					};
-				} catch (err) {
-					console.error(`[chat ${summary.id}] summary projection failed:`, err);
-					return null;
-				}
-			})
-			.filter((s): s is ChatSummary => s !== null)
-			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+		const present = new Set<string>();
+		const out: ChatSummary[] = [];
+		for (const f of fs.readdirSync(PATHS.chats)) {
+			if (!f.endsWith(".json")) continue;
+			const id = f.slice(0, -5);
+			present.add(id);
+			let st: fs.Stats;
+			try {
+				st = fs.statSync(chatFile(id));
+			} catch {
+				summaryCache.delete(id);
+				continue; // vanished between readdir and stat
+			}
+			let hit = summaryCache.get(id);
+			if (!hit || hit.mtimeMs !== st.mtimeMs || hit.size !== st.size) {
+				const record = getChat(id);
+				hit = { mtimeMs: st.mtimeMs, size: st.size, summary: record ? summarize(record) : null };
+				summaryCache.set(id, hit);
+			}
+			// a copy, so a caller that decorates its list never edits the cache
+			if (hit.summary) out.push({ ...hit.summary });
+		}
+		for (const id of [...summaryCache.keys()]) if (!present.has(id)) summaryCache.delete(id);
+		return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 	} catch {
 		return [];
 	}
@@ -195,6 +225,7 @@ function renameChat(id: string, title: string): ChatRecord {
 function deleteChat(id: string): boolean {
 	try {
 		fs.unlinkSync(chatFile(id));
+		summaryCache.delete(id);
 		emit("chats-changed", {}); // only a real removal — the present-entry law
 		return true;
 	} catch {

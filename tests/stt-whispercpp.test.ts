@@ -318,6 +318,56 @@ describe("the whisper.cpp adapter", () => {
 		}
 	});
 
+	it("LH_WHISPER_WANT_DIR: a request asks for the language by touching its want file, then waits for it to come up", async () => {
+		const want = fs.mkdtempSync(path.join(os.tmpdir(), "lh-want-"));
+		const probe = http.createServer();
+		await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+		const { port } = probe.address() as { port: number };
+		await new Promise<void>((resolve) => probe.close(() => resolve())); // a free port, nothing listening yet
+		delete process.env.LH_WHISPER_BIN;
+		process.env.LH_WHISPER_URL_NB = `http://127.0.0.1:${port}/`;
+		process.env.LH_WHISPER_WANT_DIR = want;
+		let late: http.Server | null = null;
+		try {
+			const reply = whisper.transcribeWhisperCpp("nb", tone());
+			await new Promise((r) => setTimeout(r, 700));
+			assert.ok(fs.existsSync(path.join(want, "nb")), "the supervisor's request file exists while the request waits");
+			late = http.createServer((req, res) => {
+				req.resume();
+				req.on("end", () => res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ text: "after the start" })));
+			});
+			await new Promise<void>((resolve) => late!.listen(port, "127.0.0.1", resolve)); // the supervisor brought it up
+			assert.deepEqual(await reply, { ok: true, text: "after the start" });
+			// every request refreshes the file: the supervisor's idle clock
+			const old = new Date(Date.now() - 3_600_000);
+			fs.utimesSync(path.join(want, "nb"), old, old);
+			await whisper.transcribeWhisperCpp("nb", tone());
+			assert.ok(Date.now() - fs.statSync(path.join(want, "nb")).mtimeMs < 60_000, "touched again by the next request");
+			assert.equal(fs.existsSync(path.join(want, "en")), false, "only the language asked for");
+		} finally {
+			delete process.env.LH_WHISPER_URL_NB;
+			delete process.env.LH_WHISPER_WANT_DIR;
+			if (late) {
+				late.closeAllConnections();
+				await new Promise<void>((resolve) => late!.close(() => resolve()));
+			}
+			fs.rmSync(want, { recursive: true, force: true });
+		}
+	});
+
+	it("without LH_WHISPER_WANT_DIR nothing is written and an unreachable server still fails fast", async () => {
+		process.env.LH_WHISPER_URL_NB = "http://127.0.0.1:9";
+		delete process.env.LH_WHISPER_WANT_DIR;
+		const started = Date.now();
+		try {
+			const reply = await whisper.transcribeWhisperCpp("nb", tone());
+			assert.equal(reply.ok, false);
+			assert.ok(Date.now() - started < 10_000, "no waiting for a supervisor that is not there");
+		} finally {
+			delete process.env.LH_WHISPER_URL_NB;
+		}
+	});
+
 	it("URL mode surfaces an unreachable server as an error reply", async () => {
 		process.env.LH_WHISPER_URL_EN = "http://127.0.0.1:9"; // discard port: nothing listens
 		try {

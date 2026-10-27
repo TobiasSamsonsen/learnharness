@@ -44,7 +44,10 @@ Settings live in `~/.lh/config` (plain shell, edit then `lh restart`):
 
 ```sh
 PORT=3000
-STT_LANGS="nb en"      # whisper-server languages; each costs 300-700 MB, drop one to save RAM
+STT_LANGS="nb en"      # whisper-server languages available
+STT_EAGER=""           # the ones `lh start` starts at once (empty = the first of STT_LANGS); the others start on first use
+                       # (the server asks through a request file in the guest) and stop after WHISPER_IDLE_MIN idle minutes
+WHISPER_IDLE_MIN=10    # each running language costs 300-700 MB (the GPU build about 700), so only the one you use is kept up
 WHISPER_THREADS=4      # 4 was the fastest on a Pixel 7 Pro; 8 is not faster
 WHISPER_GPU=auto       # auto: the Vulkan GPU build if it works (checked at start), else CPU; on: require it; off: CPU
 WHISPER_ARGS="-nf -ac 640"  # whisper-server flags: no re-decode fallback, a short audio window

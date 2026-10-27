@@ -111,6 +111,16 @@ function installGpu(b: Box, behaviour: "ok" | "dies"): void {
 	stub(vk, "whisper-server", `echo "whisper-gpu $*" >> "$STUB_LOG"\n${behaviour === "dies" ? "exit 1" : "exec sleep 60"}`);
 }
 
+/** The detached stub writes its log line a moment after `lh` returns: poll for it. */
+function eventually(check: () => boolean, ms = 5_000): boolean {
+	const end = Date.now() + ms;
+	while (Date.now() < end) {
+		if (check()) return true;
+		Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+	}
+	return check();
+}
+
 const stubLog = (b: Box): string => (fs.existsSync(path.join(b.root, "stub.log")) ? fs.readFileSync(path.join(b.root, "stub.log"), "utf8") : "");
 /** `stop` insists the port is silent, and the stub curl answers health forever: swap it for one that refuses. */
 function silenceCurl(b: Box): void {
@@ -209,7 +219,10 @@ test("lh start: wires the guest, keeps the token off command lines and scripts, 
 		const status = b.run(["status"]).out;
 		assert.match(status, /server: running/);
 		assert.match(status, /whisper-nb: running/);
-		assert.match(status, /whisper-en: running/);
+		assert.match(status, /whisper-en: stopped \(starts when asked for\)/, "the second language waits for a request");
+		assert.match(status, /supervisor: running/);
+		assert.match(env, /export LH_WHISPER_WANT_DIR=\/root\/\.lh\/want/);
+		assert.ok(fs.existsSync(path.join(b.rootfs, "root/.lh/want")), "the request directory exists in the guest");
 	} finally {
 		// the health stub answers forever, so stop's "port is silent" check would fail; stop the processes by hand
 		fs.writeFileSync(path.join(b.root, "bin/curl"), "#!/bin/bash\nexit 22\n", { mode: 0o755 });
@@ -228,9 +241,11 @@ test("lh start: STT_LANGS limits which whisper servers run", opts, () => {
 		const env = fs.readFileSync(path.join(b.rootfs, "opt/lh/env"), "utf8");
 		assert.match(env, /LH_WHISPER_URL_NB/);
 		assert.ok(!env.includes("LH_WHISPER_URL_EN"));
+		assert.ok(!env.includes("LH_WHISPER_WANT_DIR"), "nothing starts on demand");
 		const status = b.run(["status"]).out;
 		assert.match(status, /whisper-nb: running/);
 		assert.match(status, /whisper-en: stopped/);
+		assert.doesNotMatch(status, /supervisor/);
 	} finally {
 		fs.writeFileSync(path.join(b.root, "bin/curl"), "#!/bin/bash\nexit 22\n", { mode: 0o755 });
 		b.run(["stop"]);
@@ -261,7 +276,7 @@ test("lh update: an up-to-date server is left alone, no restart", opts, () => {
 });
 
 test("lh start: the CPU whisper-server gets -nf -ac 640, and the guest is told the piece sizes", opts, () => {
-	const b = makeBox("PORT=3456\n");
+	const b = makeBox('PORT=3456\nSTT_EAGER="nb en"\n');
 	installFakes(b);
 	const started = b.run(["start"]);
 	assert.equal(started.code, 0, started.out + started.err);
@@ -281,7 +296,7 @@ test("lh start: the CPU whisper-server gets -nf -ac 640, and the guest is told t
 });
 
 test("lh start: a working GPU build is used (with the same flags), and status says so", opts, () => {
-	const b = makeBox("PORT=3456\n");
+	const b = makeBox('PORT=3456\nSTT_EAGER="nb en"\n');
 	installFakes(b);
 	installGpu(b, "ok");
 	const started = b.run(["start"]);
@@ -355,4 +370,71 @@ test("lh config: WHISPER_GPU=off never starts the GPU build; =on refuses to fall
 	const bad = makeBox("WHISPER_GPU=maybe\n").run(["pair"]);
 	assert.notEqual(bad.code, 0);
 	assert.match(bad.err, /WHISPER_GPU/);
+});
+
+test("lh config: STT_EAGER must be inside STT_LANGS, WHISPER_IDLE_MIN a positive number of minutes", opts, () => {
+	const outside = makeBox('STT_LANGS="nb"\nSTT_EAGER="en"\n').run(["pair"]);
+	assert.notEqual(outside.code, 0);
+	assert.match(outside.err, /STT_EAGER/);
+	for (const bad of ["0", "ten", "-5"]) {
+		const r = makeBox(`WHISPER_IDLE_MIN=${bad}\n`).run(["pair"]);
+		assert.notEqual(r.code, 0, bad);
+		assert.match(r.err, /WHISPER_IDLE_MIN/);
+	}
+	assert.equal(makeBox('STT_LANGS="nb en"\nSTT_EAGER="nb en"\nWHISPER_IDLE_MIN=3\n').run(["pair"]).code, 0);
+});
+
+test("lh supervisor: starts a language when its request file is fresh, stops it when idle, ignores a stale one and the eager one", opts, () => {
+	const b = makeBox("PORT=3456\n"); // nb eager, en on demand, 10 idle minutes
+	installFakes(b);
+	const want = path.join(b.rootfs, "root/.lh/want");
+	fs.mkdirSync(want, { recursive: true });
+	const age = (lang: string, minutes: number) => {
+		const t = new Date(Date.now() - minutes * 60_000);
+		fs.utimesSync(path.join(want, lang), t, t);
+	};
+	try {
+		// a stale request file (nobody asked in an hour): nothing starts
+		fs.writeFileSync(path.join(want, "en"), "old");
+		age("en", 60);
+		assert.equal(b.run(["_supervise", "--once"]).code, 0);
+		assert.match(b.run(["status"]).out, /whisper-en: stopped/);
+		// a fresh one: it starts (CPU build here), on its own port
+		fs.writeFileSync(path.join(want, "en"), String(Date.now()));
+		const started = b.run(["_supervise", "--once"]);
+		assert.equal(started.code, 0, started.out + started.err);
+		assert.match(started.out, /whisper-en asked for: starting/);
+		assert.ok(eventually(() => /whisper-cpu -m \S*en\.bin --host 127\.0\.0\.1 --port 8179/.test(stubLog(b))), "the CPU server for en was launched on its port");
+		assert.match(b.run(["status"]).out, /whisper-en: running/);
+		// still in use: a second pass leaves it alone (and does not start a second copy)
+		const again = b.run(["_supervise", "--once"]);
+		assert.doesNotMatch(again.out, /starting|stopping/);
+		assert.equal((stubLog(b).match(/--port 8179/g) ?? []).length, 1);
+		// idle past WHISPER_IDLE_MIN: it stops
+		age("en", 11);
+		const idle = b.run(["_supervise", "--once"]);
+		assert.match(idle.out, /whisper-en idle for 10 min: stopping/);
+		assert.match(b.run(["status"]).out, /whisper-en: stopped/);
+		// the eager language is never the supervisor's business, even with a request file for it
+		fs.writeFileSync(path.join(want, "nb"), "x");
+		age("nb", 90);
+		assert.doesNotMatch(b.run(["_supervise", "--once"]).out, /whisper-nb/);
+	} finally {
+		silenceCurl(b);
+		b.run(["stop"]);
+	}
+});
+
+test("lh stop: also stops the supervisor, so it cannot bring a server back", opts, () => {
+	const b = makeBox("PORT=3456\n");
+	installFakes(b);
+	const started = b.run(["start"]);
+	assert.equal(started.code, 0, started.out + started.err);
+	assert.match(b.run(["status"]).out, /supervisor: running/);
+	silenceCurl(b);
+	const stopped = b.run(["stop"]);
+	assert.equal(stopped.code, 0, stopped.err);
+	const status = b.run(["status"]).out;
+	assert.match(status, /supervisor: stopped/);
+	assert.match(status, /whisper-nb: stopped/);
 });
