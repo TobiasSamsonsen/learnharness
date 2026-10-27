@@ -4,11 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatSettings, ModelCatalogEntry, ModelCatalogResponse, ModelsSettings, UserSettings } from "@/src/core";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { prettyModel } from "@/components/usage-format";
-import { ModelMenuList, ThinkingMenuList } from "@/components/settings/model-menu";
+import { ModelMenuList } from "@/components/settings/model-menu";
 import { composeSlotModel } from "@/components/settings/agent-section";
 import { MenuShell } from "@/components/menu-shell";
 import { useBackLayer } from "./back-layers.ts";
 import { Hint } from "@/components/ui/hint";
+import { cn } from "@/lib/utils";
 import { notifySettingsSaved, onSettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { defaultOrderLevel, populateLevel, THINKING_LABEL } from "@/components/thinking-default";
 
@@ -86,7 +87,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	const { catalog, refresh } = useModelCatalog();
 	const [models, setModels] = useState<ModelsSettings | undefined>();
 	const [session, setSession] = useState<ChatSettings | undefined>();
-	const [open, setOpen] = useState<"model" | "thinking" | null>(null);
+	const [open, setOpen] = useState<"model" | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
 
@@ -311,68 +312,38 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// Stale-while-revalidate on manual open too (⌘K covers the keyboard
 	// path above): the cached list shows instantly, the fresh federation
 	// swaps in when it lands.
-	const openMenu = (kind: "model" | "thinking") => {
-		setOpen((o) => (o === kind ? null : kind));
+	const openMenu = () => {
+		setOpen((o) => (o === "model" ? null : "model"));
 		setError(null);
-		if (kind === "model") refresh();
+		refresh();
 	};
 
 	return (
 		<div ref={containerRef} className="relative flex items-center gap-1.5" data-testid="model-control">
 			<Hint
-				// Trimmed (owner, subtlety round 2026-09-25): "Model selector"
-				// — the long sentence was way too much. ⌘K opens this same
-				// menu (registry, override-aware).
-				label="Model selector"
+				// ONE control for the model AND its effort (owner, 2026-10-27: the two pills took three lines under
+				// the chat box on a phone). The effort is changed inside the menu. ⌘K opens it (registry,
+				// override-aware); ⇧⇥ still cycles the level from any focus.
+				label="Model and effort"
 				action="open-model-picker"
 				side="bottom"
 			>
 				<button
-				type="button"
-				data-testid="stats-model"
-				onClick={() => openMenu("model")}
-				aria-expanded={open === "model"}
-				// Chrome look (owner, fix wave round 3): matches the graph
-				// view's floating top-right buttons (import notes, gear,
-				// coverage) — blurred, fuller opacity, shadowed — so the
-				// graph no longer bleeds through these pills.
-				className="flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 whitespace-nowrap shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted"
-			>
-				<span className="text-card-foreground">{effectiveId ? prettyModel(effectiveId) : "—"}</span>
-				<span aria-hidden className="text-xs text-muted-foreground">▾</span>
-			</button>
-			</Hint>
-			<Hint
-				// "Thinking" + its real shortcut via the registry (owner interlude
-				// 2026-09-25): ⇧⇥ cycles the level, so "Thinking (⇧⇥)" —
-				// rebind-live like every Hint suffix.
-				label="Thinking"
-				action="cycle-thinking"
-				side="bottom"
-			>
-				<button
-				type="button"
-				data-testid="stats-thinking"
-				onClick={() => {
-					// No model picked → nothing to set a level FOR: the click
-					// is a no-op, never an empty menu.
-					if (entry === undefined) return;
-					openMenu("thinking");
-				}}
-				aria-expanded={open === "thinking"}
-				// Chrome look (owner, fix wave round 3): matches the graph
-				// view's floating top-right buttons (import notes, gear,
-				// coverage) — blurred, fuller opacity, shadowed — so the
-				// graph no longer bleeds through these pills.
-				className="flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted"
-			>
-				{/* Just the level — the button reads like the model button reads
-				   the model name (owner, stats-control round 1). */}
-				<span className="text-card-foreground">
-					{effectiveLevel === undefined ? "—" : (THINKING_LABEL[effectiveLevel] ?? effectiveLevel)}
-				</span>
-				<span aria-hidden className="text-xs text-muted-foreground">▾</span>
-			</button>
+					type="button"
+					data-testid="stats-model"
+					onClick={openMenu}
+					aria-expanded={open === "model"}
+					// Chrome look (owner, fix wave round 3): matches the graph view's floating top-right buttons
+					// (import notes, gear, coverage) — blurred, fuller opacity, shadowed.
+					className="lh-touch flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 whitespace-nowrap shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted"
+				>
+					<span className="text-card-foreground">{effectiveId ? prettyModel(effectiveId) : "—"}</span>
+					<span aria-hidden className="text-muted-foreground">·</span>
+					<span className="text-muted-foreground">
+						{effectiveLevel === undefined ? "—" : (THINKING_LABEL[effectiveLevel] ?? effectiveLevel)}
+					</span>
+					<span aria-hidden className="text-xs text-muted-foreground">▾</span>
+				</button>
 			</Hint>
 
 			{/* The shared dropdown body (extracted 2026-09-20): the agent
@@ -386,6 +357,28 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 					menuClass="flex w-[22rem] flex-col rounded-xl border bg-card p-2 text-xs shadow-xl"
 				>
 					{error && <div className="mb-1.5 text-destructive">{error}</div>}
+					{catalog && levels.length > 0 && (
+						<div className="mb-2 flex flex-wrap items-center gap-1.5 border-b pb-2" data-testid="effort-row">
+							<span className="mr-1 text-muted-foreground">Effort</span>
+							{levels.map((level) => (
+								<button
+									key={level}
+									type="button"
+									data-testid={`thinking-option-${level}`}
+									aria-pressed={level === effectiveLevel}
+									onClick={() => apply(effectiveProvider ?? "", effectiveId ?? "", level as ThinkingLevel)}
+									className={cn(
+										"lh-touch rounded-full border px-2.5 py-1 transition-colors",
+										level === effectiveLevel
+											? "border-primary bg-accent text-card-foreground"
+											: "border-transparent text-muted-foreground hover:bg-muted hover:text-card-foreground",
+									)}
+								>
+									{THINKING_LABEL[level] ?? level}
+								</button>
+							))}
+						</div>
+					)}
 					<ModelMenuList
 						models={catalog?.models}
 						effectiveId={effectiveId}
@@ -402,23 +395,6 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 				</MenuShell>
 			)}
 
-			{open === "thinking" && (
-				<MenuShell
-					anchorRef={containerRef}
-					testid="thinking-menu"
-					preferredSide="up"
-					menuClass="flex w-44 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl"
-				>
-					<ThinkingMenuList
-						levels={catalog ? levels : []}
-						effectiveLevel={effectiveLevel}
-						onPick={(level) => apply(effectiveProvider ?? "", effectiveId ?? "", level as ThinkingLevel)}
-						empty={catalog ? (effectiveId ? `${prettyModel(effectiveId)} has no thinking levels.` : "Pick a model first.") : "Loading…"}
-						footer="Levels this model actually supports"
-					/>
-					{error && <div className="mt-1 text-destructive">{error}</div>}
-				</MenuShell>
-			)}
 		</div>
 	);
 }

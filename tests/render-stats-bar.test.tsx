@@ -38,12 +38,10 @@ describe("stats bar", () => {
 		assert.ok(!html.includes('data-testid="stats-summary"'), "no summary button pre-chat");
 		assert.ok(!html.includes('data-testid="stats-context"'), "no context figure pre-chat");
 		assert.ok(!html.includes('data-testid="stats-cost"'), "no cost figure pre-chat");
-		// no turns, no settings, catalog not loaded → both control labels
-		// "—" (the thinking button shows just the level, like the model
-		// button shows just the model name — no prefix, no dot separator)
-		assert.match(html, /data-testid="stats-model"[^>]*>\s*<span[^>]*>—<\/span>/);
-		assert.match(html, /data-testid="stats-thinking"[^>]*>\s*<span[^>]*>—<\/span>/);
-		assert.ok(!html.includes("aria-hidden>·"), "no dot between the controls");
+		// no turns, no settings, catalog not loaded → the one control reads "— · —": the model and its
+		// effort share a single pill (owner, 2026-10-27: two pills took three lines on a phone)
+		assert.match(html, /data-testid="stats-model"[^>]*>\s*<span[^>]*>—<\/span><span[^>]*>·<\/span><span[^>]*>—<\/span>/);
+		assert.ok(!html.includes('data-testid="stats-thinking"'), "no separate effort button");
 		// the control reads as a button: pill border + dropdown chevron
 		assert.match(html, /data-testid="stats-model"[^>]*rounded-full[^>]*>/);
 		assert.match(html, /▾/);

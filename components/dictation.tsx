@@ -961,7 +961,7 @@ export function DictationBar({ dictation, compact = false }: { dictation: Dictat
 						compact
 							? error
 								? "flex h-7 min-w-0 max-w-72 items-center gap-1.5 rounded-md px-2 text-xs text-destructive transition-colors hover:bg-muted"
-								: "flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+								: "lh-touch flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 							: // Same blurring as the floating chrome (owner, fix wave round 3),
 								// but lower opacity — the mic stays quieter than the model pills.
 								"flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-border/50 bg-card/50 text-xs text-muted-foreground/70 shadow-lg backdrop-blur transition-colors hover:border-border hover:text-muted-foreground"
@@ -1002,7 +1002,7 @@ export function DictationBar({ dictation, compact = false }: { dictation: Dictat
 					disabled={phase === "stopping"}
 					aria-label="Stop dictation"
 				data-testid="dictation-toggle"
-				className="flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-destructive/10 px-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20"
+				className="lh-touch flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-destructive/10 px-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20"
 			>
 				{phase === "stopping" ? (
 					<Loader2Icon className="size-3.5 animate-spin" />

@@ -205,6 +205,16 @@ body {
 	font-family: var(--font-ui);
 }
 
+/* Touch targets (owner goal 2026-10-27: usable on a phone): the controls that were 19-32 px tall get a 40 px floor on
+   touch screens only (Android guideline 48, Apple 44; the row they sit in grows, the look does not). Unlayered, so it
+   beats the utilities' own sizes. Add the class to a control; mouse and trackpad layouts are untouched. */
+@media (pointer: coarse) {
+	.lh-touch {
+		min-height: 2.5rem;
+		min-width: 2.5rem;
+	}
+}
+
 /* A long-press on a control must not select its label (Android's selection handles) or open a callout: on touch
    screens a press-and-hold is how the tooltip chip is shown (components/ui/hint.tsx). */
 @media (pointer: coarse) {
