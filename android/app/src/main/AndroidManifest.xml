@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+	<uses-permission android:name="android.permission.INTERNET" />
+	<uses-permission android:name="android.permission.RECORD_AUDIO" />
+	<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+	<!-- Termux's RUN_COMMAND API; also needs allow-external-apps=true in ~/.termux/termux.properties -->
+	<uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+
+	<uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+	<queries>
+		<package android:name="com.termux" />
+	</queries>
+
+	<application
+		android:allowBackup="false"
+		android:icon="@mipmap/ic_launcher"
+		android:label="@string/app_name"
+		android:networkSecurityConfig="@xml/network_security_config"
+		android:supportsRtl="true"
+		android:theme="@style/Theme.LearnHarness">
+
+		<activity
+			android:name=".MainActivity"
+			android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density"
+			android:exported="true"
+			android:launchMode="singleTask"
+			android:windowSoftInputMode="adjustResize">
+			<intent-filter>
+				<action android:name="android.intent.action.MAIN" />
+				<category android:name="android.intent.category.LAUNCHER" />
+			</intent-filter>
+		</activity>
+
+		<!-- Termux hands the result of a RUN_COMMAND back through the PendingIntent we gave it -->
+		<receiver
+			android:name=".TermuxResultReceiver"
+			android:exported="false" />
+	</application>
+</manifest>
