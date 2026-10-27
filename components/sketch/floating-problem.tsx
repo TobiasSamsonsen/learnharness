@@ -142,7 +142,7 @@ export function FloatingProblem({
 
 	if (box.collapsed) {
 		return (
-			<div ref={rootRef} className="absolute z-10" style={{ left: box.x, top: box.y }}>
+			<div ref={rootRef} data-ink-hole className="absolute z-10" style={{ left: box.x, top: box.y }}>
 				<button
 					type="button"
 					data-testid="sketch-problem-pill"
@@ -168,6 +168,7 @@ export function FloatingProblem({
 	return (
 		<div
 			ref={rootRef}
+			data-ink-hole
 			data-testid="sketch-problem-box"
 			className="absolute z-10 w-[min(34rem,calc(100%-1rem))] rounded-xl border bg-card shadow-lg"
 			style={{ left: box.x, top: box.y }}

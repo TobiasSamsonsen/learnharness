@@ -18,6 +18,7 @@ class InkWireTest {
 		assertEquals(InkOp.Tool(eraser = true), InkWire.parse("tool eraser"))
 		assertEquals(InkOp.Tool(eraser = false), InkWire.parse(" tool pen "))
 		assertEquals(InkOp.Scroll(312.5f), InkWire.parse("scroll 312.5"))
+		assertEquals(InkOp.Ack, InkWire.parse("ack"))
 		assertEquals(InkOp.Close, InkWire.parse("close"))
 	}
 
@@ -36,7 +37,7 @@ class InkWireTest {
 		val bad = listOf(
 			"", "nonsense", "open", "open bad!key 0 0 1 1", "open k 0 0 1", "open k a b c d",
 			"open k NaN 0 1 1", "open k 0 0 Infinity 1", "holes 1,2,3", "holes x,y,z,w", "holes NaN,0,1,1",
-			"tool brush", "tool", "close now", "scroll", "scroll NaN", "scroll up",
+			"tool brush", "tool", "close now", "ack now", "scroll", "scroll NaN", "scroll up",
 			"strokes", "strokes nope", "strokes {}", "strokes [{\"size\":4,\"points\":[1,2]}]",
 			"strokes [{\"size\":0,\"points\":[1,2,3]}]", "strokes [{\"size\":4}]", "strokes [{\"size\":4,\"points\":[1,\"x\",3]}]",
 			"undo", "export",

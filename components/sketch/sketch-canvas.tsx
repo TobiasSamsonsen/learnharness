@@ -38,7 +38,7 @@ export function sketchPageHeight(viewHeight: number, lowestY: number): number {
 	return Math.min(SKETCH_PAGE_MAX_HEIGHT, Math.max(viewHeight, Math.ceil(lowestY + viewHeight * 0.6)));
 }
 
-function lowestInk(strokes: readonly SketchStroke[]): number {
+export function lowestInk(strokes: readonly SketchStroke[]): number {
 	let low = 0;
 	for (const s of strokes) for (let k = 1; k < s.points.length; k += 3) low = Math.max(low, s.points[k]!);
 	return low;

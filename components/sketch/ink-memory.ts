@@ -126,11 +126,11 @@ export function useKept(key: string): KeptPage | null {
 
 /** The whole page as one payload: the kept strokes, then the unsent ink,
  *  bracketed from where the new ink starts. Throws SketchPayloadError. */
-export function pagePayload(page: KeptPage | null, unsent: readonly SketchStroke[]): SketchPayload {
+export function pagePayload(page: KeptPage | null, unsent: readonly SketchStroke[], producer: SketchPayload["producer"] = "web-canvas"): SketchPayload {
 	const base = page?.strokes ?? [];
 	return parseSketchPayload({
 		id: newSketchId(),
-		producer: "web-canvas",
+		producer,
 		strokes: [...base, ...unsent],
 		newFrom: base.length > 0 ? base.length : undefined,
 	});

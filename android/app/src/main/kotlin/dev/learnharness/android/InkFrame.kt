@@ -46,6 +46,7 @@ class InkFrame(context: Context, private val webView: WebView, private val close
 				is InkOp.Strokes -> layer.finished.setStrokes(op.strokes)
 				is InkOp.Kept -> layer.finished.setKept(op.strokes)
 				is InkOp.Scroll -> layer.setScroll(op.y)
+				is InkOp.Ack -> layer.finished.ackPending()
 			}
 		} catch (e: RuntimeException) {
 			close()
@@ -58,8 +59,9 @@ class InkFrame(context: Context, private val webView: WebView, private val close
 	private fun open(rectCss: InkRect) {
 		val rect = px(rectCss)
 		if (rect.w < 1f || rect.h < 1f) return
+		// a re-open only moves the layer (the keyboard, a rotation): the router keeps what it has learned
+		if (surface == null) router = InkRouter()
 		surface = rect
-		router = InkRouter()
 		layer.layoutParams = LayoutParams(rect.w.toInt(), rect.h.toInt()).apply {
 			leftMargin = rect.x.toInt()
 			topMargin = rect.y.toInt()

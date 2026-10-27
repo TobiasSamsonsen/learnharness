@@ -203,6 +203,16 @@ body {
 	font-family: var(--font-ui);
 }
 
+/* The sketch view in the Android shell with native ink (components/sketch/use-native-ink.ts): the shell draws UNDER
+   the transparent WebView, so while it is open the page behind the sketch view must not paint over it. */
+html.lh-native-ink,
+html.lh-native-ink body {
+	background: transparent !important;
+}
+html.lh-native-ink body > *:not([data-testid="sketch-view"]) {
+	visibility: hidden;
+}
+
 /* Teaching prose (the markdown renderer's container gets .lh-prose):
    Source Sans 3 with the size/leading tokens; emphasis color bound to
    the settings-ready tokens. */

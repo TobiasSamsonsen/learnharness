@@ -66,9 +66,16 @@ class FinishedStrokesView(context: Context) : View(context) {
 		invalidate()
 	}
 
-	/** A stroke just finished here, drawn until the web's next `strokes` push replaces it. */
+	/** A stroke just finished here, drawn until the web either acknowledges it or pushes a full set. */
 	fun addPending(stroke: InkWire.Stroke) {
 		toInk(stroke)?.let { pending = pending + it }
+		invalidate()
+	}
+
+	/** The web has the pending strokes in its store: they are part of the page now. */
+	fun ackPending() {
+		strokes = strokes + pending
+		pending = emptyList()
 		invalidate()
 	}
 

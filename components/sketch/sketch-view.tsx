@@ -6,7 +6,8 @@ import { EraserIcon, MicIcon, PenLineIcon, Redo2Icon, Trash2Icon, Undo2Icon, XIc
 import { Button } from "@/components/ui/button";
 import { isDictationActive } from "@/components/dictation";
 import { FloatingProblem } from "@/components/sketch/floating-problem";
-import { SketchCanvas, type SketchTool } from "@/components/sketch/sketch-canvas";
+import { lowestInk, SketchCanvas, sketchPageHeight, type SketchTool } from "@/components/sketch/sketch-canvas";
+import { useNativeInk } from "@/components/sketch/use-native-ink";
 import { applyOp, pagePayload, readInk, revertOp, sendPage, useInk, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
 import { cn } from "@/lib/utils";
 import { SketchPayloadError, type SketchPayload } from "@/src/core";
@@ -101,6 +102,7 @@ export function SketchView({
 	const kept = useKept(inkKey);
 	const [tool, setTool] = useState<SketchTool>("pen");
 	const [error, setError] = useState<string | null>(null);
+	const canvasRef = useRef<HTMLDivElement | null>(null);
 	const setInk = (next: InkState) => {
 		writeInk(inkKey, next);
 		setError(null);
@@ -133,12 +135,14 @@ export function SketchView({
 		if (removed.length === 0) return;
 		record(state, applyOp(state.strokes, { kind: "erase", removed }), { kind: "erase", removed });
 	};
+	// The Android shell's native ink layer, when the setting is on (owner, M10): it draws under the transparent page
+	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: ink.strokes, kept: kept?.strokes, tool, onStroke: addStroke, onErase: erase });
 	const submit = () => {
 		const unsent = readInk(inkKey).strokes;
 		if (disabled || blocked || keptStatus === "loading" || unsent.length === 0) return;
 		let payload: SketchPayload;
 		try {
-			payload = pagePayload(kept, unsent);
+			payload = pagePayload(kept, unsent, native.active ? "android-ink" : "web-canvas");
 		} catch (err) {
 			if (err instanceof SketchPayloadError) {
 				setError(err.message);
@@ -193,17 +197,40 @@ export function SketchView({
 			data-testid="sketch-view"
 			role="dialog"
 			aria-label="Sketch"
-			className="lh-no-drag fixed inset-0 z-50 flex flex-col bg-background pb-[var(--lh-safe-bottom)] pl-[var(--lh-safe-left)] pr-[var(--lh-safe-right)] pt-[var(--lh-safe-top)]"
+			className={cn(
+				"lh-no-drag fixed inset-0 z-50 flex flex-col pb-[var(--lh-safe-bottom)] pl-[var(--lh-safe-left)] pr-[var(--lh-safe-right)] pt-[var(--lh-safe-top)]",
+				// native ink draws UNDER the page: the page must let it through (the safe-area strips below keep the edges opaque)
+				native.active ? "bg-transparent" : "bg-background",
+			)}
 		>
+			{native.active && (
+				<>
+					<div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[var(--lh-safe-top)] bg-background" />
+					<div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-[var(--lh-safe-left)] bg-background" />
+					<div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-[var(--lh-safe-right)] bg-background" />
+					<div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[var(--lh-safe-bottom)] bg-background" />
+				</>
+			)}
 			{/* The whole page is canvas; the problem floats above it (owner,
 			    2026-10-26) — draggable, collapsible to a pill. */}
-			<div className="relative min-h-0 flex-1 bg-white">
-				<SketchCanvas strokes={ink.strokes} kept={kept?.strokes} tool={tool} onStroke={addStroke} onErase={erase} />
+			<div ref={canvasRef} className={cn("relative min-h-0 flex-1", !native.active && "bg-white")}>
+				{native.active ? (
+					<div
+						ref={native.scrollerRef}
+						data-testid="sketch-native-scroller"
+						onScroll={native.onScroll}
+						className="absolute inset-0 overflow-y-auto overscroll-contain"
+					>
+						<div style={{ height: sketchPageHeight(native.viewHeight, Math.max(lowestInk(kept?.strokes ?? []), lowestInk(ink.strokes))) }} />
+					</div>
+				) : (
+					<SketchCanvas strokes={ink.strokes} kept={kept?.strokes} tool={tool} onStroke={addStroke} onErase={erase} />
+				)}
 				<FloatingProblem label={label} statement={statement}>
 					{choices}
 				</FloatingProblem>
 			</div>
-			<div className="flex items-center gap-1 border-t px-3 py-2">
+			<div className="flex items-center gap-1 border-t bg-background px-3 py-2">
 				<Button type="button" variant="ghost" size="icon" data-testid="sketch-close" aria-label="Close sketch" onClick={onClose}>
 					<XIcon className="size-4" />
 				</Button>
@@ -239,7 +266,9 @@ export function SketchView({
 				<SketchMic />
 				<span aria-hidden className="ml-2 min-w-0 flex-1 truncate text-xs text-muted-foreground">
 					{error ??
-						(disabled
+						(native.fallback
+							? `native ink unavailable (${native.fallback}) — using the web canvas`
+							: disabled
 							? "compacting session…"
 							: keptStatus === "loading"
 								? "loading your earlier page…"

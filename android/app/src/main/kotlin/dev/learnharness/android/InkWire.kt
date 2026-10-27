@@ -8,7 +8,7 @@ import org.json.JSONException
  * The native-ink bridge, pure parts (Android plan M10, docs/android/m10-plan.md). The web store owns the strokes
  * (owner decision B, 2026-10-27): the shell draws, reports each finished stroke and eraser gesture, and the web pushes
  * the finished set back. Lines the web sends (`src/core/ink-bridge.ts` writes them): `open`, `holes`, `tool`,
- * `strokes`, `kept`, `scroll`, `close`. Lines the shell sends back: `stroke`, `erase`, `pan`, `penseen`, `fallback`.
+ * `strokes`, `kept`, `scroll`, `ack`, `close`. Lines the shell sends back: `stroke`, `erase`, `pan`, `penseen`, `fallback`.
  * No Android types except org.json, so `./gradlew test` covers it.
  */
 
@@ -28,6 +28,8 @@ sealed interface InkOp {
 	data class Kept(val strokes: List<InkWire.Stroke>) : InkOp
 	/** The canvas' scroll offset in CSS px. */
 	data class Scroll(val y: Float) : InkOp
+	/** The stroke the shell just reported is in the web's store: keep it as drawn (no full push needed). */
+	data object Ack : InkOp
 	data object Close : InkOp
 }
 
@@ -55,6 +57,7 @@ object InkWire {
 			"strokes" -> InkOp.Strokes(strokes(rest) ?: return null)
 			"kept" -> InkOp.Kept(strokes(rest) ?: return null)
 			"scroll" -> InkOp.Scroll(finite(rest) ?: return null)
+			"ack" -> if (rest.isEmpty()) InkOp.Ack else null
 			"close" -> if (rest.isEmpty()) InkOp.Close else null
 			else -> null
 		}
