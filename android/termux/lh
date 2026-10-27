@@ -459,7 +459,8 @@ wait_whisper() { # name port
 	pid="$(running_pid "$1")" || return 1
 	for _ in $(seq 1 120); do
 		alive "$pid" || return 1
-		if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$2/"; then return 0; fi
+		# answered: still the same live process? (a server that answers and dies is no server)
+		if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$2/"; then alive "$pid"; return; fi
 		sleep 0.5
 	done
 	return 1

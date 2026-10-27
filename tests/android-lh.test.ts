@@ -53,7 +53,8 @@ function makeBox(config?: string): Box {
 	stub(
 		bin,
 		"curl",
-		`out=""; url=""
+		`[ -n "$LH_TEST_CURL_DELAY" ] && sleep "$LH_TEST_CURL_DELAY"
+out=""; url=""
 while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2 ;; -*) shift ;; *) url="$1"; shift ;; esac; done
 case "$url" in
 	*/api/health) echo '{"ok":true}' ;;
@@ -316,7 +317,8 @@ test("lh start: a GPU build that dies at start-up falls back to the CPU", opts, 
 	const b = makeBox("PORT=3456\n");
 	installFakes(b);
 	installGpu(b, "dies");
-	const started = b.run(["start"]);
+	// a slow health answer: the dying stub has exited before it arrives (no race on a fast runner)
+	const started = b.run(["start"], { LH_TEST_CURL_DELAY: "1" });
 	assert.equal(started.code, 0, started.out + started.err);
 	try {
 		assert.match(started.out, /GPU backend failed; using the CPU/);
@@ -361,7 +363,7 @@ test("lh config: WHISPER_GPU=off never starts the GPU build; =on refuses to fall
 	const on = makeBox("PORT=3456\nWHISPER_GPU=on\n");
 	installFakes(on);
 	installGpu(on, "dies");
-	const refused = on.run(["start"]);
+	const refused = on.run(["start"], { LH_TEST_CURL_DELAY: "1" });
 	assert.notEqual(refused.code, 0);
 	assert.match(refused.err, /WHISPER_GPU=on/);
 	silenceCurl(on);
