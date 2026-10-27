@@ -2,18 +2,18 @@
 
 Everything that needs hands, a pen, an unlocked screen or a camera, collected in one place. Everything else is done by Claude over `adb`. Tick a line when it is done and tell Claude what you saw; Claude records the result in [STATUS.md](STATUS.md).
 
-State left on the phone (2026-10-27): Wireless debugging paired and on; **stay awake while charging** is on (`stay_on_while_plugged_in` was 0, so turn it off again in Developer options when you are done); the screen timeout is the original 30 minutes; the debug app `dev.learnharness.android` is installed with its Termux permission granted; the phone is locked (Claude does not unlock it).
+State left on the phone (2026-10-27): Wireless debugging paired and on; **stay awake while charging** is on (`stay_on_while_plugged_in` was 0, so turn it off again in Developer options when you are done); the screen timeout is the original 30 minutes; the debug app `dev.learnharness.android` is installed with its Termux permission granted and a chat open; the phone is unlocked and awake while it charges (Claude never unlocks it).
 
 ## M8 (Android shell)
 
 | | Where | What to do | What to tell Claude |
 |---|---|---|---|
-| [ ] | any time, phone unlocked | **Screen-off turn.** Open the learnharness app, send a message (a long answer is better: "Write 150 words about prime numbers"), press the power button right away, wait a minute, unlock. | Was the reply there, complete, with no "reconnecting" state? If not, Claude looks at the wake lock and the SSE reconnect. |
-| [ ] | pen | **Sketch by pen in the shell.** Start a practice session, tap "Open in sketch", write a line of maths with the pen (and a finger on the page to see that it pans, not draws), submit. | Did the ink follow the pen without lag or stray finger marks? Did Claude's reply start with "Claude read: …"? |
-| [ ] | any time | **A demo.** Ask for a lesson on something visual (e.g. "show me an interactive demo of a sine wave"). | Did the demo card render and respond to touch? (Its iframe cannot reach the shell's save bridge, by design.) |
+| [ ] | any time | **Screen-off turn (the real one).** Claude tested the closest thing it can do while the phone stays unlocked: sent a message, put the app in the background for 80 s, came back: the tutor's question was there, complete. A real screen-off needs you: send a message, press the power button right away, wait a minute, unlock. | Was the reply there, complete, with no "reconnecting" state? If not, Claude looks at the wake lock and the SSE reconnect. |
+| [ ] | pen | **Sketch by pen in the shell.** The path itself is verified (Claude drew with injected touch, picked an option, submitted: the tutor answered with an "I read:" card, flagged its doubts, and offered "That's not what I wrote"). What needs a pen: write a line of maths with the pen, then touch the page with a finger (it should pan, not draw). | Did the ink follow the pen without lag or stray finger marks? Did the "I read:" card get your handwriting right? |
+| [ ] | any time | **A demo.** Claude tried ("show me an interactive demo of a sine wave") but the tutor opens with probe questions, so no demo had appeared after two rounds. Answer the probes in a session and wait for a demo, or ask in teach mode. | Did the demo card render and respond to touch? (Its iframe cannot reach the shell's save bridge, by design; Claude checked that.) |
 | [ ] | any time | **Back button** in a real lesson: open the drawer, open Settings, open a dropdown inside it; press back after each. | Each press should close only the top layer; one more press with nothing open leaves the app. |
 | [ ] | Termux | After the merge to `main` and the CI run: `lh update`, then reopen the app. | Did the "Import notes…" pill sit below the status bar (the shell's top inset)? |
-| [ ] | sidebar | Delete the test chat "Say hello in one word." (and the paragraph-about-primes chat if it exists). | — |
+| [ ] | sidebar | Delete the four test chats Claude made: "Say hello in one word.", "Write a paragraph of about 120 words on prime numbers.", "Write 150 words on the Fibonacci sequence." and "gShow me an interactive demo…". | — |
 
 ## M9 (ink decision gate)
 
