@@ -34,6 +34,8 @@ import { wavFromPcm } from "./wav.ts";
 const GGML_DIR = path.join(PATHS.models, "stt", "ggml");
 const IDLE_MS = 10 * 60_000;
 const READY_TIMEOUT_MS = 180_000;
+/** How long a request waits for the supervisor to bring an on-demand language up (model load + GPU self-test). */
+const WANT_WAIT_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 5 * 60_000;
 const SILENCE_PEAK = 0.01; // same floor as the transformers worker
 
@@ -142,7 +144,7 @@ function threadArgs(): string[] {
  *  one (started, and its model downloaded, on first use). */
 function baseUrl(language: LessonLanguage): Promise<string> {
 	const external = externalUrl(language);
-	if (external) return Promise.resolve(external);
+	if (external) return externalBase(language, external);
 	const s = shared();
 	const existing = s.slots.get(language);
 	if (existing) return existing.base;
@@ -207,9 +209,35 @@ function startServer(language: LessonLanguage): Promise<string> {
 	return base;
 }
 
+/** LH_WHISPER_WANT_DIR (Android plan M11 Q5): a directory the Termux supervisor watches (the server runs in
+ *  proot and cannot start Termux processes). Touching `<dir>/<language>` asks it to start that language's
+ *  whisper-server, and every request touches it again so the supervisor can stop a server nobody uses. */
+function touchWant(language: LessonLanguage): boolean {
+	const dir = process.env.LH_WHISPER_WANT_DIR?.trim();
+	if (!dir) return false;
+	try {
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, language), String(Date.now()));
+	} catch {
+		// the want file is a hint; a missing one only means no on-demand start
+	}
+	return true;
+}
+
+/** An external server's URL, after waiting for an on-demand start when a supervisor is configured. */
+async function externalBase(language: LessonLanguage, url: string): Promise<string> {
+	if (!touchWant(language)) return url;
+	try {
+		await fetch(url, { signal: AbortSignal.timeout(1_000) });
+	} catch {
+		await waitReady(url, WANT_WAIT_MS); // not up yet: the supervisor is starting it
+	}
+	return url;
+}
+
 /** Any HTTP answer means the model is loaded: whisper-server listens only after. */
-async function waitReady(url: string): Promise<void> {
-	const deadline = Date.now() + READY_TIMEOUT_MS;
+async function waitReady(url: string, timeoutMs = READY_TIMEOUT_MS): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
 	for (;;) {
 		try {
 			await fetch(url, { signal: AbortSignal.timeout(2_000) });

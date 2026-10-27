@@ -15,6 +15,19 @@ Status: **decisions made by the owner 2026-10-27 (see "Owner decisions"); implem
 
 Applied as the plan says (small names; shout if you disagree): the server knob is `LH_CLAUDE_IDLE_MIN` (minutes, default 40, bad values fall back); in `~/.lh/config`, `STT_LANGS` stays "the languages available", the new `STT_EAGER` lists those started with `lh start` (default: the first of `STT_LANGS`), `WHISPER_IDLE_MIN=10`; the request files live in the guest at `/root/.lh/want/<lang>` (Termux reads them through the rootfs path).
 
+## Implemented on `feat/m11-prep` (2026-10-27)
+
+| Decision | What was built | Tests |
+|---|---|---|
+| Q2 elide concluded problems | `elidedProblems()` + the renderer in `src/agent/claude-code.ts`: a problem concluded (non-refused `conclude`) before a later pose is replaced by one `<omitted>` note in the respawn replay; the active problem stays in full; live sessions and the fed fingerprints are untouched | `tests/claude-code-replay-elision.test.ts` (5) |
+| Q3 idle knob | `LH_CLAUDE_IDLE_MIN` (`parseIdleMs`, default 40) | `tests/claude-code.test.ts` |
+| Q4 cache | `listChats` summary cache (above) | `tests/chat-list-cache.test.ts` (5) |
+| Q5 on-demand whisper | server: `LH_WHISPER_WANT_DIR`, a request touches `<dir>/<lang>` and waits up to 60 s for the language to come up (`src/server/stt/whispercpp.ts`); `lh` 0.4.0: `STT_EAGER` (default the first of `STT_LANGS`), `WHISPER_IDLE_MIN` (10), a supervisor loop (`lh _supervise`, `--once` for tests) started by `lh start` and stopped by `lh stop`, `lh status` shows `stopped (starts when asked for)`; README config block updated | `tests/stt-whispercpp.test.ts` (+2), `tests/android-lh.test.ts` (+3, 3 adjusted for the new default) |
+
+Behaviour change to know about: with an existing config of `STT_LANGS="nb en"` and no `STT_EAGER`, `lh start` now starts only `nb`; English dictation starts its server on the first request (a few seconds' wait, then normal). Set `STT_EAGER="nb en"` to get the old behaviour. `shellcheck` could not be run on the PC (the sandbox refused to run a downloaded binary); the CI workflow's first step runs it on `android/termux/lh`.
+
+Not built: Q1 (nothing to build, respawn stays), Q6 (runbook only), the phone timings (need the phone), the `pendingProblem` question.
+
 ## Findings
 
 ### 1. Why the first submission after a `problem` pose respawns `claude` (verified in the code)
