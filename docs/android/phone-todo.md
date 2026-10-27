@@ -25,3 +25,11 @@ See [m9-plan.md](m9-plan.md) for what each test is for; the numbers go into its 
 | [ ] | **Latency, camera test.** Film the pen tip and the screen together with the camera in 240 fps slow motion; draw fast circles and a long diagonal in (a) Chrome on the app's sketch canvas, (b) the shell's sketch canvas, (c) the Ink spike screen. Three takes each. | The video files (or the frame counts between pen tip and ink tip). `node scripts/ink-latency.mjs frames --fps 240 <counts>` turns counts into milliseconds (Claude can run it). |
 | [ ] | **Dense notation.** Write the sheet in the m9 plan (subscripts, a 2×2 matrix, an integral with limits, a fraction inside a root) on the web canvas and on the Ink spike screen. | Which one looked better, and whether the web canvas lost or smeared anything. A screenshot of each. |
 | [ ] | **Decision.** Read the numbers Claude put in the m9 table. | Build the native overlay (M10) or keep the web canvas? |
+
+## Decisions Claude prepared for you (no phone needed, but only you can decide)
+
+| | Where | What to decide |
+|---|---|---|
+| [ ] | [m9-plan.md](m9-plan.md) "Decision rule" | Accept or change the proposed rule for building M10 (about 30 ms or "noticeably worse notation"), once the camera numbers are in. |
+| [ ] | [m10-plan.md](m10-plan.md) "Questions for the owner" | Seven questions (bridge shape, opt-in switch, where the pixels are made, tall pages, pen buttons, prediction, fallback). Only needed if M9 says to build the overlay. |
+| [ ] | [m11-plan.md](m11-plan.md), once it exists | The M11 questions (what to speed up first on the phone). |
