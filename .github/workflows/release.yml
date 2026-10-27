@@ -21,6 +21,9 @@ env:
 jobs:
   quality:
     name: Release gates
+    # Upstream only: forks have no signing secrets, and every later job needs
+    # this one, so on a fork the whole workflow is skipped (owner, 2026-10-27).
+    if: github.repository == 'amosblomqvist/learnharness'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
