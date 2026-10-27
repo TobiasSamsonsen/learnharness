@@ -32,4 +32,4 @@ See [m9-plan.md](m9-plan.md) for what each test is for; the numbers go into its 
 |---|---|---|
 | [ ] | [m9-plan.md](m9-plan.md) "Decision rule" | Accept or change the proposed rule for building M10 (about 30 ms or "noticeably worse notation"), once the camera numbers are in. |
 | [ ] | [m10-plan.md](m10-plan.md) "Questions for the owner" | Seven questions (bridge shape, opt-in switch, where the pixels are made, tall pages, pen buttons, prediction, fallback). Only needed if M9 says to build the overlay. |
-| [ ] | [m11-plan.md](m11-plan.md), once it exists | The M11 questions (what to speed up first on the phone). |
+| [ ] | [m11-plan.md](m11-plan.md) "Questions for the owner" | Six questions (how to handle the respawn after a pose, replay size, idle/cap policy, `listChats` cache vs index, whisper RAM, wake lock). Q5 is actionable today on the phone: swap was full (5 MB free) with both GPU whisper servers running; setting `STT_LANGS="nb"` in `~/.lh/config` and `lh restart` frees ~600 MB. |

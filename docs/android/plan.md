@@ -37,7 +37,7 @@ The owner wants to use this fork on an Android tablet: write math derivations an
 - Binary lookup: L69-110 (`LH_CLAUDE_CODE_BIN`).
 - Spawn: L616-627. Arguments (L961-997): `-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --no-session-persistence --tools "" --setting-sources "" --strict-mcp-config --disable-slash-commands --system-prompt-file … --model … [--effort] [--mcp-config … --allowedTools mcp__lh]`.
 - Tools reach `claude` through a stdio MCP stub (`process.execPath` running the stub script, L542-588). The stub talks to a token-authenticated TCP bridge on `127.0.0.1:0` (L827). Calls are "held": the pi agent loop runs the real tool and answers the held call.
-- Live sessions: at most 6, 40 minutes idle (L512-537, L595-597). Otherwise a fresh process replays the whole transcript as one user message (`renderClaudeCodeRequest`, L237-280).
+- Live sessions: at most 6, 40 minutes idle (L513-538, L596-607). Otherwise a fresh process replays the whole transcript as one user message (`renderClaudeCodeRequest`, L237-280).
 - **Images are already supported** on this path: `ClaudeCodeInputBlock` L142-144, `userContent` L682-692, `mcpResult` L674-679.
 - Turn runner: `src/server/chat-handler.ts`, `turn-service.ts`, `turn-runs.ts`, `src/server/pi/ui-stream.ts`.
 - System prompt: `src/agent/system-prompt.md` + `src/agent/prompts/**`, composed by `src/agent/prompt-segments.ts` and passed as `--system-prompt-file`.
@@ -144,7 +144,7 @@ The question-dock path is the same, except step 5–6: the sketch rides the answ
 **Known on-device costs** (measure in M7):
 - proot slows syscalls, and `listChats` re-parses every chat file.
 - Up to 2 `claude` processes plus their Node stubs, Chromium per demo, and `whisper-server` all share RAM with the WebView.
-- The first submission after each `problem` pose starts a fresh `claude` and replays the whole transcript (`continuation()` L656-671; later submissions on the same problem continue live). With sketches inline, the replay cost grows with problems × pages, so it is a candidate fix in M11. The elision rule (§5) already bounds it.
+- The first submission after each `problem` pose starts a fresh `claude` and replays the whole transcript (`continuation()` L695-710; later submissions on the same problem continue live). With sketches inline, the replay cost grows with problems × pages, so it is a candidate fix in M11. The elision rule (§5) already bounds it.
 
 ---
 
