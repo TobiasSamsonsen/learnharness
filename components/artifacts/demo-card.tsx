@@ -221,7 +221,10 @@ function DemoFrame({
 				// the wheel (session scrolling stalls over the demo). With
 				// scrolling disabled the wheel chains straight to the session.
 				scrolling="no"
-				className="mt-2 w-full rounded-lg border bg-white"
+				// Phones (owner, 2026-10-27): one card, not a card in a card — the
+					// iframe cancels the card's side padding and drops its own border
+					// and corners; from `sm` up it is the bordered inset again.
+					className="-mx-4 mt-2 w-[calc(100%+2rem)] max-w-none rounded-none border-0 bg-white sm:mx-0 sm:w-full sm:max-w-full sm:rounded-lg sm:border"
 				// content-box: the bridge reports the CONTENT height — with the
 				// preflight's border-box the 2px border would eat into it and clip
 				// the bottom of the demo (smoke finding, 2026-10-07).
