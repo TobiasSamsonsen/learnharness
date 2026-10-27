@@ -104,11 +104,14 @@ async function message(claimed) {
 		return message(following); // it moves on by itself
 	}
 	if (step.lateReject) {
+		// its own continuation is claimed up front, like the plain reject: after the delay a
+		// loaded runner could have the app kill this process first and hand the step to the fresh one
+		const following = nextStep();
 		ev({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 3 } });
 		ev({ type: "message_stop" });
 		await new Promise((r) => setTimeout(r, call.delayMs ?? 300));
 		out({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: "InputValidationError", is_error: true }] } });
-		return message();
+		return message(following);
 	}
 	const reply = rpc("tools/call", { name: call.name, arguments: call.args });
 	log("mcp-call", { name: call.name });
