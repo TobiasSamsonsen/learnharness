@@ -5,8 +5,9 @@ import { nativeInkBridge, nativeInkEnabled, setNativeInkEnabled } from "@/compon
 import { SettingsRow, Toggle } from "./controls.tsx";
 
 /**
- * "Native ink" (Android plan M10, owner 2026-10-27: opt in first, default off): only in the Android shell, where
- * the page can reach `window.lhAndroid`. The sketch view reads the setting when it opens; per browser, not synced.
+ * "Native ink" (Android plan M10; on by default since the owner's hands-on test, 2026-10-27): only in the Android
+ * shell, where the page can reach `window.lhAndroid`. The sketch view reads the setting when it opens; per browser,
+ * not synced.
  */
 export function NativeInkRow() {
 	const [available, setAvailable] = useState(false);

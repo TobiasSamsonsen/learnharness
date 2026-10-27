@@ -88,7 +88,16 @@ const key = (init: { key: string; ctrlKey?: boolean }) =>
 	});
 
 describe("the setting and the bridge decide", () => {
-	it("the shell has the bridge but the setting is off (the default): the web canvas, nothing posted", async () => {
+	it("the shell has the bridge and the setting was never touched: native ink is the default", async () => {
+		const shell = fakeShell();
+		await mount("k-default");
+		assert.ok(byId("sketch-native-scroller"), "native by default");
+		assert.equal(byId("sketch-canvas"), null);
+		assert.ok(shell.posted.some((l) => l.startsWith("open k-default ")));
+	});
+
+	it("the learner turned it off: the web canvas, nothing posted", async () => {
+		store.set("lh:native-ink", "off");
 		const shell = fakeShell();
 		await mount("k-off");
 		assert.ok(byId("sketch-canvas"), "the web canvas");
@@ -97,7 +106,7 @@ describe("the setting and the bridge decide", () => {
 		assert.ok(!document.documentElement.classList.contains("lh-native-ink"));
 	});
 
-	it("the setting is on but there is no bridge (a plain browser): the web canvas", async () => {
+	it("no bridge (a plain browser): the web canvas, whatever the setting says", async () => {
 		store.set("lh:native-ink", "on");
 		await mount("k-nobridge");
 		assert.ok(byId("sketch-canvas"));

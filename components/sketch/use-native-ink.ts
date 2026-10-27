@@ -30,12 +30,14 @@ export function nativeInkBridge(): LhAndroidBridge | null {
 
 export const NATIVE_INK_KEY = "lh:native-ink";
 
-/** The "Native ink" setting (per browser, default off: opt in first, owner 2026-10-27). */
+/** The "Native ink" setting (per browser). ON by default in the Android shell (owner, 2026-10-27, after the
+ *  hands-on test: the line stays under the stylus); off only when the learner turned it off. It only matters where
+ *  the shell's bridge exists, so a plain browser is unaffected. */
 export function nativeInkEnabled(): boolean {
 	try {
-		return localStorage.getItem(NATIVE_INK_KEY) === "on";
+		return localStorage.getItem(NATIVE_INK_KEY) !== "off";
 	} catch {
-		return false;
+		return true;
 	}
 }
 
