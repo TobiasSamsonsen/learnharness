@@ -29,7 +29,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
 import { Value } from "typebox/value";
-import { createFauxCore, fauxAssistantMessage, fauxToolCall, type FauxResponseStep, type ToolCall } from "@earendil-works/pi-ai";
+import { createFauxCore, fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, type FauxResponseStep, type ToolCall } from "@earendil-works/pi-ai";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PATHS } from "../config.ts";
 import {
@@ -670,6 +670,23 @@ describe("demo builder (fake model + fake headless)", () => {
 		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless: fakeHeadless() });
 		assert.equal(result.html, "");
 		assert.match(result.notes ?? "", /^FAILED: the builder never wrote a demo/);
+	});
+
+	it("tells the builder to assert behaviour (not just a clean load) with run_demo probes", async () => {
+		const prompts: string[] = [];
+		const inner = scriptedModel([{ text: "I cannot build this." }]);
+		const engine: PiEngine = {
+			...inner,
+			streamFn: (model, context, options) => {
+				prompts.push(getCurrentSystemPrompt(context.messages) ?? "");
+				return inner.streamFn(model, context, options);
+			},
+		};
+		await runDemoBuilder({ title: "T", brief: "b" }, { engine, headless: fakeHeadless() });
+		const prompt = prompts[0] ?? "";
+		assert.match(prompt, /BEHAVIOUR CHECKS/);
+		assert.match(prompt, /every display toggle/);
+		assert.match(prompt, /probes that agree with the brief is the only\s+definition of done/);
 	});
 });
 

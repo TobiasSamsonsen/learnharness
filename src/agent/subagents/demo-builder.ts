@@ -73,10 +73,26 @@ THE HOUSE RULE — never deliver untested:
    the page (e.g. "typeof window.simulate === 'function'" or a state assertion) to check deeper.
 3. If run_demo reports problems, FIX the document and call write_demo again, then run_demo again.
    Iterate until run_demo reports PASSED.
-4. Only then finish. Your final message is 1-3 sentences of NOTES for the teacher (what the demo shows,
+
+BEHAVIOUR CHECKS — a page that loads is not a page that is right:
+- Before you finish, check the behaviour, not just the absence of errors. From the brief's formulas, work out the
+  expected values yourself at two or three settings of the controls (include an extreme), then use run_demo's probe
+  to drive the demo into each setting (set the inputs, dispatch their input events, wait a frame) and read what it
+  computes and displays. The probe's value is the evidence: return the expected and the actual numbers side by side.
+- Cover every quantity the demo displays or draws, and every display toggle (a "show forces" option, a trace, a
+  readout): switch each on and check that what it shows agrees with the model: direction, sign and magnitude, not
+  merely that something appears.
+- Each run_demo loads a fresh page, so do all the driving inside one probe (an async function is fine). Expose what
+  you need to read (for example a window.demoState object) rather than scraping the canvas.
+- If a probe disagrees with your expectation, the demo is wrong until shown otherwise: decide which side is wrong,
+  fix the document, and test again.
+
+4. Only then finish, and only when the last run_demo of the final document PASSED with probes whose values matched
+   your expected values. Your final message is 1-3 sentences of NOTES for the teacher (what the demo shows,
    its controls, what to try) — NEVER the HTML itself.
 
-Never claim success you did not see: a PASSED run_demo is the only definition of done.`;
+Never claim success you did not see: a PASSED run_demo with probes that agree with the brief is the only
+definition of done.`;
 
 interface BuilderState {
 	html: string | null;
@@ -93,7 +109,7 @@ const runDemoInput = Type.Object({
 	probe: Type.Optional(
 		Type.String({
 			description:
-				"Optional JS expression evaluated in the page after settling, e.g. \"document.querySelectorAll('input').length\".",
+				"Optional JS expression evaluated in the page after settling (an async IIFE is awaited). Use it to drive the controls and return the values the demo computes, e.g. \"document.querySelectorAll('input').length\".",
 
 		}),
 	),
