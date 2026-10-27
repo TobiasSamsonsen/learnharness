@@ -1,6 +1,8 @@
 package dev.learnharness.android
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,17 +17,36 @@ class InkWireTest {
 		assertEquals(InkOp.Holes(emptyList()), InkWire.parse("holes"))
 		assertEquals(InkOp.Tool(eraser = true), InkWire.parse("tool eraser"))
 		assertEquals(InkOp.Tool(eraser = false), InkWire.parse(" tool pen "))
-		assertEquals(InkOp.Undo, InkWire.parse("undo"))
-		assertEquals(InkOp.Redo, InkWire.parse("redo"))
-		assertEquals(InkOp.Clear, InkWire.parse("clear"))
+		assertEquals(InkOp.Scroll(312.5f), InkWire.parse("scroll 312.5"))
 		assertEquals(InkOp.Close, InkWire.parse("close"))
-		assertEquals(InkOp.Export, InkWire.parse("export"))
+	}
+
+	@Test fun parsesTheStrokeSetsTheWebPushes() {
+		val op = InkWire.parse("strokes [{\"size\":4,\"points\":[10,20,0.5,11,21,0.6]},{\"size\":3,\"color\":\"#ff0000\",\"points\":[1,2,0]}]") as InkOp.Strokes
+		assertEquals(2, op.strokes.size)
+		assertEquals(4f, op.strokes[0].size, 0f)
+		assertEquals(null, op.strokes[0].color)
+		assertArrayEquals(floatArrayOf(10f, 20f, 0.5f, 11f, 21f, 0.6f), op.strokes[0].points, 0f)
+		assertEquals("#ff0000", op.strokes[1].color)
+		assertEquals(InkOp.Strokes(emptyList()).strokes.size, (InkWire.parse("strokes []") as InkOp.Strokes).strokes.size)
+		assertTrue(InkWire.parse("kept [{\"size\":4,\"points\":[1,2,3]}]") is InkOp.Kept)
 	}
 
 	@Test fun refusesAnythingElseWithoutThrowing() {
-		for (bad in listOf("", "nonsense", "open", "open bad!key 0 0 1 1", "open k 0 0 1", "open k a b c d", "holes 1,2,3", "holes x,y,z,w", "tool brush", "tool", "undo now", "export all")) {
-			assertNull(bad, InkWire.parse(bad))
-		}
+		val bad = listOf(
+			"", "nonsense", "open", "open bad!key 0 0 1 1", "open k 0 0 1", "open k a b c d",
+			"open k NaN 0 1 1", "open k 0 0 Infinity 1", "holes 1,2,3", "holes x,y,z,w", "holes NaN,0,1,1",
+			"tool brush", "tool", "close now", "scroll", "scroll NaN", "scroll up",
+			"strokes", "strokes nope", "strokes {}", "strokes [{\"size\":4,\"points\":[1,2]}]",
+			"strokes [{\"size\":0,\"points\":[1,2,3]}]", "strokes [{\"size\":4}]", "strokes [{\"size\":4,\"points\":[1,\"x\",3]}]",
+			"undo", "export",
+		)
+		for (line in bad) assertNull(line, InkWire.parse(line))
+	}
+
+	@Test fun anIgnoredColourIsDroppedNotTrusted() {
+		val op = InkWire.parse("strokes [{\"size\":4,\"color\":\"red\",\"points\":[1,2,3]}]") as InkOp.Strokes
+		assertNull(op.strokes[0].color)
 	}
 
 	@Test fun strokesBecomeSketchStrokeJson() {
@@ -40,19 +61,20 @@ class InkWireTest {
 			json,
 		)
 		assertEquals("[]", InkWire.strokesJson(emptyList()))
+		// a non-finite number never reaches the web as an invalid token
+		assertEquals("[{\"size\":4,\"points\":[0,5,0.5]}]", InkWire.strokesJson(listOf(InkWire.Stroke(4f, null, floatArrayOf(Float.NaN, 5f, 0.5f)))))
 	}
 
-	@Test fun routingGivesThePenTheSurfaceExceptWhereWebUiSits() {
-		val surface = InkRect(0f, 100f, 400f, 600f)
-		val box = InkRect(10f, 110f, 300f, 200f)
-		val pen = InkRouting.TOOL_TYPE_STYLUS
-		assertEquals(InkTarget.INK, InkRouting.route(pen, 50f, 500f, surface, listOf(box)))
-		assertEquals(InkTarget.INK, InkRouting.route(InkRouting.TOOL_TYPE_ERASER, 50f, 500f, surface, listOf(box)))
-		assertEquals("on the floating box", InkTarget.WEB, InkRouting.route(pen, 50f, 150f, surface, listOf(box)))
-		assertEquals("above the surface", InkTarget.WEB, InkRouting.route(pen, 50f, 50f, surface, listOf(box)))
-		assertEquals("a finger pans the page", InkTarget.WEB, InkRouting.route(1, 50f, 500f, surface, listOf(box)))
-		assertEquals("a mouse", InkTarget.WEB, InkRouting.route(3, 50f, 500f, surface, emptyList()))
-		assertEquals("no surface open", InkTarget.WEB, InkRouting.route(pen, 50f, 500f, null, emptyList()))
-		assertTrue("edges count as inside", InkRect(0f, 0f, 10f, 10f).contains(10f, 10f))
+	@Test fun whatTheShellSaysBack() {
+		assertEquals("stroke [{\"size\":4,\"points\":[1,2,0.5]}]", InkWire.strokeLine(InkWire.Stroke(4f, null, floatArrayOf(1f, 2f, 0.5f))))
+		assertEquals("erase 1,2,3.5,4", InkWire.eraseLine(floatArrayOf(1f, 2f, 3.5f, 4f)))
+		assertEquals("pan -12.5", InkWire.panLine(-12.5f))
+		assertEquals("penseen", InkWire.PEN_SEEN)
+		assertEquals("fallback no surface available", InkWire.fallbackLine("no\nsurface   available"))
+		assertNotNull(InkWire.strokes(InkWire.strokesJson(listOf(InkWire.Stroke(4f, null, floatArrayOf(1f, 2f, 0.5f))))))
+	}
+
+	@Test fun rectEdgesCountAsInside() {
+		assertTrue(InkRect(0f, 0f, 10f, 10f).contains(10f, 10f))
 	}
 }

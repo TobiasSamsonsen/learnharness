@@ -25,13 +25,21 @@ adb install -r build/outputs/apk/debug/learnharness-android-debug.apk
 
 ## Dev mode (debug builds)
 
-The status screen has a **Dev server (PC)** switch. On: no pairing, no Termux, the WebView loads `http://127.0.0.1:3000`, which is the PC's `next dev` through
+The status screen has a **Dev server (PC)** switch. On: no pairing, no Termux, the WebView loads `http://127.0.0.1:3000`, which is the PC's server through
 
 ```sh
 adb reverse tcp:3000 tcp:3000
 ```
 
-(start the dev server without `LH_ACCESS_TOKEN`, so it has no gate). Stop the phone's own server first: it would hold the same port. `adb shell am start -n dev.learnharness.android/.MainActivity --ez lh.dev false` turns it off again. Remote debugging is on in debug builds (`chrome://inspect`).
+Run the PC side bound to `127.0.0.1`, without `LH_ACCESS_TOKEN` (so it has no gate):
+
+```sh
+npm run dev -- -H 127.0.0.1
+```
+
+The `-H 127.0.0.1` matters. A plain `next dev` answers the shell's `/_next` requests with 403 ("Blocked cross-origin request to Next.js dev resource"): the page's JavaScript never loads, the model pickers stay at "—" and Start stays disabled. (`allowedDevOrigins: ["127.0.0.1"]` in `next.config.ts` would also let it through; that is not set.) A production build works too: `npm run build`, then `npm run start` (it prints a warning that `next start` does not work with `output: "standalone"`; it still serves the build).
+
+Stop the phone's own server first (`lh stop` in Termux): it holds the same port, and `adb reverse` fails with "Address already in use". The PC server has its own data directory, so the phone's chats are not there. `adb shell am start -n dev.learnharness.android/.MainActivity --ez lh.dev false` turns dev mode off again; run `lh start` in Termux. Remote debugging is on in debug builds (`chrome://inspect`).
 
 ## How it fits
 

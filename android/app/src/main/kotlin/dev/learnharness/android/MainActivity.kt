@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -59,6 +60,8 @@ class MainActivity : ComponentActivity() {
 		set(value) = prefs.edit().putBoolean("dev", value).apply()
 
 	private lateinit var webView: WebView
+	private lateinit var inkFrame: InkFrame
+	private lateinit var inkBridge: InkBridge
 	private lateinit var status: LinearLayout
 	private lateinit var title: TextView
 	private lateinit var detail: TextView
@@ -160,6 +163,8 @@ class MainActivity : ComponentActivity() {
 			setAcceptThirdPartyCookies(webView, false)
 		}
 		WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+		inkFrame = InkFrame(this, webView, BACKGROUND)
+		inkBridge = InkBridge(webView, inkFrame)
 		installBridge()
 		webView.webViewClient = client
 		webView.webChromeClient = chrome
@@ -196,7 +201,7 @@ class MainActivity : ComponentActivity() {
 			addView(portField, wide)
 			addView(devSwitch, wide)
 		}
-		root.addView(webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+		root.addView(inkFrame, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 		root.addView(status, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 		setContentView(root)
 
@@ -406,6 +411,10 @@ class MainActivity : ComponentActivity() {
 			return true
 		}
 
+		override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+			inkFrame.apply(InkOp.Close) // a new page has not opened the native ink layer
+		}
+
 		override fun onPageFinished(view: WebView, url: String?) {
 			if (url == null || !Server.isInternal(url, port)) return
 			view.evaluateJavascript(insetsScript + DOWNLOAD_HOOK, null)
@@ -478,6 +487,7 @@ base64` here; the system picker picks where the
 		WebViewCompat.addWebMessageListener(webView, "lhShell", setOf(Server.base(port).trimEnd('/'))) { _, message: WebMessageCompat, _, isMainFrame, _ ->
 			if (isMainFrame) save(message.data.orEmpty())
 		}
+		inkBridge.install(Server.base(port).trimEnd('/')) // the native ink layer's `lhAndroid` (M10)
 	}
 
 	private fun save(message: String) {
@@ -494,6 +504,7 @@ base64` here; the system picker picks where the
 
 	override fun onDestroy() {
 		WebViewCompat.removeWebMessageListener(webView, "lhShell")
+		inkBridge.remove()
 		super.onDestroy()
 	}
 

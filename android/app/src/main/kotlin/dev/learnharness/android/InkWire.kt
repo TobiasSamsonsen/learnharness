@@ -1,12 +1,15 @@
 package dev.learnharness.android
 
 import java.util.Locale
+import org.json.JSONArray
+import org.json.JSONException
 
 /**
- * The native-ink bridge, pure parts (Android plan M10, docs/android/m10-plan.md): the lines the web sends
- * (`src/core/ink-bridge.ts` writes them), the rule that decides who gets a touch, and the JSON the shell answers an
- * export with (an array of `SketchStroke`, `src/core/contracts/sketch.ts`). No Android types, so `./gradlew test`
- * covers it; the overlay view that uses it is built only if the M9 decision says so.
+ * The native-ink bridge, pure parts (Android plan M10, docs/android/m10-plan.md). The web store owns the strokes
+ * (owner decision B, 2026-10-27): the shell draws, reports each finished stroke and eraser gesture, and the web pushes
+ * the finished set back. Lines the web sends (`src/core/ink-bridge.ts` writes them): `open`, `holes`, `tool`,
+ * `strokes`, `kept`, `scroll`, `close`. Lines the shell sends back: `stroke`, `erase`, `pan`, `penseen`, `fallback`.
+ * No Android types except org.json, so `./gradlew test` covers it.
  */
 
 data class InkRect(val x: Float, val y: Float, val w: Float, val h: Float) {
@@ -14,14 +17,18 @@ data class InkRect(val x: Float, val y: Float, val w: Float, val h: Float) {
 }
 
 sealed interface InkOp {
+	/** The canvas rectangle, in CSS px of the page's viewport; the ink layer sits exactly there. */
 	data class Open(val inkKey: String, val rect: InkRect) : InkOp
+	/** Web UI over the canvas (the floating question box, its collapsed pill): touches there stay with the page. */
 	data class Holes(val rects: List<InkRect>) : InkOp
 	data class Tool(val eraser: Boolean) : InkOp
-	data object Undo : InkOp
-	data object Redo : InkOp
-	data object Clear : InkOp
+	/** The finished strokes of the page being written (page CSS px). */
+	data class Strokes(val strokes: List<InkWire.Stroke>) : InkOp
+	/** Strokes already sent to the tutor: drawn faint, like the web canvas. */
+	data class Kept(val strokes: List<InkWire.Stroke>) : InkOp
+	/** The canvas' scroll offset in CSS px. */
+	data class Scroll(val y: Float) : InkOp
 	data object Close : InkOp
-	data object Export : InkOp
 }
 
 object InkWire {
@@ -29,62 +36,83 @@ object InkWire {
 
 	/** One line from the web, or null when it is not one the shell understands (never throws). */
 	fun parse(line: String): InkOp? {
-		val parts = line.trim().split(Regex("\\s+"))
-		return when (parts.firstOrNull()) {
+		val text = line.trim()
+		val verb = text.substringBefore(' ')
+		val rest = text.substringAfter(' ', "").trim()
+		return when (verb) {
 			"open" -> {
-				if (parts.size != 6 || !key.matches(parts[1])) return null
-				val n = parts.drop(2).map { it.toFloatOrNull() ?: return null }
-				InkOp.Open(parts[1], InkRect(n[0], n[1], n[2], n[3]))
+				val parts = rest.split(Regex("\\s+"))
+				if (parts.size != 5 || !key.matches(parts[0])) return null
+				val n = parts.drop(1).map { finite(it) ?: return null }
+				InkOp.Open(parts[0], InkRect(n[0], n[1], n[2], n[3]))
 			}
-			"holes" -> InkOp.Holes(parts.drop(1).map { rect(it) ?: return null })
-			"tool" -> when (parts.getOrNull(1)) {
+			"holes" -> InkOp.Holes(rest.split(Regex("\\s+")).filter { it.isNotEmpty() }.map { rect(it) ?: return null })
+			"tool" -> when (rest) {
 				"pen" -> InkOp.Tool(eraser = false)
 				"eraser" -> InkOp.Tool(eraser = true)
 				else -> null
 			}
-			"undo" -> if (parts.size == 1) InkOp.Undo else null
-			"redo" -> if (parts.size == 1) InkOp.Redo else null
-			"clear" -> if (parts.size == 1) InkOp.Clear else null
-			"close" -> if (parts.size == 1) InkOp.Close else null
-			"export" -> if (parts.size == 1) InkOp.Export else null
+			"strokes" -> InkOp.Strokes(strokes(rest) ?: return null)
+			"kept" -> InkOp.Kept(strokes(rest) ?: return null)
+			"scroll" -> InkOp.Scroll(finite(rest) ?: return null)
+			"close" -> if (rest.isEmpty()) InkOp.Close else null
 			else -> null
 		}
 	}
 
+	private fun finite(text: String): Float? = text.toFloatOrNull()?.takeIf { it.isFinite() }
+
 	private fun rect(text: String): InkRect? {
-		val n = text.split(",").map { it.toFloatOrNull() ?: return null }
+		val n = text.split(",").map { finite(it) ?: return null }
 		return if (n.size == 4) InkRect(n[0], n[1], n[2], n[3]) else null
 	}
 
-	/** One exported stroke: base size in CSS px, an optional #rrggbb, flat [x, y, pressure, …]. */
+	/** A stroke: base size in CSS px, an optional #rrggbb, flat [x, y, pressure, …] in the canvas' page CSS px. */
 	class Stroke(val size: Float, val color: String?, val points: FloatArray)
 
-	/** The `SketchStroke[]` JSON the web validates with the same rules as a web sketch. Locale-independent. */
-	fun strokesJson(strokes: List<Stroke>): String {
-		fun n(v: Float) = String.format(Locale.ROOT, "%.2f", v).trimEnd('0').trimEnd('.').ifEmpty { "0" }
-		return strokes.joinToString(prefix = "[", postfix = "]", separator = ",") { s ->
-			val color = if (s.color != null) ",\"color\":\"${s.color}\"" else ""
-			"{\"size\":${n(s.size)}$color,\"points\":[${s.points.joinToString(",") { n(it) }}]}"
+	/** The `SketchStroke[]` JSON from the web, or null when any part of it is malformed (never throws). */
+	fun strokes(json: String): List<Stroke>? = try {
+		val array = JSONArray(json)
+		(0 until array.length()).map { i ->
+			val o = array.getJSONObject(i)
+			val raw = o.getJSONArray("points")
+			if (raw.length() % 3 != 0) return null
+			val points = FloatArray(raw.length()) { k ->
+				val v = raw.getDouble(k).toFloat()
+				if (!v.isFinite()) return null
+				v
+			}
+			val size = o.getDouble("size").toFloat()
+			if (!size.isFinite() || size <= 0f) return null
+			val color = o.optString("color", "").takeIf { Regex("#[0-9a-fA-F]{6}").matches(it) }
+			Stroke(size, color, points)
 		}
+	} catch (_: JSONException) {
+		null
 	}
-}
 
-enum class InkTarget { INK, WEB }
+	private fun n(v: Float) = String.format(Locale.ROOT, "%.2f", v).trimEnd('0').trimEnd('.').ifEmpty { "0" }
 
-object InkRouting {
-	const val TOOL_TYPE_STYLUS = 2
-	const val TOOL_TYPE_ERASER = 4
+	/** The `SketchStroke[]` JSON the web validates with the same rules as a web sketch. Locale-independent. */
+	fun strokesJson(strokes: List<Stroke>): String =
+		strokes.joinToString(prefix = "[", postfix = "]", separator = ",") { s ->
+			val color = if (s.color != null) ",\"color\":\"${s.color}\"" else ""
+			"{\"size\":${n(s.size)}$color,\"points\":[${s.points.joinToString(",") { n(if (it.isFinite()) it else 0f) }}]}"
+		}
 
-	/**
-	 * Who gets a touch while the native surface is open: the pen (its tip or its eraser end) goes to the ink layer
-	 * unless it lands on a hole (the floating question box and other web UI over the canvas); fingers and everything
-	 * else always go to the WebView, which pans and taps. A stroke keeps its target from ACTION_DOWN to the end
-	 * (the caller decides once, on DOWN).
-	 */
-	fun route(toolType: Int, x: Float, y: Float, surface: InkRect?, holes: List<InkRect>): InkTarget {
-		if (surface == null || !surface.contains(x, y)) return InkTarget.WEB
-		val pen = toolType == TOOL_TYPE_STYLUS || toolType == TOOL_TYPE_ERASER
-		if (!pen) return InkTarget.WEB
-		return if (holes.any { it.contains(x, y) }) InkTarget.WEB else InkTarget.INK
-	}
+	// ── shell → web ──────────────────────────────────────────────────────────
+
+	const val PEN_SEEN = "penseen"
+
+	/** One finished stroke. */
+	fun strokeLine(s: Stroke) = "stroke ${strokesJson(listOf(s))}"
+
+	/** An eraser gesture: flat [x, y, …] in the canvas' page CSS px. The web decides which strokes it hit. */
+	fun eraseLine(points: FloatArray) = "erase ${points.joinToString(",") { n(if (it.isFinite()) it else 0f) }}"
+
+	/** Two fingers moved: scroll the canvas by this many CSS px (positive = further down the page). */
+	fun panLine(dy: Float) = "pan ${n(dy)}"
+
+	/** The native layer cannot be shown: the web keeps its own canvas. */
+	fun fallbackLine(reason: String) = "fallback ${reason.replace(Regex("\\s+"), " ").take(120)}"
 }

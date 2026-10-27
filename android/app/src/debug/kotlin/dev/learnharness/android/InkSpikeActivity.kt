@@ -123,24 +123,3 @@ class InkSpikeActivity : ComponentActivity() {
 		Log.i("InkSpike", text)
 	}
 }
-
-/** Finished strokes, drawn with the same renderer ink uses for the in-progress ones. */
-class FinishedStrokesView(context: Context) : View(context) {
-	private val renderer = CanvasStrokeRenderer.create()
-	private val strokes = ArrayList<Stroke>()
-	private val identity = Matrix()
-
-	fun add(more: Collection<Stroke>) {
-		strokes += more
-		invalidate()
-	}
-
-	fun clear() {
-		strokes.clear()
-		invalidate()
-	}
-
-	override fun onDraw(canvas: Canvas) {
-		for (stroke in strokes) renderer.draw(canvas, stroke, identity)
-	}
-}
