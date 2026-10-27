@@ -1,6 +1,10 @@
 # M10 plan (DRAFT, conditional): native ink overlay
 
-Status: **draft, not approved, and only needed if the M9 decision says so** ([m9-plan.md](m9-plan.md): build M10 if the camera median on the shell's web canvas is about 30 ms or more above the Ink spike's, or the dense-notation sheet is clearly worse on the web canvas). Written by Claude while the owner was away so the decision has something concrete behind it; nothing here is built. Per AGENTS.md "No guessing", every choice below that is not forced by the code is listed under "Questions for the owner" and nothing is implemented before they are answered.
+Status: **design questions answered by the owner 2026-10-27 (all seven proposals accepted); still only built if the M9 decision says so** ([m9-plan.md](m9-plan.md): build M10 if the camera median on the shell's web canvas is about 30 ms or more above the Ink spike's, or the dense-notation sheet is clearly worse on the web canvas). Written by Claude while the owner was away so the decision has something concrete behind it; nothing here is built. Per AGENTS.md "No guessing", every choice below that is not forced by the code is listed under "Questions for the owner" and nothing is implemented before they are answered.
+
+## Owner decisions (2026-10-27): all seven proposals accepted
+
+Q1 bridge = origin-restricted `window.lhAndroid.ink` (`open/close/setHoles/export/undo/redo/clear/setTool`) through a `WebMessageListener` like M8's save bridge. Q2 opt-in "Native ink" switch in Settings, default off at first. Q3 vector strokes go to the web and the existing pure export makes the PNGs (one tested code path). Q4 tall pages scroll with the web's offset. Q5 the pen's eraser end and barrel button erase like the web canvas; hover does nothing. Q6 prediction on, colour follows the page. Q7 automatic fallback to the web canvas if the native view cannot be shown, said once. The overlay itself waits for the M9 camera numbers.
 
 ## What is already decided (plan.md §2, §3, §7)
 

@@ -1,6 +1,19 @@
 # M11 plan (DRAFT): device performance and lifecycle
 
-Status: **draft, not approved** (2026-10-27). Parent: [plan.md](plan.md) §4 and §7 (M11: "live continuation for practice submissions (no respawn), chat-list parse cost, wake-lock/killer runbook, RAM budget; done when: before/after timings on the device"). Written by Claude while the owner was away, from a read-only audit of the code and a read-only snapshot of the phone. Nothing is built. Per AGENTS.md "No guessing", the choices are under "Questions for the owner".
+Status: **decisions made by the owner 2026-10-27 (see "Owner decisions"); implementation in progress on `feat/m11-prep`**. Parent: [plan.md](plan.md) §4 and §7 (M11: "live continuation for practice submissions (no respawn), chat-list parse cost, wake-lock/killer runbook, RAM budget; done when: before/after timings on the device"). Written by Claude while the owner was away, from a read-only audit of the code and a read-only snapshot of the phone. Nothing is built. Per AGENTS.md "No guessing", the choices are under "Questions for the owner".
+
+## Owner decisions (2026-10-27)
+
+| # | Decision |
+|---|---|
+| Q1 | **Keep the respawn after a pose and make it cheaper.** No change to the turn model; revisit live continuation only if the measured replay is still slow on the phone |
+| Q2 | **Elide concluded problems from the replay**: everything between a problem's pose and its (non-refused) `conclude` result is replaced by one short omitted-note once a later problem has been posed; the active problem stays in full. Sketch page cap stays 20 |
+| Q3 | **Keep 40 min idle and 2 sessions; add an env knob** `LH_CLAUDE_IDLE_MIN` |
+| Q4 | **In-memory `listChats` cache** (done, see below) |
+| Q5 | **Start only the language in use**: `lh start` starts the default language's whisper-server; the other starts on first use through a supervisor loop in Termux that watches request files the server touches inside the guest, and stops after **10 idle minutes** |
+| Q6 | **Runbook only**; no foreground service in the app for now |
+
+Applied as the plan says (small names; shout if you disagree): the server knob is `LH_CLAUDE_IDLE_MIN` (minutes, default 40, bad values fall back); in `~/.lh/config`, `STT_LANGS` stays "the languages available", the new `STT_EAGER` lists those started with `lh start` (default: the first of `STT_LANGS`), `WHISPER_IDLE_MIN=10`; the request files live in the guest at `/root/.lh/want/<lang>` (Termux reads them through the rootfs path).
 
 ## Findings
 
