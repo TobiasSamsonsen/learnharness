@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: the M9 ink-latency spike screen (docs/android/m9-plan.md). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+	<application>
+		<activity
+			android:name=".InkSpikeActivity"
+			android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density"
+			android:exported="true"
+			android:label="Ink spike" />
+	</application>
+</manifest>

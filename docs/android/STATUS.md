@@ -1,6 +1,6 @@
 # Android plan — status (2026-10-27)
 
-**Done: M0 (phone spike), M1-M7 and M7b, and M8 (the Android shell APK, in `android/app`; see the M8 section at the end, uncommitted).** Next: M9 (ink decision). The owner has no pen or touch screen on the PC, so the M3 pen test is not done; the M7 checklist items that need hands on the phone are listed in its section.
+**Done: M0 (phone spike), M1-M7 and M7b, M8 (the Android shell APK, `android/app`, branch `feat/android-shell`) and M9's non-camera half (the ink spike and software numbers, branch `feat/ink-spike`).** What needs hands, a pen or a camera is in [phone-todo.md](phone-todo.md). Next: the owner's M9 camera test and decision, then M10 if chosen. The owner has no pen or touch screen on the PC, so the M3 pen test is not done; the M7 checklist items that need hands on the phone are listed in its section.
 
 Plan: [plan.md](plan.md). Branch `feat/sketch-answers` holds the M1 and M2 work, by Claude for the owner.
 
@@ -148,3 +148,11 @@ Owner decisions: toolchain installed on the PC (no CI APK job yet); pairing by `
 - **Not done / known:** The sidebar's own render test (the drawer's component is not exported and needs the whole app-router harness; its registration is covered by the registry and sketch tests and by the device check); `lh` and the new web code (back, top-right chrome) reach the phone's server only after the merge and `lh update` (the phone's server is still the pre-M8 build); a full lesson, sketch by pen, a demo and the screen-off turn inside the shell are the owner's M7 checklist; no release signing, CI APK or Termux:Boot; `allow-external-apps=true` (already set on this phone) and the app's RUN_COMMAND permission are the owner's one-time steps on a new device (the permission was granted over adb for the test). The status screen has no way back from dev mode except its switch or `adb shell am start … --ez lh.dev false`.
 - **Left on the phone by the tests:** one chat, "Say hello in one word." (delete it from the sidebar), and the debug app's stored port 3000 / dev off.
 - **Noticed:** `adb shell` does not hold Termux's RUN_COMMAND permission, so commands cannot be pushed to Termux from the PC; the new `lh` reached the phone through a loopback-only file server and `adb reverse` plus one paste in Termux. Gradle lint warns about hard-coded `/data/data/com.termux/files/usr/bin/lh` (it is Termux's fixed prefix).
+
+
+### M9 (ink decision gate), non-camera half: done 2026-10-27 on `feat/ink-spike` ([m9-plan.md](m9-plan.md))
+Owner decision: "I will not be present, do whatever you can without me", so Claude built the spike, the probes and the protocol; the camera test, the notation test and the decision are the owner's ([phone-todo.md](phone-todo.md)).
+- **Built:** a debug-only native Ink spike screen (`androidx.ink` 1.0.0 `InProgressStrokesView` + motion prediction, prediction toggle, clear, a per-stroke delivery summary in logcat and on screen), `scripts/ink-latency.mjs` (`web`, `native`, `frames`), `tests/ink-latency.test.ts` (4). The release APK has no ink dependency.
+- **Measured on the Pixel 7 Pro (same injected swipes into both stacks):** delivery stage, native **1.0 ms** median (1 ms clock) against the WebView page's **9.7 ms** median (p90 11.1, max 19.4); event to the next animation frame 6.6 ms. The gap is Chromium's once-per-frame input delivery; photon latency (camera) is expected to differ by more. Injected touch is not a pen.
+- **Not done (owner):** the 240 fps camera test on Chrome, the shell and the spike; the dense-notation sheet; the decision (a proposed rule is in the plan).
+- **Noticed:** the first launch of the spike right after `adb install -r` fell back to the main screen once (it ran fine on the second start); not reproduced.
