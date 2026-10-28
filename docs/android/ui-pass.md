@@ -24,3 +24,25 @@ Goal (owner): improve the UI on mobile so it is usable and decent. Findings from
 | 6 | Empty home | **Left as it is:** a quiet empty state above the composer; the brass send button is the one point of colour. |
 | 7 | Drawer flat | **Left as it is:** readable, tall rows, touch-sized. A per-session type marker would be a new feature. |
 | 8 | Stats line | **Done.** The model and effort are one pill ("model · effort"), the effort is changed inside its popup, and the row is one line. |
+
+## Second pass, 2026-10-28: popups on screen, swipes (owner goal, verified on the Pixel 7 Pro)
+
+**Popups.** The Sources popup opened mostly off the left edge of the screen. Cause: the shared `MenuShell` clamped a menu vertically but only pinned one horizontal edge, so a 320 px menu right-aligned to a control near the left edge started at a negative x. Fixes, all pinned by pure tests:
+
+| What | Fix |
+|---|---|
+| Every `MenuShell` menu (Sources, language, model, session menu, graph node menu, settings menus, setup slot menus) | The menu's measured width is clamped into the screen (8 px floor, a menu wider than the screen is capped to it), and the status-bar and gesture-bar insets the shell reports count as unusable room. Menus that already fit keep their anchor edge. |
+| Stats summary popover, coverage-ring popover | A small hook (`use-keep-in-viewport.ts`) shifts them back inside the screen after mount and on resize; both are also capped to the screen width. |
+| Practice metadata box | Capped to the room below its trigger (it scrolls inside), keeping the owner's "always below" rule. |
+| Keyboard | Opening a menu no longer focuses its text field on touch devices, so the keyboard does not cover the screen the moment a menu opens. |
+
+**Swipes** (the owner chose which: sidebar, docks, row actions; menus are not swipe-dismissed). One recognizer (`swipe.ts`: pending, active or rejected, committed by distance or flick; a vertical scroll is never taken for a sideways swipe) behind one hook (`use-swipe.ts`: touch only, one finger, not on inputs, `data-no-swipe` opts out; the cross-axis `touch-action` is applied to scrolling descendants through `data-swipe-x`/`-y` in `globals.css`, because the browser only reads `touch-action` up to the nearest scroller).
+
+| Gesture | Behavior |
+|---|---|
+| Sidebar | Swipe left on the open drawer to close it (it follows the finger, then animates). Swipe right from a 24 px strip on the left edge (middle of the screen, 180 px tall) to open it. The shell exempts exactly that strip from Android's back gesture (`setSystemGestureExclusionRects`); the rest of the edge, and the right edge, still go back. A swipe that starts on a row belongs to the row. |
+| Session rows | Swipe left to reveal Rename (the existing inline rename) and Delete (the existing confirmation; the swipe never deletes). One row open at a time; a touch elsewhere closes it. |
+| Course rows | Same swipe, with new actions behind it: Rename (inline, `PATCH /api/courses/[id]`) and Delete (a confirmation, `DELETE /api/courses/[id]`; the skills stay in the graph). Course rows had no actions before. |
+| Question and practice docks | A handle (a small pill, touch devices only) above the dock: swipe down folds the dock to its bar, swipe up (or tap) opens it. A fold made this way stays folded: the transcript's scroll logic no longer re-opens it until the learner opens it or the next question arrives. |
+
+Verified on the phone with synthetic touch swipes through adb: the drawer opens from the edge and closes by swipe, a session row and a course row reveal their actions, Rename starts the inline edit, Delete opens the confirmation and deletes, a real pending question folds and unfolds by its handle and stays folded, the Sources popup and the stats popover sit inside the screen. Not verified: a real finger's feel (thresholds are guesses: 72 px to close, 56 px to open, 38 px per action, 36 px for a dock), the pen or stylus, rotation, and the gesture-exclusion zone against the real system back gesture (adb input does not go through it).

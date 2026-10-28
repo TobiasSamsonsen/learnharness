@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Rect
 import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Bundle
@@ -253,6 +254,13 @@ class MainActivity : ComponentActivity() {
 		root.addView(inkFrame, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 		root.addView(status, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 		setContentView(root)
+		// The page opens its drawer with a swipe from a strip on the left edge (components/sidebar.tsx: 24px wide, 180px tall, from
+		// the middle of the screen down). Android's back gesture owns the screen edges, so that strip is exempt from it; the
+		// rest of the edge, and the right edge, still go back.
+		root.addOnLayoutChangeListener { v, _, top, _, bottom, _, _, _, _ ->
+			val middle = (bottom - top) / 2
+			ViewCompat.setSystemGestureExclusionRects(v, listOf(Rect(0, middle, dp(32), middle + dp(180))))
+		}
 
 		ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
 			val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
