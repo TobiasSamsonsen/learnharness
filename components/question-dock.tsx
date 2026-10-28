@@ -796,7 +796,7 @@ function QuestionDockForm({
 								disabled={compactionRunning}
 								onClick={pressDontKnow}
 								data-testid="dont-know-button"
-								className="lh-touch h-9 min-w-0 flex-[1.45] truncate rounded-[6px] border border-dashed border-border/70 bg-transparent px-0.5 text-[11px] tracking-tight text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+								className="lh-touch h-9 min-w-0 flex-[1.8] truncate rounded-[6px] border border-dashed border-border/70 bg-transparent px-0 text-[11px] tracking-tighter text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
 							>
 								I don't know
 							</button>
