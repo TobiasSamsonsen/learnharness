@@ -6,7 +6,7 @@ import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { DEFAULT_PIECE_LIMITS, createPieceQueue, createSegmenter, withdrawDictation, type PieceQueue, type PieceResult, type Segmenter } from "@/components/dictation-live";
-import { nativeSpeechReady, probeNativeSpeech, startNativeSpeech, type NativeSpeechRun } from "@/components/dictation-native";
+import { createLiveTranscript, nativeSpeechReady, probeNativeSpeech, startNativeSpeech, type LiveTranscript, type NativeSpeechRun } from "@/components/dictation-native";
 import {
 	DEFAULT_DICTATION_ENGINE,
 	DEFAULT_LESSON_LANGUAGE,
@@ -417,6 +417,8 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 	/** The Android shell's speech recognizer run (docs/android/m12-plan.md step 6): when the shell answers the probe,
 	 *  dictation uses it instead of any engine above — no microphone capture, no server round trip. */
 	const nativeRef = useRef<NativeSpeechRun | null>(null);
+	/** What that run has put in the field so far: its live partial and its finals (Esc takes them back out). */
+	const transcriptRef = useRef<LiveTranscript | null>(null);
 	useEffect(() => probeNativeSpeech(), []);
 	const refreshConfig = useCallback(() => {
 		void readDictationConfig(chatId).then((c) => {
@@ -474,6 +476,8 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 		dictationActiveFlag = false;
 		nativeRef.current?.dispose();
 		nativeRef.current = null;
+		transcriptRef.current?.settle(); // what is in the field stays
+		transcriptRef.current = null;
 		flush(); // the deferred transcript appears when the run ends (owner round 2)
 		if (safetyRef.current) {
 			clearTimeout(safetyRef.current);
@@ -587,15 +591,20 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 		const gen = ++genRef.current;
 		const config = (runConfigRef.current = configRef.current);
 		if (nativeSpeechReady()) {
-			// the Android shell's on-device recognizer: finals are deferred like Deepgram's and flushed at cleanup()
+			// the Android shell's on-device recognizer, streamed like a keyboard's voice typing: every partial replaces the
+			// last in the field, a final replaces its partial and stays (nothing is deferred to the end of the run)
+			const transcript = (transcriptRef.current = createLiveTranscript(() => questionTarget ?? appendRef.current));
 			nativeRef.current = startNativeSpeech(config.language, {
 				onState: (s) => {
 					if (gen !== genRef.current) return;
 					if (s === "listening") setPhase("recording");
 					else if (s === "idle") cleanup();
 				},
+				onPartial: (text) => {
+					if (gen === genRef.current) transcript.partial(text);
+				},
 				onFinal: (text) => {
-					if (gen === genRef.current) bufferRef.current.push(text);
+					if (gen === genRef.current) transcript.final(text);
 				},
 				onError: (code) => {
 					if (gen !== genRef.current) return;
@@ -827,6 +836,7 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 		// flush already underway is abandoned (its timer is cleared inside).
 		bufferRef.current = [];
 		nativeRef.current?.cancel(); // the shell stops listening and nothing more arrives
+		transcriptRef.current?.discard(); // the live partial and the finals of this run come back out of the field
 		// A live run (owner, 2026-10-25): nothing more lands, and the pieces
 		// it already added are taken back out, newest first, from the field
 		// each one went to (an edited-away piece stays as the learner left it).

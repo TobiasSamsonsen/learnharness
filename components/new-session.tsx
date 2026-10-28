@@ -123,8 +123,16 @@ export function DraftShell({
 		Array.from(document.querySelectorAll<HTMLElement>('[data-testid="composer"] textarea')),
 		[]);
 	useFieldCycle(cycleComposer);
+	// Ref-first: a live dictation replaces its partial (a withdraw, then an append) within one tick, and the second must
+	// see the first. The mirror is re-synced from the prop on every render.
+	const textRef = useRef(text);
+	textRef.current = text;
 	const dictation = useDictation({
-		append: (t, withdraw) => onChange(joinDictation(text, t, withdraw)),
+		append: (t, withdraw) => {
+			const v = joinDictation(textRef.current, t, withdraw);
+			textRef.current = v;
+			onChange(v);
+		},
 	});
 	// A LIVE dictation keeps the composer sendable ("nothing gets lost"
 	// round, owner 2026-10-01): the spoken text is deferred in the run's

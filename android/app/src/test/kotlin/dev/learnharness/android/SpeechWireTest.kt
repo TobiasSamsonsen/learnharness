@@ -35,6 +35,7 @@ class SpeechWireTest {
 	@Test fun linesToThePageAreOneLineEach() {
 		assertEquals("speech ready", SpeechWire.ready())
 		assertEquals("speech state listening", SpeechWire.state("listening"))
+		assertEquals("speech partial hello the", SpeechWire.partial("hello\n  the "))
 		assertEquals("speech final first line second line", SpeechWire.final("first line\n  second\tline "))
 		assertEquals("speech error busy", SpeechWire.error("busy"))
 		assertEquals("speech error language nb", SpeechWire.error("language", "nb"))

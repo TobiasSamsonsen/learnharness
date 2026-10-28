@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
 import { enterSends } from "@/components/enter-submits";
 
@@ -38,12 +38,17 @@ export function ReadingThinkingField({
 	/** Primary dictation claim — true while the check is behind its reveal. */
 	claim: boolean;
 }) {
+	// Ref-first (see new-session.tsx): a withdraw followed by an append in one tick must compose
+	const valueRef = useRef(value);
+	valueRef.current = value;
 	useDictationTarget(
 		useCallback(
 			(t: string, withdraw?: boolean) => {
-				onChange(joinDictation(value, t, withdraw));
+				const v = joinDictation(valueRef.current, t, withdraw);
+				valueRef.current = v;
+				onChange(v);
 			},
-			[value, onChange],
+			[onChange],
 		),
 		claim,
 	);

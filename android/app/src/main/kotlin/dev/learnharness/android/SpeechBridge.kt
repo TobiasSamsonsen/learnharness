@@ -25,6 +25,8 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 	private var wanted = false
 	private var stopping = false
 	private var language = ""
+	/** The last partial sent, so an unchanged guess is not sent twice. */
+	private var lastPartial = ""
 
 	/** One line from the page (on the main thread). `reply` posts a line back. */
 	fun handle(line: String, reply: (String) -> Unit) {
@@ -57,6 +59,8 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 			.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
 			.putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag)
 			.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+			// the words appear in the field as they are spoken, like a keyboard's voice typing: the recognizer's guesses are sent as partials
+			.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
 		val r = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
 		recognizer = r
 		r.setRecognitionListener(listener)
@@ -67,6 +71,7 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 	private val listener = object : RecognitionListener {
 		override fun onResults(results: Bundle?) {
 			val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim().orEmpty()
+			lastPartial = ""
 			if (text.isNotEmpty()) post(SpeechWire.final(text))
 			if (wanted && !stopping) listenAgain() else finish()
 		}
@@ -94,11 +99,18 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 		override fun onRmsChanged(rmsdB: Float) = Unit
 		override fun onBufferReceived(buffer: ByteArray?) = Unit
 		override fun onEndOfSpeech() = Unit
-		override fun onPartialResults(partialResults: Bundle?) = Unit
+		override fun onPartialResults(partialResults: Bundle?) {
+			val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim().orEmpty()
+			if (text.isEmpty() || text == lastPartial) return
+			lastPartial = text
+			post(SpeechWire.partial(text))
+		}
+
 		override fun onEvent(eventType: Int, params: Bundle?) = Unit
 	}
 
 	private fun listenAgain() {
+		lastPartial = ""
 		recognizer?.startListening(intent)
 	}
 
@@ -190,6 +202,9 @@ object SpeechWire {
 
 	fun ready(): String = "speech ready"
 	fun state(state: String): String = "speech state $state"
+
+	/** The recognizer's current guess for the stretch being spoken; the page replaces its last partial with it. */
+	fun partial(text: String): String = "speech partial " + text.replace(Regex("""\s+"""), " ").trim()
 
 	/** One recognized stretch; line breaks would end the message early, so they become spaces. */
 	fun final(text: String): String = "speech final " + text.replace(Regex("""\s+"""), " ").trim()

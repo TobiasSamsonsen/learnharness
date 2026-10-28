@@ -12,7 +12,8 @@ import type { LessonLanguage } from "./language.ts";
  *                  speech cancel                 end and DISCARD (nothing more arrives)
  *   shell → page   speech ready                  this shell can dictate
  *                  speech state <listening|processing|idle>
- *                  speech final <text>           one recognized stretch (the shell restarts listening after pauses)
+ *                  speech partial <text>         the recognizer's current guess for the stretch being spoken (replaces the last partial)
+ *                  speech final <text>           one recognized stretch (replaces the partial; the shell restarts listening after pauses)
  *                  speech error <code> [detail]  codes: permission, unavailable, language, network, busy, other
  */
 
@@ -26,6 +27,7 @@ export type SpeechState = "listening" | "processing" | "idle";
 export type SpeechEvent =
 	| { kind: "ready" }
 	| { kind: "state"; state: SpeechState }
+	| { kind: "partial"; text: string }
 	| { kind: "final"; text: string }
 	| { kind: "error"; code: SpeechErrorCode; detail: string };
 
@@ -57,6 +59,8 @@ export function decodeSpeechLine(line: string): SpeechEvent | null {
 			return { kind: "ready" };
 		case "state":
 			return arg === "listening" || arg === "processing" || arg === "idle" ? { kind: "state", state: arg } : null;
+		case "partial":
+			return arg ? { kind: "partial", text: arg } : null;
 		case "final":
 			return arg ? { kind: "final", text: arg } : null;
 		case "error": {

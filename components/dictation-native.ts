@@ -48,6 +48,7 @@ export function nativeSpeechReady(): boolean {
 
 export interface NativeSpeechHandlers {
 	onState(state: SpeechState): void;
+	onPartial(text: string): void;
 	onFinal(text: string): void;
 	onError(code: SpeechErrorCode, detail: string): void;
 }
@@ -71,6 +72,7 @@ export function startNativeSpeech(language: LessonLanguage, handlers: NativeSpee
 		const e: SpeechEvent | null = decodeSpeechLine(lineOf(event.data));
 		if (!e) return;
 		if (e.kind === "state") handlers.onState(e.state);
+		else if (e.kind === "partial") handlers.onPartial(e.text);
 		else if (e.kind === "final") handlers.onFinal(e.text);
 		else if (e.kind === "error") handlers.onError(e.code, e.detail);
 	};
@@ -97,4 +99,59 @@ export function startNativeSpeech(language: LessonLanguage, handlers: NativeSpee
 export function resetNativeSpeechForTests(): void {
 	ready = false;
 	probing = false;
+}
+
+/** A dictation target: adds a piece, or with `withdraw` takes one back (the same contract as components/dictation.tsx). */
+type Target = (text: string, withdraw?: boolean) => void;
+
+export interface LiveTranscript {
+	/** The recognizer's current guess: shown in the field at once and replaced by the next partial or the final. */
+	partial(text: string): void;
+	/** A stretch is done: the partial (if any) is replaced by it, and it stays. */
+	final(text: string): void;
+	/** Esc: everything this run put in the field is taken back out, newest first. */
+	discard(): void;
+	/** The run ended: what is in the field stays as it is. */
+	settle(): void;
+}
+
+/**
+ * Words appear as they are spoken, like a keyboard's voice typing (owner, 2026-10-28): each partial replaces the last in
+ * the field it went to, and a final replaces the partial. `resolveTarget` is asked for the field at the first piece of a
+ * stretch, so a question that takes the claim mid-run gets the next stretch; a stretch stays in the field it began in.
+ */
+export function createLiveTranscript(resolveTarget: () => Target): LiveTranscript {
+	let current: { text: string; target: Target } | null = null;
+	const delivered: Array<{ text: string; target: Target }> = [];
+	const clearPartial = (): Target | null => {
+		if (!current) return null;
+		const { text, target } = current;
+		target(text, true);
+		current = null;
+		return target;
+	};
+	return {
+		partial(text) {
+			const t = text.trim();
+			if (!t || current?.text === t) return;
+			const target = clearPartial() ?? resolveTarget();
+			target(t);
+			current = { text: t, target };
+		},
+		final(text) {
+			const t = text.trim();
+			const target = clearPartial() ?? resolveTarget();
+			if (!t) return;
+			target(t);
+			delivered.push({ text: t, target });
+		},
+		discard() {
+			clearPartial();
+			for (const { text, target } of delivered.splice(0).reverse()) target(text, true);
+		},
+		settle() {
+			current = null;
+			delivered.length = 0;
+		},
+	};
 }
