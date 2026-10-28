@@ -28,6 +28,12 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 	/** The last partial sent, so an unchanged guess is not sent twice. */
 	private var lastPartial = ""
 	private var lastLevel = ""
+	/** True while this app captures the microphone and feeds the recognizer (see [LevelMeter]). */
+	private var micOwned = false
+	private val meter = LevelMeter { level ->
+		val line = SpeechWire.level(level)
+		main.post { if (line != lastLevel) { lastLevel = line; if (recognizer != null) post(line) } }
+	}
 
 	/** One line from the page (on the main thread). `reply` posts a line back. */
 	fun handle(line: String, reply: (String) -> Unit) {
@@ -65,7 +71,8 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 		val r = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
 		recognizer = r
 		r.setRecognitionListener(listener)
-		r.startListening(intent)
+		micOwned = meter.start()
+		listen(r)
 		post(SpeechWire.state("listening"))
 	}
 
@@ -97,12 +104,8 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 
 		override fun onReadyForSpeech(params: Bundle?) = Unit
 		override fun onBeginningOfSpeech() = Unit
-		override fun onRmsChanged(rmsdB: Float) {
-			val line = SpeechWire.level(rmsdB)
-			if (line == lastLevel) return
-			lastLevel = line
-			post(line)
-		}
+		// the recognizer's own level arrives in bursts every 0.64 s: the meter uses [LevelMeter] instead
+		override fun onRmsChanged(rmsdB: Float) = Unit
 
 		override fun onBufferReceived(buffer: ByteArray?) = Unit
 		override fun onEndOfSpeech() = Unit
@@ -118,7 +121,20 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 
 	private fun listenAgain() {
 		lastPartial = ""
-		recognizer?.startListening(intent)
+		recognizer?.let { listen(it) }
+	}
+
+	/** One listening session. When this app owns the microphone ([LevelMeter]) the recognizer is fed its audio through a fresh pipe. */
+	private fun listen(r: SpeechRecognizer) {
+		val i = intent ?: return
+		if (!micOwned) return r.startListening(i)
+		val source = meter.newSource()
+		i.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, source)
+			.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, LevelMeter.RATE)
+			.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
+			.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, android.media.AudioFormat.ENCODING_PCM_16BIT)
+		r.startListening(i)
+		// startListening hands the intent over later: the meter keeps our end of the pipe open until the next session or the end
 	}
 
 	/** The page asked to stop: the recognizer finishes what it has (a final may still arrive), then the state goes idle. */
@@ -151,6 +167,7 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 	private fun error(code: String, detail: String = "") = post(SpeechWire.error(code, detail))
 
 	private fun release() {
+		meter.stop()
 		wanted = false
 		stopping = false
 		recognizer?.let {
@@ -216,8 +233,8 @@ object SpeechWire {
 	/** One recognized stretch; line breaks would end the message early, so they become spaces. */
 	fun final(text: String): String = "speech final " + text.replace(Regex("""\s+"""), " ").trim()
 
-	/** The recognizer's loudness in dB (about -2 for silence up to 10 for loud speech) as a 0..1 level, two decimals. */
-	fun level(rmsdB: Float): String = "speech level " + String.format(java.util.Locale.ROOT, "%.2f", ((rmsdB + 2f) / 12f).coerceIn(0f, 1f))
+	/** The microphone's loudness as a 0..1 level ([LevelMeter.levelOf]), two decimals. */
+	fun level(level: Float): String = "speech level " + String.format(java.util.Locale.ROOT, "%.2f", level.coerceIn(0f, 1f))
 
 	fun error(code: String, detail: String = ""): String = ("speech error $code " + detail.replace(Regex("""\s+"""), " ")).trim()
 }
