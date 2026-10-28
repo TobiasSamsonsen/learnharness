@@ -5,13 +5,14 @@ import { ArrowDownIcon, ChevronRightIcon, PenLineIcon, PlayIcon } from "lucide-r
 import { Button } from "@/components/ui/button";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { enterSends, useEnterSubmits } from "@/components/enter-submits";
-import { MessageResponse } from "@/components/ai-elements/message";
+import { ToolContentResponse } from "@/components/ai-elements/message";
 import { FigureScope } from "@/components/figures/figure-scope";
 import { SketchChoices } from "@/components/sketch/sketch-choices";
 import { SketchView } from "@/components/sketch/sketch-view";
 import { cn } from "@/lib/utils";
 import {
 	buildAnswer,
+	repairMathForDisplay,
 	normalizeQuizType,
 	CONFIDENCE_STOPS,
 	nearestConfidenceStop,
@@ -33,6 +34,7 @@ import {
 	type DockSelection,
 	type ExplainToolInput,
 	type QuestionAnswerData,
+	type QuestionFormDraft,
 	type QuestionData,
 	type QuestionMode,
 	type QuizToolInput,
@@ -79,6 +81,9 @@ export interface QuestionDockProps {
 	/** A sketch submit (Android plan M1, text mode) passes the handwriting;
 	 *  the answer then carries its ref. */
 	onSubmit: (output: QuestionAnswerData, sketch?: SketchPayload) => Promise<boolean> | void;
+	/** Restore only this call's unconfirmed submission after recovery. */
+	initialDraft?: QuestionFormDraft;
+	onSaveDraft?: (draft: QuestionFormDraft) => void;
 	/** The session's model reads images — text mode then offers "Open in
 	 *  sketch" (a text-only model would silently drop the pages). */
 	sketchAvailable?: boolean;
@@ -111,6 +116,8 @@ export function QuestionDock({
 	reveal = false,
 	onExpand,
 	onSubmit,
+	initialDraft,
+	onSaveDraft,
 	onEscape,
 	phase = "probe",
 	dictationClaim = true,
@@ -167,6 +174,8 @@ export function QuestionDock({
 					phase={phase}
 					active={expanded}
 					onSubmit={onSubmit}
+					initialDraft={initialDraft}
+					onSaveDraft={onSaveDraft}
 					onEscape={onEscape}
 					dictationClaim={dictationClaim}
 					compactionRunning={compactionRunning}
@@ -179,7 +188,7 @@ export function QuestionDock({
 
 /** A plain-text teaser of a question for the collapsed bar: unwrap math, flatten common LaTeX. */
 function teaserText(q: string): string {
-	return q
+	return repairMathForDisplay(q)
 		.replace(/\\\(([\s\S]*?)\\\)/g, "$1") // \(...\) inline math
 		.replace(/\\\[([\s\S]*?)\\\]/g, "$1") // \[...\] display math
 		.replace(/\$\$?([^$]*)\$\$?/g, "$1") // standard $...$/$$...$$ math
@@ -263,6 +272,8 @@ function QuestionDockForm({
 	phase = "probe",
 	active,
 	onSubmit,
+	initialDraft,
+	onSaveDraft,
 	onEscape,
 	dictationClaim = true,
 	compactionRunning = false,
@@ -325,22 +336,23 @@ function QuestionDockForm({
 	// single-select displaces, multi-select coexists — picking the ask
 	// "Other…" row in a multi-select must never clear already-picked
 	// options, and picking an option must never clear a typed custom answer.
-	const [sel, setSel] = useState<DockSelection>(emptyDockSelection());
+	const [sel, setSel] = useState<DockSelection>(() => initialDraft?.selection ?? emptyDockSelection());
 	// The learner's transfer channel — thinking, never "a note".
-	const [thinking, setThinking] = useState("");
-	const [other, setOther] = useState("");
-	const [text, setText] = useState("");
+	const [thinking, setThinking] = useState(initialDraft?.thinking ?? "");
+	const [other, setOther] = useState(initialDraft?.other ?? "");
+	const [text, setText] = useState(initialDraft?.text ?? "");
 	/* Refs MIRROR the two dictation-target fields ("nothing gets lost"
 	 * round, owner 2026-10-01): the run's flush lands via setState, which
 	 * a closure waiting through `await finishDictation()` cannot observe
 	 * in time — submit reads these, kept current at every write site. */
-	const thinkingTextRef = useRef("");
-	const answerTextRef = useRef("");
+	const thinkingTextRef = useRef(initialDraft?.thinking ?? "");
+	const answerTextRef = useRef(initialDraft?.text ?? "");
 	// Confidence (owner, 2026-10-01): an index into CONFIDENCE_STOPS, or
 	// null while unset — NO default (owner, 2026-10-25): a picked quiz
 	// answer cannot be sent until the learner chooses a stop. The dock
-	// unmounts between questions, so each question starts unset.
-	const [confIdx, setConfIdx] = useState<number | null>(null);
+	// unmounts between questions, so each question starts unset (a recovered
+	// unconfirmed submission restores what was chosen).
+	const [confIdx, setConfIdx] = useState<number | null>(initialDraft?.confidenceIndex ?? null);
 	const [sketching, setSketching] = useState(false);
 	// A switch to a text-only model closes an open sketch (its ink stays).
 	useEffect(() => {
@@ -413,6 +425,15 @@ function QuestionDockForm({
 	});
 	const doSubmit = () => {
 		if (!canSubmit) return;
+		// Snapshot before optimistic submission unmounts the form. Ref values
+		// include the dictation finals that just landed, unlike stale closures.
+		onSaveDraft?.({
+			selection: { ...sel, selected: new Set(sel.selected) },
+			thinking: thinkingTextRef.current,
+			other,
+			text: answerTextRef.current,
+			confidenceIndex: confIdx,
+		});
 		onSubmit(buildAnswer(qd, buildRequest(), toolName));
 	};
 	/* The sketch submit (Android plan M1 + M3): in text mode the sketch
@@ -587,7 +608,7 @@ function QuestionDockForm({
 			{/* Question area — scrolls internally if very tall; the bottom row stays put.
 			    Capped by the measured column (--dock-max-h; the old fixed 55dvh cut
 			    long questions short — owner round, 2026-10-05). */}
-			<div data-session-find-root="" className="max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3">
+			<div data-dock-scroll-area="" data-session-find-root="" className="max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3">
 				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					{toolName === "probe"
 						? "Probe"
@@ -603,11 +624,11 @@ function QuestionDockForm({
 					{qd.mode === "multi-select" && " · select all that apply"}
 				</div>
 				<div className="mb-3 font-medium">
-					<MessageResponse>{qd.question}</MessageResponse>
+					<ToolContentResponse>{qd.question}</ToolContentResponse>
 				</div>
 				{qd.context && (
 					<div className="mb-3 text-sm text-muted-foreground">
-						<MessageResponse>{qd.context}</MessageResponse>
+						<ToolContentResponse>{qd.context}</ToolContentResponse>
 					</div>
 				)}
 
@@ -643,7 +664,7 @@ function QuestionDockForm({
 										)}
 									</span>
 									<span>
-										<MessageResponse>{opt.label}</MessageResponse>
+										<ToolContentResponse>{opt.label}</ToolContentResponse>
 										{kind !== "quiz" && opt.description && (
 											// Option subtext renders in Source Sans 3 (owner's mockup);
 											// the "I don't know" copy stays JetBrains Mono. QUIZ options render
@@ -652,9 +673,9 @@ function QuestionDockForm({
 											// records must not leak either. Same MessageResponse path as the
 											// label (owner, 2026-10-12): descriptions are full markdown —
 											// LaTeX included — not plain text.
-											<MessageResponse className="lh-prose block text-xs text-muted-foreground">
+											<ToolContentResponse className="lh-prose block text-xs text-muted-foreground">
 												{opt.description}
-											</MessageResponse>
+											</ToolContentResponse>
 										)}
 									</span>
 								</button>

@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
 import type { NextConfig } from "next";
 import { MATERIAL_MAX_BYTES } from "./src/core/materials.ts";
+
+const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string; homepage: string };
 
 const nextConfig: NextConfig = {
 	// UPLOADS (2026-10-25): proxy.ts guards every /api route, and with a
@@ -11,6 +14,8 @@ const nextConfig: NextConfig = {
 	experimental: {
 		proxyClientMaxBodySize: MATERIAL_MAX_BYTES + 1024 * 1024,
 	},
+	// Public build metadata only; no new runtime Electron version API.
+	env: { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage },
 	// Desktop target (Electron wrapper, 2026-09-17): standalone output = a
 	// self-contained .next/standalone/server.js the Electron shell spawns
 	// on 127.0.0.1. Harmless for plain web deploys (extra build output).
@@ -53,6 +58,9 @@ const nextConfig: NextConfig = {
 		"*": [
 			"**/data/**/*",
 			"auth.json",
+			"chatgpt-credentials.json*",
+			"github-copilot-credentials.json*",
+			"xai-credentials.json*",
 			".env*",
 		],
 	},
@@ -84,6 +92,11 @@ const nextConfig: NextConfig = {
 			// per-platform-binary story as the canvas above (one per build).
 			"node_modules/@resvg/resvg-js-*/**/*",
 			"node_modules/@earendil-works/pi-ai/dist/providers/data/**/*",
+			// Public native OAuth factories load these flows through variable imports.
+			// Electron main uses the same standalone SDK; the offline runtime gate
+			// evaluates their real toAuth paths without login or provider requests.
+			"node_modules/@earendil-works/pi-ai/dist/auth/oauth/{load,github-copilot,xai,device-code}.js",
+			"node_modules/@earendil-works/pi-ai/dist/utils/sleep.js",
 			"node_modules/@earendil-works/pi-agent-core/dist/**/*.json",
 			// Next 16.3.2 native Turbopack applies unanchored excludes while
 			// traversing modules; **/data/**/* still prunes gcp-metadata and

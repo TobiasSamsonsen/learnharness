@@ -10,51 +10,10 @@ import { MenuShell } from "@/components/menu-shell";
 import { useBackLayer } from "./back-layers.ts";
 import { Hint } from "@/components/ui/hint";
 import { cn } from "@/lib/utils";
-import { notifySettingsSaved, onSettingsSaved, useSettingsSaved } from "@/components/settings-signal";
+import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
+import { useModelCatalog } from "@/components/model-catalog";
+export { useModelCatalog } from "@/components/model-catalog";
 import { defaultOrderLevel, populateLevel, THINKING_LABEL } from "@/components/thinking-default";
-
-/** GET /api/models is cached per page load for instant menu opens, but
- *  the federation is LIVE per call — keys saved mid-session widen the
- *  catalog immediately server-side. ModelControl therefore re-fetches on
- *  every model-menu open (stale-while-revalidate: the cached list shows
- *  instantly, the fresh one swaps in while the menu is open). */
-let catalogCache: ModelCatalogResponse | undefined;
-let catalogInflight: Promise<void> | undefined;
-let catalogGeneration = 0;
-let stopCatalogSignals: (() => void) | undefined;
-const catalogReaders = new Set<() => void>();
-const publishCatalog = () => { for (const reader of catalogReaders) reader(); };
-function fetchCatalog(revalidate = false): void {
-	if (revalidate) { catalogGeneration++; catalogInflight = undefined; }
-	if (catalogInflight) return;
-	const generation = catalogGeneration;
-	catalogInflight = fetch("/api/models")
-		.then((r) => { if (!r.ok) throw new Error(`catalog request failed: ${r.status}`); return r.json() as Promise<ModelCatalogResponse>; })
-		.then((c) => { if (generation === catalogGeneration) { catalogCache = c; publishCatalog(); } })
-		.catch(() => { /* existing unavailable/usage-only posture, no retry timer */ })
-		.finally(() => { if (generation === catalogGeneration) catalogInflight = undefined; });
-}
-export function useModelCatalog(): { catalog: ModelCatalogResponse | undefined; refresh: () => void } {
-	const [catalog, setCatalog] = useState(catalogCache);
-	useEffect(() => {
-		const first = catalogReaders.size === 0;
-		const read = () => setCatalog(catalogCache);
-		catalogReaders.add(read);
-		if (first) {
-			stopCatalogSignals = onSettingsSaved((section) => {
-				if (section === "keys") {
-					catalogGeneration++; catalogInflight = undefined; catalogCache = undefined;
-					publishCatalog(); fetchCatalog();
-				} else if (section === "models") fetchCatalog(true);
-			});
-			fetchCatalog(true);
-		} else fetchCatalog();
-		read();
-		return () => { catalogReaders.delete(read); if (!catalogReaders.size) { stopCatalogSignals?.(); stopCatalogSignals = undefined; } };
-	}, []);
-	const refresh = useCallback(() => fetchCatalog(true), []);
-	return { catalog, refresh };
-}
 
 /** provider:id → contextWindow over the cached catalog — the client-side
  *  twin of the server's catalogContextLimits join (context-meter
@@ -86,7 +45,9 @@ export function catalogLimits(catalog: Pick<ModelCatalogResponse, "models">): Ma
 export function ModelControl({ chatId, onModelChange }: { chatId?: string; onModelChange?: (model: string | undefined) => void }) {
 	const { catalog, refresh } = useModelCatalog();
 	const [models, setModels] = useState<ModelsSettings | undefined>();
-	const [session, setSession] = useState<ChatSettings | undefined>();
+	// A successful read with no settings is a legacy session; undefined
+	// means no session record is known yet, not permission to inherit Strong.
+	const [session, setSession] = useState<{ settings?: ChatSettings }>();
 	const [open, setOpen] = useState<"model" | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -101,8 +62,8 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	const readRecord = useCallback(() => {
 		if (chatId) {
 			fetch(`/api/chats/${chatId}`)
-				.then((r) => r.json() as Promise<{ settings?: ChatSettings }>)
-				.then((body) => setSession(body.settings))
+				.then((r) => { if (!r.ok) throw new Error(`session read failed: ${r.status}`); return r.json() as Promise<{ settings?: ChatSettings }>; })
+				.then((body) => setSession({ settings: body.settings }))
 				.catch(() => {
 					/* same read-only posture as a models-section failure */
 				});
@@ -127,15 +88,17 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	});
 
 	// Dual-bound truth: chat mode displays the session's own record,
-	// falling back to the strong slot for legacy unstamped sessions —
-	// EXACTLY what resolveConversationSpec runs. Draft mode is the strong
-	// slot itself.
+	// falling back to Strong only for a successfully read legacy unstamped
+	// session — EXACTLY what resolveConversationSpec runs. An unresolved or
+	// failed record read must not report a provisional global preference as
+	// this session's identity (including to the Send guard). Draft mode is
+	// the strong slot itself.
 	const strong = models?.strong;
 	const override: ChatSettings | undefined = chatId
-		? {
-				model: session?.model ?? strong?.model,
-				thinkingLevel: session?.thinkingLevel ?? strong?.thinkingLevel,
-			}
+		? session ? {
+				model: session.settings?.model ?? strong?.model,
+				thinkingLevel: session.settings?.thinkingLevel ?? strong?.thinkingLevel,
+			} : undefined
 		: strong;
 	const effectiveId = override?.model?.id;
 	const effectiveProvider = override?.model?.provider;
@@ -240,7 +203,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 					return;
 				}
 				const stored = (await res.json().catch(() => null)) as { settings?: ChatSettings } | null;
-				setSession(stored?.settings ?? next);
+				setSession({ settings: stored?.settings ?? next });
 				setOpen(null);
 			} catch {
 				setError("Could not reach the server — try again.");
@@ -258,7 +221,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 			if (chatId) {
 				// Replace-whole PUT: the lesson's other fields (its language)
 				// ride along so a model pick never clears them.
-				void saveChat({ ...session, model: { provider, id }, thinkingLevel: level });
+				void saveChat({ ...session?.settings, model: { provider, id }, thinkingLevel: level });
 			} else {
 				// composeSlotModel's empty-string convention: no level = unset.
 				void save(composeSlotModel(models, "strong", provider, id, level ?? ""));
@@ -338,10 +301,15 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 					className="lh-touch flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 whitespace-nowrap shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted"
 				>
 					<span className="text-card-foreground">{effectiveId ? prettyModel(effectiveId) : "—"}</span>
-					<span aria-hidden className="text-muted-foreground">·</span>
-					<span className="text-muted-foreground">
-						{effectiveLevel === undefined ? "—" : (THINKING_LABEL[effectiveLevel] ?? effectiveLevel)}
-					</span>
+					{/* a session still loading has no model yet: one dash, not a pair */}
+					{!(chatId && !session) && (
+						<>
+							<span aria-hidden className="text-muted-foreground">·</span>
+							<span className="text-muted-foreground">
+								{effectiveLevel === undefined ? "—" : (THINKING_LABEL[effectiveLevel] ?? effectiveLevel)}
+							</span>
+						</>
+					)}
 					<span aria-hidden className="text-xs text-muted-foreground">▾</span>
 				</button>
 			</Hint>

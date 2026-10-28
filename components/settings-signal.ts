@@ -22,7 +22,7 @@ export const SETTINGS_SAVED_EVENT = "lh:settings-saved";
 // the zero-keys pill and the setup dialog's auto-advance.
 // "lesson" (fork addition): one lesson's own record changed (its language),
 // so every control reading that record re-reads.
-export type SettingsSection = "general" | "keys" | "agent" | "models" | "appearance" | "graph" | "compaction" | "lesson";
+export type SettingsSection = "general" | "keys" | "agent" | "models" | "appearance" | "graph" | "compaction" | "lesson" | "dictation";
 
 /** Writers call this after the PUT resolves ok — never before (a failed
  *  write notifies nothing; the record is unchanged). */

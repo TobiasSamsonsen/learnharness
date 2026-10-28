@@ -64,6 +64,14 @@ describe("proseGateBlocks (the pure rule)", () => {
 		assert.equal(proseGateBlocks(answered, next, "q2", "explain"), true, "free recall is gated too");
 	});
 
+	it("a send_to_user message is prose (Claude's explicit output channel)", () => {
+		const sent = { type: "toolCall" as const, id: "s1", name: "send_to_user", arguments: { message: "Not quite: …" } };
+		assert.equal(proseGateBlocks(answered, assistant([sent, call("q2")]), "q2", "quiz"), false);
+		const next = assistant([call("q2")]);
+		const earlier = assistant([sent, call("q2")]);
+		assert.equal(proseGateBlocks([...answered, earlier, result("q2", "quiz")], next, "q3", "quiz"), true, "a delivered message does not carry past the next answer");
+	});
+
 	it("thinking is not prose", () => {
 		const next = assistant([{ type: "thinking", thinking: "I'll show a table" }, call("q2")]);
 		assert.equal(proseGateBlocks(answered, next, "q2", "quiz"), true);

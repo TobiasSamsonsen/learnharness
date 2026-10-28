@@ -35,6 +35,7 @@ import {
 	type BackgroundModelRole,
 	type FactorySettings,
 	type GeneralSettings,
+	type DictationSettings,
 	type CompactionSettings,
 	type GraphSettings,
 	type ModelSlot,
@@ -69,6 +70,7 @@ export type EffectiveAppearance = FactorySettings["appearance"];
 /** The concrete view: every knob resolved, no absent fields. */
 export interface EffectiveSettings {
 	general: Required<GeneralSettings>;
+	dictation: Required<DictationSettings>;
 	agent: {
 		models: Record<BackgroundModelRole, EffectiveModelSpec | undefined>;
 		/** Delta map as stored — consumers resolve absent key → enabled. */
@@ -177,6 +179,9 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			autoUpdate: record?.general?.autoUpdate ?? FACTORY_SETTINGS.general.autoUpdate,
 			language: record?.general?.language ?? FACTORY_SETTINGS.general.language,
 			dictationEngine: record?.general?.dictationEngine ?? FACTORY_SETTINGS.general.dictationEngine,
+		},
+		dictation: {
+			language: record?.dictation?.language ?? FACTORY_SETTINGS.dictation.language,
 		},
 		agent: {
 			models,

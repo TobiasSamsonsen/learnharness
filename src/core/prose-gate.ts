@@ -17,6 +17,7 @@
  */
 
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import { sendToUserText } from "./native-messages.ts";
 import { LEAD_TOOLS, leadOf, tutorProse } from "./tutor-prose.ts";
 
 /** The teach-side question tools the gate guards (the ones that carry a
@@ -71,10 +72,12 @@ export function proseGateRefusedLast(history: readonly unknown[]): boolean {
 	return false;
 }
 
-/** Prose reached the learner: a text block, or a question call's `lead`
- *  (a call in `rejected` was never posed, so its lead was never shown). */
+/** Prose reached the learner: a text block, a question call's `lead`, or a
+ *  `send_to_user` message (Claude's explicit output channel; a call in
+ *  `rejected` was never posed or delivered, so nothing in it was shown). */
 const hasText = (blocks: AssistantMessage["content"], rejected?: ReadonlySet<string>): boolean =>
-	tutorProse(blocks, rejected).length > 0;
+	tutorProse(blocks, rejected).length > 0 ||
+	blocks.some((b) => sendToUserText(b) !== undefined && !(b.type === "toolCall" && rejected?.has(b.id)));
 
 /**
  * Should this question call be refused? `history` = the conversation

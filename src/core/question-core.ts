@@ -579,6 +579,21 @@ export interface DockSelection {
 
 export const emptyDockSelection = (): DockSelection => ({ selected: new Set(), otherSelected: false, dontKnow: false });
 
+/** In-memory submission snapshot: survives the question form's optimistic
+ * unmount, never written to storage. Indices use the call's stable shuffle. */
+export interface QuestionFormDraft {
+	selection: DockSelection;
+	thinking: string;
+	other: string;
+	text: string;
+	confidenceIndex: number | null;
+}
+
+export interface QuestionDraft {
+	form?: QuestionFormDraft;
+	readingThinking?: string;
+}
+
 /**
  * Toggling a listed option. Single-select: the option becomes THE answer and
  * displaces "Other". Multi-select: the option toggles alongside its siblings

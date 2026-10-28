@@ -168,6 +168,10 @@ If whisper.cpp fails, the transcription fails (the recording is kept; **Retry** 
 
 To use Deepgram's cloud engine instead, choose *Deepgram (cloud)* under Settings → General → Dictation engine and add a Deepgram key; it gets the lesson's language too.
 
+### Cloud dictation (Deepgram, optional)
+
+Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Providers → Dictation**, then pick the Deepgram engine under Settings → General. The cloud engine's language is the **dictation language** chosen below the key (**Multilingual** supports automatic recognition and mixed-language speech); it does not follow the lesson's language, unlike the local engine. A `403 Insufficient permissions` error during token minting can indicate an insufficient key role.
+
 ### Headless server (optional)
 
 Run the standalone server (`node .next/standalone/server.js`) on a device you reach through a browser, as the Android setup does (see [docs/android/plan.md](docs/android/plan.md)). By default it is open to anything that can reach its port, as on a desktop. To lock it down, set:

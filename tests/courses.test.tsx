@@ -830,7 +830,7 @@ describe("the course tools", () => {
 		assert.match(prompt, /placement tester/);
 		assert.match(prompt, /Solve it before you write a single option/, "the shared question craft composes");
 		assert.doesNotMatch(prompt, /# Teach — one step at a time/, "no teaching doctrine");
-		const agent = createPlacementAgent({ skills }, { engine: { model: {} as never, streamFn: (() => {}) as never } });
+		const agent = createPlacementAgent({ skills }, { engine: { model: { id: "fixture" } as never, streamFn: (() => {}) as never } });
 		assert.deepEqual(agent.state.tools.map((t) => t.name).sort(), ["ask_user_question", "circuit_solve", "figure_guide", "probe", "read_sketch"]);
 	});
 

@@ -19,6 +19,10 @@ import {
 	type LocalSttStatus,
 	type UserSettings,
 } from "@/src/core";
+import { deepgramListenUrl, type DictationLanguage } from "@/src/core";
+import { useDictationLanguage } from "@/components/dictation-preference";
+import { setDictationActive } from "@/components/dictation-state";
+export { isDictationActive } from "@/components/dictation-state";
 
 /**
  * Voice dictation — the cloud engine (STT wave 1, 2026-09-17).
@@ -99,22 +103,10 @@ import {
 /*
  * Deepgram streaming params (the owner's live-tuned dictate config): nova-3,
  * endpointing=300, no interims. Silence streams too (the worklet never
- * pauses), so the socket never idles — no KeepAlive needed. The language
- * is the lesson's (fork addition): nova-3 takes "en" and "no".
+ * pauses), so the socket never idles — no KeepAlive needed. The URL is built
+ * in the browser-safe core (deepgramListenUrl); only the language varies, and
+ * it is the global dictation language setting (Settings → Providers → Dictation).
  */
-export function deepgramUrl(language: LessonLanguage): string {
-	return (
-		"wss://api.deepgram.com/v1/listen" +
-		"?model=nova-3" +
-		`&language=${lessonLanguageInfo(language).deepgram}` +
-		"&encoding=linear16" +
-		"&sample_rate=16000" +
-		"&channels=1" +
-		"&smart_format=true" +
-		"&punctuate=true" +
-		"&endpointing=300"
-	);
-}
 
 /*
  * THE LOCAL ENGINE (fork addition, 2026-10-24): on-device Whisper behind
@@ -133,18 +125,13 @@ export interface DictationConfig {
 	language: LessonLanguage;
 }
 
-async function readDictationConfig(chatId: string | undefined): Promise<DictationConfig> {
-	const settings = await fetch("/api/settings")
-		.then((r) => r.json() as Promise<{ settings: UserSettings | null }>)
-		.then((b) => b.settings)
-		.catch(() => null);
-	const engine = settings?.general?.dictationEngine ?? DEFAULT_DICTATION_ENGINE;
-	if (!chatId) return { engine, language: settings?.general?.language ?? DEFAULT_LESSON_LANGUAGE };
-	const lesson = await fetch(`/api/chats/${chatId}`)
+/** This lesson's own settings (its language), or undefined on a draft page or when unreadable. */
+async function readLessonSettings(chatId: string | undefined): Promise<ChatSettings | undefined> {
+	if (!chatId) return undefined;
+	return fetch(`/api/chats/${chatId}`)
 		.then((r) => r.json() as Promise<{ settings?: ChatSettings }>)
 		.then((b) => b.settings)
 		.catch(() => undefined);
-	return { engine, language: resolveLessonLanguage(lesson) };
 }
 
 /** The stop-phase line while the local engine works: a first-run model
@@ -300,16 +287,6 @@ export function rmsToMeter(rms: number): number {
  */
 let questionTarget: DictationAppend | null = null;
 
-/* Is a dictation run live on this page? The Esc chain (keyboard wave A,
- * components/keyboard-shortcuts.tsx) needs a SYNCHRONOUS answer — the
- * stop handler can't report back through a CustomEvent. Set at start(),
- * cleared in cleanup() (every terminal path runs through cleanup). */
-let dictationActiveFlag = false;
-
-export function isDictationActive(): boolean {
-	return dictationActiveFlag;
-}
-
 /* The finisher registry: submit paths FAR from the hook's owner (the
  * pending question's dock) need finish() without a prop bridge. Same
  * module-level pattern as questionTarget — one window, one instance,
@@ -395,13 +372,15 @@ export type Dictation = {
  * question waits.
  */
 export function useDictation({ append, chatId }: { append: DictationAppend; chatId?: string }): Dictation {
+	const { getLanguage, getGeneral, load } = useDictationLanguage();
 	const [phase, setPhase] = useState<DictationPhase>("idle");
 	const [error, setError] = useState<string | null>(null);
 	const [stopLabel, setStopLabel] = useState<string | null>(null);
-	/** Engine + language, re-read when the settings or this lesson change;
-	 *  a run keeps the config it STARTED with (runConfigRef). */
-	const configRef = useRef<DictationConfig>({ engine: DEFAULT_DICTATION_ENGINE, language: DEFAULT_LESSON_LANGUAGE });
-	const runConfigRef = useRef<DictationConfig>(configRef.current);
+	/** Engine + language of the run in progress (or the last one): resolved at start from the shared settings read
+	 *  and this lesson's own language, and kept for the whole run (stop, retry, warm tokens). */
+	const runConfigRef = useRef<DictationConfig>({ engine: DEFAULT_DICTATION_ENGINE, language: DEFAULT_LESSON_LANGUAGE });
+	/** This lesson's settings, re-read when the lesson settings change. */
+	const lessonRef = useRef<ChatSettings | undefined>(undefined);
 	/** The local engine's LIVE run (owner, 2026-10-25 — dictation-live.ts):
 	 *  the segmenter cuts the recording at pauses, the queue transcribes each
 	 *  piece while the learner keeps talking, and every delivered piece is
@@ -420,16 +399,22 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 	/** What that run has put in the field so far: its live partial and its finals (Esc takes them back out). */
 	const transcriptRef = useRef<LiveTranscript | null>(null);
 	useEffect(() => probeNativeSpeech(), []);
-	const refreshConfig = useCallback(() => {
-		void readDictationConfig(chatId).then((c) => {
-			configRef.current = c;
-			// pre-mint for a Deepgram page (mitigation D) — silent if keyless
-			if (c.engine === "deepgram") warmTokens.refresh();
+	const refreshLesson = useCallback(() => {
+		void readLessonSettings(chatId).then((s) => {
+			lessonRef.current = s;
 		});
 	}, [chatId]);
-	useEffect(refreshConfig, [refreshConfig]);
+	useEffect(refreshLesson, [refreshLesson]);
+	/** Pre-mint for a Deepgram page (mitigation D) — silent if keyless. The engine comes from the shared settings read. */
+	const warmForEngine = useCallback(() => {
+		void getGeneral().then((g) => {
+			if (g.engine === "deepgram") warmTokens.refresh();
+		});
+	}, [getGeneral]);
+	useEffect(warmForEngine, [warmForEngine]);
 	useSettingsSaved((section) => {
-		if (section === "general" || section === "lesson") refreshConfig();
+		if (section === "lesson") refreshLesson();
+		if (section === "general") void load(true).catch(() => {}).then(warmForEngine);
 	});
 	/** Latest RMS from the worklet — the meter samples this (dictate pattern). */
 	const levelRef = useRef(0);
@@ -471,9 +456,9 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 	}, []);
 
 	/** Full teardown of one run's machinery. Idempotent; generation-guarded by callers. */
-	const cleanup = useCallback(() => {
+	const cleanup = useCallback((warmNext = true) => {
 		genRef.current++;
-		dictationActiveFlag = false;
+		setDictationActive(false);
 		nativeRef.current?.dispose();
 		nativeRef.current = null;
 		transcriptRef.current?.settle(); // what is in the field stays
@@ -510,16 +495,16 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 		for (const w of waitersRef.current.splice(0)) w();
 		// Pre-mint for the next run (mitigation D) — best-effort; a keyless
 		// page just doesn't warm. The local engine needs no token.
-		if (configRef.current.engine === "deepgram") warmTokens.refresh();
+		if (warmNext && runConfigRef.current.engine === "deepgram") warmTokens.refresh();
 	}, []);
 
 	/** Open the Deepgram socket and wire its messages. `gen` guards staleness. */
 	const openSocket = useCallback(
-		(gen: number, token: string) => {
+		(gen: number, token: string, language: DictationLanguage) => {
 			// Minted JWTs authenticate via the "bearer" subprotocol — ["token",
 			// jwt] is rejected at the handshake (verified live; "token" is for
 			// raw API keys only, as in the owner's pi dictate extension).
-			const ws = new WebSocket(deepgramUrl(runConfigRef.current.language), ["bearer", token]);
+			const ws = new WebSocket(deepgramListenUrl(language), ["bearer", token]);
 			wsRef.current = ws;
 
 			ws.addEventListener("open", () => {
@@ -561,7 +546,7 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 					reconnectsRef.current++;
 					mintFreshToken() // always FRESH — a stale warm token is the likely culprit
 						.then((t) => {
-							if (gen === genRef.current) openSocket(gen, t);
+							if (gen === genRef.current) openSocket(gen, t, language);
 						})
 						.catch(() => {
 							if (gen === genRef.current) {
@@ -579,7 +564,7 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 	);
 
 	const start = useCallback(async () => {
-		dictationActiveFlag = true;
+		setDictationActive(true);
 		setError(null);
 		// a new recording replaces a failed one's retry
 		failedClipRef.current = null;
@@ -589,7 +574,13 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 		bufferRef.current = []; // fresh run, fresh buffer (round 2)
 		pendingRef.current = []; // fresh run, fresh queue (mitigation A)
 		const gen = ++genRef.current;
-		const config = (runConfigRef.current = configRef.current);
+		// the engine and default language come from the shared settings read: a start waits for it to settle
+		const general = await getGeneral();
+		if (gen !== genRef.current) return;
+		const config = (runConfigRef.current = {
+			engine: general.engine,
+			language: chatId ? resolveLessonLanguage(lessonRef.current) : general.language,
+		});
 		if (nativeSpeechReady()) {
 			// the Android shell's on-device recognizer, streamed like a keyboard's voice typing: every partial replaces the
 			// last in the field, a final replaces its partial and stays (nothing is deferred to the end of the run)
@@ -647,6 +638,19 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 					}
 				})
 				.catch(() => {});
+		}
+		// the Deepgram engine's language is the global dictation setting; the local engine opens no socket
+		let language: DictationLanguage = "en";
+		if (!local) {
+			try {
+				language = await getLanguage();
+			} catch (e) {
+				if (gen !== genRef.current) return;
+				setError(e instanceof Error ? e.message : "Dictation language unavailable");
+				cleanup();
+				return;
+			}
+			if (gen !== genRef.current) return;
 		}
 
 		// Mitigation D: the warm token (pre-minted at mount / after the last
@@ -735,8 +739,8 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 		if (gen !== genRef.current) return;
 		// Mitigation B: the handshake fires the moment the graph is live,
 		// overlapping any remaining token wait — mic-gated, never before it.
-		openSocket(gen, token);
-	}, [openSocket, cleanup]);
+		openSocket(gen, token, language);
+	}, [openSocket, cleanup, getLanguage, getGeneral, chatId]);
 
 	/** The local engine's stop (live, owner 2026-10-25): the last piece joins
 	 *  the queue, the bar shows the model/transcription state until every
@@ -872,7 +876,7 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 		if (phase !== "idle" || !failed) return;
 		failedClipRef.current = null;
 		setCanRetry(false);
-		dictationActiveFlag = true;
+		setDictationActive(true);
 		setError(null);
 		bufferRef.current = [];
 		setPhase("stopping");
@@ -889,6 +893,14 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 	// page; the Esc chain lands here as a CANCEL (owner, round 3). Each
 	// page owns ONE hook instance, and only the mounted page's listener is
 	// attached.
+	useEffect(() => {
+		return () => {
+			// Navigation cancels capture: invalidate every pending await before
+			// releasing resources, and never append into a different page's input.
+			bufferRef.current = [];
+			cleanup(false);
+		};
+	}, [cleanup]);
 	useEffect(() => {
 		window.addEventListener("lh:kbd-toggle-dictation", toggle);
 		return () => window.removeEventListener("lh:kbd-toggle-dictation", toggle);
@@ -939,7 +951,6 @@ export function DictationBar({ dictation, compact = false }: { dictation: Dictat
 	 *  error keeps the old behavior (click = retry, which clears). */
 	const keyless = error === DICTATION_KEYLESS;
 	const [levels, setLevels] = useState<number[]>(() => new Array(METER_CELLS).fill(0));
-	const recording = phase === "recording" || phase === "stopping";
 	/** Adaptive cell count (owner round 2): derived from the meter's
 	 *  measured width — narrow rows show fewer bars instead of
 	 *  overflowing under neighbors. */
@@ -984,10 +995,7 @@ export function DictationBar({ dictation, compact = false }: { dictation: Dictat
 		const retry = dictation.retry;
 		const toggleButton = (
 			<Hint
-				// Errored: the button span truncates the line — the tooltip is its
-				// full reveal (the keyless line KEEPS "Deepgram" — owner overrule:
-				// it's the Keys row label, the truth the user needs). Otherwise the
-				// quiet label + the live ⌘D binding.
+				// The error line truncates in the button; its tooltip reveals it.
 				label={error ?? "Dictate"}
 				action={error ? undefined : "toggle-dictation"}
 				side="top"
@@ -1037,12 +1045,7 @@ export function DictationBar({ dictation, compact = false }: { dictation: Dictat
 
 	return (
 		<div className="flex w-full min-w-0 items-center gap-2" data-testid="dictation-bar">
-			<Hint
-				// The owner flagged this copy good ("Stop dictation (Esc)") —
-				// kept verbatim; only the machinery moved to the styled tooltip.
-				label="Stop dictation (Esc)"
-				side="top"
-			>
+			<Hint label="Stop dictation (Esc)" side="top">
 				<button
 					type="button"
 					onClick={toggle}

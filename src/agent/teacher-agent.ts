@@ -16,16 +16,18 @@ import {
 } from "./tools.ts";
 import { practiceTools, type PracticeToolContext } from "./tools/practice.ts";
 import { placementProbeTool } from "./tools/course.ts";
-import { healToolRecord } from "./tools/heal.ts";
+import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
+import { sendToUserTool } from "./tools/send-to-user.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { figureInputProblems } from "../core/figures/index.ts";
 import { circuitSolveTool, figureGuideTool } from "./tools/figures.ts";
 import { readSketchTool } from "./tools/sketch.ts";
 import { READ_SKETCH_TOOL, isDoubtfulReadResult, sketchIdsOf } from "../core/sketch-gate.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
-import { toLlmMessages, nativeInputCause, type SketchImageResolver } from "../core/native-messages.ts";
+import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL, type SketchImageResolver } from "../core/native-messages.ts";
 import { PROSE_GATED_TOOLS, PROSE_GATE_REASON, proseGateBlocks, proseGateRefusedLast } from "../core/prose-gate.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
+import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } from "../core/language.ts";
 
 /**
@@ -168,11 +170,13 @@ export interface AgentBuildOptions {
  * belt-and-suspenders HALF for the mixed batch (a question + other calls
  * in one message) that terminate-only semantics would let run on — the
  * learner cannot answer while a turn is in flight (per-chat 409), so a
- * cleanly-posed question MUST always end the turn. maxTurns is gone
+ * cleanly-posed question MUST always end the turn. Practice's problem pose
+ * has the same wait-for-the-learner contract, including mixed output/problem
+ * batches; failed poses must still retry. maxTurns is gone
  * (owner ruling 2026-09-25: no maximum-agent-turns net on the teaching
  * turn).
  */
-function makeQuestionStopper() {
+function makeQuestionStopper(kind: AgentKind) {
 	return (context: {
 		message: { content: Array<{ type: string; id?: string; name?: string }> };
 		toolResults: Array<{ toolCallId: string; toolName?: string; isError?: boolean; details?: unknown }>;
@@ -183,11 +187,14 @@ function makeQuestionStopper() {
 		if (context.toolResults.some(isDoubtfulReadResult)) return true;
 		const called = new Set(
 			context.message.content
-				.filter((c) => c.type === "toolCall" && c.name !== undefined && (QUESTION_TOOLS as readonly string[]).includes(c.name!))
+				.filter((c) => c.type === "toolCall" && c.name !== undefined && (
+					(QUESTION_TOOLS as readonly string[]).includes(c.name) ||
+					(kind === "practice" && c.name === PRACTICE_PROBLEM_TOOL)
+				))
 				.map((c) => c.id!),
 		);
 		if (called.size === 0) return false;
-		// Stop only when every question call of this turn resolved cleanly.
+		// Stop only when every question/problem pose resolved cleanly.
 		for (const result of context.toolResults) {
 			if (called.has(result.toolCallId) && result.isError) return false;
 		}
@@ -211,7 +218,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	// conversation-spec resolution as teaching); the cast keeps AgentKind
 	// ("practice" is not a ModelRole) honest about that.
 	const engine = opts.engine ?? piEngineFor(kind as "prober" | "teacher");
-	const stopper = makeQuestionStopper();
+	const stopper = makeQuestionStopper(kind);
 	const forceText = kind === "teacher" && !FORCE_TEXT_OFF_PROVIDERS.includes(engine.model.provider);
 	const composed = opts.promptSwitches ? composeInstructions(kind, opts.promptSwitches) : composedInstructions[kind]!;
 	const systemPrompt = withLanguageDirective(
@@ -239,7 +246,16 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 			systemPrompt,
 			model: engine.model,
 			thinkingLevel: engine.level,
-			tools,
+			// Conditional registry inclusion, like the graph-tool gates: when
+			// closed, neither the tool nor its usage instructions reach the model.
+			// Match Claude across providers (including OpenRouter), not the API
+			// transport. Explicit test registries remain caller-owned.
+			tools: [
+				...tools,
+				...(opts.tools === undefined && engine.model.id.toLowerCase().includes("claude")
+					? [withArgumentHeal(sendToUserTool)]
+					: []),
+			],
 			messages: opts.messages ?? [],
 		},
 		streamFn: engine.streamFn,
@@ -328,7 +344,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 			if (event.type === "message_end" && event.message.role === "assistant" && "usage" in event.message) {
 				// A cancelled call is not a billed step (partial/estimated
 				// usage on an aborted message is not money spent).
-				if (event.message.stopReason === "aborted" || (opts.requestCycle && !opts.requestCycle.acceptsUsage(event.message))) return;
+				if (event.message.stopReason === "aborted" || !usageWasAdmitted(event.message.usage) || (opts.requestCycle && !opts.requestCycle.acceptsUsage(event.message))) return;
 				opts.onUsage!(event.message.usage);
 			}
 		});
@@ -402,10 +418,9 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
  * from turn 1 of a kind:"practice" session — no prober→teacher split,
  * no plan tools, no question tools. Its ENTIRE registry is
  * problem + conclude (tools/practice.ts); the doctrine prompt
- * (prompts/practice/) carries the method. The question-stop rule does
- * not apply (problem rides terminate: true natively —
- * QUESTION_TOOLS does not include it), so baseAgentOptions's stopper is
- * a no-op here; it stays wired for uniformity.
+ * (prompts/practice/) carries the method. A successful problem pose ends
+ * the run, natively for a problem-only batch and via the shared stop hook
+ * for a mixed batch (for example, send_to_user + problem).
  */
 export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOptions = {}) {
 	const tools = opts.tools ?? practiceTools(ctx);

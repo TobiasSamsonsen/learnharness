@@ -19,7 +19,7 @@ import {
 import { sanitizeUserSettings } from "../src/core/settings.ts";
 import { parseGeneralSettingsBody, parseSettingsBody } from "../src/server/settings-body.ts";
 import { createTeacherAgent, createProberAgent } from "../src/agent/teacher-agent.ts";
-import { deepgramUrl, joinFrames, localStopLabel } from "../components/dictation.tsx";
+import { joinFrames, localStopLabel } from "../components/dictation.tsx";
 import { localModelLine } from "../components/settings/language-section.tsx";
 
 describe("the language core", () => {
@@ -121,12 +121,6 @@ describe("the agent prompt seam", () => {
 });
 
 describe("dictation helpers", () => {
-	test("Deepgram gets the lesson's language code", () => {
-		assert.match(deepgramUrl("en"), /[?&]language=en&/);
-		assert.match(deepgramUrl("nb"), /[?&]language=no&/);
-		assert.match(deepgramUrl("nb"), /model=nova-3/);
-	});
-
 	test("the local stop line reports a first download's progress, else transcribing", () => {
 		const base = { language: "nb" as const, repo: "r", sizeMb: 410 };
 		assert.equal(localStopLabel({ ...base, state: "downloading", progress: 0.374 }), "Downloading speech model 37%");
