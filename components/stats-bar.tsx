@@ -6,6 +6,7 @@ import { formatTokens, formatUsd, prettyModel } from "@/components/usage-format"
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
 import { PlanUsage } from "@/components/plan-usage";
 import { useBackLayer } from "./back-layers.ts";
+import { useKeepInViewport } from "./use-keep-in-viewport.ts";
 
 export function formatContextMeasurement(tokens: number | null, limit: number | null): string {
 	const numerator = tokens === null ? "?" : formatTokens(tokens);
@@ -58,6 +59,7 @@ export function StatsBar({
 	onModelChange?: (model: string | undefined) => void;
 }) {
 	const [open, setOpen] = useState(false);
+	const detailRef = useKeepInViewport<HTMLDivElement>(open); // the summary popover sits at the bar's left; keep it on a phone screen
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
 	// Stable (ModelControl's report effect keys on it); the parent's
 	// callback is read through a ref.
@@ -143,8 +145,9 @@ export function StatsBar({
 			</button>
 				{open && (
 					<div
+						ref={detailRef}
 						data-testid="stats-detail"
-						className="absolute bottom-full left-1/2 z-40 mb-1.5 w-72 -translate-x-1/2 rounded-xl border bg-card p-3 text-xs shadow-xl"
+						className="absolute bottom-full left-1/2 z-40 mb-1.5 w-72 max-w-[calc(100vw-1rem)] -translate-x-1/2 rounded-xl border bg-card p-3 text-xs shadow-xl"
 					>
 						<div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 							Session stats

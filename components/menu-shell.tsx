@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { isCoarsePointer } from "./enter-submits.ts";
 
 /**
  * THE shared menu shell (menu standardization, fix wave chunk B): one
@@ -20,6 +21,13 @@ import { createPortal } from "react-dom";
  *  - Cap: max-height = min(60vh, the chosen side's available room); the
  *    menu scrolls internally instead of stretching the page or escaping
  *    the viewport (graph-view's max-h-[60vh] pattern).
+ *  - Width: a menu never leaves the viewport sideways either. Anchored at
+ *    the trigger's edge as before while it fits; when its MEASURED width
+ *    would cross the screen edge (a 320px menu on a 412px phone, anchored
+ *    near the left) it slides back to the EDGE floor, and a menu wider than
+ *    the screen is capped to it (Android phone pass, owner 2026-10-28).
+ *  - Focus: a menu with a search field focuses it on open, except on touch devices, where the keyboard would cover the
+ *    screen the moment a menu opens.
  *  - Re-placement: capture-phase scroll + window resize — the settings
  *    menus' discipline (the settings dialog's inner content scroll
  *    included).
@@ -62,6 +70,8 @@ export interface MenuPlacement {
 	side: MenuSide;
 	style: Record<string, string | number>;
 	maxHeight: number;
+	/** The widest the menu may be: the viewport minus the EDGE floor on both sides. */
+	maxWidth: number;
 }
 
 /** Pure: the placement decision — anchored rect + viewport + the menu's
@@ -76,9 +86,13 @@ export function computeMenuPlacement(
 	contentHeight: number,
 	preferredSide: MenuSide,
 	align: MenuAlign,
+	/** The menu's measured width; 0 = not measured (the anchor edge alone decides, as before). */
+	contentWidth = 0,
+	/** The system bars (px) the Android shell reports; a menu never opens under the status bar or the gesture bar. */
+	safe: { top: number; bottom: number } = { top: 0, bottom: 0 },
 ): MenuPlacement {
-	const availDown = viewport.height - EDGE - (rect.bottom + GAP);
-	const availUp = rect.top - GAP - EDGE;
+	const availDown = viewport.height - (EDGE + safe.bottom) - (rect.bottom + GAP);
+	const availUp = rect.top - GAP - (EDGE + safe.top);
 	// contentHeight ≤ 0 (nothing measured yet) keeps the preferred side —
 	// the hidden first pass re-measures and decides with real numbers.
 	let side = preferredSide;
@@ -91,11 +105,31 @@ export function computeMenuPlacement(
 	}
 	const avail = side === "down" ? availDown : availUp;
 	const maxHeight = Math.max(MIN_USABLE, Math.min(CAP_VH * viewport.height, avail));
-	const horizontal: Record<string, number> =
+	const maxWidth = Math.max(0, viewport.width - 2 * EDGE);
+	let horizontal: Record<string, number> =
 		align === "right" ? { right: viewport.width - rect.right } : { left: rect.left };
+	if (contentWidth > 0) {
+		// where the menu's left edge lands with the anchor's edge as before, at the width it will really have
+		const width = Math.min(contentWidth, maxWidth);
+		const left = align === "right" ? rect.right - width : rect.left;
+		if (left < EDGE) horizontal = { left: EDGE };
+		else if (left + width > viewport.width - EDGE) horizontal = { right: EDGE };
+	}
 	const vertical: Record<string, number> =
 		side === "down" ? { top: rect.bottom + GAP } : { bottom: viewport.height - rect.top + GAP };
-	return { side, style: { ...horizontal, ...vertical }, maxHeight };
+	return { side, style: { ...horizontal, ...vertical }, maxHeight, maxWidth };
+}
+
+/** The status-bar and gesture-bar heights the Android shell writes as `--lh-safe-top`/`--lh-safe-bottom` (0 elsewhere). */
+function safeInsets(): { top: number; bottom: number } {
+	// a DOM without computed styles (a test environment) has no system bars to report
+	if (typeof getComputedStyle !== "function") return { top: 0, bottom: 0 };
+	const css = getComputedStyle(document.documentElement);
+	const px = (name: string) => {
+		const v = Number.parseFloat(css.getPropertyValue(name));
+		return Number.isFinite(v) ? v : 0;
+	};
+	return { top: px("--lh-safe-top"), bottom: px("--lh-safe-bottom") };
 }
 
 /** The shared shell. Exactly one anchor seam: pass `anchorRef` (a live
@@ -148,7 +182,9 @@ export function MenuShell({
 		const el = menuRef.current;
 		if (!el) return;
 		const input = el.querySelector<HTMLElement>("input");
-		(input ?? el).focus();
+		// Touch (owner, 2026-10-28): opening a menu must not raise the soft keyboard over the screen; the learner taps the field
+		// when they want to type. The body takes focus instead, like a menu without a search.
+		(input && !isCoarsePointer() ? input : el).focus();
 	}, [placed]);
 
 	// The standard arrow machine for menus WITHOUT a search (owner: when a
@@ -204,6 +240,8 @@ export function MenuShell({
 				menuRef.current.scrollHeight,
 				preferredSide,
 				align,
+				menuRef.current.offsetWidth,
+				safeInsets(),
 			);
 			setPlaced(p);
 		};
@@ -245,7 +283,7 @@ export function MenuShell({
 			data-lh-menu=""
 			tabIndex={-1}
 			onKeyDown={onBodyKeyDown}
-			style={{ position: "fixed", zIndex: 60, ...placed.style, maxHeight: placed.maxHeight, overflowY: "auto" }}
+			style={{ position: "fixed", zIndex: 60, ...placed.style, maxHeight: placed.maxHeight, maxWidth: placed.maxWidth, overflowY: "auto" }}
 			// The body is the arrow machine's focus home (input-less menus
 			// land focus here on open) — the focus STAYS, but the browser's
 			// default blue ring around it must not draw (owner, polish

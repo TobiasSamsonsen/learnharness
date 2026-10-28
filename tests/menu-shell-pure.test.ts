@@ -80,3 +80,62 @@ describe("computeMenuPlacement — cap + position", () => {
 		assert.ok(!("right" in p.style));
 	});
 });
+
+describe("computeMenuPlacement — width (a menu never leaves the screen sideways)", () => {
+	// a 412px phone; the Sources control sits near the left: its rect is x 30..140
+	const phone = { width: 412, height: 800 };
+	const near = { top: 700, bottom: 740, left: 30, right: 140 };
+
+	it("without a measured width the anchor edge alone decides (the old behavior)", () => {
+		const p = computeMenuPlacement(near, phone, 300, "up", "right");
+		assert.equal(p.style.right, 412 - 140);
+	});
+
+	it("a right-aligned 320px menu that would cross the left edge is held at the edge floor", () => {
+		// right-aligned at x=140 a 320px menu would start at -180
+		const p = computeMenuPlacement(near, phone, 300, "up", "right", 320);
+		assert.equal(p.style.left, 8);
+		assert.ok(!("right" in p.style));
+	});
+
+	it("a left-aligned menu that would cross the right edge is held at the right edge floor", () => {
+		const p = computeMenuPlacement({ top: 700, bottom: 740, left: 300, right: 400 }, phone, 300, "up", "left", 320);
+		assert.equal(p.style.right, 8);
+		assert.ok(!("left" in p.style));
+	});
+
+	it("a menu that fits keeps its anchor edge", () => {
+		const roomy = { top: 700, bottom: 740, left: 100, right: 400 };
+		assert.equal(computeMenuPlacement(roomy, phone, 300, "up", "right", 320).style.right, 12);
+		assert.equal(computeMenuPlacement({ top: 700, bottom: 740, left: 20, right: 100 }, phone, 300, "up", "left", 320).style.left, 20);
+	});
+
+	it("a menu wider than the screen is capped to the screen and flush to the left", () => {
+		const p = computeMenuPlacement(near, { width: 300, height: 800 }, 300, "up", "right", 500);
+		assert.equal(p.maxWidth, 300 - 16);
+		assert.equal(p.style.left, 8);
+	});
+
+	it("the cap is the viewport minus the edge floor on both sides", () => {
+		assert.equal(computeMenuPlacement(near, phone, 300, "up", "right", 0).maxWidth, 412 - 16);
+	});
+});
+
+describe("computeMenuPlacement — the system bars", () => {
+	it("an up-menu keeps clear of the status bar", () => {
+		// anchor 300px from the top, status bar 48px: room = 300 - 4 - (8 + 48)
+		const p = computeMenuPlacement({ top: 300, bottom: 340, left: 100, right: 300 }, { width: 412, height: 800 }, 100, "up", "right", 0, { top: 48, bottom: 0 });
+		assert.equal(p.maxHeight, 240);
+	});
+
+	it("a down-menu keeps clear of the gesture bar", () => {
+		const p = computeMenuPlacement({ top: 500, bottom: 540, left: 100, right: 300 }, { width: 412, height: 800 }, 100, "down", "right", 0, { top: 0, bottom: 24 });
+		assert.equal(p.maxHeight, 800 - 32 - 544);
+	});
+
+	it("no insets behaves exactly as before", () => {
+		const a = computeMenuPlacement(rect(500, 540), viewport(800), 100, "down", "right");
+		const b = computeMenuPlacement(rect(500, 540), viewport(800), 100, "down", "right", 0, { top: 0, bottom: 0 });
+		assert.deepEqual(a, b);
+	});
+});

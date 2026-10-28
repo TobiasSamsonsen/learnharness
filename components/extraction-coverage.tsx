@@ -6,6 +6,7 @@ import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { formatTokens } from "@/components/usage-format";
 import { Hint } from "@/components/ui/hint";
+import { useKeepInViewport } from "@/components/use-keep-in-viewport";
 import { timeAgo } from "@/components/sidebar";
 import { resolveSettings } from "@/src/core";
 
@@ -246,6 +247,7 @@ export function CoverageRing({ chatId, refreshKey = 0 }: { chatId: string; refre
 	const [open, setOpen] = useState(false);
 	const [nonce, setNonce] = useState(0);
 	const rootRef = useRef<HTMLDivElement>(null);
+	const popoverRef = useKeepInViewport<HTMLDivElement>(open);
 	usePopoverDismiss(rootRef, open, () => setOpen(false));
 
 	// The activity/refresh chain (the dispatch's seam): runs can fire from
@@ -318,8 +320,9 @@ export function CoverageRing({ chatId, refreshKey = 0 }: { chatId: string; refre
 			</Hint>
 			{open && (
 				<div
+					ref={popoverRef}
 					data-testid="coverage-ring-popover"
-					className="absolute top-full right-0 z-40 mt-1.5 w-64 rounded-xl border bg-card p-3 text-xs shadow-xl"
+					className="absolute top-full right-0 z-40 mt-1.5 w-64 max-w-[calc(100vw-1rem)] rounded-xl border bg-card p-3 text-xs shadow-xl"
 				>
 					<CoverageRingDetail coverage={coverage} chunkTokens={graph.chunkTokens} />
 				</div>
