@@ -680,7 +680,7 @@ function stubPath(): string {
  *  call may wait for a learner's answer for a long time. */
 function childEnv(): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = { ...process.env, MCP_TOOL_TIMEOUT: String(24 * 60 * 60_000) };
-	for (const name of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "LH_ACCESS_TOKEN"]) delete env[name];
+	for (const name of ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "LH_ACCESS_TOKEN", "LH_DEMO_BRIDGE_TOKEN"]) delete env[name];
 	return env;
 }
 

@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { bridgedHeadless } from "./headless-bridge.ts";
 import { standardFontsDir } from "./pdf-ops";
 
 /**
@@ -17,6 +18,10 @@ import { standardFontsDir } from "./pdf-ops";
  *
  * Test seam: `headlessOverride.current` replaces the whole API (tests inject
  * a fake; nothing here touches a real browser). Builders call `getHeadless()`.
+ *
+ * Android: when the shell started the server (LH_DEMO_BRIDGE_URL + _TOKEN are
+ * set) demos run in the shell's system WebView through headless-bridge.ts;
+ * SVG and PDF rendering stay in Node.
  */
 
 export interface DemoRunResult {
@@ -72,8 +77,12 @@ export interface HeadlessApi {
 /** Test seam — undefined in production. */
 export const headlessOverride: { current?: HeadlessApi } = {};
 
+let bridged: HeadlessApi | null | undefined;
+
 export function getHeadless(): HeadlessApi {
-	return headlessOverride.current ?? realHeadless;
+	if (headlessOverride.current) return headlessOverride.current;
+	if (bridged === undefined) bridged = bridgedHeadless(realHeadless);
+	return bridged ?? realHeadless;
 }
 
 // ─── Chrome resolution ───────────────────────────────────────────────────────
@@ -142,6 +151,7 @@ export function browserServiceSpawnEnv(
 	delete out.LH_DESKTOP_SERVER;
 	// nor a holder of the headless server's access token (Android plan M6)
 	delete out.LH_ACCESS_TOKEN;
+	delete out.LH_DEMO_BRIDGE_TOKEN;
 	return out;
 }
 

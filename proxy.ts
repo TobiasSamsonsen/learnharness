@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { ACCESS_COOKIE, COOKIE_MAX_AGE_S, accessDecision } from "./src/server/access-gate.ts";
 import { desktopAPIAuthorized } from "./src/server/desktop-access.ts";
 
-const FORBIDDEN_PAGE = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LearnHarness</title><body style="font:16px system-ui;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1>Not paired</h1><p>This server asks for an access token. Open the pairing URL the start script printed.</p>`;
+const FORBIDDEN_PAGE = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LearnHarness</title><body style="font:16px system-ui;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1>Not paired</h1><p>This server asks for an access token. Open the pairing link you were given, or open this server from the app that started it.</p>`;
 
 /** Every API method, including SSE and spending/settings routes, needs the
  * Electron capability when the desktop shell runs the server. No public

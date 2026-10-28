@@ -6,9 +6,11 @@ import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { DEFAULT_PIECE_LIMITS, createPieceQueue, createSegmenter, withdrawDictation, type PieceQueue, type PieceResult, type Segmenter } from "@/components/dictation-live";
+import { nativeSpeechReady, probeNativeSpeech, startNativeSpeech, type NativeSpeechRun } from "@/components/dictation-native";
 import {
 	DEFAULT_DICTATION_ENGINE,
 	DEFAULT_LESSON_LANGUAGE,
+	SPEECH_ERROR_MESSAGES,
 	lessonLanguageInfo,
 	resolveLessonLanguage,
 	type ChatSettings,
@@ -412,6 +414,10 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 	/** The last local clip whose transcription failed — kept for retry. */
 	const failedClipRef = useRef<{ clip: Uint8Array<ArrayBuffer>; language: LessonLanguage } | null>(null);
 	const [canRetry, setCanRetry] = useState(false);
+	/** The Android shell's speech recognizer run (docs/android/m12-plan.md step 6): when the shell answers the probe,
+	 *  dictation uses it instead of any engine above — no microphone capture, no server round trip. */
+	const nativeRef = useRef<NativeSpeechRun | null>(null);
+	useEffect(() => probeNativeSpeech(), []);
 	const refreshConfig = useCallback(() => {
 		void readDictationConfig(chatId).then((c) => {
 			configRef.current = c;
@@ -466,6 +472,8 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 	const cleanup = useCallback(() => {
 		genRef.current++;
 		dictationActiveFlag = false;
+		nativeRef.current?.dispose();
+		nativeRef.current = null;
 		flush(); // the deferred transcript appears when the run ends (owner round 2)
 		if (safetyRef.current) {
 			clearTimeout(safetyRef.current);
@@ -578,6 +586,25 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 		pendingRef.current = []; // fresh run, fresh queue (mitigation A)
 		const gen = ++genRef.current;
 		const config = (runConfigRef.current = configRef.current);
+		if (nativeSpeechReady()) {
+			// the Android shell's on-device recognizer: finals are deferred like Deepgram's and flushed at cleanup()
+			nativeRef.current = startNativeSpeech(config.language, {
+				onState: (s) => {
+					if (gen !== genRef.current) return;
+					if (s === "listening") setPhase("recording");
+					else if (s === "idle") cleanup();
+				},
+				onFinal: (text) => {
+					if (gen === genRef.current) bufferRef.current.push(text);
+				},
+				onError: (code) => {
+					if (gen !== genRef.current) return;
+					setError(SPEECH_ERROR_MESSAGES[code]);
+					cleanup();
+				},
+			});
+			return;
+		}
 		const local = config.engine === "local";
 		if (local) {
 			// live: each piece is transcribed while the learner keeps talking,
@@ -752,6 +779,15 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 		if (phase !== "recording" && phase !== "connecting") return;
 		setPhase("stopping");
 
+		if (nativeRef.current) {
+			// the shell sends the last finals, then state idle (which runs cleanup); if it never does, the safety net ends the run
+			nativeRef.current.stop();
+			safetyRef.current = setTimeout(() => {
+				if (gen === genRef.current) cleanup();
+			}, 6000);
+			return;
+		}
+
 		// Mic dies FIRST — no more audio enqueues (dictate pattern). The
 		// per-run nodes die with it; the AudioContext stays (mitigation C).
 		for (const track of streamRef.current?.getTracks() ?? []) track.stop();
@@ -790,6 +826,7 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 		// buffer makes that flush a no-op. Also kills a "stopping" run: the
 		// flush already underway is abandoned (its timer is cleared inside).
 		bufferRef.current = [];
+		nativeRef.current?.cancel(); // the shell stops listening and nothing more arrives
 		// A live run (owner, 2026-10-25): nothing more lands, and the pieces
 		// it already added are taken back out, newest first, from the field
 		// each one went to (an edited-away piece stays as the learner left it).

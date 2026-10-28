@@ -69,6 +69,7 @@ export * from "./materials.ts";
 export * from "./sketch.ts";
 export * from "./sketch-gate.ts";
 export * from "./ink-bridge.ts";
+export * from "./speech-bridge.ts";
 // Courses: skills, the Leitner stand-in for "known", draft checks
 // (fork addition, 2026-10-24 — docs/courses.md).
 export * from "./skills.ts";
