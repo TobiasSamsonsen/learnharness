@@ -235,9 +235,15 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 			// back to a spinner mid-transcript; live cards belong at the
 			// bottom, and this gate is what puts them there by construction).
 			const streamingMessage = live?.streamingIds.has(m.id) === true;
+			// the turn's last message: it stopped by itself and called nothing
+			const closesTurn = assistant.stopReason === "stop" && !assistant.content.some((b) => b.type === "toolCall");
 			for (const block of assistant.content) {
 				if (block.type === "text") {
-					if (echoesOutput(block.text, groupOutputs)) continue; // the model said it again after send_to_user
+					// The model said it again after send_to_user: either a wording of the same message, or the turn's closing
+					// text. For a model that has the tool, the tool is the delivery channel and the plain closing text is a second
+					// answer (owner, 2026-10-28: seen live, "57 m/s er riktig" twice with different words), so once the group has
+					// sent something, the final text of the turn is not shown. Mid-turn text still is, unless it echoes.
+					if (groupOutputs.length > 0 && (closesTurn || echoesOutput(block.text, groupOutputs))) continue;
 					rest.push({ type: "text", id: `${m.id}-t${textN++}`, text: block.text, state: "done" });
 				} else if (block.type === "thinking") {
 					reasoning.push({ type: "reasoning", id: `${m.id}-r${reasoningN++}`, text: block.thinking, state: "done" });

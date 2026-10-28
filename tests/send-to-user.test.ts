@@ -92,11 +92,18 @@ describe("a text that only repeats a send_to_user message is not shown twice (ow
 		assert.deepEqual(texts(view([outputCall(sent)], [{ type: "text", text: reworded }])), [sent]);
 	});
 
-	it("keeps a text that says something new, a very short one, and text written before the tool", () => {
-		const fresh = "Neste oppgave handler om kjerneregelen. Prøv å derivere $\sin(2x)$ og forklar hvert steg; start med å finne den indre funksjonen.";
-		assert.equal(texts(view([outputCall(sent)], [{ type: "text", text: fresh }])).length, 2);
-		assert.equal(texts(view([outputCall(sent)], [{ type: "text", text: "Riktig." }])).length, 2);
+	it("hides the turn's closing text even when its words are new (the tool is the channel), but keeps mid-turn text", () => {
+		const closing = "Svaret 57 m/s er riktig, og oppgaven er avsluttet. Si fra når du vil ha neste oppgave.";
+		assert.deepEqual(texts(view([outputCall(sent)], [{ type: "text", text: closing }])), [sent], "a stop message that calls nothing");
+		const narration = { type: "text" as const, text: "Neste oppgave handler om kjerneregelen. Prøv å derivere en sammensatt funksjon og forklar hvert steg." };
+		const call = { type: "toolCall" as const, id: "c1", name: "read_sketch", arguments: {} };
+		const midTurn = projectView([assistant([outputCall(sent)], "a0"), ack("send-1"), { ...assistant([narration, call], "a1"), stopReason: "toolUse" } as LhMessage]);
+		assert.equal(texts(midTurn).length, 2, "text beside a further call is not the closing text");
+	});
+
+	it("keeps text written before the tool, and the only message of a turn that never used the tool", () => {
 		assert.deepEqual(texts(view([{ type: "text", text: sent }, outputCall(sent)])), [sent, sent], "only text AFTER the tool is judged");
+		assert.deepEqual(texts(view([{ type: "text", text: "Riktig. Du fant feilen selv." }])), ["Riktig. Du fant feilen selv."]);
 	});
 
 	it("a new turn starts clean: the learner's next message separates the groups", () => {

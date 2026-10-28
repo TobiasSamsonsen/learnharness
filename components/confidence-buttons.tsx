@@ -42,7 +42,7 @@ export function ConfidenceButtons({
 					title={`${level.stop}% sure`}
 					style={{ color: CONFIDENCE_COLORS[level.index], borderColor: highlight === level.index ? CONFIDENCE_COLORS[level.index] : undefined }}
 					className={cn(
-						"lh-touch h-9 min-w-0 flex-1 truncate rounded-[6px] border border-border/70 bg-transparent px-1 text-xs font-medium transition-colors",
+						"lh-touch h-9 min-w-0 flex-1 truncate rounded-[6px] border border-border/70 bg-transparent px-0.5 text-[11px] font-medium tracking-tight transition-colors",
 						"hover:bg-accent/60 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
 						highlight === level.index && "bg-accent/60",
 					)}
