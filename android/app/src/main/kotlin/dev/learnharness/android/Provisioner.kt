@@ -4,11 +4,8 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
-import java.nio.file.FileVisitResult
 import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.SimpleFileVisitor
-import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.LinkOption
 import java.security.MessageDigest
 
 /**
@@ -187,25 +184,20 @@ class Provisioner(private val guest: Guest, private val stateDir: File, private 
 		return p.waitFor() to text
 	}
 
-	/** Deletes a tree without following symlinks (a guest symlink can point at host paths) and makes read-only directories writable first. */
-	private fun deleteTree(dir: File) {
-		if (!dir.exists() && !Files.isSymbolicLink(dir.toPath())) return
-		Files.walkFileTree(dir.toPath(), object : SimpleFileVisitor<Path>() {
-			override fun preVisitDirectory(d: Path, attrs: BasicFileAttributes): FileVisitResult {
-				d.toFile().setWritable(true)
-				d.toFile().setExecutable(true)
-				return FileVisitResult.CONTINUE
-			}
-
-			override fun visitFile(f: Path, attrs: BasicFileAttributes): FileVisitResult {
-				Files.delete(f)
-				return FileVisitResult.CONTINUE
-			}
-
-			override fun postVisitDirectory(d: Path, exc: IOException?): FileVisitResult {
-				Files.delete(d)
-				return FileVisitResult.CONTINUE
-			}
-		})
+	/**
+	 * Deletes a tree without following symlinks (a guest symlink can point at host paths). A directory is made readable,
+	 * writable and searchable BEFORE it is listed: the guest's tree has mode-000 directories, and java.nio's walker opens a
+	 * directory before it tells the visitor about it, so a visitor cannot fix the mode in time.
+	 */
+	private fun deleteTree(entry: File) {
+		val path = entry.toPath()
+		if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return
+		if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+			entry.setReadable(true)
+			entry.setWritable(true)
+			entry.setExecutable(true)
+			entry.listFiles()?.forEach { deleteTree(it) }
+		}
+		Files.delete(path)
 	}
 }
