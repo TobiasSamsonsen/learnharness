@@ -24,6 +24,9 @@ import type { ChatListItem, CourseSummary } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { useBackLayer } from "./back-layers.ts";
+import { useSwipe } from "./use-swipe.ts";
+import { dragDrawer, releaseDrawer } from "./drawer-swipe.ts";
+import { SwipeRow } from "./swipe-row.tsx";
 
 /**
  * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
@@ -600,6 +603,8 @@ function SessionsSidebar() {
 	const ctxAnchorRef = useRef<HTMLElement | null>(null);
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
+	/** The session row whose swipe actions are open (one at a time). */
+	const [swipedId, setSwipedId] = useState<string | null>(null);
 
 	// A touch long-press fires contextmenu and may still deliver the release
 	// as a click on the same row — which would open the session under the
@@ -717,8 +722,41 @@ function SessionsSidebar() {
 	}, [overlay, open, close, ctxChatId, renamingId]);
 	useBackLayer(overlay && open && ctxChatId === null && renamingId === null, close);
 
+	// Touch swipes for the phone drawer (Android phone pass, owner 2026-10-28): swipe left on the open drawer to close it,
+	// pull it open from the left screen edge. The drawer follows the finger (an inline `translate`), then animates to where
+	// it will be. The edge strip is the shell's gesture-exclusion zone (MainActivity), so the system back swipe does not
+	// take the gesture there.
+	const edgeRef = useRef<HTMLDivElement>(null);
+	const asideRef = useRef<HTMLElement>(null);
+	useSwipe<HTMLElement>(
+		{ axis: "x", way: "neg", commitDistance: 72 },
+		{
+			onMove: (o) => asideRef.current && dragDrawer(asideRef.current, "open", o),
+			onEnd: ({ commit }) => {
+				if (asideRef.current) releaseDrawer(asideRef.current, !commit);
+				if (commit) close();
+			},
+		},
+		overlay && open,
+		asideRef,
+		"[data-swipe-row]", // a sideways swipe that starts on a row reveals the row's actions instead
+	);
+	useSwipe<HTMLDivElement>(
+		{ axis: "x", way: "pos", commitDistance: 56 },
+		{
+			onMove: (o) => asideRef.current && dragDrawer(asideRef.current, "closed", o),
+			onEnd: ({ commit }) => {
+				if (asideRef.current) releaseDrawer(asideRef.current, commit);
+				if (commit) toggle();
+			},
+		},
+		overlay && !open,
+		edgeRef,
+	);
+
 	return (
 		<>
+			{overlay && !open && <div ref={edgeRef} data-testid="sidebar-edge" aria-hidden="true" className="fixed left-0 top-1/2 z-[43] h-[180px] w-6" />}
 			{overlay && open && (
 				<div
 					data-testid="sidebar-backdrop"
@@ -728,6 +766,7 @@ function SessionsSidebar() {
 				/>
 			)}
 			<aside
+				ref={asideRef}
 				data-testid="sidebar"
 				data-overlay={overlay || undefined}
 				className={cn(
@@ -925,19 +964,29 @@ function SessionsSidebar() {
 									onCancel={() => setRenamingId(null)}
 								/>
 							) : (
-								<SessionRow
+								<SwipeRow
 									key={c.id}
-									chat={c}
-									active={pathname === `/chat/${c.id}`}
-									kbdSelected={i === kbdIndex}
-									onOpen={() => {
-										if (performance.now() - ctxOpenedAtRef.current < CTX_RELEASE_GUARD_MS) return;
-										setKbdIndex(null);
-										router.push(`/chat/${c.id}`);
-									}}
-									onContextMenu={(e) => openContext(e, c)}
-									courseTitle={c.course ? courses.find((k) => k.id === c.course!.courseId)?.title : undefined}
-								/>
+									id={c.id}
+									openId={swipedId}
+									onOpenChange={setSwipedId}
+									actions={[
+										{ key: "rename", label: "Rename", onPress: () => setRenamingId(c.id) },
+										{ key: "delete", label: "Delete", tone: "danger", onPress: () => setDeleting(c) },
+									]}
+								>
+									<SessionRow
+										chat={c}
+										active={pathname === `/chat/${c.id}`}
+										kbdSelected={i === kbdIndex}
+										onOpen={() => {
+											if (performance.now() - ctxOpenedAtRef.current < CTX_RELEASE_GUARD_MS) return;
+											setKbdIndex(null);
+											router.push(`/chat/${c.id}`);
+										}}
+										onContextMenu={(e) => openContext(e, c)}
+										courseTitle={c.course ? courses.find((k) => k.id === c.course!.courseId)?.title : undefined}
+									/>
+								</SwipeRow>
 							),
 						)
 					)}

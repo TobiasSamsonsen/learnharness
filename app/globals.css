@@ -660,3 +660,15 @@ html.lh-native-ink body > *:not([data-testid="sketch-view"]) {
 	outline: 1px solid var(--border);
 	border-radius: 0.25rem;
 }
+
+/* Swipe regions (components/use-swipe.ts): the browser reads `touch-action` only up to the nearest scroll container, so a
+   sideways swipe over a scrolling list needs the cross-axis pan on the list and its children too, or the browser claims
+   the touch and cancels our pointer. Vertical scrolling keeps working; the gesture axis is handed to the page. */
+[data-swipe-x],
+[data-swipe-x] * {
+	touch-action: pan-y;
+}
+[data-swipe-y],
+[data-swipe-y] * {
+	touch-action: pan-x;
+}

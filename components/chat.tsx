@@ -56,6 +56,7 @@ import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
 import { PracticeDock } from "@/components/practice-dock";
+import { DockHandle } from "@/components/dock-handle";
 import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
 import { TopBar } from "@/components/top-bar";
@@ -2033,6 +2034,9 @@ function DockOverlay({
 	// revealed, the normal collapse machine rules apply untouched.
 	const [revealed, setRevealed] = useState(false);
 	const revealPending = requiresReveal && !revealed;
+	// The learner folded the dock with a swipe on its handle (owner 2026-10-28): the scroll machine below must not re-open it
+	// the next time the transcript is at the bottom. Cleared by any way of opening it, and by the next question's arrival.
+	const userCollapsedRef = useRef(false);
 
 	const pendingId = pending?.toolCallId ?? null;
 	const initialPendingRef = useRef(pendingId);
@@ -2050,6 +2054,7 @@ function DockOverlay({
 	if (pendingId !== prevPendingIdRef.current) {
 		const wasQuestion = prevPendingIdRef.current !== null;
 		prevPendingIdRef.current = pendingId;
+		userCollapsedRef.current = false;
 		if (pendingId && requiresReveal) {
 			const arrival = revealArrival(wasQuestion);
 			setExpanded(arrival.expanded);
@@ -2251,9 +2256,19 @@ function DockOverlay({
 		});
 	};
 	const expandAndReveal = () => {
+		userCollapsedRef.current = false;
 		setRevealed(true); // the teach-check invitation was accepted (W5)
 		setExpanded(true);
 		void suppressFoldDuringReveal();
+	};
+	const expandPractice = () => {
+		userCollapsedRef.current = false;
+		setExpanded(true);
+		void suppressFoldDuringReveal();
+	};
+	const collapseByUser = () => {
+		userCollapsedRef.current = true;
+		setExpanded(false);
 	};
 	const expandAndRevealRef = useRef(expandAndReveal);
 	expandAndRevealRef.current = expandAndReveal;
@@ -2310,6 +2325,7 @@ function DockOverlay({
 				// left the bottom.
 				if (d > COLLAPSE_DIST && !expandIntentRef.current && !atBottomRef.current) setExpanded(false);
 			} else if (d < EXPAND_DIST) {
+				if (userCollapsedRef.current) return; // folded by the learner's swipe: it stays folded until they open it
 				// Teach checks stay collapsed until the learner opens them (W5): the
 				// at-bottom auto-expand would pop the form over the teaching.
 				if (requiresRevealRef.current && !revealedRef.current) return;
@@ -2423,6 +2439,7 @@ function DockOverlay({
 						/>
 					)}
 					<div ref={shellRef} className="pointer-events-auto overflow-hidden rounded-2xl border bg-card shadow-lg">
+						{(pending || practice) && <DockHandle expanded={expanded} onCollapse={collapseByUser} onExpand={pending ? expandAndReveal : expandPractice} />}
 						<div
 						ref={contentRef}
 						key={mode}
@@ -2448,10 +2465,7 @@ function DockOverlay({
 									problemCallId={practice.toolCallId}
 									input={practice.input as { statement: string }}
 									expanded={expanded}
-									onExpand={() => {
-										setExpanded(true);
-										void suppressFoldDuringReveal();
-									}}
+									onExpand={expandPractice}
 									onSubmit={onSubmitThinking}
 									chatId={chatId}
 									keptSketch={keptSketch}

@@ -6,6 +6,8 @@ import { GraduationCapIcon, PlusIcon } from "lucide-react";
 import type { CourseSummary } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { cn } from "@/lib/utils";
+import { CourseRenameRow, DeleteCourseDialog } from "@/components/course-row-actions";
+import { SwipeRow } from "@/components/swipe-row";
 
 /**
  * The sidebar's Courses section (fork addition, 2026-10-24 — docs/courses.md
@@ -49,6 +51,10 @@ export function CoursesSection({ onCourses }: { onCourses?: (courses: CourseSumm
 	const [courses, setCourses] = useState<CourseSummary[] | null>(null);
 	const onCoursesRef = useRef(onCourses);
 	onCoursesRef.current = onCourses;
+	/** Swipe actions (owner 2026-10-28): the row whose actions are open, the row being renamed, the course up for deletion. */
+	const [swipedId, setSwipedId] = useState<string | null>(null);
+	const [renamingId, setRenamingId] = useState<string | null>(null);
+	const [deleting, setDeleting] = useState<CourseSummary | null>(null);
 
 	const refresh = useCallback(async () => {
 		try {
@@ -78,6 +84,23 @@ export function CoursesSection({ onCourses }: { onCourses?: (courses: CourseSumm
 	useServerEvent("chats-changed", schedule);
 	useServerResync(() => void refresh());
 	useEffect(() => () => debounceRef.current && clearTimeout(debounceRef.current), []);
+
+	const commitRename = async (id: string, next: string) => {
+		setRenamingId(null);
+		const title = next.trim();
+		const current = courses?.find((c) => c.id === id)?.title;
+		if (!title || title === current) return;
+		try {
+			await fetch(`/api/courses/${encodeURIComponent(id)}`, {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ title }),
+			});
+		} catch (err) {
+			console.error("could not rename the course:", err);
+		}
+		void refresh();
+	};
 
 	const newCourse = async () => {
 		try {
@@ -115,10 +138,34 @@ export function CoursesSection({ onCourses }: { onCourses?: (courses: CourseSumm
 				{courses !== null && courses.length === 0 && (
 					<div className="px-1 py-1 text-xs text-muted-foreground">No courses yet.</div>
 				)}
-				{courses?.map((c) => (
-					<CourseRow key={c.id} course={c} active={pathname === `/course/${c.id}`} onOpen={() => router.push(`/course/${c.id}`)} />
-				))}
+				{courses?.map((c) =>
+					renamingId === c.id ? (
+						<CourseRenameRow key={c.id} course={c} onCommit={(next) => void commitRename(c.id, next)} onCancel={() => setRenamingId(null)} />
+					) : (
+						<SwipeRow
+							key={c.id}
+							id={c.id}
+							openId={swipedId}
+							onOpenChange={setSwipedId}
+							actions={[
+								{ key: "rename", label: "Rename", onPress: () => setRenamingId(c.id) },
+								{ key: "delete", label: "Delete", tone: "danger", onPress: () => setDeleting(c) },
+							]}
+						>
+							<CourseRow course={c} active={pathname === `/course/${c.id}`} onOpen={() => router.push(`/course/${c.id}`)} />
+						</SwipeRow>
+					),
+				)}
 			</div>
+			<DeleteCourseDialog
+				course={deleting}
+				onClose={() => setDeleting(null)}
+				onDeleted={(id) => {
+					setDeleting(null);
+					if (pathname === `/course/${id}`) router.push("/");
+					void refresh();
+				}}
+			/>
 		</div>
 	);
 }
