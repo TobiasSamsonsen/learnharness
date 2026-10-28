@@ -34,7 +34,7 @@
 
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { LhMarkerMessage, LhMessage } from "./native-messages.ts";
-import { modelSolutionForConclude, PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText } from "./native-messages.ts";
+import { echoesOutput, modelSolutionForConclude, PRACTICE_CONCLUDE_TOOL, problemInputForConclude, SEND_TO_USER_TOOL, sendToUserText } from "./native-messages.ts";
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
 import { leadOf } from "./tutor-prose.ts";
@@ -171,8 +171,14 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 		if (r.role === "toolResult" && r.isError) rejectedCalls.add(r.toolCallId);
 	}
 
+	// What `send_to_user` has already delivered in the assistant group being built: a plain text that only repeats it is
+	// not shown a second time (see echoesOutput).
+	const groupOutputs: string[] = [];
+
 	for (const m of messages) {
 		const role = (m as { role?: string }).role;
+		// a new group starts wherever the view's last entry is not an assistant one
+		if (!lastAssistant()) groupOutputs.length = 0;
 
 		if (compaction && m.id === compaction.details.firstKeptMessageId) {
 			out.push({
@@ -231,6 +237,7 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 			const streamingMessage = live?.streamingIds.has(m.id) === true;
 			for (const block of assistant.content) {
 				if (block.type === "text") {
+					if (echoesOutput(block.text, groupOutputs)) continue; // the model said it again after send_to_user
 					rest.push({ type: "text", id: `${m.id}-t${textN++}`, text: block.text, state: "done" });
 				} else if (block.type === "thinking") {
 					reasoning.push({ type: "reasoning", id: `${m.id}-r${reasoningN++}`, text: block.thinking, state: "done" });
@@ -247,6 +254,7 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 						} else {
 							const text = sendToUserText(block);
 							if (text !== undefined) {
+								groupOutputs.push(text);
 								rest.push({ type: "text", id: `${m.id}-t${textN++}`, text, state: "done" });
 							}
 						}

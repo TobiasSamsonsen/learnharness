@@ -81,6 +81,32 @@ function prose(messages: ReturnType<typeof projectView>): string[] {
 	return messages.filter((m) => m.role === "assistant").flatMap((m) => m.parts.filter((p) => p.type === "text").map((p) => p.text!));
 }
 
+describe("a text that only repeats a send_to_user message is not shown twice (owner, 2026-10-28)", () => {
+	const sent = "Du fikk $42$, og det er riktig. Du fant begge feilene selv etter korte pekere. Begge feilene var utførelsesfeil: først skrev du av $x^2$ i stedet for $x^3$.";
+	const view = (...contents: unknown[][]) => projectView(contents.flatMap((content, i) => [assistant(content, `a${i}`), ...(i < contents.length - 1 ? [ack("send-1")] : [])]));
+	const texts = (messages: ReturnType<typeof projectView>) => messages.flatMap((m) => m.parts).filter((p) => p.type === "text").map((p) => p.text!);
+
+	it("hides the same message written again as plain text, and a reworded copy", () => {
+		assert.deepEqual(texts(view([outputCall(sent)], [{ type: "text", text: sent }])), [sent]);
+		const reworded = "Du fikk $42$, og det er riktig. Begge feilene var utførelsesfeil, og du fant dem selv etter korte pekere. Først skrev du av $x^2$ i stedet for $x^3$.";
+		assert.deepEqual(texts(view([outputCall(sent)], [{ type: "text", text: reworded }])), [sent]);
+	});
+
+	it("keeps a text that says something new, a very short one, and text written before the tool", () => {
+		const fresh = "Neste oppgave handler om kjerneregelen. Prøv å derivere $\sin(2x)$ og forklar hvert steg; start med å finne den indre funksjonen.";
+		assert.equal(texts(view([outputCall(sent)], [{ type: "text", text: fresh }])).length, 2);
+		assert.equal(texts(view([outputCall(sent)], [{ type: "text", text: "Riktig." }])).length, 2);
+		assert.deepEqual(texts(view([{ type: "text", text: sent }, outputCall(sent)])), [sent, sent], "only text AFTER the tool is judged");
+	});
+
+	it("a new turn starts clean: the learner's next message separates the groups", () => {
+		const second = { ...fauxAssistantMessage(""), content: [{ type: "text", text: sent }], id: "b1" } as LhMessage;
+		const user = { id: "u2", role: "user", content: "again", timestamp: 2 } as unknown as LhMessage;
+		const out = projectView([assistant([outputCall(sent)], "a0"), ack("send-1"), user, second]);
+		assert.equal(texts(out).filter((x) => x === sent).length, 2, "the second turn's text is its own message");
+	});
+});
+
 describe("one channel for the closing words", () => {
 	it("the conclude ack tells a send_to_user model to send the closing words once and then write no text", async () => {
 		const { CONCLUDE_ACK_TEXT } = await import("../src/core/contracts/chat.ts");

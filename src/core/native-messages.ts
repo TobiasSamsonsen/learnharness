@@ -121,6 +121,29 @@ export function sendToUserText(block: unknown): string | undefined {
 	return typeof message === "string" && message.trim() ? message : undefined;
 }
 
+/** The words of a text, lower-cased, for telling an echo from a new message. */
+const wordSet = (text: string): Set<string> => new Set(text.toLowerCase().match(/[\p{L}\p{N}$]+/gu) ?? []);
+
+/**
+ * Is this ordinary text a second copy of something already sent with `send_to_user`? A Claude model sometimes sends its
+ * message with the tool and then writes the same message again as plain text (owner, 2026-10-28: seen on every conclude,
+ * even with the instruction not to; the copy is a rewording about half the time). Measured on the four real pairs: the
+ * share of the text's own words found in the sent message is 0.86 to 1.0 for the echo and 0.18 for an unrelated text, so
+ * a text is an echo when at least 0.6 of ITS words appear in one earlier output. Shorter than three words is never an
+ * echo ("Riktig."), and a long new text that merely reuses a short output's words stays below the line. Display-side only:
+ * the record keeps both.
+ */
+export function echoesOutput(text: string, outputs: readonly string[]): boolean {
+	const mine = wordSet(text);
+	if (mine.size < 3) return false;
+	return outputs.some((output) => {
+		const theirs = wordSet(output);
+		let shared = 0;
+		for (const word of mine) if (theirs.has(word)) shared++;
+		return shared / mine.size >= 0.6;
+	});
+}
+
 /** Learner-facing prose, in content order. Only the explicit output tool
  * joins ordinary text here — thinking and all other tool inputs stay out.
  * Shared by coverage/extraction and Markdown; native history stays intact. */
