@@ -12,10 +12,19 @@ android {
 		targetSdk = 37
 		versionCode = 1
 		versionName = "0.1.0"
+		// proot and the Linux guest are arm64 only (M12)
+		ndk { abiFilters += "arm64-v8a" }
 	}
 
 	buildFeatures {
 		buildConfig = true
+	}
+
+	packaging {
+		jniLibs {
+			// M12: proot and its loader ride as lib*.so and must exist as real files in nativeLibraryDir
+			useLegacyPackaging = true
+		}
 	}
 
 	buildTypes {
@@ -38,4 +47,13 @@ dependencies {
 	testImplementation("junit:junit:4.13.2")
 	// the JVM unit tests need a real org.json (the Android jar's is a stub)
 	testImplementation("org.json:json:20240303")
+}
+
+// proot is not committed (GPL binaries from the Termux packages): fetch it before the first build
+tasks.named("preBuild") {
+	doFirst {
+		if (!file("src/main/jniLibs/arm64-v8a/libproot.so").exists()) {
+			throw GradleException("proot is missing: run `python scripts/fetch-proot.py` in android/app first")
+		}
+	}
 }

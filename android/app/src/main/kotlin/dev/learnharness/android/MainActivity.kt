@@ -7,8 +7,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.text.InputType
 import android.util.Base64
@@ -32,6 +34,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
@@ -42,16 +45,31 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
 
 /**
- * The shell: one WebView on the Termux server, plus a status screen while the server is down or
- * Termux is not ready. All decisions that can be tested without a device live in Logic.kt.
+ * The shell: one WebView on the server that runs inside the app's own Linux guest (docs/android/m12-plan.md), plus a
+ * status screen for first-run setup, the Claude sign-in and a server that is down. All decisions that can be tested
+ * without a device live in Logic.kt.
  */
 class MainActivity : ComponentActivity() {
 	private val prefs by lazy { getSharedPreferences("lh", MODE_PRIVATE) }
+	private val guest by lazy { Guest(this) }
+	private val provisioner by lazy {
+		val override = prefs.getString("release", null).takeIf { BuildConfig.DEBUG }
+		Provisioner(guest, filesDir, override ?: Release.DEFAULT_ROOTFS_BASE, override ?: Release.DEFAULT_SERVER_BASE)
+	}
+	private val login by lazy { ClaudeLogin(guest) }
+	private val tokens by lazy { TokenStore(File(filesDir, "token")) }
+	private var loginUrl: String? = null
+	/** The sign-in is running: coming back from the browser must not start it again. */
+	private var loginActive = false
+	private var askedNotifications = false
+	/** "Later" on the update question: not asked again until the next cold start. */
+	private var skipUpdate = false
 	private var port: Int
 		get() = prefs.getInt("port", Server.DEFAULT_PORT)
 		set(value) = prefs.edit().putInt("port", value).apply()
@@ -68,6 +86,7 @@ class MainActivity : ComponentActivity() {
 	private lateinit var primary: Button
 	private lateinit var secondary: Button
 	private lateinit var portField: EditText
+	private lateinit var codeField: EditText
 	private lateinit var devSwitch: Switch
 	private lateinit var root: FrameLayout
 
@@ -89,10 +108,15 @@ class MainActivity : ComponentActivity() {
 		pendingMic?.let { if (granted) it.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) else it.deny() }
 		pendingMic = null
 	}
-	private val termuxPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-		// the "Additional permissions" of an app are often not promptable: send the user to the settings page
-		if (!granted && !Termux.permissionGranted(this)) openAppSettings() else begin()
+	/** The server runs as a foreground service; without this permission its notification is hidden, but it still runs. */
+	private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ -> begin() }
+	/** The microphone for the system recognizer (SpeechBridge); the WebView's own getUserMedia request has its launcher above. */
+	private var speechMicCallback: ((Boolean) -> Unit)? = null
+	private val speechMic = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+		speechMicCallback?.invoke(granted)
+		speechMicCallback = null
 	}
+	private val speech by lazy { SpeechBridge(this, ::askMicrophone) }
 	private val fileChooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
 		fileCallback?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data))
 		fileCallback = null
@@ -122,20 +146,36 @@ class MainActivity : ComponentActivity() {
 	override fun onNewIntent(intent: Intent) {
 		super.onNewIntent(intent)
 		// a plain launcher tap on the running app must not reload the page (and lose a sketch or a dictation)
-		if (applyIntent(intent) || !pageShown) begin()
+		if (applyIntent(intent) || (!pageShown && !loginActive)) begin()
+	}
+
+	override fun onPause() {
+		DemoBridge.host = null
+		super.onPause()
 	}
 
 	override fun onResume() {
 		super.onResume()
-		if (!pageShown && !busy) begin()
+		DemoBridge.host = root
+		if (!pageShown && !busy && !loginActive) begin()
 	}
 
-	/** `adb shell am start -n dev.learnharness.android/.MainActivity --ez lh.dev true|false` flips dev mode (debug builds). */
+	/**
+	 * Debug builds only. `adb shell am start -n dev.learnharness.android/.MainActivity --ez lh.dev true|false` flips dev
+	 * mode; `--es lh.release <base url>` points both first-run downloads at another host (a PC through `adb reverse`).
+	 */
 	private fun applyIntent(intent: Intent?): Boolean {
-		if (!BuildConfig.DEBUG || intent?.hasExtra("lh.dev") != true) return false
-		val on = intent.getBooleanExtra("lh.dev", false)
-		val changed = on != dev
-		dev = on
+		if (!BuildConfig.DEBUG || intent == null) return false
+		var changed = false
+		if (intent.hasExtra("lh.dev")) {
+			val on = intent.getBooleanExtra("lh.dev", false)
+			changed = on != dev
+			dev = on
+		}
+		intent.getStringExtra("lh.release")?.let {
+			prefs.edit().putString("release", it.ifBlank { null }).apply()
+			changed = true
+		}
 		return changed
 	}
 
@@ -164,7 +204,7 @@ class MainActivity : ComponentActivity() {
 		}
 		WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
 		inkFrame = InkFrame(this, webView, BACKGROUND)
-		inkBridge = InkBridge(webView, inkFrame)
+		inkBridge = InkBridge(webView, inkFrame, speech)
 		installBridge()
 		webView.webViewClient = client
 		webView.webChromeClient = chrome
@@ -180,6 +220,14 @@ class MainActivity : ComponentActivity() {
 			hint = "Server port"
 			setText(port.toString())
 			gravity = Gravity.CENTER
+		}
+		codeField = EditText(this).apply {
+			inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+			setTextColor(Color.WHITE)
+			setHintTextColor(0xFF808080.toInt())
+			hint = "Code from the sign-in page"
+			gravity = Gravity.CENTER
+			visibility = View.GONE
 		}
 		devSwitch = Switch(this).apply {
 			text = "Dev server (PC, adb reverse)"
@@ -198,6 +246,7 @@ class MainActivity : ComponentActivity() {
 			addView(detail, wide)
 			addView(primary, wide)
 			addView(secondary, wide)
+			addView(codeField, wide)
 			addView(portField, wide)
 			addView(devSwitch, wide)
 		}
@@ -218,8 +267,9 @@ class MainActivity : ComponentActivity() {
 		}
 	}
 
-	private fun show(titleText: String, detailText: String, primaryLabel: String?, onPrimary: () -> Unit, secondaryLabel: String? = null, onSecondary: () -> Unit = {}, controls: Boolean = true) {
+	private fun show(titleText: String, detailText: String, primaryLabel: String?, onPrimary: () -> Unit, secondaryLabel: String? = null, onSecondary: () -> Unit = {}, controls: Boolean = true, code: Boolean = false) {
 		pageShown = false
+		codeField.visibility = if (code) View.VISIBLE else View.GONE
 		webView.visibility = View.GONE
 		status.visibility = View.VISIBLE
 		title.text = titleText
@@ -251,17 +301,22 @@ class MainActivity : ComponentActivity() {
 		begin()
 	}
 
+	private fun askMicrophone(onResult: (Boolean) -> Unit) {
+		if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+			onResult(true)
+		} else {
+			speechMicCallback = onResult
+			speechMic.launch(Manifest.permission.RECORD_AUDIO)
+		}
+	}
+
 	private fun openAppSettings() {
 		startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
 	}
 
-	private fun openTermux() {
-		packageManager.getLaunchIntentForPackage(Termux.PACKAGE)?.let { startActivity(it) }
-	}
-
 	// ── flow ─────────────────────────────────────────────────────────────────
 
-	/** Look at the server and Termux, then do the one next thing (Logic.kt: Flow.decide). */
+	/** Look at the server and the guest, then do the one next thing (Logic.kt: Flow.decide). */
 	private fun begin(afterStart: Boolean = false) {
 		if (busy) return
 		busy = true
@@ -270,28 +325,25 @@ class MainActivity : ComponentActivity() {
 		val p = port
 		thread {
 			val healthy = !dev && checkHealth(p)
+			// the guest is only looked at when nothing answers: a running server needs no checks
+			val down = !dev && !healthy
+			val installed = !down || provisioner.installed()
+			val update = down && installed && !skipUpdate && provisioner.updateAvailable(provisioner.remoteVersions(timeoutMs = 4_000))
+			val signedIn = !down || !installed || update || login.loggedIn()
 			runOnUiThread {
 				if (my != attempt) return@runOnUiThread
 				busy = false
-				when (Flow.decide(dev, healthy, Termux.installed(this), Termux.permissionGranted(this))) {
+				when (Flow.decide(dev, healthy, installed, update, signedIn)) {
 					Next.Load -> load()
-					Next.NeedTermux -> show(
-						"Termux is not installed",
-						"The server runs in Termux. Install Termux from F-Droid or GitHub (the Play Store build is outdated), then run `lh install` there.",
-						"Check again", ::retry,
-					)
-					Next.NeedRunCommandPermission -> show(
-						"Allow starting the server",
-						"learnharness needs the \"Run commands in Termux environment\" permission (App settings → Permissions → Additional permissions), and Termux needs `allow-external-apps=true` in ~/.termux/termux.properties.",
-						"Grant permission", { termuxPermission.launch(Termux.PERMISSION) },
-						"App settings", ::openAppSettings,
-					)
-					// `lh start` came back fine but nothing answers on our port: asking again would loop forever
+					Next.Provision -> provision()
+					Next.Update -> offerUpdate()
+					Next.Login -> startLogin()
+					// the server was started and still does not answer: asking again would loop forever
 					Next.Start -> if (afterStart) {
 						show(
-							"The server does not answer on port $p",
-							"`lh start` finished, but nothing answers here. Set the same port as PORT in ~/.lh/config (default 3000).",
-							"Try again", ::retry, "Open Termux", ::openTermux,
+							"The server does not start",
+							Redact.tokens(serverLogTail()).ifBlank { "It printed nothing. Try again, or reopen the app." },
+							"Try again", ::retry,
 						)
 					} else {
 						startServer()
@@ -315,27 +367,130 @@ class MainActivity : ComponentActivity() {
 		false
 	}
 
-	private fun startServer() {
-		busy = true
-		showWorking("Starting the server…")
-		detail.text = "Termux runs `lh start`; this takes up to a minute."
-		Termux.run(this, listOf("start"), 130_000) { reply ->
-			busy = false
-			if (reply.problem == TermuxProblem.NONE) begin(afterStart = true) else showProblem(reply, "Could not start the server")
+	/** An installed app with a newer release: the learner decides, and nothing is downloaded over a metered connection (owner decision, M12). */
+	private fun offerUpdate() {
+		show(
+			"Update available",
+			"A newer version of the learning environment is ready. It downloads over Wi-Fi.",
+			"Update now", ::updateNow,
+			"Later", { skipUpdate = true; begin() },
+			controls = false,
+		)
+	}
+
+	private fun updateNow() {
+		if (getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered) {
+			show(
+				"Connect to Wi-Fi",
+				"The update is only downloaded on Wi-Fi. Connect, then try again.",
+				"Try again", ::updateNow,
+				"Later", { skipUpdate = true; begin() },
+				controls = false,
+			)
+		} else {
+			provision()
 		}
 	}
 
-	private fun showProblem(reply: TermuxReply, headline: String) {
-		val text = when (reply.problem) {
-			TermuxProblem.ALLOW_EXTERNAL_APPS ->
-				"Add `allow-external-apps=true` to ~/.termux/termux.properties in Termux, run `termux-reload-settings`, then try again."
-			TermuxProblem.LH_MISSING ->
-				"`lh` is not installed in Termux. Install it (see android/termux/README.md), run `lh install`, then try again."
-			// stdout is left out on purpose: `lh start` and an old `lh pair` print the pairing link there
-			else -> Redact.tokens(listOfNotNull(reply.errmsg, reply.stderr.takeLast(400)).filter { it.isNotBlank() }.joinToString("\n"))
-				.ifBlank { "Termux gave no details." }
+	/** First run, or an update: download and unpack the guest and the server. The screen stays on (a download must not be cut short). */
+	private fun provision() {
+		busy = true
+		window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+		showWorking("Setting up…")
+		detail.text = "Downloading the learning environment. This happens once; keep the app open."
+		// the download and the unpacking must go on with the screen off or locked
+		val wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lh:setup").also { it.acquire(60 * 60 * 1000L) }
+		thread {
+			val failure = try {
+				provisioner.run { label, pct ->
+					runOnUiThread {
+						title.text = label
+						detail.text = pct?.let { "$it %" } ?: ""
+					}
+				}
+				null
+			} catch (e: Provisioner.Failure) {
+				e.message ?: "Setup failed."
+			} catch (e: Exception) {
+				"Setup failed (${e.javaClass.simpleName}: ${e.message})."
+			}
+			if (wake.isHeld) wake.release()
+			// what failed, for diagnosis without a screen (the status screen shows it too)
+			if (failure != null) File(filesDir, "setup.log").appendText(System.currentTimeMillis().toString() + " " + Redact.tokens(failure) + "\n")
+			runOnUiThread {
+				busy = false
+				window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+				if (failure == null) begin() else show("Setup did not finish", Redact.tokens(failure), "Try again", ::retry)
+			}
 		}
-		show(headline, text, "Try again", ::retry, "Open Termux", ::openTermux)
+	}
+
+	/** Claude's sign-in: the link opens in the browser, the page shows a code, the learner pastes it here. */
+	private fun startLogin() {
+		loginActive = true
+		loginUrl = null
+		show(
+			"Sign in to Claude",
+			"Preparing the sign-in…",
+			"Open the sign-in page", { loginUrl?.let { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } },
+			"Submit the code", ::submitCode,
+			controls = false, code = true,
+		)
+		primary.isEnabled = false
+		codeField.setText("")
+		login.start(
+			onUrl = { url ->
+				runOnUiThread {
+					loginUrl = url
+					primary.isEnabled = true
+					detail.text = "Open the sign-in page, sign in with the Claude account, then copy the code it shows and paste it below."
+				}
+			},
+			onDone = { ok ->
+				runOnUiThread {
+					loginActive = false
+					if (ok) begin() else show("Sign-in did not finish", "The code was refused or the sign-in timed out.", "Try again", ::startLogin)
+				}
+			},
+		)
+	}
+
+	private fun submitCode() {
+		val code = codeField.text.toString()
+		if (code.isBlank()) return
+		login.submit(code)
+		detail.text = "Signing in…"
+	}
+
+	private fun startServer() {
+		busy = true
+		showWorking("Starting the server…")
+		detail.text = "This takes a few seconds."
+		if (!askedNotifications && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+			askedNotifications = true
+			busy = false
+			notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+			return
+		}
+		// a fresh install (no settings file yet) starts with the Claude models picked; a saved choice is never touched
+		File(guest.home, "lh-data").mkdirs()
+		File(guest.home, "lh-data/settings.json").let { if (!it.exists()) it.writeText(FirstRun.MODELS_SETTINGS) }
+		ServerService.start(this, port)
+		val p = port
+		thread {
+			val deadline = System.currentTimeMillis() + START_TIMEOUT_MS
+			while (System.currentTimeMillis() < deadline && !checkHealth(p)) Thread.sleep(500)
+			runOnUiThread {
+				busy = false
+				begin(afterStart = true)
+			}
+		}
+	}
+
+	private fun serverLogTail(): String = try {
+		File(filesDir, "server.log").readText().takeLast(500)
+	} catch (_: Exception) {
+		""
 	}
 
 	/** Pair when there is no cookie, then load. */
@@ -344,33 +499,37 @@ class MainActivity : ComponentActivity() {
 			open()
 			return
 		}
-		pair { open() }
+		pair()
+		open()
 	}
 
 	private fun hasCookie(): Boolean =
 		CookieManager.getInstance().getCookie(Server.base(port))?.contains("${Server.COOKIE}=") == true
 
-	/** `lh pair --print-token` through Termux, then the cookie the server would have set. */
-	private fun pair(then: () -> Unit) {
+	/** The cookie the server would have set when asked to pair; the token is ours, so no round trip is needed. */
+	private fun pair() {
+		CookieManager.getInstance().apply {
+			setCookie(Server.base(port), Server.cookie(tokens.get()))
+			flush()
+		}
+	}
+
+	/** A new token and a restarted server: the way out of "the server refuses this app". */
+	private fun resetPairing() {
 		busy = true
-		showWorking("Pairing…")
-		Termux.run(this, listOf("pair", "--print-token"), 20_000) { reply ->
-			busy = false
-			val token = Token.parse(reply.stdout)
-			if (token != null) {
+		showWorking("Resetting the pairing…")
+		thread {
+			ServerService.stop(this)
+			tokens.rotate()
+			Thread.sleep(2500)
+			runOnUiThread {
 				CookieManager.getInstance().apply {
-					setCookie(Server.base(port), Server.cookie(token))
+					removeAllCookies(null)
 					flush()
 				}
-				then()
-			} else {
-				val problem = reply.problem
-				val shown = if (problem == TermuxProblem.NONE) {
-					TermuxReply(reply.exitCode, reply.stdout, "Termux did not return a token. Update lh in Termux (`lh update`) and try again.", reply.err, reply.errmsg)
-				} else {
-					reply
-				}
-				showProblem(shown, "Could not pair")
+				rePaired = false
+				busy = false
+				begin()
 			}
 		}
 	}
@@ -413,6 +572,7 @@ class MainActivity : ComponentActivity() {
 
 		override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
 			inkFrame.apply(InkOp.Close) // a new page has not opened the native ink layer
+			speech.close() // nor is it listening
 		}
 
 		override fun onPageFinished(view: WebView, url: String?) {
@@ -424,9 +584,9 @@ class MainActivity : ComponentActivity() {
 		override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
 			if (!request.isForMainFrame || errorResponse.statusCode != 403 || dev) return
 			saw403 = true
-			// "Not paired": the token was rotated or the cookie is gone. Re-read it once.
+			// "Not paired": the cookie is gone or the server runs with another token. Write the cookie again once.
 			if (rePaired) {
-				show("Pairing failed", "The server still refuses this app. Run `lh pair --rotate` in Termux, then try again.", "Try again", ::retry, "Open Termux", ::openTermux)
+				show("Pairing failed", "The server still refuses this app.", "Reset the pairing", ::resetPairing, "Try again", ::retry)
 				return
 			}
 			rePaired = true
@@ -434,12 +594,15 @@ class MainActivity : ComponentActivity() {
 				removeAllCookies(null)
 				flush()
 			}
-			if (!busy) pair { open() }
+			if (!busy) {
+				pair()
+				open()
+			}
 		}
 
 		override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
 			if (!request.isForMainFrame) return
-			show("The server is not reachable", error.description.toString(), "Try again", ::retry, "Open Termux", ::openTermux)
+			show("The server is not reachable", error.description.toString(), "Try again", ::retry)
 		}
 	}
 
@@ -503,6 +666,7 @@ base64` here; the system picker picks where the
 	}
 
 	override fun onDestroy() {
+		login.cancel()
 		WebViewCompat.removeWebMessageListener(webView, "lhShell")
 		inkBridge.remove()
 		super.onDestroy()
@@ -510,6 +674,8 @@ base64` here; the system picker picks where the
 
 	private companion object {
 		const val BACKGROUND = 0xFF151210.toInt()
+		/** How long a freshly started server may take before the shell reads its log and reports. */
+		const val START_TIMEOUT_MS = 90_000L
 
 		/**
 		 * The web app saves files with an `<a download>`: a detached blob link revoked right after the click

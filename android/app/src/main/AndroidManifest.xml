@@ -4,13 +4,19 @@
 	<uses-permission android:name="android.permission.INTERNET" />
 	<uses-permission android:name="android.permission.RECORD_AUDIO" />
 	<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-	<!-- Termux's RUN_COMMAND API; also needs allow-external-apps=true in ~/.termux/termux.properties -->
-	<uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+	<!-- the server runs as a foreground service (M12): kept alive with the screen off, shown as a notification -->
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+	<uses-permission android:name="android.permission.WAKE_LOCK" />
 
 	<uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+	<!-- the system speech recognizer service (dictation, M12 step 6) must be visible to this app on Android 11+ -->
 	<queries>
-		<package android:name="com.termux" />
+		<intent>
+			<action android:name="android.speech.RecognitionService" />
+		</intent>
 	</queries>
 
 	<application
@@ -33,9 +39,13 @@
 			</intent-filter>
 		</activity>
 
-		<!-- Termux hands the result of a RUN_COMMAND back through the PendingIntent we gave it -->
-		<receiver
-			android:name=".TermuxResultReceiver"
-			android:exported="false" />
+		<service
+			android:name=".ServerService"
+			android:exported="false"
+			android:foregroundServiceType="specialUse">
+			<property
+				android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+				android:value="Runs the local learning server (a Linux environment inside the app) for as long as the app is in use" />
+		</service>
 	</application>
 </manifest>
