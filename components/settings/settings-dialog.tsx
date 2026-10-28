@@ -401,7 +401,11 @@ export function SettingsDialogBody({
 							)}
 							{active === "keys" && (
 								<SettingsSection title="Providers" testid="section-keys">
-									<KeysSection initialRow={initialRow ?? undefined} />
+									<KeysSection
+										initialRow={initialRow ?? undefined}
+										general={record.general}
+										onGeneralChange={(next) => void write("general", next)}
+									/>
 								</SettingsSection>
 							)}
 							{active === "agent" && (

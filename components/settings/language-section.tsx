@@ -14,10 +14,13 @@ import {
 import { SettingsGroup, SettingsRow, ThinSelect } from "@/components/settings/controls";
 
 /**
- * Settings → General: language + dictation (fork addition, 2026-10-24).
- *
+ * Settings → General: the default lesson language (fork addition, 2026-10-24):
  *   Default lesson language  stamped onto every new lesson (each lesson
  *                            then owns its own — the stats-bar pill).
+ *
+ * The dictation rows live under Settings → Providers → Dictation, next to the
+ * Deepgram key and the dictation language (owner, 2026-10-28; keys-section.tsx
+ * renders DictationEngineRows):
  *   Dictation engine         local (on-device Whisper, default) or
  *                            Deepgram (cloud, needs its key).
  *   Local speech models      one row per language: downloaded or not,
@@ -50,7 +53,8 @@ function modelState(status: LocalSttStatus): string {
 	}
 }
 
-export function LanguageSection({
+/** The dictation engine and the local speech models: rows for the Providers → Dictation group. */
+export function DictationEngineRows({
 	general,
 	onChange,
 }: {
@@ -85,76 +89,86 @@ export function LanguageSection({
 	const engine = general?.dictationEngine ?? DEFAULT_DICTATION_ENGINE;
 	return (
 		<>
-			<SettingsGroup label="Language" testid="group-language">
+		<SettingsRow
+			label="Dictation engine"
+			hint={
+				engine === "local"
+					? "On this device: free, offline after the first download, audio never leaves the machine"
+					: "Deepgram's cloud: needs the Deepgram key below"
+			}
+			testid="row-dictation-engine"
+		>
+			<ThinSelect
+				value={engine}
+				ariaLabel="dictation engine"
+				testid="select-dictation-engine"
+				onChange={(v) => {
+					if (isDictationEngine(v)) onChange({ ...general, dictationEngine: v });
+				}}
+			>
+				<option value="local">Local</option>
+				<option value="deepgram">Deepgram (cloud)</option>
+			</ThinSelect>
+		</SettingsRow>
+		{engine === "local" &&
+			(models ?? []).map((m) => (
 				<SettingsRow
-					label="Default lesson language"
-					hint="New lessons start in this language; each lesson can change its own from the bar under the composer"
-					testid="row-default-language"
+					key={m.language}
+					label={`${lessonLanguageInfo(m.language).label} speech model`}
+					hint={m.repo}
+					testid={`row-stt-model-${m.language}`}
 				>
-					<ThinSelect
-						value={general?.language ?? DEFAULT_LESSON_LANGUAGE}
-						ariaLabel="default lesson language"
-						testid="select-default-language"
-						onChange={(v) => {
-							if (isLessonLanguage(v)) onChange({ ...general, language: v });
-						}}
-					>
-						{LESSON_LANGUAGES.map((l) => (
-							<option key={l.id} value={l.id}>
-								{l.label}
-							</option>
-						))}
-					</ThinSelect>
+					<span className="flex items-center gap-2">
+						<span className="font-mono text-[11px] text-muted-foreground" data-testid={`stt-model-${m.language}-status`}>
+							{localModelLine(m)}
+						</span>
+						{(m.state === "absent" || m.state === "error") && (
+							<button
+								type="button"
+								onClick={() => download(m.language)}
+								data-testid={`stt-model-${m.language}-download`}
+								className="text-xs text-foreground underline-offset-2 hover:underline"
+							>
+								Download
+							</button>
+						)}
+					</span>
 				</SettingsRow>
-			</SettingsGroup>
-			<SettingsGroup label="Dictation" testid="group-dictation">
-				<SettingsRow
-					label="Dictation engine"
-					hint={
-						engine === "local"
-							? "On this device: free, offline after the first download, audio never leaves the machine"
-							: "Deepgram's cloud: needs a Deepgram key under Keys"
-					}
-					testid="row-dictation-engine"
-				>
-					<ThinSelect
-						value={engine}
-						ariaLabel="dictation engine"
-						testid="select-dictation-engine"
-						onChange={(v) => {
-							if (isDictationEngine(v)) onChange({ ...general, dictationEngine: v });
-						}}
-					>
-						<option value="local">Local</option>
-						<option value="deepgram">Deepgram (cloud)</option>
-					</ThinSelect>
-				</SettingsRow>
-				{engine === "local" &&
-					(models ?? []).map((m) => (
-						<SettingsRow
-							key={m.language}
-							label={`${lessonLanguageInfo(m.language).label} speech model`}
-							hint={m.repo}
-							testid={`row-stt-model-${m.language}`}
-						>
-							<span className="flex items-center gap-2">
-								<span className="font-mono text-[11px] text-muted-foreground" data-testid={`stt-model-${m.language}-status`}>
-									{localModelLine(m)}
-								</span>
-								{(m.state === "absent" || m.state === "error") && (
-									<button
-										type="button"
-										onClick={() => download(m.language)}
-										data-testid={`stt-model-${m.language}-download`}
-										className="text-xs text-foreground underline-offset-2 hover:underline"
-									>
-										Download
-									</button>
-								)}
-							</span>
-						</SettingsRow>
-					))}
-			</SettingsGroup>
+			))}
 		</>
+	);
+}
+
+export function LanguageSection({
+	general,
+	onChange,
+}: {
+	general: GeneralSettings | undefined;
+	/** Writes the WHOLE general section (replace-whole). */
+	onChange: (next: GeneralSettings) => void;
+}) {
+	return (
+		<SettingsGroup label="Language" testid="group-language">
+			<SettingsRow
+				label="Default lesson language"
+				hint="New lessons start in this language; each lesson can change its own from the bar under the composer"
+				testid="row-default-language"
+			>
+				<ThinSelect
+					value={general?.language ?? DEFAULT_LESSON_LANGUAGE}
+					ariaLabel="default lesson language"
+					testid="select-default-language"
+					onChange={(v) => {
+						if (isLessonLanguage(v)) onChange({ ...general, language: v });
+					}}
+				>
+					{LESSON_LANGUAGES.map((l) => (
+						<option key={l.id} value={l.id}>
+							{l.label}
+						</option>
+					))}
+				</ThinSelect>
+			</SettingsRow>
+		</SettingsGroup>
 	);
 }

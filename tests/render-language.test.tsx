@@ -4,11 +4,11 @@ import assert from "node:assert/strict";
 import { StatsBar } from "../components/stats-bar.tsx";
 import { LanguageControl } from "../components/language-control.tsx";
 import { Composer } from "../components/composer.tsx";
-import { LanguageSection } from "../components/settings/language-section.tsx";
+import { DictationEngineRows, LanguageSection } from "../components/settings/language-section.tsx";
 
 // The lesson-language surfaces (fork addition, 2026-10-24): the language
-// control (on the composer shell's edge since 2026-10-25), and Settings → General's language +
-// dictation groups. Server render = the first paint, before any fetch.
+// control (on the composer shell's edge since 2026-10-25), and Settings → General's language group
+// and the dictation engine rows under Providers → Dictation. Server render = the first paint, before any fetch.
 
 describe("lesson language — render", () => {
 	it("the declutter (2026-10-25): language and sources ride the composer's edge; the stats bar keeps the model", () => {
@@ -35,7 +35,10 @@ describe("lesson language — render", () => {
 
 	it("settings: default language + engine selects reflect the record", () => {
 		const html = renderToStaticMarkup(
-			<LanguageSection general={{ language: "nb", dictationEngine: "local" }} onChange={() => {}} />,
+			<>
+				<LanguageSection general={{ language: "nb", dictationEngine: "local" }} onChange={() => {}} />
+				<DictationEngineRows general={{ language: "nb", dictationEngine: "local" }} onChange={() => {}} />
+			</>,
 		);
 		assert.match(html, /data-testid="select-default-language"/);
 		assert.match(html, /<option value="nb" selected="">Norsk \(bokmål\)<\/option>/);
@@ -44,9 +47,14 @@ describe("lesson language — render", () => {
 	});
 
 	it("settings: the Deepgram engine explains its key requirement", () => {
-		const html = renderToStaticMarkup(<LanguageSection general={{ dictationEngine: "deepgram" }} onChange={() => {}} />);
+		const html = renderToStaticMarkup(
+			<>
+				<LanguageSection general={{ dictationEngine: "deepgram" }} onChange={() => {}} />
+				<DictationEngineRows general={{ dictationEngine: "deepgram" }} onChange={() => {}} />
+			</>,
+		);
 		assert.match(html, /<option value="deepgram" selected="">/);
-		assert.match(html, /needs a Deepgram key/);
+		assert.match(html, /needs the Deepgram key/);
 		assert.match(html, /<option value="en" selected="">English<\/option>/, "absent language = English");
 	});
 });

@@ -151,7 +151,7 @@ Dictation is **live**: the recording is cut at natural pauses (after at least 8 
 
 If the GPU path can't run (no WebGPU adapter, a driver error), dictation falls back to the small models on the CPU (`whisper-small` and `nb-whisper-small-ONNX`, q8, ~6× real time), and Settings → General shows that it did. A transcription that fails on the GPU is retried on the CPU, so a recording is never lost; a failed transcription keeps the recording, and **Retry** sends it again.
 
-The model for a lesson's language downloads the first time you dictate in that language. The dictation bar shows the progress, or you can download in advance under Settings → General → Dictation. Models are stored in the app's data folder under `models/stt`. Transcription runs in a separate worker process that exits after 10 idle minutes to free its memory (~1 GB).
+The model for a lesson's language downloads the first time you dictate in that language. The dictation bar shows the progress, or you can download in advance under Settings → Providers → Dictation. Models are stored in the app's data folder under `models/stt`. Transcription runs in a separate worker process that exits after 10 idle minutes to free its memory (~1 GB).
 
 `LH_STT_DEVICE=cpu` makes this engine use only the small CPU models, so a machine without WebGPU (a phone or tablet) never downloads the 1.3–1.6 GB GPU weights; Settings shows "CPU". The default is `auto`, as described above. The whisper.cpp engine below ignores it.
 
@@ -166,11 +166,11 @@ Dictation can run on [whisper.cpp](https://github.com/ggml-org/whisper.cpp)'s `w
 
 If whisper.cpp fails, the transcription fails (the recording is kept; **Retry** sends it again); there is no fallback to the other engine. The engine biases the transcript toward the lesson's own terms (the active question or problem, the plan's titles, recent bold terms) through whisper.cpp's prompt. Numbers: [docs/android/stt-bench.md](docs/android/stt-bench.md).
 
-To use Deepgram's cloud engine instead, choose *Deepgram (cloud)* under Settings → General → Dictation engine and add a Deepgram key; it gets the lesson's language too.
+To use Deepgram's cloud engine instead, choose *Deepgram (cloud)* as the *Dictation engine* under Settings → Providers → Dictation and add a Deepgram key there; its language is the dictation language set in the same group.
 
 ### Cloud dictation (Deepgram, optional)
 
-Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Providers → Dictation**, then pick the Deepgram engine under Settings → General. The cloud engine's language is the **dictation language** chosen below the key (**Multilingual** supports automatic recognition and mixed-language speech); it does not follow the lesson's language, unlike the local engine. A `403 Insufficient permissions` error during token minting can indicate an insufficient key role.
+Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Providers → Dictation**, then pick the Deepgram engine in the same group. The cloud engine's language is the **dictation language** chosen below the key (**Multilingual** supports automatic recognition and mixed-language speech); it does not follow the lesson's language, unlike the local engine. A `403 Insufficient permissions` error during token minting can indicate an insufficient key role.
 
 ### Headless server (optional)
 
