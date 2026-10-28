@@ -14,8 +14,8 @@ import {
 	buildAnswer,
 	repairMathForDisplay,
 	normalizeQuizType,
+	CONFIDENCE_LEVELS,
 	CONFIDENCE_STOPS,
-	nearestConfidenceStop,
 	dockSubmitGate,
 	emptyDockSelection,
 	normalizeOptions,
@@ -42,7 +42,7 @@ import {
 	type SketchPayload,
 	type Phase3,
 } from "@/src/core";
-import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-rail";
+import { ConfidenceButtons } from "@/components/confidence-buttons";
 
 /**
  * The question dock — a pending quiz/ask REPLACES the chat composer: the
@@ -390,17 +390,26 @@ function QuestionDockForm({
 
 	const toggle = (idx: number) => setSel(toggleOption(selectMode, sel, idx));
 
-	const { canSubmit, needsConfidence } = dockSubmitGate({
-		kind,
-		mode: qd.mode,
-		sel,
-		other,
-		text,
-		confidenceSet: confIdx !== null,
-	});
+	/** A press on a confidence button (or "I don't know") submits THIS render's answer with that press, so the gate and the
+	 *  request read the override rather than state that has not landed yet (owner, 2026-10-28: Anki-style buttons). */
+	type SubmitOverride = { confIdx?: number; dontKnow?: boolean };
+	const selFor = (ov?: SubmitOverride): DockSelection =>
+		ov?.dontKnow ? { ...sel, selected: new Set(), otherSelected: false, dontKnow: true } : sel;
+	const gateFor = (ov?: SubmitOverride) =>
+		dockSubmitGate({
+			kind,
+			mode: qd.mode,
+			sel: selFor(ov),
+			other,
+			text,
+			confidenceSet: ov?.confIdx !== undefined || confIdx !== null,
+		});
+	const { canSubmit } = gateFor();
+	// An answer is picked (the confidence buttons wait for this and nothing else).
+	const answerPicked = dockSubmitGate({ kind, mode: qd.mode, sel, other, text, confidenceSet: true }).canSubmit;
 
-	const submit = () => {
-		if (!canSubmit || compactionRunning) return;
+	const submitWith = (ov?: SubmitOverride) => {
+		if (!gateFor(ov).canSubmit || compactionRunning) return;
 		/* FINISH DICTATION FIRST (owner, 2026-10-01): Enter may arrive while
 		 * a run is live with reasoning still in Deepgram's hands. Stop the
 		 * run, let the last finals land in the target field, and only then
@@ -408,51 +417,63 @@ function QuestionDockForm({
 		 * forgotten stop. The field values below come from the REF mirrors
 		 * because the flush lands via setState after an await. */
 		if (!isDictationActive()) {
-			doSubmit();
+			doSubmit(ov);
 			return;
 		}
-		void finishDictation().then(doSubmit);
+		void finishDictation().then(() => doSubmit(ov));
 	};
-	const buildRequest = (): AnswerRequest => ({
-			dontKnow: sel.dontKnow,
-			values: [...sel.selected].map((i) => qd.options[i]!.value),
-			other: sel.otherSelected ? other : undefined,
+	const submit = () => submitWith();
+	const pressLevel = (stopIndex: number) => {
+		setConfIdx(stopIndex);
+		submitWith({ confIdx: stopIndex });
+	};
+	const pressDontKnow = () => submitWith({ dontKnow: true });
+	const buildRequest = (ov?: SubmitOverride): AnswerRequest => {
+		const dontKnow = ov?.dontKnow ?? sel.dontKnow;
+		const conf = ov?.confIdx ?? confIdx;
+		return {
+			dontKnow,
+			values: dontKnow ? [] : [...sel.selected].map((i) => qd.options[i]!.value),
+			other: !dontKnow && sel.otherSelected ? other : undefined,
 			text: qd.mode === "text" ? answerTextRef.current : undefined,
 			thinking: qd.mode !== "text" ? thinkingTextRef.current.trim() || undefined : undefined,
 			// Always chosen on a picked quiz answer (canSubmit waits for it);
 			// buildAnswer drops it on "I don't know".
-			confidence: kind === "quiz" && confIdx !== null ? CONFIDENCE_STOPS[confIdx] : undefined,
-	});
-	const doSubmit = () => {
-		if (!canSubmit) return;
+			confidence: kind === "quiz" && conf !== null ? CONFIDENCE_STOPS[conf] : undefined,
+		};
+	};
+	const doSubmit = (ov?: SubmitOverride) => {
+		if (!gateFor(ov).canSubmit) return;
 		// Snapshot before optimistic submission unmounts the form. Ref values
 		// include the dictation finals that just landed, unlike stale closures.
 		onSaveDraft?.({
-			selection: { ...sel, selected: new Set(sel.selected) },
+			selection: { ...selFor(ov), selected: new Set(selFor(ov).selected) },
 			thinking: thinkingTextRef.current,
 			other,
 			text: answerTextRef.current,
-			confidenceIndex: confIdx,
+			confidenceIndex: ov?.confIdx ?? confIdx,
 		});
-		onSubmit(buildAnswer(qd, buildRequest(), toolName));
+		onSubmit(buildAnswer(qd, buildRequest(ov), toolName));
 	};
 	/* The sketch submit (Android plan M1 + M3): in text mode the sketch
 	 * answers on its own or with the typed/dictated text; in a choice mode
 	 * the picked answer (and confidence) is the answer and the sketch rides
 	 * as thinking. Dictation's tail lands first, exactly as for the Submit
 	 * button. */
-	const submitSketch = async (sketch: SketchPayload): Promise<boolean> => {
+	const submitSketch = async (sketch: SketchPayload, pressedIdx?: number): Promise<boolean> => {
 		if (compactionRunning) return false;
 		setSketching(false);
 		if (isDictationActive()) await finishDictation();
-		// The dock's own gate (the view disables Submit with the same one).
-		if (!dockSubmitGate({ kind, mode: qd.mode, sel, other, text: answerTextRef.current, confidenceSet: confIdx !== null, hasSketch: true }).canSubmit) return false;
-		const req: AnswerRequest = { ...buildRequest(), sketch: sketchRefOf(sketch) };
+		// The dock's own gate (the view disables Submit with the same one). The sketch page asks for the confidence itself
+		// (its Submit expands into the confidence buttons), so a press there counts like one in the dock.
+		const ov: SubmitOverride | undefined = pressedIdx === undefined ? undefined : { confIdx: pressedIdx };
+		if (!dockSubmitGate({ kind, mode: qd.mode, sel, other, text: answerTextRef.current, confidenceSet: pressedIdx !== undefined || confIdx !== null, hasSketch: true }).canSubmit) return false;
+		const req: AnswerRequest = { ...buildRequest(ov), sketch: sketchRefOf(sketch) };
 		return (await onSubmit(buildAnswer(qd, req, toolName), sketch)) ?? true;
 	};
-	// Why the sketch view's Submit waits (a choice question needs its pick).
-	const sketchGate = dockSubmitGate({ kind, mode: qd.mode, sel, other, text, confidenceSet: confIdx !== null, hasSketch: true });
-	const sketchBlocked = sketchGate.canSubmit ? undefined : sketchGate.needsConfidence ? "Set your confidence first" : "Pick an answer first";
+	// Why the sketch view's Submit waits (a choice question needs its pick; the confidence is asked on the sketch page).
+	const sketchGate = dockSubmitGate({ kind, mode: qd.mode, sel, other, text, confidenceSet: true, hasSketch: true });
+	const sketchBlocked = sketchGate.canSubmit ? undefined : "Pick an answer first";
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): the same
 	 * law as the practice dock — dictated answers rarely focus the field.
@@ -486,12 +507,11 @@ function QuestionDockForm({
 	// ask → Other (a question never has both). Text mode (ask/explain)
 	// has no rows — the composer IS the answer surface.
 	const optionCount = qd.mode === "text" ? 0 : qd.options.length;
-	const rowCount = qd.mode === "text" ? 0 : optionCount + 1;
+	// (the quiz's "I don't know" is a button beside the confidence buttons now, not a row)
+	const rowCount = qd.mode === "text" ? 0 : optionCount + (kind === "quiz" ? 0 : 1);
 
 	const kbdAct = (idx: number) => {
 		if (idx < optionCount) toggle(idx);
-		else if (kind === "quiz")
-			setSel((prev) => ({ ...prev, selected: new Set(), otherSelected: false, dontKnow: !prev.dontKnow }));
 		else {
 			// Space on the ask's Other row (owner refinement round,
 			// 2026-09-24): SELECTING it focuses the input for typing, but
@@ -566,18 +586,25 @@ function QuestionDockForm({
 				setKbdIdx(next);
 				if (t?.closest?.("[data-kbdrow]")) focusRow(next);
 			} else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-				// Global confidence cycling (owner, UI round 2026-10-01): the
-				// SAME pattern as ↑/↓ over the rows — works wherever focus
-				// sits, no click-in, no focus ring. Dead on "I don't know"
-				// (the slider grays out and nothing is sent).
+				// Global confidence highlight (owner, UI round 2026-10-01; the
+				// buttons since 2026-10-28): the SAME pattern as ↑/↓ over the
+				// rows — works wherever focus sits. ←/→ move the highlight over
+				// the five levels and Enter presses it. Dead on "I don't know".
 				if (kind !== "quiz" || sel.dontKnow) return;
 				e.preventDefault();
+				const first = CONFIDENCE_LEVELS[0]!.index;
+				const last = CONFIDENCE_LEVELS[CONFIDENCE_LEVELS.length - 1]!.index;
 				// From unset, either arrow lands on 50 (the middle stop).
 				setConfIdx((i) =>
 					i === null
 						? CONFIDENCE_STOPS.indexOf(50)
-						: Math.min(CONFIDENCE_STOPS.length - 1, Math.max(0, i + (e.key === "ArrowRight" ? 1 : -1))),
+						: Math.min(last, Math.max(first, i + (e.key === "ArrowRight" ? 1 : -1))),
 				);
+			} else if (kind === "quiz" && /^[0-5]$/.test(e.key)) {
+				// 1-5 press Guess..Certain and submit, 0 presses "I don't know" (owner, 2026-10-28)
+				e.preventDefault();
+				if (e.key === "0") pressDontKnow();
+				else if (answerPicked) pressLevel(CONFIDENCE_LEVELS[Number(e.key) - 1]!.index);
 			} else if (e.key === " ") {
 				if (kbdIdx === null) return; // plain Space keeps scrolling the page
 				e.preventDefault();
@@ -682,36 +709,6 @@ function QuestionDockForm({
 							);
 						})}
 
-						{kind === "quiz" && (
-							<button
-								type="button"
-								onClick={() =>
-									setSel((prev) => ({ ...prev, selected: new Set(), otherSelected: false, dontKnow: !prev.dontKnow }))
-								}
-								data-kbdrow={optionCount}
-								aria-pressed={sel.dontKnow}
-								className={cn(
-									// Option-row layout + radio circle (owner); the dashed
-									// outline stays — this is the deliberate non-answer.
-									"flex items-start gap-3 rounded-lg border border-dashed px-3 py-2 text-left text-sm outline-none transition-colors",
-									sel.dontKnow ? "border-primary text-foreground" : "text-muted-foreground",
-									kbdIdx === optionCount && !sel.dontKnow && "ring-1 ring-border bg-accent/40",
-								)}
-							>
-								<span
-									className={cn(
-										"mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border",
-										sel.dontKnow
-											? "border-primary bg-primary text-primary-foreground"
-											: "border-muted-foreground/40",
-									)}
-								>
-									{sel.dontKnow && <span className="size-1.5 rounded-full bg-current" />}
-								</span>
-								<span>I don't know</span>
-							</button>
-						)}
-
 						{kind === "ask" && (
 							<div
 								role={qd.mode === "multi-select" ? "checkbox" : "radio"}
@@ -784,106 +781,30 @@ function QuestionDockForm({
 				)}
 			</div>
 
-			{/* Confidence (owner, 2026-10-01; UI rounds same day): a snapped
-				slider below the options and above "Your thinking" — the
-				learner's stated probability that his selected answer is
-				correct. The thumb's POSITION is the raw fraction; the painted
-				RAIL overlays exactly the thumb-center range (inset half a disc
-				per side), so 0 and 100 rest flush against the rail's very
-				ends. Fill + handle wear the stop's ramp color; SOLID stop
-				ticks are background layers behind the fill (empty side only,
-				never over the color; 0/100 need no tick — the flush ends say
-				them). Keyboard: GLOBAL ←/→ (the ↑/↓ pattern; the ring is gone
-				app-wide). Clicking and dragging are native. "I don't know"
-				GRAYS it out — the layout holds, no value is sent, the IDK
-				signal stands alone. */}
+			{/* The confidence BUTTONS (owner, 2026-10-28; Anki style, replacing the slider and the Submit button): pick an answer,
+			    then press how sure you are — the press submits. "I don't know" is the leading button and needs no pick; the five
+			    levels wait for one. Keys: 1-5 press the levels, 0 presses "I don't know", ←/→ move the highlight, Enter presses it. */}
 			{kind === "quiz" && (
-				<div className="border-t border-border/60 px-4 py-2.5">
-					<div className="flex items-center gap-3">
-						<span
-							className={cn(
-								"shrink-0 text-xs font-medium uppercase tracking-wide",
-								sel.dontKnow ? "text-muted-foreground/50" : "text-muted-foreground",
-							)}
-						>
-							Confidence
-							{confIdx === null && !sel.dontKnow && (
-								<span
-									data-testid="confidence-unset-hint"
-									className="ml-1.5 font-normal normal-case tracking-normal text-muted-foreground/70"
-								>
-									set before submitting
-								</span>
-							)}
-						</span>
-						<div
-							className={cn("relative h-4 min-w-0 flex-1", sel.dontKnow && "opacity-40")}
-							data-testid="confidence-track"
-						>
-							{/* The RAIL is painted here, not on the input: this overlay spans
-								exactly the thumb-CENTER range (inset 8px = half the 16px disc,
-								left and right), so at 0 and 100 the disc sits flush against the
-								rail's very ends — no bare stub poking past it (owner round 4).
-								STACKING LAW (owner round 5): the input is absolute too — a
-								positioned overlay paints above an in-flow input no matter the
-								DOM order, which put the rail OVER the disc. Both positioned,
-								input later in DOM → the disc rides on top. The wrapper's height
-								is pinned (h-4) so the rail's top-1/2 and the disc's track share
-								one box — centered by construction, not by hope. */}
-							<div
-								aria-hidden
-								data-testid="confidence-rail"
-								className="pointer-events-none absolute top-1/2 left-2 right-2 h-1.5 -translate-y-1/2 rounded-full border border-border"
-								// Unset paints an empty rail (a 0-width fill).
-								style={confidenceRailStyle(confIdx === null ? 0 : CONFIDENCE_STOPS[confIdx]!)}
-							/>
-							<input
-								type="range"
-								min={0}
-								max={100}
-								step={1}
-								// Unset: the native input still needs a value — it rests,
-								// invisible, at 50.
-								value={confIdx === null ? 50 : CONFIDENCE_STOPS[confIdx]}
-								disabled={sel.dontKnow}
-								aria-label="Confidence — the probability your selected answer is correct"
-								aria-valuetext={confIdx === null ? "not set" : `${CONFIDENCE_STOPS[confIdx]} percent`}
-								title="The probability your selected answer is correct — 50% is a coin flip. Adjust with ←/→."
-								data-testid="confidence-slider"
-								onChange={(e) => setConfIdx(nearestConfidenceStop(Number(e.target.value)))}
-								// A click on the hidden resting value changes nothing, so
-								// onChange never fires: the release sets it too.
-								onPointerUp={(e) => setConfIdx(nearestConfidenceStop(Number(e.currentTarget.value)))}
-								style={{ color: confIdx === null ? undefined : CONFIDENCE_COLORS[confIdx] }}
-								className={cn(
-									"absolute inset-0 h-4 w-full cursor-pointer appearance-none bg-transparent outline-none",
-									"[&::-webkit-slider-runnable-track]:h-4 [&::-webkit-slider-runnable-track]:bg-transparent",
-									"[&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-current",
-									"[&::-moz-range-track]:h-4 [&::-moz-range-track]:bg-transparent",
-									"[&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-current",
-									confIdx === null &&
-										"[&::-webkit-slider-thumb]:opacity-0 [&::-moz-range-thumb]:opacity-0",
-								)}
-							/>
-						</div>
-						<span
-							data-testid="confidence-value"
-							className={cn(
-								"w-9 shrink-0 text-right font-mono text-sm tabular-nums",
-								sel.dontKnow && "text-muted-foreground/50",
-							)}
-						>
-							{sel.dontKnow || confIdx === null ? "—" : `${CONFIDENCE_STOPS[confIdx]}%`}
-						</span>
-					</div>
+				<div className="border-t border-border/60 px-4 py-2.5" data-testid="confidence-row">
+					<ConfidenceButtons
+						onPick={pressLevel}
+						disabled={!answerPicked || compactionRunning}
+						highlight={confIdx}
+						leading={
+							<button
+								type="button"
+								disabled={compactionRunning}
+								onClick={pressDontKnow}
+								data-testid="dont-know-button"
+								className="lh-touch h-9 min-w-0 flex-[1.6] truncate rounded-[6px] border border-dashed border-border/70 bg-transparent px-1 text-xs text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+							>
+								I don't know
+							</button>
+						}
+					/>
 				</div>
 			)}
 
-			{/* The learner's half of the dock — a composer TWIN: a labeled, bordered
-			    field with Submit docked inside, exactly like the chat composer's
-			    send. Select modes get "Your thinking" (Enter makes a newline — it
-			    is for dumping, soon dictated; the button submits); text mode
-			    keeps "Your answer" with Enter-to-submit. */}
 			<form
 				className="border-t border-border/60 p-1.5"
 				onSubmit={(e) => {
@@ -978,14 +899,15 @@ function QuestionDockForm({
 								Open in sketch
 							</Button>
 						)}
-						<Button
-							type="submit"
-							disabled={!canSubmit || compactionRunning}
-							title={needsConfidence ? "Set your confidence first" : undefined}
-							className={cn("h-9 rounded-[6px] px-3.5 text-sm font-medium", !sketchAvailable && "ml-auto")}
-						>
-							Submit answer
-						</Button>
+						{kind !== "quiz" && (
+							<Button
+								type="submit"
+								disabled={!canSubmit || compactionRunning}
+								className={cn("h-9 rounded-[6px] px-3.5 text-sm font-medium", !sketchAvailable && "ml-auto")}
+							>
+								Submit answer
+							</Button>
+						)}
 					</div>
 				</div>
 			</form>
@@ -999,6 +921,7 @@ function QuestionDockForm({
 					onCancelDictation={onEscape}
 					disabled={compactionRunning}
 					blocked={qd.mode === "text" ? undefined : sketchBlocked}
+					confidenceLevels={kind === "quiz" && qd.mode !== "text" && !sel.dontKnow}
 					choices={
 						qd.mode === "text" ? undefined : (
 							<SketchChoices
@@ -1013,8 +936,6 @@ function QuestionDockForm({
 								onOther={selectOther}
 								other={other}
 								onOtherText={setOther}
-								confIdx={confIdx}
-								onConfidence={setConfIdx}
 							/>
 						)
 					}

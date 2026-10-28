@@ -559,6 +559,17 @@ export interface AnswerRequest {
  *  a picked quiz answer cannot be sent until a stop is chosen. */
 export const CONFIDENCE_STOPS: readonly number[] = [0, 30, 50, 70, 90, 100];
 
+/** The dock's confidence BUTTONS (owner, 2026-10-28: Anki style, pressing one submits the answer). Five of the six stops:
+ *  0 is never offered (a picked answer is never believed wrong), and "I don't know" is its own button. `index` points into
+ *  CONFIDENCE_STOPS, which is what the dock's state and the colour ramp use. */
+export const CONFIDENCE_LEVELS: readonly { label: string; stop: number; index: number }[] = [
+	{ label: "Guess", stop: 30, index: 1 },
+	{ label: "Unsure", stop: 50, index: 2 },
+	{ label: "Likely", stop: 70, index: 3 },
+	{ label: "Sure", stop: 90, index: 4 },
+	{ label: "Certain", stop: 100, index: 5 },
+];
+
 /** The index of the stop nearest a raw slider value (0–100). */
 export function nearestConfidenceStop(value: number): number {
 	let best = 0;

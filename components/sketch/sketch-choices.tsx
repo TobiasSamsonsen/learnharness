@@ -1,16 +1,16 @@
 "use client";
 
 import { MessageResponse } from "@/components/ai-elements/message";
-import { CONFIDENCE_COLORS } from "@/components/confidence-rail";
 import { cn } from "@/lib/utils";
-import { CONFIDENCE_STOPS, type DockSelection } from "@/src/core";
+import type { DockSelection } from "@/src/core";
 
 /**
  * A multiple-choice question's answer controls inside the sketch view's
- * floating box (Android plan M3): the options, "I don't know" (quiz) or
- * "Other…" (ask), and — for a quiz — the confidence stops. Purely
+ * floating box (Android plan M3): the options and "I don't know" (quiz) or
+ * "Other…" (ask). The confidence is not asked here: the sketch page's Submit expands into the confidence buttons
+ * (owner, 2026-10-28). Purely
  * presentational: every value and handler is the question dock's own
- * (`sel`, `confIdx`, `other`), so there is ONE source of truth and the
+ * (`sel`, `other`), so there is ONE source of truth and the
  * dock's submit gate governs both surfaces.
  */
 
@@ -24,8 +24,6 @@ export interface SketchChoicesProps {
 	onOther: () => void;
 	other: string;
 	onOtherText: (text: string) => void;
-	confIdx: number | null;
-	onConfidence: (index: number) => void;
 }
 
 export function SketchChoices({
@@ -38,8 +36,6 @@ export function SketchChoices({
 	onOther,
 	other,
 	onOtherText,
-	confIdx,
-	onConfidence,
 }: SketchChoicesProps) {
 	return (
 		<div data-testid="sketch-choices" className="mt-3 flex flex-col gap-2 border-t pt-3">
@@ -121,29 +117,6 @@ export function SketchChoices({
 					</div>
 				)}
 			</div>
-			{kind === "quiz" && (
-				<div className={cn("flex flex-wrap items-center gap-1.5", sel.dontKnow && "opacity-40")}>
-					<span className="mr-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">Confidence</span>
-					{CONFIDENCE_STOPS.map((stop, i) => (
-						<button
-							key={stop}
-							type="button"
-							disabled={sel.dontKnow}
-							aria-pressed={confIdx === i}
-							data-testid={`sketch-confidence-${stop}`}
-							onClick={() => onConfidence(i)}
-							style={confIdx === i ? { borderColor: CONFIDENCE_COLORS[i], color: CONFIDENCE_COLORS[i] } : undefined}
-							className={cn(
-								"rounded-md border px-2 py-0.5 font-mono text-xs tabular-nums transition-colors",
-								confIdx === i ? "bg-accent font-semibold" : "text-muted-foreground hover:bg-accent/50",
-							)}
-						>
-							{stop}%
-						</button>
-					))}
-					{confIdx === null && !sel.dontKnow && <span className="text-xs text-muted-foreground/70">set before submitting</span>}
-				</div>
-			)}
 		</div>
 	);
 }

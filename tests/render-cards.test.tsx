@@ -163,7 +163,7 @@ describe("DispatchCard — the BYOK refusal tone (owner, 2026-09-22)", () => {
 });
 
 describe("render smoke tests", () => {
-	it("QuizCard renders question, options, and the automatic 'I don't know'", () => {
+	it("QuizCard renders question, options, and the 'I don't know' button", () => {
 		const html = renderDock({ toolName: "quiz", toolCallId: "q1", input: quizInput as never });
 		assert.match(html, /Which planet is closest to the sun\?/);
 		assert.match(html, /Mercury/);
@@ -174,19 +174,22 @@ describe("render smoke tests", () => {
 		assert.match(html, /YOUR THINKING/, "labeled as the learner's voice (all caps, owner round 3)");
 		assert.match(html, /Why this answer\? Whatever comes to mind/, "placeholder invites, not apologizes (owner, placeholder round 2026-10-07)");
 		assert.ok(!html.includes("optional"), "the field is never called optional");
-		assert.match(html, /Submit answer/, "send becomes Submit answer");
+		assert.ok(!html.includes("Submit answer"), "a quiz is submitted by its confidence buttons (owner, 2026-10-28)");
+		assert.ok(html.includes('data-testid="dont-know-button"'), "I don't know is a button beside the confidence buttons");
 		assert.match(html, /↵ submits · ⇧↵ newline/, "the standard chord is discoverable (owner round 5)");
 		// The v1 desync bug: options are buttons with ARIA roles, not native inputs.
 		assert.ok(!html.includes('type="radio"'), "no native radio inputs");
 		assert.ok(html.includes('role="radio"'), "button-based radio role present");
 	});
 
-	it("QuizCard's confidence starts unset — no default to forget (owner, 2026-10-25)", () => {
+	it("QuizCard's confidence is five buttons that wait for a pick, with no default (owner, 2026-10-28)", () => {
 		const html = renderDock({ toolName: "quiz", toolCallId: "q1", input: quizInput as never });
-		assert.ok(html.includes('data-testid="confidence-unset-hint"'), "the hint asks for a confidence");
-		assert.match(html, /set before submitting/);
-		assert.match(html, /aria-valuetext="not set"/);
-		assert.match(html, /data-testid="confidence-value"[^>]*>—</, "no number shown until chosen");
+		for (const label of ["Guess", "Unsure", "Likely", "Sure", "Certain"]) assert.ok(html.includes(`>${label}<`), label);
+		for (const stop of [30, 50, 70, 90, 100]) {
+			assert.match(html, new RegExp(`<button[^>]*disabled=""[^>]*data-testid="confidence-btn-${stop}"`), `${stop} waits for an answer`);
+		}
+		assert.ok(!html.includes('data-testid="confidence-slider"'), "the slider is gone");
+		assert.ok(!/<button[^>]*disabled=""[^>]*data-testid="dont-know-button"/.test(html) && !/<button[^>]*data-testid="dont-know-button"[^>]*disabled=""/.test(html), "I don't know needs no pick");
 	});
 
 	it("a ```plot / ```blocks fence in a stem mounts the figure holder, never a code block (figures, 2026-10-26)", () => {
@@ -486,7 +489,7 @@ describe("teach-check reveal (W5 phase separation)", () => {
 		// path renders the identical form; this is also the regression pin for it.
 		const html = renderDock({ toolName: "quiz", toolCallId: "t1", input: quizInput as never });
 		assert.ok(html.includes('data-testid="question-dock"'), "the form is the dock's content once expanded");
-		assert.match(html, /Submit answer/);
+		assert.ok(html.includes('data-testid="confidence-buttons"'), "a quiz submits through its confidence buttons");
 	});
 });
 

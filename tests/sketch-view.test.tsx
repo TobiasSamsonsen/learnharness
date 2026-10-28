@@ -57,7 +57,7 @@ afterEach(async () => {
 	host = undefined;
 });
 
-async function mount(props: { inkKey: string; onSubmit: (s: SketchPayload) => Promise<boolean>; onClose?: () => void; extra?: Record<string, unknown> }) {
+async function mount(props: { inkKey: string; onSubmit: (s: SketchPayload, confidenceIndex?: number) => Promise<boolean>; onClose?: () => void; extra?: Record<string, unknown> }) {
 	host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
@@ -179,6 +179,29 @@ describe("the kept page (Android plan M3)", () => {
 		assert.match(document.body.textContent ?? "", /Pick an answer first/);
 	});
 
+	it("a quiz answer's Submit expands into the confidence buttons; the one pressed is sent with the sketch (owner, 2026-10-28)", async () => {
+		writeInk("k-conf", inkFromStrokes([STROKE]));
+		const sent: Array<number | undefined> = [];
+		await mount({ inkKey: "k-conf", onSubmit: async (_s, idx) => (sent.push(idx), true), extra: { confidenceLevels: true } });
+		const click = (id: string) => act(async () => (document.querySelector(`[data-testid="${id}"]`) as HTMLElement).click());
+		await click("sketch-submit");
+		assert.deepEqual(sent, [], "the first press only asks");
+		assert.ok(!document.querySelector('[data-testid="sketch-submit"]'), "Submit stands aside for the buttons");
+		for (const label of ["Guess", "Unsure", "Likely", "Sure", "Certain"]) assert.match(document.body.textContent ?? "", new RegExp(label));
+		await click("sketch-confidence-90");
+		await settle();
+		assert.deepEqual(sent, [4], "index 4 is the 90 stop");
+	});
+
+	it("without a quiz answer Submit sends at once", async () => {
+		writeInk("k-noconf", inkFromStrokes([STROKE]));
+		const sent: Array<number | undefined> = [];
+		await mount({ inkKey: "k-noconf", onSubmit: async (_s, idx) => (sent.push(idx), true) });
+		await act(async () => (document.querySelector('[data-testid="sketch-submit"]') as HTMLElement).click());
+		await settle();
+		assert.deepEqual(sent, [undefined]);
+	});
+
 	it("the page grows below the lowest ink and stops at the cap", async () => {
 		const { sketchPageHeight, SKETCH_PAGE_MAX_HEIGHT } = await import("../components/sketch/sketch-canvas.tsx");
 		assert.equal(sketchPageHeight(800, 100), 800);
@@ -192,7 +215,7 @@ describe("the kept page (Android plan M3)", () => {
 });
 
 describe("MC answer controls in the box (Android plan M3)", () => {
-	it("render the dock's options, I don't know and confidence stops, and call its handlers", async () => {
+	it("render the dock's options and I don't know, and call its handlers (the confidence is asked on Submit)", async () => {
 		const { SketchChoices } = await import("../components/sketch/sketch-choices.tsx");
 		const calls: string[] = [];
 		host = document.createElement("div");
@@ -210,18 +233,15 @@ describe("MC answer controls in the box (Android plan M3)", () => {
 					onOther={() => calls.push("other")}
 					other=""
 					onOtherText={() => {}}
-					confIdx={null}
-					onConfidence={(i) => calls.push(`conf${i}`)}
 				/>,
 			),
 		);
 		const click = (id: string) => act(async () => (document.querySelector(`[data-testid="${id}"]`) as HTMLElement).click());
 		assert.equal(document.querySelector('[data-testid="sketch-choice-1"]')?.getAttribute("aria-checked"), "true");
-		assert.match(document.body.textContent ?? "", /set before submitting/);
+		assert.ok(!document.querySelector('[data-testid="sketch-confidence-70"]'), "no confidence stops in the box");
 		await click("sketch-choice-0");
 		await click("sketch-choice-dontknow");
-		await click("sketch-confidence-70");
-		assert.deepEqual(calls, ["toggle0", "idk", "conf3"]);
+		assert.deepEqual(calls, ["toggle0", "idk"]);
 	});
 });
 

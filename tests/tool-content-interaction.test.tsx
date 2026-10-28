@@ -29,19 +29,12 @@ test("actual select → submit → saved result → historical Why uses source d
 		assert.ok(choice);
 		await act(async () => choice.click());
 		assert.equal(choice.getAttribute("aria-checked"), "true");
-		// the fork has no default confidence: a quiz answer waits until the learner sets one
-		const slider = host.querySelector<HTMLInputElement>('[data-testid="confidence-slider"]')!;
-		assert.ok(slider);
-		await act(async () => {
-			Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(slider, "70");
-			slider.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-			slider.dispatchEvent(new dom.window.Event("pointerup", { bubbles: true })); // the release sets it too
-		});
-		const submit = [...host.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("Submit answer"))!;
-		assert.equal(submit.disabled, false);
-		// linkedom does not implement the browser's default button→form
-		// action; dispatch its native submit event through React instead.
-		await act(async () => submit.closest("form")!.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+		// there is no default confidence: the buttons submit, and they wait for a pick
+		const certain = host.querySelector<HTMLButtonElement>('[data-testid="confidence-btn-100"]')!;
+		assert.ok(certain);
+		assert.equal(certain.disabled, false);
+		assert.ok(!host.querySelector('[data-testid="confidence-slider"]'));
+		await act(async () => certain.click());
 		assert.ok(answer);
 		assert.equal(answer.questionText, question);
 		assert.equal(answer.explanation, explanation);

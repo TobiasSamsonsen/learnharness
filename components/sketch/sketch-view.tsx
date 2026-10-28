@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { EraserIcon, MicIcon, PenLineIcon, Redo2Icon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfidenceButtons } from "@/components/confidence-buttons";
 import { isDictationActive } from "@/components/dictation";
 import { FloatingProblem } from "@/components/sketch/floating-problem";
 import { lowestInk, SketchCanvas, sketchPageHeight, type SketchTool } from "@/components/sketch/sketch-canvas";
@@ -37,7 +38,7 @@ export interface SketchViewProps {
 	inkKey: string;
 	/** The sketch is ready; the caller finishes dictation and sends, and
 	 *  resolves to whether the server accepted it. */
-	onSubmit: (sketch: SketchPayload) => Promise<boolean>;
+	onSubmit: (sketch: SketchPayload, confidenceIndex?: number) => Promise<boolean>;
 	onClose: () => void;
 	/** Cancel a live dictation run (the page's Esc behaviour). */
 	onCancelDictation?: () => void;
@@ -52,6 +53,9 @@ export interface SketchViewProps {
 	/** Why the dock would refuse this submit (a pick or confidence is
 	 *  missing) — disables Submit and shows as its hint. */
 	blocked?: string;
+	/** A quiz answer is being given (owner, 2026-10-28): Submit then expands in place into the confidence buttons, and the
+	 *  one pressed is handed to `onSubmit` as an index into CONFIDENCE_STOPS. */
+	confidenceLevels?: boolean;
 }
 
 function focusVisible(el: HTMLElement): boolean {
@@ -97,6 +101,7 @@ export function SketchView({
 	keptStatus = "ready",
 	choices,
 	blocked,
+	confidenceLevels = false,
 }: SketchViewProps) {
 	const ink = useInk(inkKey);
 	const kept = useKept(inkKey);
@@ -137,9 +142,15 @@ export function SketchView({
 	};
 	// The Android shell's native ink layer, when the setting is on (owner, M10): it draws under the transparent page
 	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: ink.strokes, kept: kept?.strokes, tool, onStroke: addStroke, onErase: erase });
-	const submit = () => {
+	// Submit has been pressed on a quiz answer: the confidence buttons stand in for it until one is pressed
+	const [asking, setAsking] = useState(false);
+	const submit = (confidenceIndex?: number) => {
 		const unsent = readInk(inkKey).strokes;
 		if (disabled || blocked || keptStatus === "loading" || unsent.length === 0) return;
+		if (confidenceLevels && confidenceIndex === undefined) {
+			setAsking(true);
+			return;
+		}
 		let payload: SketchPayload;
 		try {
 			payload = pagePayload(kept, unsent, native.active ? "android-ink" : "web-canvas");
@@ -153,11 +164,14 @@ export function SketchView({
 		// The ink folds into the kept page only once the server has the
 		// sketch (a 409/500/400 keeps it for a retry); anything drawn since
 		// stays unsent.
-		void sendPage(inkKey, payload, unsent, () => onSubmit(payload));
+		void sendPage(inkKey, payload, unsent, () => onSubmit(payload, confidenceIndex));
 	};
 
 	const handlers = useRef({ undo, redo, submit, onClose, onCancelDictation });
 	handlers.current = { undo, redo, submit, onClose, onCancelDictation };
+	// drawing on, or the answer changing under the page, puts Submit back
+	const strokeCount = ink.strokes.length;
+	useEffect(() => setAsking(false), [strokeCount, blocked, disabled, confidenceLevels]);
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			const mod = e.metaKey || e.ctrlKey;
@@ -264,7 +278,7 @@ export function SketchView({
 					{tool === "eraser" ? <PenLineIcon className="size-4" /> : <EraserIcon className="size-4" />}
 				</Button>
 				<SketchMic />
-				<span aria-hidden className="ml-2 min-w-0 flex-1 truncate text-xs text-muted-foreground">
+				<span aria-hidden className={cn("ml-2 min-w-0 flex-1 truncate text-xs text-muted-foreground", asking && "hidden")}>
 					{error ??
 						(native.fallback
 							? `native ink unavailable (${native.fallback}) — using the web canvas`
@@ -277,15 +291,19 @@ export function SketchView({
 										? "couldn't load your earlier page — new ink goes alone"
 										: "⌘↵ submits · esc closes"))}
 				</span>
-				<Button
-					type="button"
-					data-testid="sketch-submit"
-					disabled={empty || disabled || !!blocked || keptStatus === "loading"}
-					onClick={submit}
-					className="h-9 rounded-[6px] px-3.5 text-sm font-medium"
-				>
-					Submit sketch
-				</Button>
+				{asking ? (
+					<ConfidenceButtons onPick={(index) => submit(index)} testidPrefix="sketch-confidence" className="ml-2 min-w-0 flex-1" />
+				) : (
+					<Button
+						type="button"
+						data-testid="sketch-submit"
+						disabled={empty || disabled || !!blocked || keptStatus === "loading"}
+						onClick={() => submit()}
+						className="h-9 rounded-[6px] px-3.5 text-sm font-medium"
+					>
+						Submit sketch
+					</Button>
+				)}
 			</div>
 		</div>,
 		document.body,
