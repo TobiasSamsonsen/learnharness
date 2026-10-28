@@ -1,0 +1,62 @@
+name: Android rootfs (linux-arm64)
+
+# Builds the Linux guest the standalone Android app downloads on first run (Ubuntu + Node; the claude CLI is installed from npm on the phone,
+# docs/android/m12-plan.md step 1) and publishes it as its own rolling release, `android-rootfs`: the server
+# workflow (android-server.yml) deletes and recreates `android-latest` on every run, which would wipe it.
+# Separate from ci.yml / release.yml on purpose: upstream's workflows stay untouched.
+
+on:
+  push:
+    paths:
+      - "android/rootfs/**"
+      - ".github/workflows/android-rootfs.yml"
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # the rolling android-rootfs release at the end
+
+concurrency:
+  group: android-rootfs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linux-arm64:
+    name: Rootfs (linux-arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint the build script
+        run: shellcheck -s bash android/rootfs/build.sh
+      - name: Build the rootfs
+        run: sudo bash android/rootfs/build.sh "$RUNNER_TEMP/rootfs-out"
+      - name: Smoke test, unpacked the way the app does it
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/rootfs-smoke"
+          mkdir -p "$dir"
+          # as a normal user, like the app: no root, no hard links
+          tar -xzf "$RUNNER_TEMP/rootfs-out/learnharness-rootfs-linux-arm64.tar.gz" -C "$dir"
+          test -x "$dir/opt/node/bin/node"
+          test -s "$dir/etc/resolv.conf"
+          size=$(stat -c %s "$RUNNER_TEMP/rootfs-out/learnharness-rootfs-linux-arm64.tar.gz")
+          echo "rootfs tarball: $size bytes"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: learnharness-rootfs-linux-arm64
+          path: ${{ runner.temp }}/rootfs-out
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish the rolling android-rootfs release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/rootfs-out"
+          version=$(cat "$out/rootfs-version.txt")
+          gh release delete android-rootfs --cleanup-tag --yes || true
+          gh release create android-rootfs --prerelease --target "$GITHUB_SHA" \
+            --title "Android rootfs (rolling)" \
+            --notes "Linux guest for the standalone Android app (docs/android/m12-plan.md). Build $version." \
+            "$out/learnharness-rootfs-linux-arm64.tar.gz" "$out/learnharness-rootfs-linux-arm64.tar.gz.sha256" "$out/rootfs-version.txt"
