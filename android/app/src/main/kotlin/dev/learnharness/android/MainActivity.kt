@@ -379,7 +379,13 @@ class MainActivity : ComponentActivity() {
 	}
 
 	private fun updateNow() {
-		if (getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered) {
+		// if the state cannot be read, assume the worst: a metered connection
+		val metered = try {
+			getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered
+		} catch (_: SecurityException) {
+			true
+		}
+		if (metered) {
 			show(
 				"Connect to Wi-Fi",
 				"The update is only downloaded on Wi-Fi. Connect, then try again.",

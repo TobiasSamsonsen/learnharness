@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
 	<uses-permission android:name="android.permission.INTERNET" />
+	<!-- the update question asks whether the connection is metered; DNS for the guest reads the network's resolvers (M12) -->
+	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 	<uses-permission android:name="android.permission.RECORD_AUDIO" />
 	<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 	<!-- the server runs as a foreground service (M12): kept alive with the screen off, shown as a notification -->
