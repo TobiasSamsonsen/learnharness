@@ -24,7 +24,9 @@ test("shell lines decode, and anything else is ignored without throwing", () => 
 	assert.deepEqual(decodeSpeechLine("speech final  hello there, world "), { kind: "final", text: "hello there, world" });
 	assert.deepEqual(decodeSpeechLine("speech error language pack missing"), { kind: "error", code: "language", detail: "pack missing" });
 	assert.deepEqual(decodeSpeechLine("speech error busy"), { kind: "error", code: "busy", detail: "" });
-	for (const bad of ["", "ready", "speech", "speech state hmm", "speech partial", "speech final", "speech error nope x", "stroke {}", "pan 3"]) {
+	assert.deepEqual(decodeSpeechLine("speech level 0.42"), { kind: "level", level: 0.42 });
+	assert.deepEqual(decodeSpeechLine("speech level 7"), { kind: "level", level: 1 }, "clamped");
+	for (const bad of ["", "ready", "speech", "speech state hmm", "speech partial", "speech final", "speech error nope x", "speech level", "speech level loud", "stroke {}", "pan 3"]) {
 		assert.equal(decodeSpeechLine(bad), null, bad);
 	}
 });

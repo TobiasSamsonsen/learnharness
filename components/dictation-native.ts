@@ -50,6 +50,8 @@ export interface NativeSpeechHandlers {
 	onState(state: SpeechState): void;
 	onPartial(text: string): void;
 	onFinal(text: string): void;
+	/** How loud the learner is, 0..1 (a few times a second while listening). */
+	onLevel?(level: number): void;
 	onError(code: SpeechErrorCode, detail: string): void;
 }
 
@@ -74,6 +76,7 @@ export function startNativeSpeech(language: LessonLanguage, handlers: NativeSpee
 		if (e.kind === "state") handlers.onState(e.state);
 		else if (e.kind === "partial") handlers.onPartial(e.text);
 		else if (e.kind === "final") handlers.onFinal(e.text);
+		else if (e.kind === "level") handlers.onLevel?.(e.level);
 		else if (e.kind === "error") handlers.onError(e.code, e.detail);
 	};
 	b.addEventListener("message", listener);

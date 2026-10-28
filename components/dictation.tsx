@@ -269,6 +269,12 @@ function ensureAudioGraph(): { ctx: AudioContext; module: Promise<void> } {
 	return { ctx: sharedCtx, module: workletModule };
 }
 
+/** The inverse of rmsToMeter: the RMS (0..1) a normalized meter level stands for. The Android recognizer reports a level, not a signal. */
+export function meterToRms(level: number): number {
+	if (level <= 0) return 0;
+	return 10 ** ((METER_FLOOR_DB + Math.min(1, level) * (METER_CEILING_DB - METER_FLOOR_DB)) / 20);
+}
+
 /** RMS (0..1) → normalized 0..1 across the audible dB window. */
 export function rmsToMeter(rms: number): number {
 	if (rms <= 0) return 0;
@@ -596,6 +602,9 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 				},
 				onFinal: (text) => {
 					if (gen === genRef.current) transcript.final(text);
+				},
+				onLevel: (level) => {
+					if (gen === genRef.current) levelRef.current = meterToRms(level); // the meter, as with the worklet's frames
 				},
 				onError: (code) => {
 					if (gen !== genRef.current) return;
@@ -1045,23 +1054,6 @@ export function DictationBar({ dictation, compact = false }: { dictation: Dictat
 
 	return (
 		<div className="flex w-full min-w-0 items-center gap-2" data-testid="dictation-bar">
-			<Hint label="Stop dictation (Esc)" side="top">
-				<button
-					type="button"
-					onClick={toggle}
-					disabled={phase === "stopping"}
-					aria-label="Stop dictation"
-				data-testid="dictation-toggle"
-				className="lh-touch flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-destructive/10 px-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20"
-			>
-				{phase === "stopping" ? (
-					<Loader2Icon className="size-3.5 animate-spin" />
-				) : (
-					<MicIcon className="size-3.5" />
-				)}
-					Stop
-				</button>
-			</Hint>
 			<span className="size-1.5 shrink-0 animate-pulse rounded-full bg-destructive" aria-hidden />
 			{/* Fixed width while recording — nothing ever appends text beside it
 			    (no interims, owner round 1). Cells carry no minimum width; the
@@ -1083,6 +1075,24 @@ export function DictationBar({ dictation, compact = false }: { dictation: Dictat
 				))}
 			</div>
 			)}
+			{/* the Stop button is the last item: it sits where the mic was (the right edge), so it never jumps away from the finger */}
+			<Hint label="Stop dictation (Esc)" side="top">
+				<button
+					type="button"
+					onClick={toggle}
+					disabled={phase === "stopping"}
+					aria-label="Stop dictation"
+				data-testid="dictation-toggle"
+				className="lh-touch flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-destructive/10 px-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20"
+			>
+				{phase === "stopping" ? (
+					<Loader2Icon className="size-3.5 animate-spin" />
+				) : (
+					<MicIcon className="size-3.5" />
+				)}
+					Stop
+				</button>
+			</Hint>
 		</div>
 	);
 }

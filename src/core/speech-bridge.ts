@@ -14,6 +14,7 @@ import type { LessonLanguage } from "./language.ts";
  *                  speech state <listening|processing|idle>
  *                  speech partial <text>         the recognizer's current guess for the stretch being spoken (replaces the last partial)
  *                  speech final <text>           one recognized stretch (replaces the partial; the shell restarts listening after pauses)
+ *                  speech level <0..1>           how loud the learner is right now (drives the dictation meter; a few times a second)
  *                  speech error <code> [detail]  codes: permission, unavailable, language, network, busy, other
  */
 
@@ -29,6 +30,7 @@ export type SpeechEvent =
 	| { kind: "state"; state: SpeechState }
 	| { kind: "partial"; text: string }
 	| { kind: "final"; text: string }
+	| { kind: "level"; level: number }
 	| { kind: "error"; code: SpeechErrorCode; detail: string };
 
 /** What the learner reads in the dictation button when the shell reports an error. */
@@ -63,6 +65,10 @@ export function decodeSpeechLine(line: string): SpeechEvent | null {
 			return arg ? { kind: "partial", text: arg } : null;
 		case "final":
 			return arg ? { kind: "final", text: arg } : null;
+		case "level": {
+			const level = Number(arg);
+			return arg !== "" && Number.isFinite(level) ? { kind: "level", level: Math.max(0, Math.min(1, level)) } : null;
+		}
 		case "error": {
 			const code = arg.split(" ", 1)[0] ?? "";
 			return isErrorCode(code) ? { kind: "error", code, detail: arg.slice(code.length).trim() } : null;

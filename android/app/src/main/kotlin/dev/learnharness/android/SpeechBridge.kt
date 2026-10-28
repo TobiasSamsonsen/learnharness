@@ -27,6 +27,7 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 	private var language = ""
 	/** The last partial sent, so an unchanged guess is not sent twice. */
 	private var lastPartial = ""
+	private var lastLevel = ""
 
 	/** One line from the page (on the main thread). `reply` posts a line back. */
 	fun handle(line: String, reply: (String) -> Unit) {
@@ -96,7 +97,13 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 
 		override fun onReadyForSpeech(params: Bundle?) = Unit
 		override fun onBeginningOfSpeech() = Unit
-		override fun onRmsChanged(rmsdB: Float) = Unit
+		override fun onRmsChanged(rmsdB: Float) {
+			val line = SpeechWire.level(rmsdB)
+			if (line == lastLevel) return
+			lastLevel = line
+			post(line)
+		}
+
 		override fun onBufferReceived(buffer: ByteArray?) = Unit
 		override fun onEndOfSpeech() = Unit
 		override fun onPartialResults(partialResults: Bundle?) {
@@ -208,6 +215,9 @@ object SpeechWire {
 
 	/** One recognized stretch; line breaks would end the message early, so they become spaces. */
 	fun final(text: String): String = "speech final " + text.replace(Regex("""\s+"""), " ").trim()
+
+	/** The recognizer's loudness in dB (about -2 for silence up to 10 for loud speech) as a 0..1 level, two decimals. */
+	fun level(rmsdB: Float): String = "speech level " + String.format(java.util.Locale.ROOT, "%.2f", ((rmsdB + 2f) / 12f).coerceIn(0f, 1f))
 
 	fun error(code: String, detail: String = ""): String = ("speech error $code " + detail.replace(Regex("""\s+"""), " ")).trim()
 }
