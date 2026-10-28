@@ -81,6 +81,14 @@ function prose(messages: ReturnType<typeof projectView>): string[] {
 	return messages.filter((m) => m.role === "assistant").flatMap((m) => m.parts.filter((p) => p.type === "text").map((p) => p.text!));
 }
 
+describe("one channel for the closing words", () => {
+	it("the conclude ack tells a send_to_user model to send the closing words once and then write no text", async () => {
+		const { CONCLUDE_ACK_TEXT } = await import("../src/core/contracts/chat.ts");
+		assert.match(CONCLUDE_ACK_TEXT, /`send_to_user`/);
+		assert.match(CONCLUDE_ACK_TEXT, /NO ordinary text after it/);
+	});
+});
+
 describe("send_to_user model gate", () => {
 	for (const [provider, id, enabled] of [
 		["anthropic", "claude-opus-5-5", true],

@@ -4,13 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronRightIcon, PenLineIcon, XIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
+import { ConfidenceButtons } from "@/components/confidence-buttons";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { enterSends, useEnterSubmits } from "@/components/enter-submits";
 import { pagePayload, sendPage, useInk } from "@/components/sketch/ink-memory";
 import { useKeptPage } from "@/components/sketch/kept-page";
 import { SketchView } from "@/components/sketch/sketch-view";
 import { cn } from "@/lib/utils";
-import { repairMathForDisplay, SketchPayloadError, type SketchPayload, type SketchRef } from "@/src/core";
+import { CONFIDENCE_STOPS, repairMathForDisplay, SketchPayloadError, type SketchPayload, type SketchRef } from "@/src/core";
 
 /**
  * The practice dock (practice sessions, owner design 2026-10-04): an
@@ -32,6 +33,10 @@ import { repairMathForDisplay, SketchPayloadError, type SketchPayload, type Sket
  * confirm dialog then the silent route) — claimed by the page, not here.
  */
 
+/** What the confidence buttons add to a submission: how sure the learner is (a CONFIDENCE_STOPS value), or that they pressed
+ *  "I don't know" and claim no answer (owner, 2026-10-28). */
+export type ThinkingMark = { confidence?: number; dontKnow?: true };
+
 export interface PracticeDockProps {
 	/** The active problem's tool-call id (submissions target it). */
 	problemCallId: string;
@@ -45,7 +50,7 @@ export interface PracticeDockProps {
 	 *  the text). A sketch submit (Android plan M1) adds the handwriting;
 	 *  its text may then be empty. `sketchRef` re-sends the problem's kept
 	 *  page by id (no new ink). */
-	onSubmit: (text: string, sketch?: SketchPayload, sketchRef?: string) => Promise<boolean> | void;
+	onSubmit: (text: string, sketch?: SketchPayload, sketchRef?: string, mark?: ThinkingMark) => Promise<boolean> | void;
 	/** The chat (the kept page's strokes are fetched from it after a reload). */
 	chatId: string;
 	/** The problem's newest sketch — its kept page (M3). */
@@ -76,6 +81,8 @@ export function PracticeDock({
 }: PracticeDockProps) {
 	const [thinking, setThinking] = useState("");
 	const [sketching, setSketching] = useState(false);
+	// Submit has been pressed: the confidence buttons stand in for it until one is pressed (owner, 2026-10-28)
+	const [asking, setAsking] = useState(false);
 	// The kept page (M3): the problem's earlier sketch plus unsent ink. A
 	// text submit attaches them (the chip) unless the learner removed it.
 	const { kept, status: keptStatus } = useKeptPage(chatId, problemCallId, keptSketch);
@@ -104,10 +111,19 @@ export function PracticeDock({
 		true,
 	);
 
+	/** Submit (the button, or Enter): the text must exist, then the confidence buttons take its place. */
 	const submit = () => {
+		if (compactionRunning) return;
+		if (thinkingRef.current.trim().length === 0) return;
+		setAsking(true);
+	};
+
+	/** The send itself, once a confidence button (or "I don't know") has been pressed. */
+	const send = (mark: ThinkingMark) => {
 		if (compactionRunning) return;
 		const text = thinkingRef.current.trim();
 		if (text.length === 0) return;
+		setAsking(false);
 		let payload: SketchPayload | undefined;
 		if (attach && ink.strokes.length > 0) {
 			if (keptStatus === "loading") return; // the earlier page is still on its way
@@ -125,22 +141,23 @@ export function PracticeDock({
 		if (payload) {
 			// The ink folds into the kept page once the server accepts it.
 			const unsent = ink.strokes;
-			void sendPage(problemCallId, payload, unsent, async () => (await onSubmit(text, payload)) ?? true);
-		} else if (attach && keptSketch) onSubmit(text, undefined, keptSketch.id);
-		else onSubmit(text);
+			void sendPage(problemCallId, payload, unsent, async () => (await onSubmit(text, payload, undefined, mark)) ?? true);
+		} else if (attach && keptSketch) onSubmit(text, undefined, keptSketch.id, mark);
+		else onSubmit(text, undefined, undefined, mark);
 	};
 
 	/* The sketch submit: the thinking's dictated tail lands first (the
 	 * question dock's finish-dictation discipline), then text + sketch go
 	 * out as one submission. */
-	const submitSketch = async (sketch: SketchPayload): Promise<boolean> => {
+	const submitSketch = async (sketch: SketchPayload, confidenceIndex?: number): Promise<boolean> => {
 		if (compactionRunning) return false;
 		setSketching(false);
 		if (isDictationActive()) await finishDictation();
 		const text = thinkingRef.current.trim();
 		thinkingRef.current = "";
 		setThinking("");
-		return (await onSubmit(text, sketch)) ?? true;
+		const mark: ThinkingMark | undefined = confidenceIndex === undefined ? undefined : { confidence: CONFIDENCE_STOPS[confidenceIndex] };
+		return (await onSubmit(text, sketch, undefined, mark)) ?? true;
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): dictation
@@ -193,6 +210,7 @@ export function PracticeDock({
 					onChange={(e) => {
 						thinkingRef.current = e.target.value;
 						setThinking(e.target.value);
+						setAsking(false); // changing the text puts Submit back
 					}}
 					onKeyDown={(e) => {
 						// Esc ends dictation — stopPropagation claims it (the
@@ -241,6 +259,26 @@ export function PracticeDock({
 				    question dock's — hint left, the SAME Button (h-9, px-3.5),
 				    one p-1 row. Corner radii concentric: shell 16 − m-1.5 (6) =
 				    field 10 − p-1 (4) = button 6. */}
+				{asking ? (
+					<div className="p-1" data-testid="practice-confidence-row">
+						<ConfidenceButtons
+							onPick={(index) => send({ confidence: CONFIDENCE_STOPS[index] })}
+							disabled={compactionRunning}
+							testidPrefix="practice-confidence"
+							leading={
+								<button
+									type="button"
+									disabled={compactionRunning}
+									onClick={() => send({ dontKnow: true })}
+									data-testid="practice-dont-know"
+									className="lh-touch h-9 min-w-0 flex-[1.6] truncate rounded-[6px] border border-dashed border-border/70 bg-transparent px-1 text-xs text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+								>
+									I don't know
+								</button>
+							}
+						/>
+					</div>
+				) : (
 				<div className="flex items-center justify-between gap-2 p-1">
 					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
 						{compactionRunning ? "compacting session…" : (sketchError ?? <span className="[@media(pointer:coarse)]:hidden">↵ submits · ⇧↵ newline</span>)}
@@ -270,6 +308,7 @@ export function PracticeDock({
 						Submit thinking
 					</Button>
 				</div>
+				)}
 			</div>
 			{sketching && sketchAvailable && (
 				<SketchView
@@ -281,6 +320,7 @@ export function PracticeDock({
 					onCancelDictation={onEscape}
 					disabled={compactionRunning}
 					keptStatus={keptStatus}
+					confidenceLevels
 				/>
 			)}
 		</div>

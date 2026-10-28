@@ -28,7 +28,7 @@
  * turn rides one composition.
  */
 
-import type { QuestionAnswerData } from "./question-core.ts";
+import { CONFIDENCE_LEVELS, type QuestionAnswerData } from "./question-core.ts";
 import type { LhMessage } from "./native-messages.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
@@ -63,7 +63,17 @@ export type ChatInput =
 	 *  thinking on the ACTIVE problem — one lane (owner 2026-10-05):
 	 *  whether it claims an answer is read from the text. One
 	 *  problem may carry many submissions; each is its own turn. */
-	| { type: "thinking"; problemCallId: string; text: string; sketch?: SketchPayload; sketchRef?: string }
+	| {
+			type: "thinking";
+			problemCallId: string;
+			text: string;
+			sketch?: SketchPayload;
+			sketchRef?: string;
+			/** How sure the learner is of this answer, one of the confidence buttons' stops (owner, 2026-10-28). */
+			confidence?: number;
+			/** The learner pressed "I don't know": no answer is claimed, and no confidence goes with it. */
+			dontKnow?: true;
+	  }
 	/** The practice move-on signal (owner round 16): the learner's
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
@@ -228,14 +238,24 @@ export function parseChatInput(input: unknown): ChatInput {
 				if (i.sketchRef !== undefined && (sketch || !isSketchId(i.sketchRef))) {
 					throw new ChatInputError("thinking sketchRef must be a sketch id and cannot ride with a sketch");
 				}
+				if (i.confidence !== undefined && !CONFIDENCE_LEVELS.some((l) => l.stop === i.confidence)) {
+					throw new ChatInputError("thinking confidence must be one of the confidence levels");
+				}
+				if (i.dontKnow !== undefined && (i.dontKnow !== true || i.confidence !== undefined)) {
+					throw new ChatInputError("thinking dontKnow must be true and cannot ride with a confidence");
+				}
+				const mark = {
+					...(i.confidence !== undefined ? { confidence: i.confidence as number } : {}),
+					...(i.dontKnow ? { dontKnow: true as const } : {}),
+				};
 				// A kept page re-sent with no new ink (M3): only its id travels;
 				// the server resolves it against the stored strokes.
 				if (typeof i.sketchRef === "string") {
-					return { type: "thinking", problemCallId: i.problemCallId, text: i.text, sketchRef: i.sketchRef };
+					return { type: "thinking", problemCallId: i.problemCallId, text: i.text, sketchRef: i.sketchRef, ...mark };
 				}
 				return sketch
-					? { type: "thinking", problemCallId: i.problemCallId, text: i.text, sketch }
-					: { type: "thinking", problemCallId: i.problemCallId, text: i.text };
+					? { type: "thinking", problemCallId: i.problemCallId, text: i.text, sketch, ...mark }
+					: { type: "thinking", problemCallId: i.problemCallId, text: i.text, ...mark };
 			}
 		case "next":
 			return { type: "next" };
@@ -289,7 +309,10 @@ export function inputAppends(
 				throw new ChatInputError("thinking input targets no active problem");
 			}
 			const ref = input.sketch ? sketchRefOf(input.sketch) : undefined;
-			return [...dismissalConclusion(record), newThinkingMessage(input.problemCallId, input.text, ref)];
+			return [
+				...dismissalConclusion(record),
+				newThinkingMessage(input.problemCallId, input.text, ref, { confidence: input.confidence, dontKnow: input.dontKnow }),
+			];
 		}
 		case "next": {
 			// Honest 400s, the thinking gate's discipline: the signal is a

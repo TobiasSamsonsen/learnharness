@@ -186,6 +186,23 @@ describe("practice flow (scripted model)", () => {
 		assert.equal(activeProblemOf(chatStore.getChat(chat.id)!.messages)?.toolCallId, "call-p2");
 	});
 
+	it("a confidence press rides the thinking: the model reads it, the record keeps it (owner, 2026-10-28)", async () => {
+		const chat = createPracticeChat("Test: practice confidence");
+		const { engine, calls } = scripted([
+			() => fauxAssistantMessage([fauxToolCall("problem", POSE, { id: "call-c1" })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([fauxText("Noted.")]),
+			() => fauxAssistantMessage([fauxText("Fine.")]),
+		]);
+		const factory = practiceFactory(chat.id, engine);
+		await drainTurn(post(chat.id, { type: "text", text: "go" }), factory);
+		await drainTurn(post(chat.id, { type: "thinking", problemCallId: "call-c1", text: "it is order p", confidence: 70 }), factory);
+		assert.ok(lastSaw(calls, "Confidence: 70%"), "the prompt carries the confidence");
+		const marker = chatStore.getChat(chat.id)!.messages.find((m) => (m as { customType?: string }).customType === "practice-thinking");
+		assert.equal((marker as { details: { confidence?: number } }).details.confidence, 70);
+		await drainTurn(post(chat.id, { type: "thinking", problemCallId: "call-c1", text: "no idea", dontKnow: true }), factory);
+		assert.ok(lastSaw(calls, "I don't know"), "the prompt says the learner claims no answer");
+	});
+
 	it("Esc dismissal marks silently; the next input rides the synthesized conclude pair", async () => {
 		const chat = createPracticeChat("Test: practice dismiss");
 		const { engine, calls } = scripted([

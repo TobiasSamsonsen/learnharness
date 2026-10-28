@@ -56,7 +56,7 @@ import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
-import { PracticeDock } from "@/components/practice-dock";
+import { PracticeDock, type ThinkingMark } from "@/components/practice-dock";
 import { DockHandle } from "@/components/dock-handle";
 import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
@@ -523,15 +523,15 @@ export function Chat({
 	// the dock stays mounted (the problem is still active until the agent
 	// concludes).
 	const submitThinking = useCallback(
-		(text: string, sketch?: SketchPayload, sketchRef?: string): Promise<boolean> => {
+		(text: string, sketch?: SketchPayload, sketchRef?: string, mark?: ThinkingMark): Promise<boolean> => {
 			const problem = activeProblemRef.current;
 			if (!problem) return Promise.resolve(false);
 			return send(
 				sketch
-					? { type: "thinking", problemCallId: problem.toolCallId, text, sketch }
+					? { type: "thinking", problemCallId: problem.toolCallId, text, sketch, ...mark }
 					: sketchRef
-						? { type: "thinking", problemCallId: problem.toolCallId, text, sketchRef }
-						: { type: "thinking", problemCallId: problem.toolCallId, text },
+						? { type: "thinking", problemCallId: problem.toolCallId, text, sketchRef, ...mark }
+						: { type: "thinking", problemCallId: problem.toolCallId, text, ...mark },
 			);
 		},
 		[send],
@@ -2063,7 +2063,7 @@ function DockOverlay({
 	practice: { toolCallId: string; input: unknown } | null;
 	/** (commit, text) — the practice dock's two submit lanes. */
 	/** Resolves to whether the server accepted the submission. */
-	onSubmitThinking: (text: string, sketch?: SketchPayload, sketchRef?: string) => Promise<boolean>;
+	onSubmitThinking: (text: string, sketch?: SketchPayload, sketchRef?: string, mark?: ThinkingMark) => Promise<boolean>;
 	/** The active problem's newest sketch (its kept page). */
 	keptSketch: SketchRef | null;
 	/** The session's model reads images — the docks offer "Open in sketch". */

@@ -712,7 +712,7 @@ export class SessionModel {
 							.map((m) => sketchOfMessage(m as unknown as Parameters<typeof sketchOfMessage>[0]))
 							.find((r) => r?.id === input.sketchRef) ?? undefined
 					: undefined;
-			optimistic.push({ ...newThinkingMessage(input.problemCallId, input.text, ref), id: localId() });
+			optimistic.push({ ...newThinkingMessage(input.problemCallId, input.text, ref, { confidence: input.confidence, dontKnow: input.dontKnow }), id: localId() });
 		} else if (input.type === "dispute") {
 			// A disputed reading (Android plan M2): the marker lands the
 			// instant the card's button fires.

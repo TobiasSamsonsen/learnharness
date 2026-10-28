@@ -310,20 +310,36 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
  *  content label is the single "Your thinking"; `details` keeps the raw
  *  payload for the transcript card. One problem may carry many
  *  submissions. */
-export function newThinkingMessage(problemCallId: string, text: string, sketch?: SketchRef): LhMarkerMessage {
+export function newThinkingMessage(
+	problemCallId: string,
+	text: string,
+	sketch?: SketchRef,
+	mark?: { confidence?: number; dontKnow?: boolean },
+): LhMarkerMessage {
 	// A sketch (fork addition, 2026-10-26) may stand alone: the text names
 	// it, and toLlmMessages puts its page images ahead of this content.
 	const body = text.trim().length > 0 ? text : "(no words — see the sketch)";
 	const sketchLine = sketch
 		? `\n\n[Handwritten sketch ${sketch.id} attached — ${sketch.pages.length} page(s). Call read_sketch on it first, in this reply.]`
 		: "";
+	// The confidence buttons (owner, 2026-10-28): how sure the learner is of what they just wrote, or that they pressed
+	// "I don't know" and claim nothing.
+	const markLine = mark?.dontKnow
+		? "\n\n[The learner pressed *I don't know*: no answer is claimed here.]"
+		: mark?.confidence !== undefined
+			? `\n\n[Confidence: ${mark.confidence}% — how sure the learner says they are of this answer.]`
+			: "";
+	const details: Record<string, unknown> = { problemCallId, text };
+	if (sketch) details.sketch = sketch;
+	if (mark?.confidence !== undefined) details.confidence = mark.confidence;
+	if (mark?.dontKnow) details.dontKnow = true;
 	return {
 		id: newMessageId(),
 		role: "custom",
 		customType: "practice-thinking",
-		content: `${THINKING_LABEL}:\n${body}${sketchLine}`,
+		content: `${THINKING_LABEL}:\n${body}${markLine}${sketchLine}`,
 		display: true,
-		details: sketch ? { problemCallId, text, sketch } : { problemCallId, text },
+		details,
 		timestamp: Date.now(),
 	};
 }

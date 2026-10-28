@@ -56,6 +56,9 @@ export interface PracticeThinkingData {
 	text: string;
 	/** The submission's handwriting (Android plan M1). */
 	sketch?: SketchRef;
+	/** The confidence button pressed with it (a CONFIDENCE_STOPS value), or "I don't know" (owner, 2026-10-28). */
+	confidence?: number;
+	dontKnow?: boolean;
 }
 
 export function ProblemCard({ part }: ArtifactPartProps) {
@@ -298,7 +301,8 @@ export function ThinkingCard({ data, chatId }: { data: PracticeThinkingData; cha
 	// 50%-italic quote block on expand. Legacy records' commit flag is
 	// deliberately unread (one lane now). A TRANSCRIPT row (owner round,
 	// 2026-10-07): full-width band + rail, arriving expanded.
-	const block = data.text.trim() ? <ThinkingBlock testId="thinking-card" label="YOUR THINKING" text={data.text} defaultOpen /> : null;
+	const label = data.dontKnow ? "YOUR THINKING · I DON'T KNOW" : data.confidence !== undefined ? `YOUR THINKING · ${data.confidence}%` : "YOUR THINKING";
+	const block = data.text.trim() ? <ThinkingBlock testId="thinking-card" label={label} text={data.text} defaultOpen /> : null;
 	if (!data.sketch || !chatId) return block;
 	// A sketch submission (Android plan M1): the page under the words —
 	// or alone, when the learner only drew.

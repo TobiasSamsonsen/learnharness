@@ -61,7 +61,7 @@ export function finishSessionTool(ctx: { chatId: string; chatStore: Pick<ChatSto
 		description:
 			"Log this course session as FINISHED — call it once, when the session's work is done (the course section says when) or when the " +
 			"learner asks to stop. It marks the session done in the course; it changes no skill. Never call it while a question or problem is open. " +
-			"After it, write your closing words and pose nothing more.",
+			"After it, write your closing words (with `send_to_user` when you have it, and then no ordinary text) and pose nothing more.",
 		parameters: finishSessionInput,
 		execute: serverExecute(FINISH_SESSION_TOOL, finishSessionInput, () => {
 			const record = ctx.chatStore.getChat(ctx.chatId);

@@ -220,7 +220,7 @@ export const THINKING_LABEL = "Your thinking";
  *  stop calling tools); the next problem waits for the learner's
  *  explicit go-ahead. */
 export const CONCLUDE_ACK_TEXT =
-	"Problem concluded. Say your closing words about the learner's work if useful, then END YOUR TURN — no further tool calls. The next problem is NEVER posed here: it waits for the learner's explicit go-ahead (a *Next problem* message, or their own words asking for the next one). Between problems, answer their questions about the concluded one.";
+	"Problem concluded. Say your closing words about the learner's work if useful, then END YOUR TURN — no further tool calls. If you have the `send_to_user` tool, send the closing words with it and write NO ordinary text after it (the learner would read it twice); otherwise write them as text. The next problem is NEVER posed here: it waits for the learner's explicit go-ahead (a *Next problem* message, or their own words asking for the next one). Between problems, answer their questions about the concluded one.";
 
 /** The learner's explicit move-on signal (owner round 16, 2026-10-06):
  *  the model-facing text of the practice-next marker — single-sourced
