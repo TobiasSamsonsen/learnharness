@@ -6,7 +6,7 @@ import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { DEFAULT_PIECE_LIMITS, createPieceQueue, createSegmenter, withdrawDictation, type PieceQueue, type PieceResult, type Segmenter } from "@/components/dictation-live";
-import { createLiveTranscript, nativeSpeechReady, probeNativeSpeech, startNativeSpeech, type LiveTranscript, type NativeSpeechRun } from "@/components/dictation-native";
+import { createLevelNormalizer, createLiveTranscript, nativeSpeechReady, probeNativeSpeech, startNativeSpeech, type LiveTranscript, type NativeSpeechRun } from "@/components/dictation-native";
 import {
 	DEFAULT_DICTATION_ENGINE,
 	DEFAULT_LESSON_LANGUAGE,
@@ -591,6 +591,7 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 			// the Android shell's on-device recognizer, streamed like a keyboard's voice typing: every partial replaces the
 			// last in the field, a final replaces its partial and stays (nothing is deferred to the end of the run)
 			const transcript = (transcriptRef.current = createLiveTranscript(() => questionTarget ?? appendRef.current));
+			const normalizeLevel = createLevelNormalizer();
 			nativeRef.current = startNativeSpeech(config.language, {
 				onState: (s) => {
 					if (gen !== genRef.current) return;
@@ -604,7 +605,7 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 					if (gen === genRef.current) transcript.final(text);
 				},
 				onLevel: (level) => {
-					if (gen === genRef.current) levelRef.current = meterToRms(level); // the meter, as with the worklet's frames
+					if (gen === genRef.current) levelRef.current = meterToRms(normalizeLevel(level)); // the meter, as with the worklet's frames
 				},
 				onError: (code) => {
 					if (gen !== genRef.current) return;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { withdrawDictation } from "../components/dictation-live.ts";
-import { createLiveTranscript, nativeSpeechReady, probeNativeSpeech, resetNativeSpeechForTests, startNativeSpeech } from "../components/dictation-native.ts";
+import { createLevelNormalizer, createLiveTranscript, nativeSpeechReady, probeNativeSpeech, resetNativeSpeechForTests, startNativeSpeech } from "../components/dictation-native.ts";
 import { decodeSpeechLine, encodeSpeechOp, SPEECH_ERROR_CODES, SPEECH_ERROR_MESSAGES } from "../src/core/speech-bridge.ts";
 
 /**
@@ -196,4 +196,14 @@ test("a stretch stays in the field it began in, the next one goes to the field t
 	live.partial("now the question");
 	assert.equal(question.text, "now the question");
 	assert.equal(composer.text, "In the composer still.");
+});
+
+test("the level normalizer spreads a narrow recognizer range over the whole meter", () => {
+	const norm = createLevelNormalizer();
+	const quiet = [0.22, 0.2, 0.21, 0.2, 0.22].map(norm);
+	assert.ok(Math.max(...quiet) < 0.35, "a quiet room stays low");
+	const speech = [0.3, 0.38, 0.34, 0.4].map(norm);
+	assert.ok(Math.max(...speech) > 0.9, "speech reaches the top even though the raw level moved by 0.2");
+	assert.ok(norm(0.2) < 0.15, "back to quiet it falls back");
+	for (const raw of [0, 1, 0.5, 0.5, 0.5]) assert.ok(norm(raw) >= 0 && norm(raw) <= 1);
 });

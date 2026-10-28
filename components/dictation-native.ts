@@ -104,6 +104,27 @@ export function resetNativeSpeechForTests(): void {
 	probing = false;
 }
 
+/**
+ * Spreads the recognizer's loudness over the whole meter. The system recognizer's level moves only a little between a
+ * quiet room and speech (and differs from phone to phone), so used raw the meter barely changes (owner, 2026-10-28). This
+ * follows the quietest level it has heard (the room) slowly upward and the loudest (the voice) quickly downward, and
+ * scales each level between them: silence reads 0, the current peak reads 1. Pure and stateful per run.
+ */
+export function createLevelNormalizer(): (level: number) => number {
+	let floor: number | null = null;
+	let peak = 0;
+	return (level) => {
+		if (floor === null) {
+			floor = level;
+			peak = level;
+		}
+		floor = level < floor ? level : floor + (level - floor) * 0.01; // the room: drops at once, drifts up over about ten seconds
+		peak = level > peak ? level : peak - (peak - floor) * 0.03; // the voice: rises at once, fades over about three seconds
+		const range = Math.max(peak - floor, 0.12); // a run of silence must not blow its own noise up to full scale
+		return Math.min(1, Math.max(0, (level - floor) / range)) ** 0.7;
+	};
+}
+
 /** A dictation target: adds a piece, or with `withdraw` takes one back (the same contract as components/dictation.tsx). */
 type Target = (text: string, withdraw?: boolean) => void;
 
