@@ -1,6 +1,6 @@
 # M17: camera photos as source material and as answers
 
-Status: **DRAFT, awaiting owner approval. Nothing is built yet.** Branch `feat/m17-camera` (from `feat/m16-sketch-notes`). Request (owner, 2026-10-29): "open the camera from the app: pressing Sources, then Camera, and take a photo of a sketch (or other stuff) to use in the lessons/practice." Source: two read-only surveys of the Sources menu, the image-material pipeline, the Android shell and the sketch pipeline (code reading only, nothing run on a device).
+Status: **M17a BUILT and verified on the Pixel 2026-10-29 (goal "implement the camera feature"); M17b in progress.** Branch `feat/m17-camera` (from `feat/m16-sketch-notes`). Request (owner, 2026-10-29): "open the camera from the app: pressing Sources, then Camera, and take a photo of a sketch (or other stuff) to use in the lessons/practice." Source: two read-only surveys of the Sources menu, the image-material pipeline, the Android shell and the sketch pipeline (code reading only, nothing run on a device).
 
 ## Owner decisions (2026-10-29)
 
@@ -43,3 +43,9 @@ HEIC (unsupported, by decision); whether a 2000 px phone photo of handwriting is
 ## Decided by default (owner may change)
 
 One photo per submission; Android uses the camera app and needs no camera permission; image caps (10 MB in, 2000 px long edge, 800 px minimum); photon, not sharp.
+
+## M17a result (2026-10-29)
+
+- Sources has a **Camera** button next to Add files. Android shell (and any touch browser): a hidden `<input type=file accept="image/*" capture="environment">`; the shell's file chooser sees `isCaptureEnabled` (`PhotoCapture.wantsCamera`, Kotlin tests) and opens the phone's camera app itself with a FileProvider URI in the app's cache (photos older than a day are deleted the next time). No CAMERA permission; the manifest got the provider, the camera-app query and an optional camera feature. Desktop: `CameraDialog` (webcam preview, Capture, Retake, Use photo). `cameraRoute` picks the way (tests).
+- Image materials are normalised before the vision model reads them (`src/agent/image-processing/normalize.ts`: EXIF orientation applied, long edge at most 2000 px, under 4 MB; tests build a real JPEG with an orientation tag).
+- **Verified on the Pixel 7 Pro:** Sources, Camera opened the Google Camera in capture mode; the photo came back and shows as a draft source (`photo_<time>.jpg`, "Sources · 1"). The webcam dialog is built but not tried (no desktop browser session here).

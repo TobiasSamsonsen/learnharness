@@ -129,6 +129,14 @@ class MainActivity : ComponentActivity() {
 		fileCallback?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data))
 		fileCallback = null
 	}
+	/** The photo the camera app is writing (M17): the page's file input asked for capture, the shell opens the camera itself. */
+	private var photoUri: Uri? = null
+	private val takePhoto = registerForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
+	val uri = photoUri
+	photoUri = null
+	fileCallback?.onReceiveValue(if (taken && uri != null) arrayOf(uri) else null)
+	fileCallback = null
+	}
 	private val saveDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
 		val bytes = pendingSave
 		pendingSave = null
@@ -695,9 +703,11 @@ class MainActivity : ComponentActivity() {
 		}
 
 		override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
-			fileCallback?.onReceiveValue(null)
-			fileCallback = callback
-			return try {
+		fileCallback?.onReceiveValue(null)
+		fileCallback = callback
+		// an image input that asked for capture (Sources, Camera) opens the phone's camera app; if it cannot, the normal picker
+		if (PhotoCapture.wantsCamera(params.isCaptureEnabled, params.acceptTypes) && launchCamera()) return true
+		return try {
 				fileChooser.launch(params.createIntent())
 				true
 			} catch (_: ActivityNotFoundException) {
@@ -706,6 +716,21 @@ class MainActivity : ComponentActivity() {
 				false
 			}
 		}
+	}
+
+	/** Open the camera app to write a photo into the app's cache (FileProvider); false when it cannot be started. */
+	private fun launchCamera(): Boolean = try {
+	val dir = File(cacheDir, "photos").apply { mkdirs() }
+	val now = System.currentTimeMillis()
+	dir.listFiles()?.filter { PhotoCapture.expired(it.lastModified(), now) }?.forEach { it.delete() }
+	val file = File(dir, PhotoCapture.fileName(now))
+	val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.photos", file)
+	photoUri = uri
+	takePhoto.launch(uri)
+	true
+	} catch (_: Exception) {
+	photoUri = null
+	false
 	}
 
 	/**

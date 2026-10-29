@@ -13,13 +13,19 @@
 	<uses-permission android:name="android.permission.WAKE_LOCK" />
 
 	<uses-feature android:name="android.hardware.microphone" android:required="false" />
+	<!-- the camera is reached through the phone's own camera app (M17), so no CAMERA permission and no hard requirement -->
+	<uses-feature android:name="android.hardware.camera" android:required="false" />
 
 	<!-- the system speech recognizer service (dictation, M12 step 6) must be visible to this app on Android 11+ -->
 	<queries>
 		<intent>
 			<action android:name="android.speech.RecognitionService" />
-		</intent>
-	</queries>
+			</intent>
+			<!-- the camera app a photo is taken with (M17), visible on Android 11+ -->
+			<intent>
+			<action android:name="android.media.action.IMAGE_CAPTURE" />
+			</intent>
+			</queries>
 
 	<application
 		android:allowBackup="false"
@@ -42,8 +48,19 @@
 			</intent-filter>
 		</activity>
 
+		<!-- hands the camera app a file to write the photo to, in the app's cache only (M17) -->
+		<provider
+		android:name="androidx.core.content.FileProvider"
+		android:authorities="${applicationId}.photos"
+		android:exported="false"
+		android:grantUriPermissions="true">
+		<meta-data
+		android:name="android.support.FILE_PROVIDER_PATHS"
+		android:resource="@xml/photo_paths" />
+		</provider>
+
 		<service
-			android:name=".ServerService"
+		android:name=".ServerService"
 			android:exported="false"
 			android:foregroundServiceType="specialUse">
 			<property

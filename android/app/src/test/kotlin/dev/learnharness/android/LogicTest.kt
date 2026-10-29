@@ -178,3 +178,26 @@ class LogicTest {
 		assertTrue(s.contains("'--lh-safe-left','0px'"))
 	}
 }
+
+class PhotoCaptureTest {
+	@org.junit.Test fun anImageInputThatAskedForCaptureOpensTheCamera() {
+		org.junit.Assert.assertTrue(PhotoCapture.wantsCamera(true, arrayOf("image/*")))
+		org.junit.Assert.assertTrue(PhotoCapture.wantsCamera(true, arrayOf("image/jpeg", "image/png")))
+		org.junit.Assert.assertTrue(PhotoCapture.wantsCamera(true, arrayOf(".jpg", " IMAGE/PNG ")))
+	}
+
+	@org.junit.Test fun anythingElseIsTheNormalPicker() {
+		org.junit.Assert.assertFalse("no capture attribute", PhotoCapture.wantsCamera(false, arrayOf("image/*")))
+		org.junit.Assert.assertFalse("a document picker", PhotoCapture.wantsCamera(true, arrayOf(".pdf", ".txt", "image/*")))
+		org.junit.Assert.assertFalse("no accept list", PhotoCapture.wantsCamera(true, null))
+		org.junit.Assert.assertFalse("an empty accept list", PhotoCapture.wantsCamera(true, arrayOf("", "  ")))
+		org.junit.Assert.assertFalse(PhotoCapture.wantsCamera(true, emptyArray()))
+	}
+
+	@org.junit.Test fun photoFilesAreNamedByTimeAndExpireAfterADay() {
+		org.junit.Assert.assertEquals("photo_1700000000000.jpg", PhotoCapture.fileName(1_700_000_000_000L))
+		val now = 10L * PhotoCapture.KEEP_MS
+		org.junit.Assert.assertFalse(PhotoCapture.expired(now - PhotoCapture.KEEP_MS, now))
+		org.junit.Assert.assertTrue(PhotoCapture.expired(now - PhotoCapture.KEEP_MS - 1, now))
+	}
+}

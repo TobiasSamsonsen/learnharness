@@ -169,3 +169,28 @@ object Redact {
 	fun tokens(text: String): String =
 		text.replace(Regex("lh_token=[0-9a-fA-F]+"), "lh_token=…").replace(Regex("[0-9a-f]{32,}"), "…")
 }
+
+/**
+ * The camera, reached through the page's own file input (M17, docs/android/m17-plan.md): `<input type=file accept="image/ (any image)"
+ * capture="environment">` makes WebView ask the shell's file chooser with `isCaptureEnabled`; the shell then opens the phone's
+ * camera app itself and hands the photo back. Pure, so `./gradlew test` covers it.
+ */
+object PhotoCapture {
+	/** Does this chooser request mean "take a photo"? An image input that asked for capture (a pdf-or-image picker never does). */
+	fun wantsCamera(captureEnabled: Boolean, acceptTypes: Array<String>?): Boolean {
+		if (!captureEnabled) return false
+		val types = acceptTypes?.map { it.trim().lowercase() }?.filter { it.isNotEmpty() } ?: return false
+		return types.isNotEmpty() && types.all { it.startsWith("image/") || it in IMAGE_EXTENSIONS }
+	}
+
+	/** The name of a new photo file (a timestamp, so two photos never collide). */
+	fun fileName(nowMs: Long): String = "photo_$nowMs.jpg"
+
+	/** Photos older than this are deleted the next time the camera opens (the page has long since uploaded them). */
+	const val KEEP_MS = 24L * 60 * 60 * 1000
+
+	/** Is this cached photo old enough to delete? */
+	fun expired(lastModifiedMs: Long, nowMs: Long): Boolean = nowMs - lastModifiedMs > KEEP_MS
+
+	private val IMAGE_EXTENSIONS = setOf(".jpg", ".jpeg", ".png", ".webp", ".gif")
+}

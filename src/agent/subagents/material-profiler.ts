@@ -3,6 +3,7 @@ import { normalizeContext, type ImageContent, type TextContent, type Usage } fro
 import type { PiEngine } from "../models.ts";
 import { PDF_READING_DOCTRINE, runPdfReaderAgent } from "./pdf-reader.ts";
 import { pdfInfo } from "./pdf-ops.ts";
+import { normalizePhoto } from "../image-processing/normalize.ts";
 import type { MaterialKind } from "../../core/materials.ts";
 
 /**
@@ -151,10 +152,14 @@ export async function profileMaterial(input: MaterialProfileInput, opts: Materia
 	}
 	if (input.kind === "image") {
 		opts.onActivity?.(`reading ${input.name}`);
-		const data = (await fs.readFile(input.path)).toString("base64");
+		const raw = await fs.readFile(input.path);
+		// A phone photo is stored sideways with an EXIF tag a model never reads, and at full camera size: upright it and cap it
+		// first (M17). Bytes that cannot be decoded are sent as they are, as before.
+		const photo = await normalizePhoto(raw).catch(() => null);
+		const data = (photo?.bytes ?? raw).toString("base64");
 		const reply = await completeOnce(opts, IMAGE_PROFILE_INSTRUCTIONS, [
-			{ type: "text", text: `The material: "${input.name}".` },
-			{ type: "image", data, mimeType: input.mimeType ?? "image/png" },
+		{ type: "text", text: `The material: "${input.name}".` },
+		{ type: "image", data, mimeType: photo?.mimeType ?? input.mimeType ?? "image/png" },
 		]);
 		const { transcript, profile } = splitImageReply(reply);
 		return { transcript, profile: profileBody(profile) };
