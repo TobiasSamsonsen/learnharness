@@ -223,7 +223,7 @@ for (const source of ["none", "file", "env"] as const) test(`Language is below t
 		source, shadowedByEnv: false,
 	}];
 	const { KeysSection } = await import("../components/settings/keys-section.tsx");
-	await f.render(<KeysSection />);
+	await f.render(<KeysSection scope="dictation" />);
 	const group = byTest("group-dictation");
 	const rows = group.lastElementChild!.children;
 	assert.equal(rows[0]!.getAttribute("data-testid"), "key-deepgram_api_key");

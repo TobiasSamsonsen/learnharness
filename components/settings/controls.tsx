@@ -27,7 +27,7 @@ export function SettingsSection({
 }) {
 	return (
 		<section data-testid={testid} className="px-6 py-5">
-			<h2 className="text-sm uppercase tracking-widest text-foreground">{title}</h2>
+			<h2 className="text-sm uppercase tracking-widest text-foreground max-lg:hidden">{title}</h2>
 			{hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
 			<div className="mt-4 flex flex-col gap-3">{children}</div>
 		</section>
@@ -40,14 +40,17 @@ export function SettingsGroup({
 	label,
 	children,
 	testid,
+	hideLabelOnPhone,
 }: {
 	label: string;
 	children: React.ReactNode;
 	testid?: string;
+	/** Below 1024px the category's page title already says it (the dialog header), so the group's own label would repeat it. */
+	hideLabelOnPhone?: boolean;
 }) {
 	return (
 		<div data-testid={testid} className="mt-5 border-t border-border/60 pt-4 first:mt-0 first:border-t-0 first:pt-0">
-			<p className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">{label}</p>
+			<p className={cn("mb-2 text-xs uppercase tracking-widest text-muted-foreground", hideLabelOnPhone && "max-lg:hidden")}>{label}</p>
 			<div className="flex flex-col gap-2">{children}</div>
 		</div>
 	);
@@ -95,7 +98,7 @@ export function SettingsMenuTrigger({
 		{...props}
 		disabled={disabled}
 		className={cn(
-			"flex h-7 items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors",
+			"flex h-7 touch:h-10 items-center gap-1 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground transition-colors",
 			disabled || unavailable ? "cursor-not-allowed" : "hover:border-muted-foreground/50",
 			className,
 		)}
@@ -137,7 +140,8 @@ export function Toggle({
 			data-testid={`toggle-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
 			onClick={() => onChange(!checked)}
 			className={cn(
-				"relative h-4.5 w-8 shrink-0 rounded-full border border-border transition-colors",
+				// the hit area grows on touch screens (a 12px halo) without changing the switch's look
+					"relative h-4.5 w-8 shrink-0 rounded-full border border-border transition-colors touch:before:absolute touch:before:-inset-3 touch:before:content-['']",
 				// Owner (2026-09-20): on is a gray track with a WHITE disc (a full-white
 				// track was too loud); off stays the muted track.
 				checked ? "bg-muted-foreground" : "bg-muted",
@@ -193,7 +197,7 @@ export function ThinSelect({
 			disabled={disabled}
 			onChange={(e) => onChange(e.target.value)}
 			className={cn(
-				"h-7 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground outline-none",
+				"h-7 touch:h-10 rounded-sm border border-border bg-background px-1.5 font-ui text-xs text-foreground outline-none",
 				disabled && "cursor-not-allowed",
 			)}
 		>

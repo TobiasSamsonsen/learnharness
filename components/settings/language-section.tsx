@@ -127,7 +127,7 @@ export function DictationEngineRows({
 								type="button"
 								onClick={() => download(m.language)}
 								data-testid={`stt-model-${m.language}-download`}
-								className="text-xs text-foreground underline-offset-2 hover:underline"
+								className="lh-touch lh-press rounded-pill bg-primary/20 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/30 active:rounded-lg"
 							>
 								Download
 							</button>
