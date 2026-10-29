@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark *));
+@custom-variant touch (@media (pointer: coarse));
 
 /*
  * THE SKIN — wave 5. Design tokens, the single place to restyle the app.
@@ -166,6 +167,9 @@
 	--radius-lg: 12px;
 	--radius-xl: 16px;
 	--radius: 8px;
+	/* Material 3 Expressive corner steps above the ladder (ShapeTokens: LargeIncreased 20dp, ExtraLarge 28dp). */
+	--radius-lgi: 20px;
+	--radius-xxl: 28px;
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--color-card: var(--card);
@@ -188,6 +192,50 @@
 
 * {
 	border-color: var(--color-border);
+}
+
+/* Motion (Material 3 Expressive, 2026-10-29): the expressive scheme's six springs (androidx ExpressiveMotionTokens:
+   damping, stiffness, mass 1) sampled into CSS linear() curves, each with the time it takes to settle. SPATIAL springs
+   move or reshape things (position, size, corner radius) and may overshoot; EFFECTS springs fade colour and opacity and
+   never do. Regenerate with the formula x = 1 - e^(-ζωt)(cos ωd·t + ζω/ωd · sin ωd·t), ω = √stiffness. */
+:root {
+	--lh-spring-spatial-fast: linear(0, 0.064, 0.216, 0.405, 0.595, 0.762, 0.895, 0.991, 1.052, 1.085, 1.095, 1.09, 1.076, 1.058, 1.04, 1.024, 1.011, 1.002, 0.995, 0.992, 0.991, 0.991, 0.993, 0.994, 1); /* ζ 0.6, k 800: 9.5% overshoot */
+	--lh-spring-spatial-fast-duration: 330ms;
+	--lh-spring-spatial: linear(0, 0.04, 0.137, 0.26, 0.39, 0.515, 0.628, 0.724, 0.803, 0.867, 0.915, 0.951, 0.977, 0.994, 1.005, 1.011, 1.014, 1.015, 1.015, 1.013, 1.011, 1.009, 1.007, 1.006, 1); /* ζ 0.8, k 380 */
+	--lh-spring-spatial-duration: 380ms;
+	--lh-spring-spatial-slow: linear(0, 0.04, 0.135, 0.257, 0.386, 0.511, 0.623, 0.72, 0.799, 0.863, 0.912, 0.949, 0.975, 0.993, 1.004, 1.011, 1.014, 1.015, 1.015, 1.013, 1.011, 1.009, 1.008, 1.006, 1); /* ζ 0.8, k 200 */
+	--lh-spring-spatial-slow-duration: 520ms;
+	--lh-spring-effects-fast: linear(0, 0.045, 0.145, 0.265, 0.386, 0.497, 0.595, 0.678, 0.746, 0.802, 0.846, 0.881, 0.909, 0.93, 0.947, 0.96, 0.97, 0.977, 0.983, 0.987, 0.99, 0.993, 0.995, 0.996, 1); /* ζ 1, k 3800 */
+	--lh-spring-effects-fast-duration: 130ms;
+	--lh-spring-effects: linear(0, 0.041, 0.133, 0.246, 0.361, 0.47, 0.566, 0.649, 0.719, 0.777, 0.824, 0.862, 0.893, 0.917, 0.935, 0.95, 0.962, 0.971, 0.978, 0.983, 0.987, 0.99, 0.992, 0.994, 1); /* ζ 1, k 1600 */
+	--lh-spring-effects-duration: 190ms;
+	--lh-spring-effects-slow: linear(0, 0.041, 0.134, 0.248, 0.364, 0.472, 0.569, 0.652, 0.722, 0.78, 0.826, 0.864, 0.894, 0.918, 0.937, 0.951, 0.963, 0.971, 0.978, 0.983, 0.987, 0.99, 0.993, 0.994, 1); /* ζ 1, k 800 */
+	--lh-spring-effects-slow-duration: 270ms;
+}
+
+/* A control that answers a press: its shape and size ride the fast spatial spring (a press shrinks it a little and the
+   release springs back past rest), its colours the fast effects spring. Add the class and, where the shape should
+   morph too, an active:rounded-* utility. Not for controls inside dense rows: it is the primary actions' feel. */
+.lh-press {
+	transition-property: border-radius, transform, background-color, color, border-color, opacity;
+	transition-duration:
+		var(--lh-spring-spatial-fast-duration), var(--lh-spring-spatial-fast-duration),
+		var(--lh-spring-effects-duration), var(--lh-spring-effects-duration), var(--lh-spring-effects-duration),
+		var(--lh-spring-effects-duration);
+	transition-timing-function:
+		var(--lh-spring-spatial-fast), var(--lh-spring-spatial-fast),
+		var(--lh-spring-effects), var(--lh-spring-effects), var(--lh-spring-effects), var(--lh-spring-effects);
+}
+.lh-press:active:not(:disabled) {
+	transform: scale(0.94);
+}
+@media (prefers-reduced-motion: reduce) {
+	.lh-press {
+		transition-duration: 0.01ms !important;
+	}
+	.lh-press:active:not(:disabled) {
+		transform: none;
+	}
 }
 
 /* A 60px page header band that also clears the top safe-area inset (M5).
