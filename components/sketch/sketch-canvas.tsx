@@ -98,7 +98,7 @@ export function SketchCanvas({
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	// The gesture in progress. `erase` collects hit indices; `size` and `radius` are fixed at pointerdown, in
 	// world units, so a zoom mid-stroke cannot change them.
-	const live = useRef<{ pointerId: number; points: number[]; erase: Set<number> | null; size: number; radius: number } | null>(null);
+	const live = useRef<{ pointerId: number; pointerType: string; points: number[]; erase: Set<number> | null; size: number; radius: number } | null>(null);
 	const frame = useRef<number | null>(null);
 	const penSeen = useRef(false);
 	const penNearAt = useRef(0);
@@ -307,7 +307,8 @@ export function SketchCanvas({
 					rect.current = { left: box.left, top: box.top, width: box.width, height: box.height };
 					if (e.pointerType === "touch") {
 						// a palm beside the pen, or while it draws: not a finger
-						if (live.current || performance.now() - penNearAt.current < PALM_MS) return;
+						// (a live FINGER stroke does not block a second finger: that one turns the gesture into a pan/zoom)
+						if ((live.current && live.current.pointerType !== "touch") || performance.now() - penNearAt.current < PALM_MS) return;
 						e.currentTarget.setPointerCapture(e.pointerId);
 						touches.current.set(e.pointerId, local(e));
 						if (touches.current.size >= 2) {
@@ -336,6 +337,7 @@ export function SketchCanvas({
 					const erasing = toolRef.current === "eraser" || e.button === 5 || (e.buttons & 32) !== 0;
 					const l = {
 						pointerId: e.pointerId,
+						pointerType: e.pointerType,
 						points,
 						erase: erasing ? new Set<number>() : null,
 						size: penWorldSize(brushRef.current.size, view.current.zoom),

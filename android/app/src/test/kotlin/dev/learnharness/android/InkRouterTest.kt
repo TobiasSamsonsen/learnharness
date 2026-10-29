@@ -99,6 +99,14 @@ class InkRouterTest {
 		assertFalse("not announced again", r.down(60f, 500f, stylus).penSeenNow)
 	}
 
+	@Test fun aMouseDrawsWithItsPrimaryButtonButItsMiddleAndSecondaryButtonsBelongToThePage() {
+		val mouse = InkRouter.TOOL_TYPE_MOUSE
+		fun InkRouter.press(buttons: Int) = step(InkAction.DOWN, listOf(InkPointer(0, 50f, 500f, mouse, buttons)), 0, surface, listOf(box)).route
+		assertEquals(InkRoute.INK, InkRouter().press(1))
+		assertEquals("middle button", InkRoute.WEB, InkRouter().press(4))
+		assertEquals("secondary button", InkRoute.WEB, InkRouter().press(2))
+	}
+
 	@Test fun aPalmBesideTheStylusIsIgnored() {
 		val r = InkRouter()
 		r.down(50f, 500f, stylus)

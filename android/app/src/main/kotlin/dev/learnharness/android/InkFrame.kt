@@ -81,7 +81,7 @@ class InkFrame(context: Context, private val webView: WebView, private val close
 
 	override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
 		val area = surface ?: return super.dispatchTouchEvent(ev)
-		val pointers = (0 until ev.pointerCount).map { InkPointer(ev.getPointerId(it), ev.getX(it), ev.getY(it), ev.getToolType(it)) }
+		val pointers = (0 until ev.pointerCount).map { InkPointer(ev.getPointerId(it), ev.getX(it), ev.getY(it), ev.getToolType(it), ev.buttonState) }
 		val action = when (ev.actionMasked) {
 			MotionEvent.ACTION_DOWN -> InkAction.DOWN
 			MotionEvent.ACTION_POINTER_DOWN -> InkAction.POINTER_DOWN

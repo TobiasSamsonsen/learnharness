@@ -353,6 +353,26 @@ describe("pen and clear (M13b)", () => {
 		assert.deepEqual(revertOp(after, op), before, "undo restores the strokes in their places");
 	});
 
+	it("without a pen, a second finger turns a stroke into a pinch: the canvas zooms (and a finger stroke does not block it)", async () => {
+		const proto = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>;
+		proto.setPointerCapture = () => {};
+		proto.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 600, width: 400, height: 600, x: 0, y: 0 });
+		await mount({ inkKey: "k-pinch", onSubmit: async () => true });
+		const canvas = document.querySelector('[data-testid="sketch-canvas"]')!;
+		const touch = (type: string, pointerId: number, x: number, y: number) =>
+			act(async () => {
+				canvas.dispatchEvent(Object.assign(new dom.window.Event(type, { bubbles: true, cancelable: true }), { pointerId, pointerType: "touch", clientX: x, clientY: y, button: 0, buttons: 1, pressure: 0.5 }));
+			});
+		const label = () => document.querySelector('[data-testid="sketch-zoom-reset"]')!.textContent;
+		await touch("pointerdown", 1, 100, 100); // the first finger starts a stroke
+		await touch("pointerdown", 2, 200, 100); // the second finger: a pinch
+		await touch("pointermove", 2, 300, 100); // spread from 100 to 200 apart
+		assert.equal(label(), "200%");
+		await touch("pointerup", 2, 300, 100);
+		await touch("pointerup", 1, 100, 100);
+		assert.equal(readInk("k-pinch").strokes.length, 0, "the stroke the first finger began was dropped");
+	});
+
 	it("the canvas has zoom buttons: in, out and reset, with the zoom shown", async () => {
 		await mount({ inkKey: "k-zoom", onSubmit: async () => true });
 		const label = () => document.querySelector('[data-testid="sketch-zoom-reset"]')!.textContent;

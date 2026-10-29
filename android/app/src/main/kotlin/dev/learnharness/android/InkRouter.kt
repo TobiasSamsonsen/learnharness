@@ -12,7 +12,7 @@ package dev.learnharness.android
  * - A gesture keeps its target from DOWN to UP.
  */
 
-data class InkPointer(val id: Int, val x: Float, val y: Float, val tool: Int)
+data class InkPointer(val id: Int, val x: Float, val y: Float, val tool: Int, val buttons: Int = 0)
 
 enum class InkAction { DOWN, POINTER_DOWN, MOVE, POINTER_UP, UP, CANCEL }
 
@@ -60,7 +60,9 @@ class InkRouter {
 				val seenNow = pen && !penSeen
 				if (pen) penSeen = true
 				val onCanvas = surface != null && surface.contains(p.x, p.y) && holes.none { it.contains(p.x, p.y) }
-				mode = if (onCanvas && (pen || !penSeen)) InkRoute.INK else InkRoute.WEB
+				// a mouse's secondary or middle button is the page's (the web pans on a middle-drag), never ink
+				val pageMouseButton = p.tool == TOOL_TYPE_MOUSE && (p.buttons and MOUSE_NON_PRIMARY) != 0
+				mode = if (onCanvas && !pageMouseButton && (pen || !penSeen)) InkRoute.INK else InkRoute.WEB
 				InkStep(mode, penSeenNow = seenNow)
 			}
 			InkAction.POINTER_DOWN -> when (mode) {
@@ -130,6 +132,9 @@ class InkRouter {
 	companion object {
 		const val TOOL_TYPE_STYLUS = 2
 		const val TOOL_TYPE_ERASER = 4
+		const val TOOL_TYPE_MOUSE = 3
+		/** MotionEvent.BUTTON_SECONDARY (2) | BUTTON_TERTIARY (4). */
+		const val MOUSE_NON_PRIMARY = 2 or 4
 		fun isPen(tool: Int) = tool == TOOL_TYPE_STYLUS || tool == TOOL_TYPE_ERASER
 	}
 }

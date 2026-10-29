@@ -44,9 +44,11 @@ import { isTypingSurface } from "@/src/core";
 let hardwareKeyboard = false;
 
 /** Feed it every keydown (the window-level capture listener below does). */
-export function noteKeydown(e: { key: string; code?: string; isComposing?: boolean }): void {
+export function noteKeydown(e: { key: string; code?: string; keyCode?: number; isComposing?: boolean }): void {
 	if (hardwareKeyboard) return;
-	if (!e.code || e.key === "Unidentified" || e.key === "Process" || e.isComposing === true) return;
+	// only a printable letter or digit with its physical code: a soft keyboard may still report a code for Enter or
+	// Backspace, and it reports keyCode 229 while composing
+	if (e.key.length !== 1 || !/^(Key|Digit)/.test(e.code ?? "") || e.keyCode === 229 || e.isComposing === true) return;
 	hardwareKeyboard = true;
 	try {
 		document.documentElement.dataset.lhKeyboard = "hardware";

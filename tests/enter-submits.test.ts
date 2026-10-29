@@ -134,7 +134,7 @@ describe("a physical keyboard on a touch device (M13e)", () => {
 	afterEach(() => resetHardwareKeyboard());
 
 	it("the soft keyboard does not count: no code, Unidentified, Process, composing", () => {
-		for (const e of [{ key: "Enter" }, { key: "a", code: "" }, { key: "Unidentified", code: "KeyA" }, { key: "Process", code: "KeyA" }, { key: "a", code: "KeyA", isComposing: true }]) {
+		for (const e of [{ key: "Enter" }, { key: "a", code: "" }, { key: "Unidentified", code: "KeyA" }, { key: "Process", code: "KeyA" }, { key: "a", code: "KeyA", isComposing: true }, { key: "Enter", code: "Enter" }, { key: "Backspace", code: "Backspace" }, { key: "a", code: "KeyA", keyCode: 229 }]) {
 			noteKeydown(e);
 			assert.equal(hasHardwareKeyboard(), false, JSON.stringify(e));
 		}
