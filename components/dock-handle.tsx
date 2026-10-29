@@ -28,7 +28,7 @@ export function DockHandle({ expanded, onCollapse, onExpand }: { expanded: boole
 			tabIndex={-1}
 			aria-label={expanded ? "Collapse" : "Expand"}
 			onClick={() => (expanded ? onCollapse() : onExpand())}
-			className="hidden h-5 w-full cursor-pointer items-center justify-center [@media(pointer:coarse)]:flex"
+			className="hidden h-5 w-full cursor-pointer items-center justify-center [@media(pointer:coarse)]:flex [@media(pointer:coarse)]:h-8"
 		>
 			<div aria-hidden className="h-1 w-9 rounded-full bg-muted-foreground/35" />
 		</div>

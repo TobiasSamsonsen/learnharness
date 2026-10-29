@@ -89,7 +89,7 @@ export function SketchReadingBody({ part, framed = false }: { part: ArtifactPart
 				data-testid="read-sketch-toggle"
 				aria-expanded={showReading}
 				onClick={() => setShowReading((v) => !v)}
-				className="flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+				className="lh-touch flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
 			>
 				<ChevronRightIcon className={cn("size-3.5 transition-transform", showReading && "rotate-90")} />
 				I read
