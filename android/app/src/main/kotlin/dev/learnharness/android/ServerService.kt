@@ -35,7 +35,7 @@ class ServerService : Service() {
 		val note = Notification.Builder(this, CHANNEL)
 			.setContentTitle("learnharness is running")
 			.setContentText("The learning server stays up while this is shown.")
-			.setSmallIcon(R.drawable.ic_launcher_foreground)
+			.setSmallIcon(R.mipmap.ic_launcher_monochrome)
 			.setContentIntent(open)
 			.setOngoing(true)
 			.build()
