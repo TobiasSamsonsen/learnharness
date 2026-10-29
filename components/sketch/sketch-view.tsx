@@ -27,7 +27,7 @@ import { useBackLayer } from "../back-layers.ts";
  *
  * Keys (owner, M1): Ctrl/⌘+Enter submits, Esc closes (cancels dictation
  * first), Ctrl/⌘+Z undoes, Ctrl/⌘+Shift+Z redoes, plain Enter does
- * nothing. The listener sits at the window's CAPTURE phase and claims
+ * nothing; M13f adds E (eraser), 1-5 (ink colour) and G (paper). The listener sits at the window's CAPTURE phase and claims
  * those keys, so the dock's Enter-submits-anywhere and the page's Esc
  * chain (problem dismissal) never see them while the view is open.
  */
@@ -59,6 +59,12 @@ export interface SketchViewProps {
 	/** A quiz answer is being given (owner, 2026-10-28): Submit then expands in place into the confidence buttons, and the
 	 *  one pressed is handed to `onSubmit` as an index into CONFIDENCE_STOPS. */
 	confidenceLevels?: boolean;
+}
+
+/** A text field the key belongs to (the sketch shortcuts are single letters and digits). */
+function isEditable(target: EventTarget | null): boolean {
+	const el = target as HTMLElement | null;
+	return !!el && (el.isContentEditable === true || el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
 }
 
 function focusVisible(el: HTMLElement): boolean {
@@ -210,8 +216,14 @@ export function SketchView({
 		void sendPage(inkKey, payload, unsent, () => onSubmit(payload, confidenceIndex));
 	};
 
-	const handlers = useRef({ undo, redo, submit, onClose, onCancelDictation });
-	handlers.current = { undo, redo, submit, onClose, onCancelDictation };
+	// PC shortcuts (M13f): E toggles the eraser, 1-5 pick the ink, G changes the paper
+	const toggleEraser = () => setTool(tool === "eraser" ? "pen" : "eraser");
+	const pickColor = (i: number) => {
+		const c = SKETCH_COLORS[i];
+		if (c) setPen({ ...pen, color: c.value });
+	};
+	const handlers = useRef({ undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, cycleBackground });
+	handlers.current = { undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, cycleBackground };
 	// drawing on, or the answer changing under the page, puts Submit back
 	const strokeCount = ink.strokes.length;
 	useEffect(() => setAsking(false), [strokeCount, blocked, disabled, confidenceLevels]);
@@ -231,6 +243,11 @@ export function SketchView({
 			} else if (mod && e.key.toLowerCase() === "z") {
 				if (e.shiftKey) h.redo();
 				else h.undo();
+			} else if (!mod && !e.altKey && !e.shiftKey && /^[egEG1-5]$/.test(e.key) && !isEditable(e.target)) {
+				const k = e.key.toLowerCase();
+				if (k === "e") h.toggleEraser();
+				else if (k === "g") h.cycleBackground();
+				else h.pickColor(Number(k) - 1);
 			} else {
 				return; // every other key keeps its app-wide meaning (⌘D dictation, …)
 			}

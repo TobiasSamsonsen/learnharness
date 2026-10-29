@@ -366,6 +366,30 @@ describe("pen and clear (M13b)", () => {
 		assert.equal(label(), "100%", "reset goes home (no ink to fit)");
 	});
 
+	it("PC shortcuts: E toggles the eraser, 1-5 pick the ink, G changes the paper; modified keys and text fields are left alone", async () => {
+		localStorage.removeItem("lh:sketch-pen");
+		localStorage.removeItem("lh:sketch-background");
+		await mount({ inkKey: "k-keys2", onSubmit: async () => true });
+		const pressed = (id: string) => document.querySelector(`[data-testid="${id}"]`)!.getAttribute("aria-pressed");
+		const bg = () => document.querySelector('[data-testid="sketch-background"]')!.getAttribute("aria-label");
+		await key({ key: "2" });
+		assert.equal(pressed("sketch-color-red"), "true");
+		await key({ key: "5" });
+		assert.equal(pressed("sketch-color-blue"), "true");
+		await key({ key: "e" });
+		assert.equal(document.querySelector('[data-testid="sketch-eraser"]')!.getAttribute("aria-pressed"), "true");
+		await key({ key: "e" });
+		assert.equal(document.querySelector('[data-testid="sketch-eraser"]')!.getAttribute("aria-pressed"), "false");
+		await key({ key: "g" });
+		assert.equal(bg(), "Paper: grid");
+		await key({ key: "g", ctrlKey: true });
+		assert.equal(bg(), "Paper: grid", "Ctrl+G is not ours");
+		await key({ key: "6" });
+		assert.equal(pressed("sketch-color-blue"), "true", "only 1-5");
+		localStorage.removeItem("lh:sketch-pen");
+		localStorage.removeItem("lh:sketch-background");
+	});
+
 	it("the paper button cycles none, grid, ruled, dots, and is remembered", async () => {
 		localStorage.removeItem("lh:sketch-background");
 		await mount({ inkKey: "k-paper", onSubmit: async () => true });
