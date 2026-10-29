@@ -2,6 +2,7 @@
 
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
+import { SketchReadingBody } from "@/components/artifacts/read-sketch-card";
 import { SketchThumbnail } from "@/components/sketch/sketch-thumbnail";
 import { repairMathForDisplay, type ArtifactPartProps, type SketchRef } from "@/src/core";
 
@@ -296,7 +297,7 @@ function MetadataPopover({
 	);
 }
 
-export function ThinkingCard({ data, chatId }: { data: PracticeThinkingData; chatId?: string }) {
+export function ThinkingCard({ data, chatId, reading }: { data: PracticeThinkingData; chatId?: string; reading?: ArtifactPartProps["part"] }) {
 	// The unified row (owner rounds, 2026-10-05): one style, one label —
 	// 50%-italic quote block on expand. Legacy records' commit flag is
 	// deliberately unread (one lane now). A TRANSCRIPT row (owner round,
@@ -310,6 +311,8 @@ export function ThinkingCard({ data, chatId }: { data: PracticeThinkingData; cha
 		<div data-testid="thinking-sketch">
 			{block}
 			<SketchThumbnail chatId={chatId} sketch={data.sketch} />
-		</div>
+			{/* the tutor's reading of it, right under it (owner, 2026-10-29) */}
+			{reading && <SketchReadingBody part={reading} framed />}
+			</div>
 	);
 }

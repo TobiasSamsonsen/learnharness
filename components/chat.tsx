@@ -65,7 +65,8 @@ import { GraphContextCard, type GraphContextData } from "@/components/graph-cont
 import { TopBar } from "@/components/top-bar";
 import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, SketchPayload, SketchRef, TurnUsage, SessionPricing } from "@/src/core";
 import { keptSketchOf, READ_SKETCH_TOOL, readSketchCall, sketchStatesOf } from "@/src/core";
-import { SketchDisputeLine } from "@/components/artifacts/read-sketch-card";
+import { SketchDisputeLine, type SketchReadings } from "@/components/artifacts/read-sketch-card";
+import { buildSketchReadings } from "@/components/sketch-readings";
 import { useModelCatalog } from "@/components/model-picker";
 import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
@@ -148,8 +149,10 @@ export const ChatActionsContext = createContext<{
 		 *  doubts are history, not a request.) */
 		isNewest: (sketchId: string, toolCallId: string) => boolean;
 		send: (sketchId: string, text?: string) => void;
-	};
-} | null>(null);
+		};
+		/** Which sketches an answer or thinking card shows: their readings render inside that card (owner, 2026-10-29). */
+		sketchReadings?: SketchReadings;
+		} | null>(null);
 
 /** The BYOK refusal envelope from the transport's error text: the
  *  DefaultChatTransport throws the 503 body VERBATIM as the error message,
@@ -844,6 +847,9 @@ export function Chat({
 		};
 	}, [nativeMessages, busy, pending, compacting, send]);
 
+	// One box per sketch (owner, 2026-10-29): see sketch-readings.ts.
+	const sketchReadings = useMemo(() => buildSketchReadings(messages), [messages]);
+
 	const sendNext = useCallback(() => {
 		if (!nextReady) return;
 		void send({ type: "next" });
@@ -1336,7 +1342,8 @@ export function Chat({
 				},
 				openSetup: () => setSetupOpen(true),
 				sketchDispute,
-			}}
+				sketchReadings,
+				}}
 		>
 		<SessionMermaidContext.Provider
 			value={{
@@ -1546,7 +1553,7 @@ export function Chat({
 											case "data-compaction-cut":
 												return <CompactionCutDivider key={pi} data={part.data as CompactionDividerData} />;
 											case "data-practice-thinking":
-												return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} chatId={chatId} />;
+												return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} chatId={chatId} reading={sketchReadings.readingFor(mi, pi, (part.data as PracticeThinkingData).sketch?.id)} />;
 											case "data-practice-next":
 												// The learner's move-on signal (owner round 16): a compact
 												// centered mono-caps line — chrome, the dismissal register.
@@ -1698,7 +1705,7 @@ export function Chat({
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
 															return (
-																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} chatId={chatId} />
+																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} chatId={chatId} reading={sketchReadings.readingFor(mi, pi, (part.output as QuestionAnswerData).sketch?.id)} />
 															);
 														}
 														return null;

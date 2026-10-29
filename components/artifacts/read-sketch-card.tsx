@@ -9,15 +9,20 @@ import { cn } from "@/lib/utils";
 import { healReadSketchArguments, repairMathForDisplay, type ArtifactPartProps } from "@/src/core";
 
 /**
- * The read-back card (Android plan M2, owner wording "I read:"): the
- * tutor's transcription of the learner's handwriting, shown under the
- * learner's own submission — the sketch, the reading in math, the doubts —
- * with "That's not what I wrote" (a dispute: a recorded input that makes
- * the tutor read again; shown only while idle with no question waiting,
+ * The read-back (Android plan M2, owner wording "I read:"): the tutor's
+ * transcription of the learner's handwriting (or photo) — the reading in math,
+ * the doubts — with "That's not what I wrote" (a dispute: a recorded input that
+ * makes the tutor read again; shown only while idle with no question waiting,
  * and only on the newest reading of the sketch).
  *
- * The card renders from the call's own arguments (sketchId, reading,
- * uncertain): the record fact, nothing derived.
+ * It lives INSIDE the box of the answer it reads (owner, 2026-10-29: the sketch
+ * showed twice, once in the answer box and once in a box of its own): the answer
+ * card shows the image once and this reading beneath it. Only the newest reading
+ * of a sketch is shown there. The standalone card below renders only for a
+ * sketch no answer or thinking card shows (and without the chat's context).
+ *
+ * It renders from the call's own arguments (sketchId, reading, uncertain,
+ * settled): the record fact, nothing derived.
  */
 
 interface ReadSketchInput {
@@ -27,38 +32,55 @@ interface ReadSketchInput {
 	settled?: unknown;
 }
 
-export function ReadSketchCard({ part }: ArtifactPartProps) {
-	const actions = useContext(ChatActionsContext);
+/** What the chat knows about readings, for the cards that show them (built in chat.tsx from the messages). */
+export interface SketchReadings {
+	/** Is this sketch shown by an answer or thinking card? Its readings render inside that card, not as cards of their own. */
+	shown: (sketchId: string) => boolean;
+}
+
+type ChatActions = NonNullable<React.ContextType<typeof ChatActionsContext>> | null;
+
+const lines = (v: unknown): string[] => (Array.isArray(v) ? v.filter((u): u is string => typeof u === "string" && u.trim() !== "") : []);
+
+/** The reading's fields and state, from the call's own arguments (healed the way the agent healed them). */
+function readingOf(part: ArtifactPartProps["part"], actions: ChatActions) {
 	// The record keeps the model's RAW arguments: heal them the way the agent did.
 	const input = (healReadSketchArguments(part.input) ?? {}) as ReadSketchInput;
 	const sketchId = typeof input.sketchId === "string" ? input.sketchId : "";
 	const reading = typeof input.reading === "string" ? input.reading : "";
-	const lines = (v: unknown): string[] => (Array.isArray(v) ? v.filter((u): u is string => typeof u === "string" && u.trim() !== "") : []);
 	const doubts = lines(input.uncertain);
 	// Marks the tutor settled against the committed answer (owner, 2026-10-26):
 	// shown, so a wrong guess can be spotted and disputed.
 	const settled = lines(input.settled);
-	const [asking, setAsking] = useState(false);
-	// Uncontrolled: the words are read on submit, nothing renders from them.
-	const wroteRef = useRef<HTMLInputElement>(null);
-
-	if (!sketchId || !reading) return null;
 	// The dispute button needs a finished call (its result is the record's
 	// fact) — and the chat's say on whether a dispute can go out right now.
-	const dispute =
+	const dispute: "available" | "disputed" | "none" =
 		part.state === "output-available" ? (actions?.sketchDispute?.state(sketchId, part.toolCallId) ?? "none") : "none";
-	// OPEN doubts on the newest reading: the card asks for the clarification
+	// OPEN doubts on the newest reading: it asks for the clarification
 	// (red) and the tutor writes nothing until it can read again clean
 	// (owner, 2026-10-26). An older reading's doubts are history, shown muted.
 	const open = doubts.length > 0 && part.state === "output-available" && (actions?.sketchDispute?.isNewest(sketchId, part.toolCallId) ?? false);
+	return { sketchId, reading, doubts, settled, dispute, open };
+}
+
+/**
+ * The reading itself: "I read:", the settled marks, the doubts, the clarification prompt and the dispute button.
+ * `framed`: it sits inside an answer card, so open doubts get their own red frame (the standalone card tints its own border).
+ */
+export function SketchReadingBody({ part, framed = false }: { part: ArtifactPartProps["part"]; framed?: boolean }) {
+	const actions = useContext(ChatActionsContext);
+	const { sketchId, reading, doubts, settled, dispute, open } = readingOf(part, actions);
+	const [asking, setAsking] = useState(false);
+	// Uncontrolled: the words are read on submit, nothing renders from them.
+	const wroteRef = useRef<HTMLInputElement>(null);
+	if (!sketchId || !reading) return null;
 
 	return (
 		<div
-			data-testid="read-sketch-card"
-			data-needs-clarification={open ? "true" : undefined}
-			className={cn("lh-card-enter my-1 rounded-xl border p-3", open ? "border-destructive/60 bg-destructive/5" : "bg-card")}
+			data-testid={framed ? "answer-sketch-reading" : undefined}
+			data-needs-clarification={framed && open ? "true" : undefined}
+			className={framed ? cn("mt-3", open && "rounded-lg border border-destructive/60 bg-destructive/5 p-2.5") : undefined}
 		>
-			{actions && <SketchThumbnail chatId={actions.chatId} sketch={{ id: sketchId, pages: [] }} />}
 			<div className="text-xs font-medium text-muted-foreground">I read:</div>
 			<div data-testid="read-sketch-reading" className="lh-prose mt-1 text-[15px]">
 				<MessageResponse>{repairMathForDisplay(reading)}</MessageResponse>
@@ -133,6 +155,26 @@ export function ReadSketchCard({ part }: ArtifactPartProps) {
 					</Button>
 				</form>
 			)}
+		</div>
+	);
+}
+
+/** The standalone card: for a reading whose sketch no answer or thinking card shows. */
+export function ReadSketchCard({ part }: ArtifactPartProps) {
+	const actions = useContext(ChatActionsContext);
+	const { sketchId, reading, open } = readingOf(part, actions);
+	if (!sketchId || !reading) return null;
+	// The answer or thinking card that shows this sketch carries its newest reading (owner, 2026-10-29): no second box.
+	if (actions?.sketchReadings?.shown(sketchId)) return null;
+
+	return (
+		<div
+			data-testid="read-sketch-card"
+			data-needs-clarification={open ? "true" : undefined}
+			className={cn("lh-card-enter my-1 rounded-xl border p-3", open ? "border-destructive/60 bg-destructive/5" : "bg-card")}
+		>
+			{actions && <SketchThumbnail chatId={actions.chatId} sketch={{ id: sketchId, pages: [] }} />}
+			<SketchReadingBody part={part} />
 		</div>
 	);
 }
