@@ -17,7 +17,7 @@ process.env.LH_DATA_DIR = TMP_DATA;
 
 const { compareVersions, parseVersion, upstreamUpdatePrompt, UPSTREAM_URL } = await import("../src/core/upstream.ts");
 const { upstreamStatus, dismissUpstreamVersion, forkRepoPath, terminalEnv } = await import("../src/server/upstream.ts");
-const { UpstreamNotice, showUpstreamNotice, canLaunchClaude } = await import("../components/upstream-banner.tsx");
+const { UpstreamNotice, showUpstreamNotice, canLaunchClaude, inAndroidShell } = await import("../components/upstream-banner.tsx");
 
 const realFetch = globalThis.fetch;
 after(() => {
@@ -175,5 +175,23 @@ describe("the notice — render", () => {
 		const html = render({ ...status, repoPath: null });
 		assert.doesNotMatch(html, /upstream-launch/);
 		assert.match(html, /upstream-copy/);
+	});
+});
+
+describe("the Android shell", () => {
+	it("hides the card: only the shell's injected lhAndroid bridge counts", () => {
+		const g = globalThis as unknown as { window?: unknown };
+		const before = g.window;
+		try {
+			delete g.window;
+			assert.equal(inAndroidShell(), false, "no window (server render)");
+			g.window = {};
+			assert.equal(inAndroidShell(), false, "a plain browser");
+			g.window = { lhAndroid: {} };
+			assert.equal(inAndroidShell(), true, "the Android shell");
+		} finally {
+			if (before === undefined) delete g.window;
+			else g.window = before;
+		}
 	});
 });

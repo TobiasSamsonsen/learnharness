@@ -13,6 +13,9 @@
  *   Copy prompt              the same prompt to paste anywhere.
  *   Release notes            upstream's release page (real browser).
  *   ✕                        hides it until the NEXT upstream release.
+ *
+ * Not shown in the Android shell (owner, 2026-10-29): the phone has no checkout to merge into and updates itself
+ * through the app's own update prompt, so the card only nudged toward something that cannot run there.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -25,6 +28,11 @@ const POLL_MS = 60 * 60_000;
 /** Show the notice? Pure — exported for pins. */
 export function showUpstreamNotice(status: UpstreamStatus | null): boolean {
 	return !!status?.updateAvailable && !status.dismissed && !!status.latest;
+}
+
+/** Inside the Android shell (the app injects `window.lhAndroid`)? The release card is hidden there. */
+export function inAndroidShell(): boolean {
+	return typeof window !== "undefined" && !!(window as unknown as { lhAndroid?: unknown }).lhAndroid;
 }
 
 /** Can the one-click path run on this machine? Pure. */
@@ -139,6 +147,7 @@ export default function UpstreamBanner() {
 			.catch(() => {});
 	}, []);
 	useEffect(() => {
+		if (inAndroidShell()) return; // no card, so no polling either
 		read();
 		const id = setInterval(read, POLL_MS);
 		return () => clearInterval(id);

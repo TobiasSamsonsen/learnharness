@@ -74,6 +74,7 @@ The fork keeps upstream's version number (`package.json` `version`), so it alway
 
 - **Update with Claude Code** opens a terminal running Claude Code in the fork's checkout, the folder the installed app was built from. Claude is asked to merge the release on a new branch, keep the fork's features, run the typecheck, lint, and tests, rebuild the installer, and ask you before pushing or merging. The button appears only when that folder and the `claude` CLI are both on this machine.
 - **Copy prompt** copies the same instructions to paste into Claude Code yourself.
+- The Android app does not show this card: the phone has no checkout to merge into, and the app updates through its own update prompt.
 - **Release notes** opens upstream's release page.
 - **✕** hides the notice until the *next* upstream release.
 
