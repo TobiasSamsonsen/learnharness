@@ -58,8 +58,12 @@ export interface NativeInkOptions {
 	tool: NativeInkTool;
 	/** The pen's colour and width: the shell draws and reports the next strokes with it. */
 	pen?: { color: string; size: number };
+	/** The eraser's mode and radius (the shell only reports the gesture's points). */
+	eraser?: { mode: "pixel" | "stroke"; radius: number };
 	onStroke: (stroke: SketchStroke) => void;
 	onErase: (indices: number[]) => void;
+	/** A pixel-eraser gesture: its path, flat [x, y, …]. */
+	onCut?: (path: number[]) => void;
 }
 
 export interface NativeInk {
@@ -149,7 +153,11 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 					o.onStroke(shell.stroke);
 					break;
 				case "erase": {
-					const hits = eraseHits(o.strokes, shell.points, SKETCH_ERASER_RADIUS);
+					if (o.eraser?.mode === "pixel" && o.onCut) {
+						o.onCut(shell.points);
+						break;
+					}
+					const hits = eraseHits(o.strokes, shell.points, o.eraser?.radius ?? SKETCH_ERASER_RADIUS);
 					if (hits.length > 0) o.onErase(hits);
 					break;
 				}

@@ -66,3 +66,45 @@ export function savePen(pen: PenSettings): void {
 export function penStroke(pen: PenSettings, points: number[]): SketchStroke {
 	return pen.color === SKETCH_INK ? { size: pen.size, points } : { size: pen.size, color: pen.color, points };
 }
+
+/**
+ * The eraser (owner, M13): "pixel" cuts the part of a stroke the eraser passes
+ * over (also on ink already sent, M13c); "stroke" removes whole strokes. The
+ * radius is in canvas CSS pixels.
+ */
+export type EraserMode = "pixel" | "stroke";
+
+export const SKETCH_ERASER_SIZES = [
+	{ name: "Small", value: 10 },
+	{ name: "Medium", value: 20 },
+	{ name: "Large", value: 40 },
+] as const;
+
+export interface EraserSettings {
+	mode: EraserMode;
+	radius: number;
+}
+
+export const DEFAULT_ERASER: EraserSettings = { mode: "pixel", radius: 20 };
+
+const ERASER_KEY = "lh:sketch-eraser";
+
+export function loadEraser(): EraserSettings {
+	try {
+		const raw = storage()?.getItem(ERASER_KEY);
+		if (!raw) return DEFAULT_ERASER;
+		const v = JSON.parse(raw) as Partial<EraserSettings> | null;
+		const radius = SKETCH_ERASER_SIZES.find((s) => s.value === v?.radius)?.value;
+		return { mode: v?.mode === "stroke" ? "stroke" : "pixel", radius: radius ?? DEFAULT_ERASER.radius };
+	} catch {
+		return DEFAULT_ERASER;
+	}
+}
+
+export function saveEraser(eraser: EraserSettings): void {
+	try {
+		storage()?.setItem(ERASER_KEY, JSON.stringify(eraser));
+	} catch {
+		// a blocked store: the choice lasts for this view only
+	}
+}

@@ -146,7 +146,21 @@ describe("native ink is on", () => {
 		assert.equal(shell.posted.at(-1), `strokes ${JSON.stringify([NATIVE_STROKE])}`, "so is a redo");
 	});
 
+	it("a pixel-eraser gesture from the shell cuts the stroke it passed over, as one undoable step", async () => {
+		store.delete("lh:sketch-eraser"); // the default: part of a stroke
+		writeInk("k-cut", inkFromStrokes([STROKE, NATIVE_STROKE]));
+		const shell = fakeShell();
+		await mount("k-cut");
+		await shell.say("erase 150,40"); // on STROKE (90,50 → 200,30), clear of NATIVE_STROKE
+		const now = readInk("k-cut").strokes;
+		assert.ok(now.length >= 3, `STROKE is cut in two: ${now.length} strokes`);
+		assert.equal(now.at(-1), NATIVE_STROKE, "the untouched stroke is still last");
+		await click("sketch-undo");
+		assert.deepEqual(readInk("k-cut").strokes, [STROKE, NATIVE_STROKE], "undo puts the whole stroke back");
+	});
+
 	it("an eraser gesture from the shell removes the stroke it touched, as one undoable step", async () => {
+		store.set("lh:sketch-eraser", JSON.stringify({ mode: "stroke", radius: 10 }));
 		writeInk("k-erase", inkFromStrokes([STROKE, NATIVE_STROKE]));
 		const shell = fakeShell();
 		await mount("k-erase");

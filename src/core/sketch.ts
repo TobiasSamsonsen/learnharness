@@ -427,6 +427,77 @@ export function sketchStrokeHit(s: SketchStroke, x: number, y: number, r: number
 	return false;
 }
 
+/** Distance from (x, y) to the polyline `path` (flat [x, y, …]; one point is a dot). */
+function distToPath(x: number, y: number, path: readonly number[]): number {
+	let best = Math.hypot(x - path[0]!, y - path[1]!);
+	for (let k = 2; k + 1 < path.length; k += 2) {
+		const px = path[k - 2]!, py = path[k - 1]!;
+		const dx = path[k]! - px, dy = path[k + 1]! - py;
+		const len2 = dx * dx + dy * dy;
+		const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - px) * dx + (y - py) * dy) / len2));
+		best = Math.min(best, Math.hypot(x - (px + t * dx), y - (py + t * dy)));
+	}
+	return best;
+}
+
+/** The partial ("pixel") eraser (M13): the pieces of `s` left after an eraser
+ *  path (flat [x, y, …]) of `radius` passed over it. `null` when the path
+ *  never reached the stroke; `[]` when nothing is left. The stroke is walked
+ *  at a fine step, the stretches within reach (the radius plus half the
+ *  stroke's width, like sketchStrokeHit) are dropped, and each surviving
+ *  stretch becomes a stroke of its own: its original points, plus one new
+ *  point at each cut so the end sits where the eraser stopped. Pieces of a
+ *  single sample are specks and are dropped. */
+export function sketchStrokeCut(s: SketchStroke, path: readonly number[], radius: number): SketchStroke[] | null {
+	if (path.length < 2) return null;
+	const reach = radius + s.size / 2;
+	const p = s.points;
+	// a quick reject: the stroke's box (grown by the reach) against the path's box
+	let sx0 = Infinity, sy0 = Infinity, sx1 = -Infinity, sy1 = -Infinity;
+	for (let k = 0; k < p.length; k += 3) {
+		sx0 = Math.min(sx0, p[k]!), sx1 = Math.max(sx1, p[k]!);
+		sy0 = Math.min(sy0, p[k + 1]!), sy1 = Math.max(sy1, p[k + 1]!);
+	}
+	let ex0 = Infinity, ey0 = Infinity, ex1 = -Infinity, ey1 = -Infinity;
+	for (let k = 0; k + 1 < path.length; k += 2) {
+		ex0 = Math.min(ex0, path[k]!), ex1 = Math.max(ex1, path[k]!);
+		ey0 = Math.min(ey0, path[k + 1]!), ey1 = Math.max(ey1, path[k + 1]!);
+	}
+	if (ex1 + reach < sx0 || ex0 - reach > sx1 || ey1 + reach < sy0 || ey0 - reach > sy1) return null;
+	// the stroke at a fine step: [x, y, pressure, original?]
+	const step = Math.max(1, Math.min(reach / 2, 4));
+	const walk: [number, number, number, boolean][] = [[p[0]!, p[1]!, p[2]!, true]];
+	for (let k = 3; k < p.length; k += 3) {
+		const x0 = p[k - 3]!, y0 = p[k - 2]!, q0 = p[k - 1]!;
+		const x1 = p[k]!, y1 = p[k + 1]!, q1 = p[k + 2]!;
+		const n = Math.floor(Math.hypot(x1 - x0, y1 - y0) / step);
+		for (let i = 1; i <= n; i++) {
+			const t = i / (n + 1);
+			walk.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, q0 + (q1 - q0) * t, false]);
+		}
+		walk.push([x1, y1, q1, true]);
+	}
+	const gone = walk.map(([x, y]) => distToPath(x, y, path) <= reach);
+	if (!gone.some(Boolean)) return null;
+	const pieces: SketchStroke[] = [];
+	const q2 = (n: number) => Math.round(n * 100) / 100;
+	let run: [number, number, number, boolean][] = [];
+	const flush = () => {
+		if (run.length >= 2) {
+			const points: number[] = [];
+			run.forEach(([x, y, q, orig], i) => {
+				// the cut ends are new points; between them only the original ones stay
+				if (orig || i === 0 || i === run.length - 1) points.push(q2(x), q2(y), q2(q));
+			});
+			pieces.push(s.color === undefined ? { size: s.size, points } : { size: s.size, color: s.color, points });
+		}
+		run = [];
+	};
+	walk.forEach((pt, i) => (gone[i] ? flush() : run.push(pt)));
+	flush();
+	return pieces;
+}
+
 /** The newest sketch of the active problem: messages after its pose that
  *  carry one (the kept page — null when none yet). */
 export function keptSketchOf(messages: readonly AgentMessage[], problemCallId: string): SketchRef | null {

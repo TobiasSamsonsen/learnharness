@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SKETCH_INK, sketchStrokeHit, sketchStrokePath, type SketchStroke } from "@/src/core";
-import { DEFAULT_PEN, penStroke, type PenSettings } from "@/components/sketch/pen-settings";
+import { SKETCH_INK, sketchStrokeCut, sketchStrokeHit, sketchStrokePath, type SketchStroke } from "@/src/core";
+import { DEFAULT_ERASER, DEFAULT_PEN, penStroke, type EraserSettings, type PenSettings } from "@/components/sketch/pen-settings";
 
 /**
  * The web canvas (Android plan M1 + M3): a tall white page the learner
@@ -20,14 +20,15 @@ import { DEFAULT_PEN, penStroke, type PenSettings } from "@/components/sketch/pe
  * Pen-only once a pen is seen (palm rejection for stylus users): after the
  * first pen stroke, touch is ignored and pans the page natively. Without
  * a pen one finger draws and two fingers pan. A mouse scrolls with the
- * wheel. The stroke eraser removes whole new strokes (the pen's eraser
- * end or button, or the toolbar's eraser); strokes already submitted (the
- * kept page, drawn dimmed) are locked.
+ * wheel. The eraser (the pen's eraser end or button, or the toolbar's)
+ * either cuts the part of a stroke it passes over ("pixel") or removes
+ * whole strokes ("stroke"); strokes already submitted (the kept page,
+ * drawn dimmed) are locked.
  */
 
 /** The default stroke diameter, CSS pixels (the pen's own is `pen.size`). */
 export const SKETCH_PEN_SIZE = DEFAULT_PEN.size;
-/** The eraser's reach, CSS pixels. */
+/** The eraser's default reach, CSS pixels. */
 export const SKETCH_ERASER_RADIUS = 10;
 /** The page never grows taller than this (the server's six pages of ≤ 2000 px). */
 export const SKETCH_PAGE_MAX_HEIGHT = 12000;
@@ -47,13 +48,22 @@ export function lowestInk(strokes: readonly SketchStroke[]): number {
 
 export type SketchTool = "pen" | "eraser";
 
+/** The x, y of flat [x, y, pressure] triples, as flat [x, y, …]. */
+function xyOf(points: readonly number[]): number[] {
+	const out: number[] = [];
+	for (let k = 0; k + 1 < points.length; k += 3) out.push(points[k]!, points[k + 1]!);
+	return out;
+}
+
 export function SketchCanvas({
 	strokes,
 	kept = [],
 	tool = "pen",
 	brush = DEFAULT_PEN,
+	eraser = DEFAULT_ERASER,
 	onStroke,
 	onErase,
+	onCut,
 }: {
 	/** The unsent ink (editable). */
 	strokes: readonly SketchStroke[];
@@ -62,10 +72,14 @@ export function SketchCanvas({
 	tool?: SketchTool;
 	/** The pen's colour and width for the next stroke. */
 	brush?: PenSettings;
+	/** The eraser's mode and radius. */
+	eraser?: EraserSettings;
 	/** A finished stroke (pointer up). */
 	onStroke: (stroke: SketchStroke) => void;
 	/** One eraser gesture finished: indices into `strokes` it touched. */
 	onErase?: (indices: number[]) => void;
+	/** One pixel-eraser gesture finished: its path, flat [x, y, …] in page pixels. */
+	onCut?: (path: number[]) => void;
 }) {
 	const scrollerRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -88,6 +102,8 @@ export function SketchCanvas({
 	keptRef.current = kept;
 	const brushRef = useRef(brush);
 	brushRef.current = brush;
+	const eraserRef = useRef(eraser);
+	eraserRef.current = eraser;
 
 	const pathOf = (s: SketchStroke): Path2D => {
 		let p = paths.current.get(s);
@@ -114,11 +130,15 @@ export function SketchCanvas({
 			ctx.fill(pathOf(s));
 		}
 		const hits = live.current?.erase;
+		// the pixel eraser shows its cut live: a touched stroke is drawn as its pieces
+		const cutPath = live.current?.erase && eraserRef.current.mode === "pixel" ? xyOf(live.current.points) : null;
 		strokesRef.current.forEach((s, i) => {
-			// A stroke the eraser is over fades until the gesture ends.
-			ctx.globalAlpha = hits?.has(i) ? 0.2 : 1;
+			const pieces = cutPath ? sketchStrokeCut(s, cutPath, eraserRef.current.radius) : null;
+			// A stroke the stroke eraser is over fades until the gesture ends.
+			ctx.globalAlpha = hits?.has(i) && !cutPath ? 0.2 : 1;
 			ctx.fillStyle = s.color ?? SKETCH_INK;
-			ctx.fill(pathOf(s));
+			if (pieces) for (const piece of pieces) ctx.fill(new Path2D(sketchStrokePath(piece)));
+			else ctx.fill(pathOf(s));
 		});
 		ctx.globalAlpha = 1;
 		if (live.current && !live.current.erase && live.current.points.length >= 3) {
@@ -183,7 +203,7 @@ export function SketchCanvas({
 		strokesRef.current.forEach((s, i) => {
 			if (hits.has(i)) return;
 			for (let k = from; k < points.length; k += 3) {
-				if (sketchStrokeHit(s, points[k]!, points[k + 1]!, SKETCH_ERASER_RADIUS)) {
+				if (sketchStrokeHit(s, points[k]!, points[k + 1]!, eraserRef.current.radius)) {
 					hits.add(i);
 					return;
 				}
@@ -237,7 +257,7 @@ export function SketchCanvas({
 						// eraser button (buttons bit 32).
 						const erase = tool === "eraser" || e.button === 5 || (e.buttons & 32) !== 0 ? new Set<number>() : null;
 						live.current = { pointerId: e.pointerId, points, rect, erase };
-						if (erase) eraseAt(points, 0, erase);
+						if (erase && eraserRef.current.mode === "stroke") eraseAt(points, 0, erase);
 						draw();
 					}}
 					onPointerMove={(e) => {
@@ -254,7 +274,7 @@ export function SketchCanvas({
 						const events = typeof native.getCoalescedEvents === "function" ? native.getCoalescedEvents() : [];
 						const from = live.current.points.length;
 						for (const ev of events.length > 0 ? events : [native]) sample(ev, live.current.rect, live.current.points);
-						if (live.current.erase) eraseAt(live.current.points, from, live.current.erase);
+						if (live.current.erase && eraserRef.current.mode === "stroke") eraseAt(live.current.points, from, live.current.erase);
 						drawSoon();
 					}}
 					onPointerUp={(e) => {
@@ -264,7 +284,8 @@ export function SketchCanvas({
 						const { points, erase } = live.current;
 						live.current = null;
 						if (erase) {
-							if (erase.size > 0) onErase?.([...erase]);
+							if (eraserRef.current.mode === "pixel") onCut?.(xyOf(points));
+							else if (erase.size > 0) onErase?.([...erase]);
 							else draw();
 						} else onStroke(penStroke(brushRef.current, points));
 					}}

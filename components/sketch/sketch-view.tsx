@@ -9,10 +9,10 @@ import { isDictationActive } from "@/components/dictation";
 import { FloatingProblem } from "@/components/sketch/floating-problem";
 import { lowestInk, SketchCanvas, sketchPageHeight, type SketchTool } from "@/components/sketch/sketch-canvas";
 import { useNativeInk } from "@/components/sketch/use-native-ink";
-import { loadPen, savePen, SKETCH_COLORS, SKETCH_WIDTHS, type PenSettings } from "@/components/sketch/pen-settings";
+import { loadEraser, loadPen, saveEraser, savePen, SKETCH_COLORS, SKETCH_ERASER_SIZES, SKETCH_WIDTHS, type EraserSettings, type PenSettings } from "@/components/sketch/pen-settings";
 import { applyOp, pagePayload, readInk, revertOp, sendPage, useInk, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
 import { cn } from "@/lib/utils";
-import { SketchPayloadError, type SketchPayload } from "@/src/core";
+import { SketchPayloadError, sketchStrokeCut, type SketchPayload } from "@/src/core";
 import { useBackLayer } from "../back-layers.ts";
 
 /**
@@ -113,6 +113,12 @@ export function SketchView({
 		savePen(next);
 		setTool("pen");
 	};
+	const [eraser, setEraserState] = useState<EraserSettings>(loadEraser);
+	const setEraser = (next: EraserSettings) => {
+		setEraserState(next);
+		saveEraser(next);
+		setTool("eraser");
+	};
 	const [error, setError] = useState<string | null>(null);
 	const canvasRef = useRef<HTMLDivElement | null>(null);
 	const setInk = (next: InkState) => {
@@ -145,6 +151,18 @@ export function SketchView({
 		const state = readInk(inkKey);
 		if (state.strokes.length > 0) record(state, [], { kind: "clear", removed: state.strokes });
 	};
+	/** The pixel eraser: every stroke the path touched becomes its surviving pieces (one undo step). */
+	const cut = (path: number[]) => {
+		const state = readInk(inkKey);
+		const changes: Extract<InkOp, { kind: "cut" }>["changes"] = [];
+		state.strokes.forEach((stroke, index) => {
+			const pieces = sketchStrokeCut(stroke, path, eraser.radius);
+			if (pieces) changes.push({ index, stroke, pieces });
+		});
+		if (changes.length === 0) return;
+		const op: InkOp = { kind: "cut", changes };
+		record(state, applyOp(state.strokes, op), op);
+	};
 	const erase = (indices: number[]) => {
 		const state = readInk(inkKey);
 		const removed = [...indices].sort((a, b) => a - b).flatMap((index) => (state.strokes[index] ? [{ index, stroke: state.strokes[index]! }] : []));
@@ -152,7 +170,7 @@ export function SketchView({
 		record(state, applyOp(state.strokes, { kind: "erase", removed }), { kind: "erase", removed });
 	};
 	// The Android shell's native ink layer, when the setting is on (owner, M10): it draws under the transparent page
-	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: ink.strokes, kept: kept?.strokes, tool, pen, onStroke: addStroke, onErase: erase });
+	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: ink.strokes, kept: kept?.strokes, tool, pen, eraser, onStroke: addStroke, onErase: erase, onCut: cut });
 	// Submit has been pressed on a quiz answer: the confidence buttons stand in for it until one is pressed
 	const [asking, setAsking] = useState(false);
 	const submit = (confidenceIndex?: number) => {
@@ -249,13 +267,45 @@ export function SketchView({
 						<div style={{ height: sketchPageHeight(native.viewHeight, Math.max(lowestInk(kept?.strokes ?? []), lowestInk(ink.strokes))) }} />
 					</div>
 				) : (
-					<SketchCanvas strokes={ink.strokes} kept={kept?.strokes} tool={tool} brush={pen} onStroke={addStroke} onErase={erase} />
+					<SketchCanvas strokes={ink.strokes} kept={kept?.strokes} tool={tool} brush={pen} eraser={eraser} onStroke={addStroke} onErase={erase} onCut={cut} />
 				)}
 				<FloatingProblem label={label} statement={statement}>
 					{choices}
 				</FloatingProblem>
 			</div>
 			<div data-testid="sketch-pen-strip" className="flex items-center gap-1 overflow-x-auto border-t bg-background px-3 py-1">
+				{tool === "eraser" ? (
+					<>
+						{(["pixel", "stroke"] as const).map((mode) => (
+							<button
+								key={mode}
+								type="button"
+								data-testid={`sketch-erase-${mode}`}
+								aria-label={mode === "pixel" ? "Erase part of a stroke" : "Erase whole strokes"}
+								aria-pressed={eraser.mode === mode}
+								onClick={() => setEraser({ ...eraser, mode })}
+								className={cn("lh-touch shrink-0 rounded-md px-2.5 text-xs font-medium", eraser.mode === mode ? "bg-accent" : "text-muted-foreground")}
+							>
+								{mode === "pixel" ? "Part" : "Stroke"}
+							</button>
+						))}
+						<span aria-hidden className="mx-1 h-5 w-px bg-border" />
+						{SKETCH_ERASER_SIZES.map((z) => (
+							<button
+								key={z.value}
+								type="button"
+								data-testid={`sketch-erase-size-${z.name.toLowerCase()}`}
+								aria-label={`${z.name} eraser`}
+								aria-pressed={eraser.radius === z.value}
+								onClick={() => setEraser({ ...eraser, radius: z.value })}
+								className={cn("lh-touch grid size-8 shrink-0 place-items-center rounded-md", eraser.radius === z.value && "bg-accent")}
+							>
+								<span aria-hidden style={{ width: z.value / 2 + 4, height: z.value / 2 + 4 }} className="rounded-full border border-foreground/60" />
+							</button>
+						))}
+					</>
+				) : (
+					<>
 				{SKETCH_COLORS.map((c) => (
 					<button
 						key={c.value}
@@ -287,6 +337,8 @@ export function SketchView({
 						<span aria-hidden style={{ width: w.value + 4, height: w.value + 4, backgroundColor: pen.color }} className="rounded-full" />
 					</button>
 				))}
+					</>
+				)}
 			</div>
 			<div className="flex items-center gap-1 border-t bg-background px-3 py-2">
 				<Button type="button" variant="ghost" size="icon" data-testid="sketch-close" aria-label="Close sketch" onClick={onClose}>

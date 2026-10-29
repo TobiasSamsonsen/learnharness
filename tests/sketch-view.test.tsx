@@ -337,6 +337,20 @@ describe("pen and clear (M13b)", () => {
 		assert.equal(readInk("k-clear").strokes.length, 0, "redo clears again");
 	});
 
+	it("applyOp / revertOp handle a cut over several strokes (one splits in two, one vanishes)", () => {
+		const a: SketchStroke = { size: 4, points: [0, 0, 0.5, 10, 0, 0.5] };
+		const b: SketchStroke = { size: 4, points: [0, 10, 0.5, 10, 10, 0.5] };
+		const c: SketchStroke = { size: 4, points: [0, 20, 0.5, 10, 20, 0.5] };
+		const d: SketchStroke = { size: 4, points: [0, 30, 0.5, 10, 30, 0.5] };
+		const a1: SketchStroke = { size: 4, points: [0, 0, 0.5, 3, 0, 0.5] };
+		const a2: SketchStroke = { size: 4, points: [7, 0, 0.5, 10, 0, 0.5] };
+		const op = { kind: "cut" as const, changes: [{ index: 0, stroke: a, pieces: [a1, a2] }, { index: 2, stroke: c, pieces: [] }] };
+		const before = [a, b, c, d];
+		const after = applyOp(before, op);
+		assert.deepEqual(after, [a1, a2, b, d]);
+		assert.deepEqual(revertOp(after, op), before, "undo restores the strokes in their places");
+	});
+
 	it("applyOp / revertOp handle a clear", () => {
 		const op = { kind: "clear" as const, removed: [STROKE, { ...STROKE }] };
 		assert.deepEqual(applyOp([STROKE, op.removed[1]!], op), []);

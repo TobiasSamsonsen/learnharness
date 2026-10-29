@@ -21,7 +21,9 @@ export type InkOp =
 	| { kind: "add"; stroke: SketchStroke }
 	| { kind: "erase"; removed: { index: number; stroke: SketchStroke }[] }
 	/** Clear: every unsent stroke went at once (undo brings them all back). */
-	| { kind: "clear"; removed: SketchStroke[] };
+	| { kind: "clear"; removed: SketchStroke[] }
+	/** The pixel eraser: each touched stroke (by index in the strokes it was cut from) became these pieces (maybe none). */
+	| { kind: "cut"; changes: { index: number; stroke: SketchStroke; pieces: SketchStroke[] }[] };
 
 export interface InkState {
 	strokes: SketchStroke[];
@@ -180,6 +182,10 @@ export async function sendPage(
 export function applyOp(strokes: SketchStroke[], op: InkOp): SketchStroke[] {
 	if (op.kind === "add") return [...strokes, op.stroke];
 	if (op.kind === "clear") return [];
+	if (op.kind === "cut") {
+		const pieces = new Map(op.changes.map((c) => [c.index, c.pieces]));
+		return strokes.flatMap((s, i) => pieces.get(i) ?? [s]);
+	}
 	const gone = new Set(op.removed.map((r) => r.stroke));
 	return strokes.filter((s) => !gone.has(s));
 }
@@ -188,6 +194,12 @@ export function applyOp(strokes: SketchStroke[], op: InkOp): SketchStroke[] {
 export function revertOp(strokes: SketchStroke[], op: InkOp): SketchStroke[] {
 	if (op.kind === "add") return strokes.filter((s) => s !== op.stroke);
 	if (op.kind === "clear") return [...op.removed];
+	if (op.kind === "cut") {
+		// ascending: every change before this one is already back to one stroke, so its index is still right
+		const out = [...strokes];
+		for (const c of [...op.changes].sort((a, b) => a.index - b.index)) out.splice(c.index, c.pieces.length, c.stroke);
+		return out;
+	}
 	const out = [...strokes];
 	for (const { index, stroke } of [...op.removed].sort((a, b) => a.index - b.index)) out.splice(index, 0, stroke);
 	return out;

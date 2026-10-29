@@ -32,6 +32,7 @@ import {
 	serializeForSummary,
 	sketchLabel,
 	sketchOfMessage,
+	sketchStrokeCut,
 	sketchStrokeHit,
 	keptSketchOf,
 	sketchRefOf,
@@ -391,6 +392,43 @@ describe("the kept page", () => {
 		assert.ok(sketchStrokeHit(s, 50, 8, 10), "within reach of the middle");
 		assert.ok(!sketchStrokeHit(s, 50, 30, 10), "too far");
 		assert.ok(sketchStrokeHit(s, 104, 0, 4), "past the end, within reach");
+	});
+
+	it("the pixel eraser cuts a stroke in two where it passed (and only there)", () => {
+		const s = line(0, 0, 100, 0, 11, 4); // reach = radius 10 + half the width 2
+		const cut = sketchStrokeCut(s, [50, 0], 10)!;
+		assert.equal(cut.length, 2);
+		const [left, right] = cut as [SketchStroke, SketchStroke];
+		const xs = (st: SketchStroke) => st.points.filter((_, i) => i % 3 === 0);
+		assert.equal(xs(left)[0], 0, "the left piece keeps its start");
+		assert.ok(Math.max(...xs(left)) <= 38 && Math.max(...xs(left)) > 34, `left ends at ${Math.max(...xs(left))}`);
+		assert.ok(Math.min(...xs(right)) >= 62 && Math.min(...xs(right)) < 66, `right starts at ${Math.min(...xs(right))}`);
+		assert.equal(xs(right).at(-1), 100, "the right piece keeps its end");
+		assert.equal(left.size, 4);
+	});
+
+	it("a pass that misses leaves the stroke alone (null); one that covers it leaves nothing ([])", () => {
+		const s = line(0, 0, 100, 0, 11);
+		assert.equal(sketchStrokeCut(s, [50, 40], 10), null, "too far");
+		assert.equal(sketchStrokeCut(s, [0, 0, 100, 0], 10)!.length, 0, "swept the whole stroke");
+		assert.equal(sketchStrokeCut(s, [], 10), null, "no path");
+	});
+
+	it("a pass over the end shortens the stroke; the colour and size carry to the pieces", () => {
+		const red: SketchStroke = { ...line(0, 0, 100, 0, 11, 8), color: "#dc2626" };
+		const cut = sketchStrokeCut(red, [100, 0], 10)!;
+		assert.equal(cut.length, 1);
+		assert.equal(cut[0]!.color, "#dc2626");
+		assert.equal(cut[0]!.size, 8);
+		assert.ok(Math.max(...cut[0]!.points.filter((_, i) => i % 3 === 0)) < 90);
+		assert.doesNotThrow(() => parseSketchPayload(payload(cut)), "the pieces are valid strokes");
+	});
+
+	it("a sparse stroke (two far points) is cut mid-segment, not only at its points", () => {
+		const s: SketchStroke = { size: 4, points: [0, 0, 0.5, 200, 0, 0.5] };
+		const cut = sketchStrokeCut(s, [100, 5], 10)!;
+		assert.equal(cut.length, 2);
+		assert.ok(cut[0]!.points.length >= 6 && cut[1]!.points.length >= 6);
 	});
 
 	it("keptSketchOf: the newest sketch after the problem's pose", () => {
