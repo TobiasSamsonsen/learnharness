@@ -28,7 +28,10 @@ export interface BoxState {
 	collapsed: boolean;
 }
 
-const DEFAULT_BOX: BoxState = { x: 12, y: 12, collapsed: false };
+/** The floating toolbar (sketch-toolbar.tsx) sits over the top of the canvas; the box opens below it, and a remembered
+ *  position above that is brought down to it (the learner can still drag it under the bar). */
+const TOP_CLEAR = 64;
+const DEFAULT_BOX: BoxState = { x: 12, y: TOP_CLEAR, collapsed: false };
 
 /** Pure: a position kept inside `bounds` for a box of `size`. A box
  *  larger than its bounds pins to the top-left edge. */
@@ -47,7 +50,7 @@ function readBox(): BoxState {
 	try {
 		const v = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as Partial<BoxState> | null;
 		if (v && Number.isFinite(v.x) && Number.isFinite(v.y) && typeof v.collapsed === "boolean") {
-			return { x: v.x as number, y: v.y as number, collapsed: v.collapsed };
+			return { x: v.x as number, y: Math.max(v.y as number, TOP_CLEAR), collapsed: v.collapsed };
 		}
 	} catch {
 		// private window, blocked storage: the default box

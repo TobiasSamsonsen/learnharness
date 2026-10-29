@@ -11,6 +11,7 @@ Status: **Approved by the owner 2026-10-29. M16a and M16b built (see STATUS.md);
 | Highlighter | **No** |
 | Stroke look on Android | **Android draws like the model's image** (the same perfect-freehand outline the server renders) |
 | Toolbars | **Manual collapse, remembered, plus an "auto-hide while drawing" switch** (off by default) |
+| Look of the bar (owner) | **Floating, rounded: a pill over the canvas**, option panels as rounded cards under it |
 | Where the buttons live (owner, palm question) | **Everything at the top, one bar, nothing at the bottom.** Close, undo, redo, pen/eraser, paper, clear, mic and Submit in one row; tapping the active tool again opens a popover with the five colours, three widths and the eraser mode and size |
 
 ## Milestones
