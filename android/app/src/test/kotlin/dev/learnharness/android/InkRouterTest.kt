@@ -63,6 +63,31 @@ class InkRouterTest {
 		assertEquals("the next gesture starts clean", InkRoute.INK, r.down(50f, 500f, finger).route)
 	}
 
+	@Test fun twoFingersPinchAndPan_theRouterReportsTheTravelTheScaleAndTheFocus() {
+		val r = InkRouter()
+		r.down(100f, 500f, finger)
+		// the second finger arrives 200 px to the right: midpoint (200, 500), spread 100
+		val two = listOf(p(0, 100f, 500f, finger), p(1, 300f, 500f, finger))
+		assertEquals(InkRoute.PAN, r.step(InkAction.POINTER_DOWN, two, 1, surface, listOf(box)).route)
+		// both move apart by 100 px (spread 100 -> 150) and 20 px down, midpoint stays at x = 200
+		val apart = listOf(p(0, 50f, 520f, finger), p(1, 350f, 520f, finger))
+		val step = r.step(InkAction.MOVE, apart, 0, surface, listOf(box))
+		assertEquals(1.5f, step.scale, 0.001f)
+		assertEquals(0f, step.panDx, 0.001f)
+		assertEquals(20f, step.panDy, 0.001f)
+		assertEquals(200f, step.focusX, 0.001f)
+		assertEquals(520f, step.focusY, 0.001f)
+		// no movement, no pinch: a step of 1 and no travel
+		val still = r.step(InkAction.MOVE, apart, 0, surface, listOf(box))
+		assertEquals(1f, still.scale, 0.001f)
+		assertEquals(0f, still.panDx, 0.001f)
+		// lifting a finger starts the next move clean (no scale jump from one finger)
+		r.step(InkAction.POINTER_UP, apart, 1, surface, listOf(box))
+		val one = r.step(InkAction.MOVE, listOf(p(0, 60f, 530f, finger)), 0, surface, listOf(box))
+		assertEquals(1f, one.scale, 0.001f)
+		assertEquals(10f, one.panDx, 0.001f)
+	}
+
 	@Test fun onceARealStylusHasBeenSeen_touchStopsDrawingAndScrolls() {
 		val r = InkRouter()
 		val seen = r.down(50f, 500f, stylus)

@@ -46,7 +46,7 @@ class InkFrame(context: Context, private val webView: WebView, private val close
 				is InkOp.Brush -> layer.setBrush(op.color, op.size)
 				is InkOp.Strokes -> layer.finished.setStrokes(op.strokes)
 				is InkOp.Kept -> layer.finished.setKept(op.strokes)
-				is InkOp.Scroll -> layer.setScroll(op.y)
+				is InkOp.View -> layer.setView(op.view)
 				is InkOp.Ack -> layer.finished.ackPending()
 			}
 		} catch (e: RuntimeException) {
@@ -101,7 +101,11 @@ class InkFrame(context: Context, private val webView: WebView, private val close
 				moved.recycle()
 			}
 			InkRoute.WEB -> webView.dispatchTouchEvent(ev)
-			InkRoute.PAN -> if (step.panDy != 0f) send(InkWire.panLine(-step.panDy / density))
+			InkRoute.PAN ->
+				if (step.panDx != 0f || step.panDy != 0f || step.scale != 1f) {
+					// two fingers: the web turns the midpoint's travel and the pinch into the new view
+					send(InkWire.gestureLine(step.panDx / density, step.panDy / density, step.scale, (step.focusX - area.x) / density, (step.focusY - area.y) / density))
+				}
 			InkRoute.NONE -> {}
 		}
 		return true

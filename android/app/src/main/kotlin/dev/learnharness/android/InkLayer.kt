@@ -23,8 +23,8 @@ import androidx.input.motionprediction.MotionEventPredictor
 /**
  * The finished strokes of the page, on the white page (the web canvas is always white): drawn with the renderer the
  * in-progress strokes use, so a stroke does not change look when it finishes. Strokes live in the canvas' page CSS px;
- * the view scales by the screen density and shifts by the canvas' scroll offset. [add] / [clear] are the plain-stroke
- * API the M9 spike uses.
+ * the view scales by the screen density and the infinite canvas's zoom and shifts by its origin (see [InkView]). [add] /
+ * [clear] are the plain-stroke API the M9 spike uses.
  */
 class FinishedStrokesView(context: Context) : View(context) {
 	private val renderer = CanvasStrokeRenderer.create()
@@ -35,7 +35,7 @@ class FinishedStrokesView(context: Context) : View(context) {
 	private val matrix = Matrix()
 	private val identity = Matrix()
 	private var density = 1f
-	private var scrollCss = 0f
+	private var view = InkView()
 	var paper = Color.WHITE
 
 	init {
@@ -79,15 +79,16 @@ class FinishedStrokesView(context: Context) : View(context) {
 		invalidate()
 	}
 
-	fun setScroll(cssY: Float) {
-		scrollCss = cssY
+	fun setView(v: InkView) {
+		view = v
 		invalidate()
 	}
 
 	override fun onDraw(canvas: Canvas) {
 		canvas.drawColor(paper)
-		matrix.setScale(density, density)
-		matrix.postTranslate(0f, -scrollCss * density)
+		val scale = density * view.zoom
+		matrix.setScale(scale, scale)
+		matrix.postTranslate(-view.x * scale, -view.y * scale)
 		// the page transform goes on the canvas: the renderer then draws in CSS px like the web canvas does
 		val page = canvas.save()
 		canvas.concat(matrix)
@@ -133,14 +134,14 @@ interface InkLayerListener {
 /**
  * The native drawing surface: finished strokes under an androidx.ink InProgressStrokesView (front-buffered, with
  * motion prediction, as in the M9 spike). Gestures arrive through [handle] in the layer's own coordinates; the
- * layer turns them into page CSS px (screen density, plus the canvas' scroll offset) for the web.
+ * layer turns them into page CSS px (screen density, the canvas' zoom and origin) for the web.
  */
 class InkLayer(context: Context) : FrameLayout(context) {
 	val finished = FinishedStrokesView(context)
 	private val inProgress = InProgressStrokesView(context)
 	private val predictor = MotionEventPredictor.newInstance(inProgress)
 	private val density = resources.displayMetrics.density
-	private var scrollCss = 0f
+	private var view = InkView()
 	var eraser = false
 	var listener: InkLayerListener? = null
 
@@ -175,9 +176,9 @@ class InkLayer(context: Context) : FrameLayout(context) {
 		})
 	}
 
-	fun setScroll(cssY: Float) {
-		scrollCss = cssY
-		finished.setScroll(cssY)
+	fun setView(v: InkView) {
+		view = v
+		finished.setView(v)
 	}
 
 	/** Drop the gesture in progress (a second finger turned it into a scroll, or the system cancelled it). */
@@ -221,7 +222,7 @@ class InkLayer(context: Context) : FrameLayout(context) {
 				} else if (current != null) {
 					inProgress.finishStroke(event, event.getPointerId(0), current)
 					record(event, historical = false)
-					val stroke = InkWire.Stroke(penSize, penColor, points.toFloatArray())
+					val stroke = InkWire.Stroke(view.penWorldSize(penSize), penColor, points.toFloatArray())
 					finished.addPending(stroke)
 					listener?.onStroke(stroke)
 				}
@@ -240,10 +241,10 @@ class InkLayer(context: Context) : FrameLayout(context) {
 		add(event.getX(0), event.getY(0), event.getPressure(0), event.getToolType(0))
 	}
 
-	/** View px to page CSS px; a finger has no real pressure (the web uses 0.5 too). */
+	/** View px to world (page CSS) px; a finger has no real pressure (the web uses 0.5 too). */
 	private fun add(x: Float, y: Float, pressure: Float, tool: Int) {
-		points.add(x / density)
-		points.add(y / density + scrollCss)
+		points.add(view.worldX(x, density))
+		points.add(view.worldY(y, density))
 		points.add(if (InkRouter.isPen(tool) && pressure > 0f) pressure.coerceAtMost(1f) else 0.5f)
 	}
 

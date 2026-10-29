@@ -8,7 +8,7 @@ import org.json.JSONException
  * The native-ink bridge, pure parts (Android plan M10, docs/android/m10-plan.md). The web store owns the strokes
  * (owner decision B, 2026-10-27): the shell draws, reports each finished stroke and eraser gesture, and the web pushes
  * the finished set back. Lines the web sends (`src/core/ink-bridge.ts` writes them): `open`, `holes`, `tool`,
- * `brush`, `strokes`, `kept`, `scroll`, `ack`, `close`. Lines the shell sends back: `stroke`, `erase`, `pan`, `penseen`, `fallback`.
+ * `brush`, `strokes`, `kept`, `view`, `ack`, `close`. Lines the shell sends back: `stroke`, `erase`, `gesture`, `penseen`, `fallback`.
  * No Android types except org.json, so `./gradlew test` covers it.
  */
 
@@ -28,8 +28,8 @@ sealed interface InkOp {
 	data class Strokes(val strokes: List<InkWire.Stroke>) : InkOp
 	/** Strokes already sent to the tutor: drawn faint, like the web canvas. */
 	data class Kept(val strokes: List<InkWire.Stroke>) : InkOp
-	/** The canvas' scroll offset in CSS px. */
-	data class Scroll(val y: Float) : InkOp
+	/** The infinite canvas's view (M13c): zoom and the world position of the layer's top-left corner. */
+	data class View(val view: InkView) : InkOp
 	/** The stroke the shell just reported is in the web's store: keep it as drawn (no full push needed). */
 	data object Ack : InkOp
 	data object Close : InkOp
@@ -64,7 +64,11 @@ object InkWire {
 			}
 			"strokes" -> InkOp.Strokes(strokes(rest) ?: return null)
 			"kept" -> InkOp.Kept(strokes(rest) ?: return null)
-			"scroll" -> InkOp.Scroll(finite(rest) ?: return null)
+			"view" -> {
+				val parts = rest.split(Regex("\\s+"))
+				if (parts.size != 3) return null
+				InkOp.View(InkView.parse(finite(parts[0]), finite(parts[1]), finite(parts[2])) ?: return null)
+			}
 			"ack" -> if (rest.isEmpty()) InkOp.Ack else null
 			"close" -> if (rest.isEmpty()) InkOp.Close else null
 			else -> null
@@ -127,8 +131,12 @@ object InkWire {
 	/** An eraser gesture: flat [x, y, …] in the canvas' page CSS px. The web decides which strokes it hit. */
 	fun eraseLine(points: FloatArray) = "erase ${points.joinToString(",") { n(if (it.isFinite()) it else 0f) }}"
 
-	/** Two fingers moved: scroll the canvas by this many CSS px (positive = further down the page). */
-	fun panLine(dy: Float) = "pan ${n(dy)}"
+	/**
+	 * Two fingers moved: their midpoint travelled (dx, dy) CSS px, the distance between them changed by [scale] (1 = no
+	 * pinch), and the midpoint is now at (fx, fy) CSS px from the layer's top-left. The web turns it into a new view.
+	 */
+	fun gestureLine(dx: Float, dy: Float, scale: Float, fx: Float, fy: Float) =
+		"gesture ${n(dx)} ${n(dy)} ${String.format(Locale.ROOT, "%.4f", if (scale.isFinite() && scale > 0f) scale else 1f)} ${n(fx)} ${n(fy)}"
 
 	/** The native layer cannot be shown: the web keeps its own canvas. */
 	fun fallbackLine(reason: String) = "fallback ${reason.replace(Regex("\\s+"), " ").take(120)}"

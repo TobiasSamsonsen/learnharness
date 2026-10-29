@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { decodeShellLine, encodeInkOp, eraseHits, type NativeInkOp, type NativeInkRect, type NativeInkTool, type SketchStroke } from "@/src/core";
 import { SKETCH_ERASER_RADIUS } from "@/components/sketch/sketch-canvas";
-import { thinPath } from "@/components/sketch/view-transform";
+import { useViewGestures } from "@/components/sketch/use-view-gestures";
+import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, roundView, thinPath, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
 
 /**
  * The native ink surface, web side (Android plan M10, docs/android/m10-plan.md). In the Android shell
@@ -13,6 +14,10 @@ import { thinPath } from "@/components/sketch/view-transform";
  * and eraser gestures, the web applies them through the same `addStroke` / `erase` the web canvas uses (so undo, redo,
  * clear, persistence, the kept page and the payload are unchanged), and pushes the finished set back when it changes
  * any other way. Wire format: src/core/ink-bridge.ts.
+ *
+ * Since M13c the canvas is infinite and zoomable, and the web owns the VIEW the same way: the shell reports two-finger
+ * gestures (`gesture`), this hook turns them (and the wheel, a mouse drag and the zoom buttons) into the new view and
+ * sends it back (`view`); the shell draws through it and reports points already in world coordinates.
  */
 
 /** The shell's side of `window.lhAndroid` (a WebMessageListener's JS object). */
@@ -59,11 +64,11 @@ export interface NativeInkOptions {
 	tool: NativeInkTool;
 	/** The pen's colour and width: the shell draws and reports the next strokes with it. */
 	pen?: { color: string; size: number };
-	/** The eraser's mode and radius (the shell only reports the gesture's points). */
+	/** The eraser's mode and radius, on screen (the shell only reports the gesture's points). */
 	eraser?: { mode: "pixel" | "stroke"; radius: number };
 	onStroke: (stroke: SketchStroke) => void;
 	onErase: (indices: number[]) => void;
-	/** A pixel-eraser gesture: its path, flat [x, y, …]. */
+	/** A pixel-eraser gesture: its path, flat [x, y, …], and the eraser's radius, both in world units. */
 	onCut?: (path: number[], radius: number) => void;
 }
 
@@ -72,11 +77,13 @@ export interface NativeInk {
 	active: boolean;
 	/** Why the shell could not show it (the web canvas is used instead), if it said. */
 	fallback: string | null;
-	/** The transparent scroller the page scrolls in (the shell draws under it). */
-	scrollerRef: RefObject<HTMLDivElement | null>;
-	onScroll: () => void;
-	/** The canvas' height in CSS px (for the page's height). */
-	viewHeight: number;
+	/** A transparent surface over the canvas: the wheel, a mouse drag and two fingers land here (the shell draws under it). */
+	surfaceRef: RefObject<HTMLDivElement | null>;
+	/** The zoom, in percent, for the zoom buttons. */
+	zoomPct: number;
+	zoomBy: (factor: number) => void;
+	/** Back to the ink: the home view when it fits, else a view that shows all of it. */
+	resetView: () => void;
 }
 
 const rectOf = (el: Element): NativeInkRect => {
@@ -88,15 +95,30 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 	// decided once per sketch view: the setting, and a shell that has the bridge
 	const [bridge] = useState<LhAndroidBridge | null>(() => (nativeInkEnabled() ? nativeInkBridge() : null));
 	const [fallback, setFallback] = useState<string | null>(null);
-	const [viewHeight, setViewHeight] = useState(0);
 	const active = bridge !== null && fallback === null;
-	const scrollerRef = useRef<HTMLDivElement | null>(null);
+	const surfaceRef = useRef<HTMLDivElement | null>(null);
 	const latest = useRef(options);
 	latest.current = options;
 	const sentStrokes = useRef<readonly SketchStroke[]>([]);
 	const ingested = useRef<SketchStroke | null>(null);
 	const sendRef = useRef<(op: NativeInkOp) => void>(() => {});
-	const frame = useRef(0);
+	const view = useRef<SketchView>(HOME_VIEW);
+	const size = useRef({ w: 0, h: 0 });
+	const fitted = useRef(false);
+	const [zoomPct, setZoomPct] = useState(100);
+
+	/** Adopt a view (as the shell will hold it) and tell the shell. */
+	const applyView = (next: SketchView) => {
+		const v = roundView(next);
+		view.current = v;
+		setZoomPct(Math.round(v.zoom * 100));
+		sendRef.current({ op: "view", ...v });
+	};
+	const fitAll = () => {
+		const o = latest.current;
+		return fitInk([...(o.kept ?? []), ...o.strokes].map((s) => s.points), size.current.w, size.current.h);
+	};
+	useViewGestures(surfaceRef, () => view.current, applyView, active);
 
 	const { inkKey, wrapperRef } = options;
 	useEffect(() => {
@@ -108,7 +130,7 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 			// a repeated geometry line (a resize that changed nothing the shell cares about) is not sent twice;
 			// stroke sets are never deduplicated: an undo can return to an earlier set the shell no longer shows
 			const line = encodeInkOp(op);
-			if (op.op === "open" || op.op === "holes" || op.op === "scroll" || op.op === "tool") {
+			if (op.op === "open" || op.op === "holes" || op.op === "view" || op.op === "tool") {
 				if (lines.get(op.op) === line) return;
 				lines.set(op.op, line);
 			}
@@ -124,7 +146,7 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 
 		const reportRect = () => {
 			const rect = rectOf(wrapper);
-			setViewHeight(rect.h);
+			size.current = { w: rect.w, h: rect.h };
 			send({ op: "open", inkKey, rect });
 		};
 		const reportHoles = () => send({ op: "holes", rects: [...wrapper.querySelectorAll("[data-ink-hole]")].map(rectOf) });
@@ -133,7 +155,13 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 			reportHoles();
 		};
 		reportAll();
-		send({ op: "scroll", y: scrollerRef.current?.scrollTop ?? 0 });
+		// the first time, open on the ink (the home view when it fits)
+		if (!fitted.current && size.current.w > 0 && size.current.h > 0) {
+			fitted.current = true;
+			view.current = roundView(fitAll());
+			setZoomPct(Math.round(view.current.zoom * 100));
+		}
+		send({ op: "view", ...view.current });
 		if (latest.current.pen) send({ op: "brush", ...latest.current.pen });
 
 		const resize = typeof ResizeObserver !== "undefined" ? new ResizeObserver(reportAll) : null;
@@ -154,22 +182,25 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 					o.onStroke(shell.stroke);
 					break;
 				case "erase": {
+					// the radius is chosen on screen; the points arrive in world units
+					const radius = eraserWorldRadius(o.eraser?.radius ?? SKETCH_ERASER_RADIUS, view.current.zoom);
 					if (o.eraser?.mode === "pixel" && o.onCut) {
-						o.onCut(thinPath(shell.points, o.eraser.radius / 4), o.eraser.radius);
+						o.onCut(thinPath(shell.points, radius / 4), radius);
 						break;
 					}
-					const hits = eraseHits(o.strokes, shell.points, o.eraser?.radius ?? SKETCH_ERASER_RADIUS);
+					const hits = eraseHits(o.strokes, shell.points, radius);
 					if (hits.length > 0) o.onErase(hits);
 					break;
 				}
-				case "pan":
-					if (scrollerRef.current) scrollerRef.current.scrollTop += shell.dy;
+				case "gesture":
+					// two fingers: zoom about where they were, then follow their midpoint
+					applyView(panBy(zoomAbout(view.current, shell.scale, shell.fx - shell.dx, shell.fy - shell.dy), shell.dx, shell.dy));
 					break;
 				case "fallback":
 					setFallback(shell.reason);
 					break;
 				case "penseen":
-					break; // the shell already switched to "touch scrolls"
+					break; // the shell already switched to "touch goes to the page"
 			}
 		};
 		bridge.addEventListener("message", onMessage);
@@ -180,7 +211,6 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 			mutations?.disconnect();
 			window.removeEventListener("resize", reportAll);
 			window.visualViewport?.removeEventListener("resize", reportAll);
-			cancelAnimationFrame(frame.current);
 			send({ op: "close" });
 			document.documentElement.classList.remove("lh-native-ink");
 			sendRef.current = () => {};
@@ -210,10 +240,12 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 		if (active && penColor !== undefined && penSize !== undefined) sendRef.current({ op: "brush", color: penColor, size: penSize });
 	}, [active, penColor, penSize]);
 
-	const onScroll = () => {
-		cancelAnimationFrame(frame.current);
-		frame.current = requestAnimationFrame(() => sendRef.current({ op: "scroll", y: scrollerRef.current?.scrollTop ?? 0 }));
+	return {
+		active,
+		fallback,
+		surfaceRef,
+		zoomPct,
+		zoomBy: (factor) => applyView(zoomAbout(view.current, factor, size.current.w / 2, size.current.h / 2)),
+		resetView: () => applyView(fitAll()),
 	};
-
-	return { active, fallback, scrollerRef, onScroll, viewHeight };
 }

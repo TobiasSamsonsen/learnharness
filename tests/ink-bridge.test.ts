@@ -11,7 +11,10 @@ test("encodeInkOp: one short line per operation, numbers rounded to 2 decimals",
 	assert.equal(encodeInkOp({ op: "brush", color: "#dc2626", size: 8 }), "brush #dc2626 8");
 	assert.throws(() => encodeInkOp({ op: "brush", color: "red", size: 4 }));
 	assert.throws(() => encodeInkOp({ op: "brush", color: "#dc2626", size: 0 }));
-	assert.equal(encodeInkOp({ op: "scroll", y: 312.456 }), "scroll 312.46");
+	assert.equal(encodeInkOp({ op: "view", zoom: 2.5, x: -300.456, y: 120 }), "view 2.5000 -300.46 120");
+	assert.equal(encodeInkOp({ op: "view", zoom: 0.1, x: 0, y: 0 }), "view 0.1000 0 0");
+	for (const zoom of [0.05, 9, Number.NaN]) assert.throws(() => encodeInkOp({ op: "view", zoom, x: 0, y: 0 }), String(zoom));
+	assert.throws(() => encodeInkOp({ op: "view", zoom: 1, x: Number.POSITIVE_INFINITY, y: 0 }));
 	for (const op of ["ack", "close"] as const) assert.equal(encodeInkOp({ op }), op);
 });
 
@@ -49,14 +52,14 @@ test("parseNativeStrokes: bad strokes are refused with the contract's own error"
 test("decodeShellLine: what the shell says", () => {
 	assert.deepEqual(decodeShellLine('stroke [{"size":4,"points":[1,2,0.5,3,4,0.5]}]'), { kind: "stroke", stroke: { size: 4, points: [1, 2, 0.5, 3, 4, 0.5] } });
 	assert.deepEqual(decodeShellLine("erase 1,2,3.5,4"), { kind: "erase", points: [1, 2, 3.5, 4] });
-	assert.deepEqual(decodeShellLine("pan -12.5"), { kind: "pan", dy: -12.5 });
+	assert.deepEqual(decodeShellLine("gesture -12.5 3 1.5 200 310.25"), { kind: "gesture", dx: -12.5, dy: 3, scale: 1.5, fx: 200, fy: 310.25 });
 	assert.deepEqual(decodeShellLine("penseen"), { kind: "penseen" });
 	assert.deepEqual(decodeShellLine("fallback no surface available"), { kind: "fallback", reason: "no surface available" });
 	assert.deepEqual(decodeShellLine("fallback"), { kind: "fallback", reason: "unavailable" });
 });
 
 test("decodeShellLine: anything else is ignored, never thrown", () => {
-	for (const bad of ["", "nonsense", "stroke", "stroke nope", "stroke []", 'stroke [{"size":4,"points":[1,2]}]', "erase", "erase 1", "erase 1,2,3", "erase a,b", "pan", "pan NaN", "pan x", "penseen now"]) {
+	for (const bad of ["", "nonsense", "stroke", "stroke nope", "stroke []", 'stroke [{"size":4,"points":[1,2]}]', "erase", "erase 1", "erase 1,2,3", "erase a,b", "pan 5", "gesture", "gesture 1 2 3", "gesture 1 2 0 3 4", "gesture 1 2 -1 3 4", "gesture a b c d e", "gesture 1 2 NaN 3 4", "penseen now"]) {
 		assert.equal(decodeShellLine(bad), null, bad);
 	}
 });

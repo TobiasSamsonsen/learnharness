@@ -23,7 +23,7 @@ class InkWireTest {
 		assertNull(InkWire.parse("brush #dc2626"))
 		assertNull(InkWire.parse("brush #dc2626 0"))
 		assertNull(InkWire.parse("brush #dc2626 NaN"))
-		assertEquals(InkOp.Scroll(312.5f), InkWire.parse("scroll 312.5"))
+		assertEquals(InkOp.View(InkView(2.5f, -300f, 120.5f)), InkWire.parse("view 2.5 -300 120.5"))
 		assertEquals(InkOp.Ack, InkWire.parse("ack"))
 		assertEquals(InkOp.Close, InkWire.parse("close"))
 	}
@@ -43,7 +43,7 @@ class InkWireTest {
 		val bad = listOf(
 			"", "nonsense", "open", "open bad!key 0 0 1 1", "open k 0 0 1", "open k a b c d",
 			"open k NaN 0 1 1", "open k 0 0 Infinity 1", "holes 1,2,3", "holes x,y,z,w", "holes NaN,0,1,1",
-			"tool brush", "tool", "close now", "ack now", "scroll", "scroll NaN", "scroll up",
+			"tool brush", "tool", "close now", "ack now", "view", "view 1 2", "view 1 2 3 4", "view 0 0 0", "view 9 0 0", "view NaN 0 0", "view a b c", "scroll 1",
 			"strokes", "strokes nope", "strokes {}", "strokes [{\"size\":4,\"points\":[1,2]}]",
 			"strokes [{\"size\":0,\"points\":[1,2,3]}]", "strokes [{\"size\":4}]", "strokes [{\"size\":4,\"points\":[1,\"x\",3]}]",
 			"undo", "export",
@@ -79,7 +79,8 @@ class InkWireTest {
 		assertArrayEquals(floatArrayOf(1f, 2f, 4f, 5f), InkWire.xyOf(floatArrayOf(1f, 2f, 0.5f, 4f, 5f, 0.6f)), 0f)
 		assertEquals("erase 1,2,4,5", InkWire.eraseLine(InkWire.xyOf(floatArrayOf(1f, 2f, 0.5f, 4f, 5f, 0.6f))))
 		assertEquals(0, InkWire.xyOf(floatArrayOf()).size)
-		assertEquals("pan -12.5", InkWire.panLine(-12.5f))
+		assertEquals("gesture -12.5 3 1.5000 200 310.25", InkWire.gestureLine(-12.5f, 3f, 1.5f, 200f, 310.25f))
+		assertEquals("a broken scale is no pinch", "gesture 0 0 1.0000 0 0", InkWire.gestureLine(0f, 0f, Float.NaN, 0f, 0f))
 		assertEquals("penseen", InkWire.PEN_SEEN)
 		assertEquals("fallback no surface available", InkWire.fallbackLine("no\nsurface   available"))
 		assertNotNull(InkWire.strokes(InkWire.strokesJson(listOf(InkWire.Stroke(4f, null, floatArrayOf(1f, 2f, 0.5f))))))

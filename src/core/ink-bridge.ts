@@ -14,13 +14,15 @@
  *   brush <#rrggbb> <size>            the pen's colour and base width in CSS px (M13): the next strokes use it
  *   strokes <json>                    the finished strokes of the page being written (replaces what the shell has)
  *   kept <json>                       strokes already sent to the tutor (drawn faint)
- *   scroll <y>                        the canvas' scroll offset in CSS px
+ *   view <zoom> <x> <y>               the infinite canvas's view (M13c): zoom (0.1-8) and the world position of the layer's
+ *                                     top-left corner; the web owns it, the shell draws and converts touch points through it
  *   ack                               the stroke the shell just reported is in the store: keep it as drawn
  *   close
  * shell -> web
  *   stroke <json>                     one finished stroke (an array of one SketchStroke), canvas-relative page px
  *   erase <x,y,x,y,…>                 an eraser gesture; the web decides which strokes it hit
- *   pan <dy>                          two fingers scrolled the canvas by this many CSS px (positive = further down)
+ *   gesture <dx> <dy> <scale> <fx> <fy>  two fingers moved: their midpoint travelled (dx, dy) CSS px, the distance between them
+ *                                     changed by `scale` (1 = no pinch), the midpoint is now at (fx, fy) from the layer's top-left
  *   penseen                           a real stylus has been used (touch now scrolls)
  *   fallback <reason>                 the native layer cannot be shown: keep the web canvas
  *
@@ -45,7 +47,7 @@ export type NativeInkOp =
 	| { op: "tool"; tool: NativeInkTool }
 	| { op: "brush"; color: string; size: number }
 	| { op: "strokes" | "kept"; strokes: readonly SketchStroke[] }
-	| { op: "scroll"; y: number }
+	| { op: "view"; zoom: number; x: number; y: number }
 	| { op: "ack" | "close" };
 
 const KEY_RE = /^[A-Za-z0-9_-]{1,80}$/;
@@ -70,8 +72,9 @@ export function encodeInkOp(op: NativeInkOp): string {
 		case "strokes":
 		case "kept":
 			return `${op.op} ${JSON.stringify(op.strokes)}`;
-		case "scroll":
-			return `scroll ${num(op.y)}`;
+		case "view":
+			if (!(op.zoom >= 0.1 && op.zoom <= 8) || !Number.isFinite(op.x) || !Number.isFinite(op.y)) throw new Error("view needs a zoom of 0.1-8 and finite coordinates");
+			return `view ${op.zoom.toFixed(4)} ${num(op.x)} ${num(op.y)}`;
 		default:
 			return op.op;
 	}
@@ -92,7 +95,7 @@ export function parseNativeStrokes(text: string): SketchStroke[] {
 export type ShellEvent =
 	| { kind: "stroke"; stroke: SketchStroke }
 	| { kind: "erase"; points: number[] }
-	| { kind: "pan"; dy: number }
+	| { kind: "gesture"; dx: number; dy: number; scale: number; fx: number; fy: number }
 	| { kind: "penseen" }
 	| { kind: "fallback"; reason: string };
 
@@ -111,9 +114,10 @@ export function decodeShellLine(line: string): ShellEvent | null {
 				const points = rest.split(",").map(Number);
 				return points.length >= 2 && points.length % 2 === 0 && points.every(Number.isFinite) ? { kind: "erase", points } : null;
 			}
-			case "pan": {
-				const dy = Number(rest);
-				return rest !== "" && Number.isFinite(dy) ? { kind: "pan", dy } : null;
+			case "gesture": {
+				const n = rest.split(" ").map(Number);
+				const [dx, dy, scale, fx, fy] = n as [number, number, number, number, number];
+				return n.length === 5 && n.every(Number.isFinite) && scale > 0 ? { kind: "gesture", dx, dy, scale, fx, fy } : null;
 			}
 			case "penseen":
 				return rest === "" ? { kind: "penseen" } : null;

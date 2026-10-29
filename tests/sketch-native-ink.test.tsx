@@ -92,7 +92,7 @@ describe("the setting and the bridge decide", () => {
 	it("the shell has the bridge and the setting was never touched: native ink is the default", async () => {
 		const shell = fakeShell();
 		await mount("k-default");
-		assert.ok(byId("sketch-native-scroller"), "native by default");
+		assert.ok(byId("sketch-native-surface"), "native by default");
 		assert.equal(byId("sketch-canvas"), null);
 		assert.ok(shell.posted.some((l) => l.startsWith("open k-default ")));
 	});
@@ -102,7 +102,7 @@ describe("the setting and the bridge decide", () => {
 		const shell = fakeShell();
 		await mount("k-off");
 		assert.ok(byId("sketch-canvas"), "the web canvas");
-		assert.equal(byId("sketch-native-scroller"), null);
+		assert.equal(byId("sketch-native-surface"), null);
 		assert.deepEqual(shell.posted, []);
 		assert.ok(!document.documentElement.classList.contains("lh-native-ink"));
 	});
@@ -127,7 +127,7 @@ describe("native ink is on", () => {
 		assert.ok(shell.posted.includes("brush #111111 4"), "the pen goes to the shell, default ink first");
 		assert.ok(shell.posted.includes("kept []"));
 		assert.ok(shell.posted.includes(`strokes ${JSON.stringify([STROKE])}`), "the store's strokes go to the shell");
-		assert.ok(byId("sketch-native-scroller"), "a transparent scroller instead of the canvas");
+		assert.ok(byId("sketch-native-surface"), "a transparent surface instead of the canvas");
 		assert.equal(byId("sketch-canvas"), null);
 		assert.ok(document.documentElement.classList.contains("lh-native-ink"), "the page lets the ink through");
 		assert.ok(byId("sketch-view")!.className.includes("bg-transparent"));
@@ -222,16 +222,35 @@ describe("native ink is on", () => {
 		assert.ok(readKept("k-thaw2")!.strokes.every((s) => s.fresh === undefined), "the kept page carries no flags");
 	});
 
-	it("two-finger pans scroll the transparent scroller, and its scroll is reported", async () => {
+	it("the shell's two-finger gestures become the view and go back to the shell; the zoom buttons do the same", async () => {
 		const shell = fakeShell();
-		await mount("k-pan");
-		const scroller = byId("sketch-native-scroller")!;
-		(scroller as unknown as { scrollTop: number }).scrollTop = 0;
-		await shell.say("pan 40");
-		assert.equal((scroller as unknown as { scrollTop: number }).scrollTop, 40);
-		scroller.dispatchEvent(new dom.window.Event("scroll"));
-		await act(async () => await new Promise((r) => setTimeout(r, 5)));
-		assert.ok(shell.posted.includes("scroll 40"), shell.posted.join(" | "));
+		await mount("k-gesture");
+		const views = () => shell.posted.filter((l) => l.startsWith("view "));
+		assert.equal(views().at(-1), "view 1.0000 0 0", "opens on the home view");
+		await shell.say("gesture 0 0 2 100 100"); // a pinch to 2x about (100, 100)
+		assert.equal(views().at(-1), "view 2.0000 50 50", "the point under the fingers stays under them");
+		await shell.say("gesture 20 10 1 120 110"); // the fingers move (20, 10) without pinching
+		assert.equal(views().at(-1), "view 2.0000 40 45", "the content follows the fingers");
+		assert.equal(byId("sketch-zoom-reset")!.textContent, "200%");
+		await click("sketch-zoom-out");
+		assert.ok(views().at(-1)!.startsWith("view 1.6000 "), views().at(-1));
+		assert.equal(byId("sketch-zoom-reset")!.textContent, "160%");
+		await shell.say("gesture 0 0 1000 5 5");
+		assert.ok(views().at(-1)!.startsWith("view 8.0000 "), "the zoom stops at 8x");
+	});
+
+	it("the eraser's reach is on screen: zoomed in, the same gesture reaches less of the page", async () => {
+		store.set("lh:sketch-eraser", JSON.stringify({ mode: "stroke", radius: 20 }));
+		const line: SketchStroke = { size: 4, points: [0, 100, 0.5, 200, 100, 0.5] };
+		const shell = fakeShell();
+		writeInk("k-reach", inkFromStrokes([line]));
+		await mount("k-reach");
+		await shell.say("erase 100,115"); // 15 away: within 20 + 2 at zoom 1
+		assert.equal(readInk("k-reach").strokes.length, 0, "reached at 1x");
+		await click("sketch-undo");
+		await shell.say("gesture 0 0 2 100 100"); // 2x: the reach is 10 world px (+ 2), so 15 away is out of it
+		await shell.say("erase 100,115");
+		assert.equal(readInk("k-reach").strokes.length, 1, "not reached at 2x");
 	});
 
 	it("the toolbar's tool follows to the shell", async () => {
@@ -247,7 +266,7 @@ describe("native ink is on", () => {
 		await mount("k-fallback");
 		await shell.say("fallback no surface");
 		assert.ok(byId("sketch-canvas"), "the web canvas is back");
-		assert.equal(byId("sketch-native-scroller"), null);
+		assert.equal(byId("sketch-native-surface"), null);
 		assert.equal(shell.posted.at(-1), "close", "the shell is told to close the layer");
 		assert.ok(!document.documentElement.classList.contains("lh-native-ink"));
 		assert.match(document.body.textContent ?? "", /native ink unavailable \(no surface\)/);

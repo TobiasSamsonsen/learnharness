@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { ConfidenceButtons } from "@/components/confidence-buttons";
 import { isDictationActive } from "@/components/dictation";
 import { FloatingProblem } from "@/components/sketch/floating-problem";
-import { lowestInk, SketchCanvas, sketchPageHeight, type SketchTool } from "@/components/sketch/sketch-canvas";
+import { SketchCanvas, type SketchTool } from "@/components/sketch/sketch-canvas";
+import { ZoomControls } from "@/components/sketch/zoom-controls";
 import { useNativeInk } from "@/components/sketch/use-native-ink";
 import { loadEraser, loadPen, saveEraser, savePen, SKETCH_COLORS, SKETCH_ERASER_SIZES, SKETCH_WIDTHS, type EraserSettings, type PenSettings } from "@/components/sketch/pen-settings";
 import { applyOp, hasNewInk, pagePayload, readInk, revertOp, sendPage, thawInk, useInk, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
@@ -264,14 +265,10 @@ export function SketchView({
 			    2026-10-26) — draggable, collapsible to a pill. */}
 			<div ref={canvasRef} className={cn("relative min-h-0 flex-1", !native.active && "bg-white")}>
 				{native.active ? (
-					<div
-						ref={native.scrollerRef}
-						data-testid="sketch-native-scroller"
-						onScroll={native.onScroll}
-						className="absolute inset-0 overflow-y-auto overscroll-contain lh-no-scrollbar"
-					>
-						<div style={{ height: sketchPageHeight(native.viewHeight, Math.max(lowestInk(kept?.strokes ?? []), lowestInk(ink.strokes))) }} />
-					</div>
+					<>
+						<div ref={native.surfaceRef} data-testid="sketch-native-surface" style={{ touchAction: "none" }} className="absolute inset-0" />
+						<ZoomControls zoomPct={native.zoomPct} onZoom={native.zoomBy} onReset={native.resetView} />
+					</>
 				) : (
 					<SketchCanvas strokes={ink.strokes} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={tool} brush={pen} eraser={eraser} onStroke={addStroke} onErase={erase} onCut={cut} />
 				)}

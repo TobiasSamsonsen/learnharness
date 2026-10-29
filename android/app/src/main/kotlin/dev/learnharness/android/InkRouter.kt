@@ -27,14 +27,29 @@ enum class InkRoute {
 	NONE,
 }
 
-/** [cancelInk]: drop the stroke in progress. [panDy]: finger movement in px this step (positive = fingers moved down). */
-data class InkStep(val route: InkRoute, val cancelInk: Boolean = false, val panDy: Float = 0f, val penSeenNow: Boolean = false)
+/**
+ * [cancelInk]: drop the stroke in progress. For a [InkRoute.PAN] step: [panDx], [panDy] are the fingers' midpoint movement
+ * in px this step (positive = right / down), [scale] the change in how far apart the fingers are (1 = no pinch), and
+ * [focusX], [focusY] the midpoint after the move, in the router's own coordinates (device px).
+ */
+data class InkStep(
+	val route: InkRoute,
+	val cancelInk: Boolean = false,
+	val panDy: Float = 0f,
+	val penSeenNow: Boolean = false,
+	val panDx: Float = 0f,
+	val scale: Float = 1f,
+	val focusX: Float = 0f,
+	val focusY: Float = 0f,
+)
 
 class InkRouter {
 	var penSeen = false
 		private set
 	private var mode = InkRoute.NONE
+	private var lastMeanX = 0f
 	private var lastMeanY = 0f
+	private var lastSpread = 0f
 
 	fun step(action: InkAction, pointers: List<InkPointer>, actionIndex: Int, surface: InkRect?, holes: List<InkRect>): InkStep {
 		if (pointers.isEmpty()) return InkStep(InkRoute.NONE)
@@ -52,30 +67,36 @@ class InkRouter {
 				InkRoute.INK ->
 					if (!penSeen && pointers.none { isPen(it.tool) }) {
 						mode = InkRoute.PAN
-						lastMeanY = meanY(pointers)
+						baseline(pointers)
 						InkStep(InkRoute.PAN, cancelInk = true)
 					} else {
 						InkStep(InkRoute.INK) // a palm beside a stylus: the layer follows the stylus pointer only
 					}
 				InkRoute.PAN -> {
-					lastMeanY = meanY(pointers)
+					baseline(pointers)
 					InkStep(InkRoute.PAN)
 				}
 				else -> InkStep(mode)
 			}
 			InkAction.MOVE -> when (mode) {
 				InkRoute.PAN -> {
-					val m = meanY(pointers)
-					val dy = m - lastMeanY
-					lastMeanY = m
-					InkStep(InkRoute.PAN, panDy = dy)
+					val mx = meanX(pointers)
+					val my = meanY(pointers)
+					val spread = spreadOf(pointers)
+					// a pinch only while two or more fingers were down at both ends of the step
+					val scale = if (lastSpread > 0f && spread > 0f) spread / lastSpread else 1f
+					val step = InkStep(InkRoute.PAN, panDx = mx - lastMeanX, panDy = my - lastMeanY, scale = scale, focusX = mx, focusY = my)
+					lastMeanX = mx
+					lastMeanY = my
+					lastSpread = spread
+					step
 				}
 				else -> InkStep(mode)
 			}
 			InkAction.POINTER_UP -> {
 				if (mode == InkRoute.PAN) {
 					val remaining = pointers.filterIndexed { i, _ -> i != actionIndex }
-					if (remaining.isNotEmpty()) lastMeanY = meanY(remaining)
+					if (remaining.isNotEmpty()) baseline(remaining)
 				}
 				InkStep(mode)
 			}
@@ -87,7 +108,24 @@ class InkRouter {
 		}
 	}
 
+	private fun meanX(pointers: List<InkPointer>) = pointers.map { it.x }.average().toFloat()
+
 	private fun meanY(pointers: List<InkPointer>) = pointers.map { it.y }.average().toFloat()
+
+	/** How far apart the fingers are: their mean distance from the midpoint (0 with one finger). */
+	private fun spreadOf(pointers: List<InkPointer>): Float {
+		if (pointers.size < 2) return 0f
+		val mx = meanX(pointers)
+		val my = meanY(pointers)
+		return pointers.map { Math.hypot((it.x - mx).toDouble(), (it.y - my).toDouble()) }.average().toFloat()
+	}
+
+	/** The fingers now down are the reference for the next move (no jump when one is added or lifted). */
+	private fun baseline(pointers: List<InkPointer>) {
+		lastMeanX = meanX(pointers)
+		lastMeanY = meanY(pointers)
+		lastSpread = spreadOf(pointers)
+	}
 
 	companion object {
 		const val TOOL_TYPE_STYLUS = 2

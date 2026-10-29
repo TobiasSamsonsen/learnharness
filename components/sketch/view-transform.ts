@@ -56,6 +56,14 @@ export function penWorldSize(screenSize: number, zoom: number): number {
 	return Math.round(Math.min(MAX_WORLD_SIZE, Math.max(MIN_WORLD_SIZE, screenSize / zoom)) * 100) / 100;
 }
 
+/**
+ * The view as the shell will hold it: the wire carries four decimals of zoom and two of the position, so the web
+ * adopts exactly those numbers (the shell and the web then never disagree about where a point is).
+ */
+export function roundView(v: SketchView): SketchView {
+	return { zoom: Math.round(clampZoom(v.zoom) * 10000) / 10000, x: Math.round(v.x * 100) / 100, y: Math.round(v.y * 100) / 100 };
+}
+
 /** An eraser radius chosen on screen, in world units. */
 export const eraserWorldRadius = (screenRadius: number, zoom: number): number => screenRadius / zoom;
 

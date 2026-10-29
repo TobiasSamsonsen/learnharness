@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MinusIcon, PlusIcon } from "lucide-react";
 import { SKETCH_INK, sketchStrokeCut, sketchStrokeHit, sketchStrokePath, type SketchStroke } from "@/src/core";
 import { DEFAULT_ERASER, DEFAULT_PEN, penStroke, type EraserSettings, type PenSettings } from "@/components/sketch/pen-settings";
+import { ZoomControls } from "@/components/sketch/zoom-controls";
 import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, penWorldSize, pinchOf, pinchStep, thinPath, toWorld, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
 
 /**
@@ -43,8 +43,6 @@ export const SKETCH_PAGE_MAX_HEIGHT = 12000;
 const KEPT_ALPHA = 0.45;
 /** A touch this soon after the pen was last near is a palm, not a finger. */
 const PALM_MS = 600;
-/** The zoom buttons' step. */
-const ZOOM_STEP = 1.25;
 
 /** The native page's height: at least the viewport, and room below the lowest ink. */
 export function sketchPageHeight(viewHeight: number, lowestY: number): number {
@@ -100,7 +98,6 @@ export function SketchCanvas({
 	const frame = useRef<number | null>(null);
 	const penSeen = useRef(false);
 	const penNearAt = useRef(0);
-	const [pen, setPen] = useState(false);
 	const view = useRef<SketchView>(HOME_VIEW);
 	const rect = useRef({ left: 0, top: 0, width: 0, height: 0 });
 	const fitted = useRef(false);
@@ -269,10 +266,7 @@ export function SketchCanvas({
 				onPointerDown={(e) => {
 					if (e.pointerType === "pen") {
 						penNearAt.current = performance.now();
-						if (!penSeen.current) {
-							penSeen.current = true;
-							setPen(true);
-						}
+						penSeen.current = true;
 					}
 					const box = e.currentTarget.getBoundingClientRect();
 					rect.current = { left: box.left, top: box.top, width: box.width, height: box.height };
@@ -364,23 +358,11 @@ export function SketchCanvas({
 					draw();
 				}}
 			/>
-			<div className="pointer-events-none absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md border bg-background/90 p-0.5 text-xs shadow-sm" data-pen-seen={pen}>
-				<button type="button" data-testid="sketch-zoom-out" aria-label="Zoom out" onClick={() => zoomBy(1 / ZOOM_STEP)} className="lh-touch pointer-events-auto grid size-8 place-items-center rounded">
-					<MinusIcon className="size-4" />
-				</button>
-				<button
-					type="button"
-					data-testid="sketch-zoom-reset"
-					aria-label="Reset zoom"
-					onClick={() => setView(fitInk([...keptRef.current, ...strokesRef.current].map((s) => s.points), rect.current.width, rect.current.height))}
-					className="lh-touch pointer-events-auto h-8 min-w-12 rounded px-1 tabular-nums"
-				>
-					{zoomPct}%
-				</button>
-				<button type="button" data-testid="sketch-zoom-in" aria-label="Zoom in" onClick={() => zoomBy(ZOOM_STEP)} className="lh-touch pointer-events-auto grid size-8 place-items-center rounded">
-					<PlusIcon className="size-4" />
-				</button>
-			</div>
+			<ZoomControls
+				zoomPct={zoomPct}
+				onZoom={zoomBy}
+				onReset={() => setView(fitInk([...keptRef.current, ...strokesRef.current].map((s) => s.points), rect.current.width, rect.current.height))}
+			/>
 		</div>
 	);
 }
