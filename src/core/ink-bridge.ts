@@ -11,6 +11,7 @@
  *   open <inkKey> <x> <y> <w> <h>     the canvas rectangle in CSS px of the viewport; the native layer sits there
  *   holes <x,y,w,h> …                 web UI over the canvas (the floating box): touches there stay with the page
  *   tool pen|eraser                   the toolbar's tool
+ *   brush <#rrggbb> <size>            the pen's colour and base width in CSS px (M13): the next strokes use it
  *   strokes <json>                    the finished strokes of the page being written (replaces what the shell has)
  *   kept <json>                       strokes already sent to the tutor (drawn faint)
  *   scroll <y>                        the canvas' scroll offset in CSS px
@@ -42,11 +43,13 @@ export type NativeInkOp =
 	| { op: "open"; inkKey: string; rect: NativeInkRect }
 	| { op: "holes"; rects: NativeInkRect[] }
 	| { op: "tool"; tool: NativeInkTool }
+	| { op: "brush"; color: string; size: number }
 	| { op: "strokes" | "kept"; strokes: readonly SketchStroke[] }
 	| { op: "scroll"; y: number }
 	| { op: "ack" | "close" };
 
 const KEY_RE = /^[A-Za-z0-9_-]{1,80}$/;
+const BRUSH_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 const num = (n: number): string => String(Math.round(n * 100) / 100);
 const rectText = (r: NativeInkRect): string => `${num(r.x)},${num(r.y)},${num(r.w)},${num(r.h)}`;
@@ -61,6 +64,9 @@ export function encodeInkOp(op: NativeInkOp): string {
 			return ["holes", ...op.rects.map(rectText)].join(" ");
 		case "tool":
 			return `tool ${op.tool}`;
+		case "brush":
+			if (!BRUSH_COLOR_RE.test(op.color) || !(op.size >= 0.5 && op.size <= 64)) throw new Error("brush must be #rrggbb and a size of 0.5-64");
+			return `brush ${op.color} ${num(op.size)}`;
 		case "strokes":
 		case "kept":
 			return `${op.op} ${JSON.stringify(op.strokes)}`;

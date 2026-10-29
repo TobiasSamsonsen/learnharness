@@ -152,7 +152,7 @@ export function SketchView({
 		record(state, applyOp(state.strokes, { kind: "erase", removed }), { kind: "erase", removed });
 	};
 	// The Android shell's native ink layer, when the setting is on (owner, M10): it draws under the transparent page
-	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: ink.strokes, kept: kept?.strokes, tool, onStroke: addStroke, onErase: erase });
+	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: ink.strokes, kept: kept?.strokes, tool, pen, onStroke: addStroke, onErase: erase });
 	// Submit has been pressed on a quiz answer: the confidence buttons stand in for it until one is pressed
 	const [asking, setAsking] = useState(false);
 	const submit = (confidenceIndex?: number) => {
@@ -255,8 +255,7 @@ export function SketchView({
 					{choices}
 				</FloatingProblem>
 			</div>
-			{/* The native ink layer still draws one fixed pen: no choices there until the shell takes the brush. */}
-			<div data-testid="sketch-pen-strip" className={cn("flex items-center gap-1 overflow-x-auto border-t bg-background px-3 py-1", native.active && "hidden")}>
+			<div data-testid="sketch-pen-strip" className="flex items-center gap-1 overflow-x-auto border-t bg-background px-3 py-1">
 				{SKETCH_COLORS.map((c) => (
 					<button
 						key={c.value}

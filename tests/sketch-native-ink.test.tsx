@@ -123,6 +123,7 @@ describe("native ink is on", () => {
 		assert.ok(shell.posted.includes("open k-open 0 100 400 600"), shell.posted.join(" | "));
 		assert.ok(shell.posted.some((l) => l.startsWith("holes 0,100,400,600")), "the floating box is a hole");
 		assert.ok(shell.posted.includes("tool pen"));
+		assert.ok(shell.posted.includes("brush #111111 4"), "the pen goes to the shell, default ink first");
 		assert.ok(shell.posted.includes("kept []"));
 		assert.ok(shell.posted.includes(`strokes ${JSON.stringify([STROKE])}`), "the store's strokes go to the shell");
 		assert.ok(byId("sketch-native-scroller"), "a transparent scroller instead of the canvas");

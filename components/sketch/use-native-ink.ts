@@ -56,6 +56,8 @@ export interface NativeInkOptions {
 	strokes: readonly SketchStroke[];
 	kept: readonly SketchStroke[] | undefined;
 	tool: NativeInkTool;
+	/** The pen's colour and width: the shell draws and reports the next strokes with it. */
+	pen?: { color: string; size: number };
 	onStroke: (stroke: SketchStroke) => void;
 	onErase: (indices: number[]) => void;
 }
@@ -127,6 +129,7 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 		};
 		reportAll();
 		send({ op: "scroll", y: scrollerRef.current?.scrollTop ?? 0 });
+		if (latest.current.pen) send({ op: "brush", ...latest.current.pen });
 
 		const resize = typeof ResizeObserver !== "undefined" ? new ResizeObserver(reportAll) : null;
 		resize?.observe(wrapper);
@@ -192,6 +195,11 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 	useEffect(() => {
 		if (active) sendRef.current({ op: "tool", tool });
 	}, [active, tool]);
+	const penColor = options.pen?.color;
+	const penSize = options.pen?.size;
+	useEffect(() => {
+		if (active && penColor !== undefined && penSize !== undefined) sendRef.current({ op: "brush", color: penColor, size: penSize });
+	}, [active, penColor, penSize]);
 
 	const onScroll = () => {
 		cancelAnimationFrame(frame.current);

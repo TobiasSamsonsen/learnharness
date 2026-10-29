@@ -148,7 +148,20 @@ class InkLayer(context: Context) : FrameLayout(context) {
 	private var points = ArrayList<Float>()
 	private var erasing = false
 
-	private val brush = Brush.createWithColorIntArgb(StockBrushes.pressurePen(), FinishedStrokesView.INK_COLOR, PEN_SIZE * density, 0.1f)
+	// the pen the web chose (`brush` line); the default is the web's default ink
+	private var penColor: String? = null // null = the default ink
+	private var penSize = PEN_SIZE
+
+	/** The pen's colour (#rrggbb) and base size in CSS px, for the strokes drawn from now on. */
+	fun setBrush(color: String, size: Float) {
+		penColor = if (color.equals(DEFAULT_INK, ignoreCase = true)) null else color
+		penSize = size
+	}
+
+	private fun brush(): Brush {
+		val argb = penColor?.let { Color.parseColor(it) } ?: FinishedStrokesView.INK_COLOR
+		return Brush.createWithColorIntArgb(StockBrushes.pressurePen(), argb, penSize * density, 0.1f)
+	}
 
 	init {
 		val match = LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -185,7 +198,7 @@ class InkLayer(context: Context) : FrameLayout(context) {
 				if (!erasing) {
 					requestUnbufferedDispatch(event)
 					inProgress.requestUnbufferedDispatch(event)
-					id = inProgress.startStroke(event, event.getPointerId(0), brush)
+					id = inProgress.startStroke(event, event.getPointerId(0), brush())
 					predictor.record(event)
 				}
 				record(event, historical = false)
@@ -208,7 +221,7 @@ class InkLayer(context: Context) : FrameLayout(context) {
 				} else if (current != null) {
 					inProgress.finishStroke(event, event.getPointerId(0), current)
 					record(event, historical = false)
-					val stroke = InkWire.Stroke(PEN_SIZE, null, points.toFloatArray())
+					val stroke = InkWire.Stroke(penSize, penColor, points.toFloatArray())
 					finished.addPending(stroke)
 					listener?.onStroke(stroke)
 				}
@@ -237,5 +250,6 @@ class InkLayer(context: Context) : FrameLayout(context) {
 	companion object {
 		/** The web pen's base size in CSS px (`SKETCH_PEN_SIZE`). */
 		const val PEN_SIZE = 4f
+		private const val DEFAULT_INK = "#111111"
 	}
 }
