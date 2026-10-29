@@ -46,14 +46,12 @@ class LogicTest {
 	}
 
 	@Test fun flowDecisions() {
-		assertEquals(Next.Load, Flow.decide(dev = true, healthy = false, installed = false, updateAvailable = false, loggedIn = false))
-		assertEquals(Next.Load, Flow.decide(dev = false, healthy = true, installed = false, updateAvailable = true, loggedIn = false))
-		assertEquals(Next.Provision, Flow.decide(dev = false, healthy = false, installed = false, updateAvailable = false, loggedIn = true))
-		// an installed app with a newer release asks first, before the sign-in check or a start
-		assertEquals(Next.Update, Flow.decide(dev = false, healthy = false, installed = true, updateAvailable = true, loggedIn = true))
-		assertEquals(Next.Update, Flow.decide(dev = false, healthy = false, installed = true, updateAvailable = true, loggedIn = false))
-		assertEquals(Next.Login, Flow.decide(dev = false, healthy = false, installed = true, updateAvailable = false, loggedIn = false))
-		assertEquals(Next.Start, Flow.decide(dev = false, healthy = false, installed = true, updateAvailable = false, loggedIn = true))
+		assertEquals(Next.Load, Flow.decide(dev = true, healthy = false, installed = false, loggedIn = false))
+		assertEquals(Next.Load, Flow.decide(dev = false, healthy = true, installed = false, loggedIn = false))
+		assertEquals(Next.Provision, Flow.decide(dev = false, healthy = false, installed = false, loggedIn = true))
+		// a newer release is not a step: the app opens and the page's card offers it (UpdateWire)
+		assertEquals(Next.Login, Flow.decide(dev = false, healthy = false, installed = true, loggedIn = false))
+		assertEquals(Next.Start, Flow.decide(dev = false, healthy = false, installed = true, loggedIn = true))
 	}
 
 	@Test fun tokensAreFortyEightHexCharactersFromTwentyFourBytes() {

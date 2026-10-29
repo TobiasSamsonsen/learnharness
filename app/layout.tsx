@@ -7,6 +7,7 @@ import { ActivityProvider } from "@/components/activity-dock";
 import { ServerEventsProvider } from "@/components/server-events";
 import { AppearanceProvider } from "@/components/settings/appearance";
 import UpdateBanner from "@/components/update-banner";
+import AndroidUpdateCard from "@/components/android-update-card";
 import UpstreamBanner from "@/components/upstream-banner";
 
 // Chrome = JetBrains Mono, teaching prose = Source Sans 3, titles = CMU
@@ -46,9 +47,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 			</ServerEventsProvider>
 			{/* The bottom-right notice stack: the auto-update banner (Wave C,
 			    Electron-only pushes) and the fork's upstream release notice
-			    (fork addition) — stacked, never overlapping. */}
+			    (fork addition) and, in the Android app only, the fork's own update
+			    card — stacked, never overlapping. */}
 			<div className="pointer-events-none fixed right-[calc(1rem+var(--lh-safe-right))] bottom-[calc(1rem+var(--lh-safe-bottom))] z-50 flex flex-col items-end gap-2">
 				<UpstreamBanner />
+				<AndroidUpdateCard />
 				<UpdateBanner />
 			</div>
 		</body>

@@ -39,8 +39,6 @@ sealed interface Next {
 	data object Load : Next
 	/** The guest or the server bundle is not installed yet: download and unpack it (no question asked: nothing works without it). */
 	data object Provision : Next
-	/** Installed, but a newer version exists: ask the learner (owner decision, M12: never silently, and only over an unmetered network). */
-	data object Update : Next
 	/** Claude is not signed in inside the guest. */
 	data object Login : Next
 	/** Everything is installed and signed in, but nothing answers: start the server. */
@@ -48,10 +46,9 @@ sealed interface Next {
 }
 
 object Flow {
-	fun decide(dev: Boolean, healthy: Boolean, installed: Boolean, updateAvailable: Boolean, loggedIn: Boolean): Next = when {
+	fun decide(dev: Boolean, healthy: Boolean, installed: Boolean, loggedIn: Boolean): Next = when {
 		dev || healthy -> Next.Load
 		!installed -> Next.Provision
-		updateAvailable -> Next.Update
 		!loggedIn -> Next.Login
 		else -> Next.Start
 	}

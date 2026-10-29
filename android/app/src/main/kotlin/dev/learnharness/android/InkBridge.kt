@@ -8,10 +8,16 @@ import androidx.webkit.WebViewFeature
 
 /**
  * `window.lhAndroid` in the page (Android plan M10): `lhAndroid.postMessage(line)` carries the lines of [InkWire] (and, from M12,
- * the `speech` lines of [SpeechWire]) to the shell; the shell answers through `lhAndroid.onmessage` (the reply proxy). A WebMessageListener restricted to the
+ * the `speech` lines of [SpeechWire] and the `update` lines of [UpdateWire]) to the shell; the shell answers through `lhAndroid.onmessage` (the reply proxy). A WebMessageListener restricted to the
  * server's own origin and the main frame, exactly like `lhShell`: a sandboxed demo iframe (opaque origin) cannot reach it.
  */
-class InkBridge(private val webView: WebView, private val frame: InkFrame, private val speech: SpeechBridge? = null) {
+class InkBridge(
+	private val webView: WebView,
+	private val frame: InkFrame,
+	private val speech: SpeechBridge? = null,
+	/** The `update` lines (the fork's update card): the op and a way to answer the page. */
+	private val update: ((UpdateOp, (String) -> Unit) -> Unit)? = null,
+) {
 	private var reply: JavaScriptReplyProxy? = null
 
 	fun install(origin: String) {
@@ -25,6 +31,10 @@ class InkBridge(private val webView: WebView, private val frame: InkFrame, priva
 			// the dictation lines of M12 step 6 share this channel; they are not ink
 			if (SpeechWire.isSpeech(data)) {
 				speech?.handle(data) { line -> reply?.postMessage(line) }
+				return@addWebMessageListener
+			}
+			if (UpdateWire.isUpdate(data)) {
+				UpdateWire.parse(data)?.let { op -> update?.invoke(op) { line -> reply?.postMessage(line) } }
 				return@addWebMessageListener
 			}
 			val op = InkWire.parse(data) ?: return@addWebMessageListener

@@ -69,8 +69,15 @@ class MainActivity : ComponentActivity() {
 	/** The sign-in is running: coming back from the browser must not start it again. */
 	private var loginActive = false
 	private var askedNotifications = false
-	/** "Later" on the update question: not asked again until the next cold start. */
+	/** "Not now" on the update card: not offered again until the next cold start. */
 	private var skipUpdate = false
+	/** The background check found a newer release; the page's card offers it (it probes, we answer). */
+	private var updateReady = false
+	/** The check runs once per cold start. */
+	private var updateChecked = false
+	private var updateReply: ((String) -> Unit)? = null
+	/** The page of this load asked (`update probe`): it has the card. A server older than the card never does. */
+	private var updateProbed = false
 	private var port: Int
 		get() = prefs.getInt("port", Server.DEFAULT_PORT)
 		set(value) = prefs.edit().putInt("port", value).apply()
@@ -205,7 +212,7 @@ class MainActivity : ComponentActivity() {
 		}
 		WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
 		inkFrame = InkFrame(this, webView, BACKGROUND)
-		inkBridge = InkBridge(webView, inkFrame, speech)
+		inkBridge = InkBridge(webView, inkFrame, speech, ::onUpdateOp)
 		installBridge()
 		webView.webViewClient = client
 		webView.webChromeClient = chrome
@@ -336,15 +343,14 @@ class MainActivity : ComponentActivity() {
 			// the guest is only looked at when nothing answers: a running server needs no checks
 			val down = !dev && !healthy
 			val installed = !down || provisioner.installed()
-			val update = down && installed && !skipUpdate && provisioner.updateAvailable(provisioner.remoteVersions(timeoutMs = 4_000))
-			val signedIn = !down || !installed || update || login.loggedIn()
+			val signedIn = !down || !installed || login.loggedIn()
 			runOnUiThread {
 				if (my != attempt) return@runOnUiThread
 				busy = false
-				when (Flow.decide(dev, healthy, installed, update, signedIn)) {
+				// an update is not a step of its own: the app opens first and the page's card offers it (checkForUpdate)
+				when (Flow.decide(dev, healthy, installed, signedIn)) {
 					Next.Load -> load()
 					Next.Provision -> provision()
-					Next.Update -> offerUpdate()
 					Next.Login -> startLogin()
 					// the server was started and still does not answer: asking again would loop forever
 					Next.Start -> if (afterStart) {
@@ -375,18 +381,52 @@ class MainActivity : ComponentActivity() {
 		false
 	}
 
-	/** An installed app with a newer release: the learner decides, and nothing is downloaded over a metered connection (owner decision, M12). */
-	private fun offerUpdate() {
+	/**
+	 * After the page is up: is there a newer release? Looked at once per cold start, off the UI thread (4 s timeout). The page's
+	 * update card offers it (`update probe` / `update available`), so the app is never held back by the question.
+	 */
+	private fun checkForUpdate() {
+		if (dev || updateChecked || skipUpdate) return
+		updateChecked = true
+		thread {
+			val ready = provisioner.updateAvailable(provisioner.remoteVersions(timeoutMs = 4_000))
+			runOnUiThread {
+				updateReady = ready && !skipUpdate
+				if (updateReady) updateReply?.invoke(UpdateWire.AVAILABLE)
+				// an installed server older than the card never probes, and could not be updated at all: say it on our own screen
+				if (updateReady) root.postDelayed({ if (updateReady && !updateProbed && pageShown) offerUpdateOnShellScreen() }, NO_CARD_AFTER_MS)
+			}
+		}
+	}
+
+	private fun offerUpdateOnShellScreen() {
 		show(
 			"Update available",
 			"A newer version of the learning environment is ready. It downloads over Wi-Fi.",
-			"Update now", ::updateNow,
-			"Later", { skipUpdate = true; begin() },
+			"Update now", ::startUpdate,
+			"Later", { skipUpdate = true; updateReady = false; begin() },
 			controls = false,
 		)
 	}
 
-	private fun updateNow() {
+	private fun onUpdateOp(op: UpdateOp, reply: (String) -> Unit) {
+		when (op) {
+			UpdateOp.Probe -> {
+				updateProbed = true
+				updateReply = reply
+				if (updateReady) reply(UpdateWire.AVAILABLE)
+			}
+			UpdateOp.Later -> {
+				skipUpdate = true
+				updateReady = false
+			}
+			UpdateOp.Start -> runOnUiThread { startUpdate() }
+		}
+	}
+
+	/** "Update" on the card: nothing is downloaded over a metered connection (owner decision, M12); the server stops first, because the files under it are replaced. */
+	private fun startUpdate() {
+		if (busy) return
 		// if the state cannot be read, assume the worst: a metered connection
 		val metered = try {
 			getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered
@@ -397,12 +437,26 @@ class MainActivity : ComponentActivity() {
 			show(
 				"Connect to Wi-Fi",
 				"The update is only downloaded on Wi-Fi. Connect, then try again.",
-				"Try again", ::updateNow,
-				"Later", { skipUpdate = true; begin() },
+				"Try again", ::startUpdate,
+				"Later", { skipUpdate = true; updateReady = false; begin() },
 				controls = false,
 			)
 		} else {
-			provision()
+			stopThenProvision()
+		}
+	}
+
+	private fun stopThenProvision() {
+		busy = true
+		showWorking("Stopping the server…")
+		thread {
+			ServerService.stop(this)
+			Thread.sleep(2500) // the service gives node up to 1.5 s to exit
+			runOnUiThread {
+				busy = false
+				updateReady = false
+				provision()
+			}
 		}
 	}
 
@@ -553,7 +607,9 @@ class MainActivity : ComponentActivity() {
 		saw403 = false
 		status.visibility = View.GONE
 		webView.visibility = View.VISIBLE
+		updateProbed = false
 		webView.loadUrl(Server.base(port))
+		checkForUpdate()
 	}
 
 	private fun onBack() {
@@ -690,6 +746,8 @@ base64` here; the system picker picks where the
 		const val BACKGROUND = 0xFF151210.toInt()
 		/** How long a freshly started server may take before the shell reads its log and reports. */
 		const val START_TIMEOUT_MS = 90_000L
+		/** After the check found an update: how long the page may stay silent before the shell offers it on its own screen. */
+		const val NO_CARD_AFTER_MS = 8_000L
 
 		/**
 		 * The web app saves files with an `<a download>`: a detached blob link revoked right after the click
