@@ -43,7 +43,7 @@ Pure `accessDecision({url, method, headers, cookies}, env)` returning one of `al
 ### 3. CI + smoke
 
 - `.github/workflows/android-server.yml`: checkout, setup-node 26, `npm ci`, `npm run build`, `node scripts/build-server.mjs`, `node scripts/smoke-headless.mjs`, then `tar --zstd` of `.next/standalone` (after a `zstd --version` check) into `learnharness-server-<ver>-linux-arm64.tar.zst`, `actions/upload-artifact@v7`.
-- `scripts/smoke-headless.mjs`: boots standalone with `LH_ACCESS_TOKEN`, `LH_CLAUDE_CODE_BIN`=shim, `FAKE_CLAUDE_SCRIPT`; asserts no-cookie page and API → 403; foreign Host → 403; `/api/health` public; pairing sets cookie and redirects; with the cookie: `POST /api/chats`, `PUT /api/chats/{id}/settings` (claude-code model), `POST /api/chat`, SSE shows the fake's text and `[DONE]`; a cross-origin mutation → 403. Always kills the child; boot timeout 60 s.
+- `scripts/smoke-headless.mjs`: boots standalone with `LH_ACCESS_TOKEN`, a `claude` shim first on `PATH`, `FAKE_CLAUDE_SCENARIO` (since the v0.4.0 merge; before it `LH_CLAUDE_CODE_BIN` and `FAKE_CLAUDE_SCRIPT`), and switches Claude Code on through `PUT /api/settings/claudeCode`; asserts no-cookie page and API → 403; foreign Host → 403; `/api/health` public; pairing sets cookie and redirects; with the cookie: `POST /api/chats`, `PUT /api/chats/{id}/settings` (claude-code model), `POST /api/chat`, SSE shows the fake's text and `[DONE]`; a cross-origin mutation → 403. Always kills the child; boot timeout 60 s.
 
 ## Tests
 

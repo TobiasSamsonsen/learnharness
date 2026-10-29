@@ -1,6 +1,6 @@
 # M14 plan (DRAFT): merge upstream v0.4.0 into the fork
 
-Status: **DRAFT, awaiting owner approval. Nothing is changed yet.** Written by Claude on 2026-10-29 from a dry-run merge in a scratch worktree (the working tree was not touched) and two read-only surveys of the two Claude CLI providers. Per AGENTS.md "No guessing", the owner's rule and answers are below; every other choice is mechanical consequence of them.
+Status: **BUILT on `merge/upstream-v0.4.0` (approved by the owner 2026-10-29); results in STATUS.md.** Original status line: DRAFT, awaiting owner approval. Written by Claude on 2026-10-29 from a dry-run merge in a scratch worktree (the working tree was not touched) and two read-only surveys of the two Claude CLI providers. Per AGENTS.md "No guessing", the owner's rule and answers are below; every other choice is mechanical consequence of them.
 
 ## Owner rule (2026-10-29)
 

@@ -4,7 +4,7 @@ import type { UserSettings } from "./settings.ts";
 /**
  * The Claude-subscription preset (fork addition, 2026-10-24): model and
  * volume settings tuned for a usage-capped Claude plan run through the
- * claude-code provider. PURE — the server applies it (merging into the
+ * claude-code provider (upstream's, whose models are the CLI aliases opus, sonnet, haiku). PURE — the server applies it (merging into the
  * record), the settings UI describes it from the same data.
  *
  *   strong (prober, teacher, practice)  Sonnet, medium — every learner turn
@@ -27,13 +27,13 @@ const pick = (id: string, thinkingLevel: ThinkingLevel) => ({ model: { provider:
 
 export const CLAUDE_SUBSCRIPTION_PRESET = {
 	models: {
-		strong: pick("claude-sonnet-5-5", "medium"),
-		cheap: pick("claude-haiku-5-5", "low"),
-		vision: pick("claude-sonnet-5-5", "low"),
+		strong: pick("sonnet", "medium"),
+		cheap: pick("haiku", "low"),
+		vision: pick("sonnet", "low"),
 	},
 	roles: {
-		planner: pick("claude-opus-5-5", "medium"),
-		demoBuilder: pick("claude-sonnet-5-5", "low"),
+		planner: pick("opus", "medium"),
+		demoBuilder: pick("sonnet", "low"),
 	},
 	extractionChunkTokens: 12_288,
 	compactionThresholdTokens: 100_000,

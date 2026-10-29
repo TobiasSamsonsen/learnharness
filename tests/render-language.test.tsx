@@ -20,8 +20,8 @@ describe("lesson language — render", () => {
 		);
 		assert.match(
 			composer,
-			/<textarea[\s\S]*data-testid="composer-edge"[\s\S]*data-testid="stats-materials"[\s\S]*data-testid="stats-language"[\s\S]*data-testid="mic"[\s\S]*aria-label="Send"/,
-			"textarea, then the edge: sources, language, the mic, send",
+			/role="textbox"[\s\S]*data-testid="composer-edge"[\s\S]*data-testid="stats-materials"[\s\S]*data-testid="stats-language"[\s\S]*data-testid="mic"[\s\S]*aria-label="Send"/,
+			"the editor (upstream's PathInput), then the edge: sources, language, the mic, send",
 		);
 		const plain = renderToStaticMarkup(<Composer busy={false} value="" onChange={() => {}} onSend={() => {}} onStop={() => {}} canSend={false} />);
 		assert.doesNotMatch(plain, /composer-edge/, "no edge unless asked for");

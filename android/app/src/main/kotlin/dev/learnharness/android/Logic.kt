@@ -67,6 +67,7 @@ object ServerEnv {
 		"LH_AUTH_FILE" to "/root/.lh/auth.json",
 		"LH_UPSTREAM_CHECK" to "0",
 		"LH_CLAUDE_CODE_MAX_SESSIONS" to "2",
+		"LH_CLAUDE_IDLE_REUSE" to "1",
 		"LH_ACCESS_TOKEN" to token,
 	) + if (bridgePort > 0) mapOf("LH_DEMO_BRIDGE_URL" to "http://127.0.0.1:$bridgePort", "LH_DEMO_BRIDGE_TOKEN" to bridgeToken) else emptyMap()
 }
@@ -84,11 +85,14 @@ object ResolvConf {
 
 object FirstRun {
 	/**
-	 * The `models` section of settings.json for a fresh install (owner decision, M12: the standalone app is ready to teach
-	 * right after the Claude login; desktop and browser keep the no-defaults rule). strong = prober and teacher, cheap =
-	 * the background agents, vision = figures and PDFs. All three are Claude Code models, which a subscription login serves.
+	 * The settings.json of a fresh install (owner decision, M12: the standalone app is ready to teach right after the Claude
+	 * login; desktop and browser keep the no-defaults rule). strong = prober and teacher, cheap = the background agents,
+	 * vision = figures and PDFs. All three are Claude Code models (upstream 0.4.0 names them by the CLI's aliases: opus,
+	 * sonnet, haiku), which a subscription login serves. `claudeCode.enabled` is upstream's explicit opt-in: this file is
+	 * only written after the sign-in has succeeded (the start flow does not get here otherwise), so the sign-in is the opt-in
+	 * (owner decision, 2026-10-29).
 	 */
-	const val MODELS_SETTINGS = """{"models":{"strong":{"model":{"provider":"claude-code","id":"claude-opus-5-5"}},"cheap":{"model":{"provider":"claude-code","id":"claude-haiku-5-5"}},"vision":{"model":{"provider":"claude-code","id":"claude-sonnet-5-5"}}}}"""
+	const val MODELS_SETTINGS = """{"claudeCode":{"enabled":true},"models":{"strong":{"model":{"provider":"claude-code","id":"opus"}},"cheap":{"model":{"provider":"claude-code","id":"haiku"}},"vision":{"model":{"provider":"claude-code","id":"sonnet"}}}}"""
 }
 
 /** The two release downloads the app unpacks into the guest (docs/android/m12-plan.md, step 1). */

@@ -33,12 +33,11 @@ afterEach(async () => { await act(async () => root.unmount()); host.remove(); })
 
 const el = (testid: string) => host.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
 const type = async (text: string) => {
-	const field = host.querySelector<HTMLTextAreaElement>("textarea")!;
-	// linkedom has no `oninput`, so React falls back to its IE path: watch on focusin, read the value on keyup
+	// the thinking field is upstream's PathInput (a contenteditable): set its text and fire `input`, as its own tests do
+	const field = host.querySelector<HTMLElement>('[data-testid="practice-thinking-field"] [data-file-path-input]')!;
 	await act(async () => {
-		field.dispatchEvent(new dom.window.Event("focusin", { bubbles: true }));
-		Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(field, text);
-		field.dispatchEvent(new dom.window.Event("keyup", { bubbles: true }));
+		field.textContent = text;
+		field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
 	});
 };
 

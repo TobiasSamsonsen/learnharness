@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ConfidenceButtons } from "@/components/confidence-buttons";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { enterSends, useEnterSubmits } from "@/components/enter-submits";
+import { PathInput } from "@/components/path-input";
 import { pagePayload, sendPage, useInk } from "@/components/sketch/ink-memory";
 import { useKeptPage } from "@/components/sketch/kept-page";
 import { SketchView } from "@/components/sketch/sketch-view";
@@ -205,11 +206,11 @@ export function PracticeDock({
 				<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					YOUR THINKING
 				</div>
-				<textarea
+				<PathInput
 					value={thinking}
-					onChange={(e) => {
-						thinkingRef.current = e.target.value;
-						setThinking(e.target.value);
+					onValueChange={(value) => {
+						thinkingRef.current = value;
+						setThinking(value);
 						setAsking(false); // changing the text puts Submit back
 					}}
 					onKeyDown={(e) => {
@@ -229,7 +230,6 @@ export function PracticeDock({
 						}
 					}}
 					placeholder="Work here, think out loud."
-					rows={4}
 					className={cn(
 						"field-sizing-content lh-input max-h-64 min-h-16 w-full resize-none bg-transparent px-2.5 pb-2 outline-none placeholder:text-muted-foreground",
 					)}

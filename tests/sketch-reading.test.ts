@@ -10,7 +10,11 @@ import { describe, it } from "node:test";
 import { createFauxCore } from "@earendil-works/pi-ai";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
-import { messageFingerprint } from "../src/agent/claude-code.ts";
+import { conversationForReuse } from "../src/agent/claude-code/reuse-context.ts";
+
+// The fork's live-process reuse compares model-visible history; a sketch page counts the same as an image or as a stub
+// (fork-extensions.ts normalizeSketchContent, hooked into upstream's conversationForReuse).
+const messageFingerprint = (m: Parameters<typeof conversationForReuse>[0][number]): string => JSON.stringify(conversationForReuse([m]));
 import { createPlacementAgent, createPracticeAgent, createProberAgent, createTeacherAgent } from "../src/agent/teacher-agent.ts";
 import { practiceTools } from "../src/agent/tools/practice.ts";
 import { readSketchTool } from "../src/agent/tools/sketch.ts";

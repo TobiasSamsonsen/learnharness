@@ -29,6 +29,7 @@
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { AUTH_PROVIDER_KEYS } from "./auth-keys.ts";
+import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
@@ -180,10 +181,11 @@ export interface ProviderKeyMissing {
 /** The refusal wording's invariant tail — the matcher below keys on it
  * (the label prefix varies by provider). */
 const PROVIDER_KEY_MISSING_TAIL = "key is set — add one in Settings → Keys";
+const CLAUDE_CODE_UNAVAILABLE = "Claude Code is unavailable. Enable and set it up in Settings → Providers.";
 export function providerKeyMissing(provider: string, slots: ModelSlotName[]): ProviderKeyMissing {
 	const label = AUTH_PROVIDER_KEYS.find((p) => p.id === provider)?.label ?? provider;
 	return {
-		error: `No ${label} ${PROVIDER_KEY_MISSING_TAIL}`,
+		error: provider === CLAUDE_CODE_PROVIDER ? CLAUDE_CODE_UNAVAILABLE : `No ${label} ${PROVIDER_KEY_MISSING_TAIL}`,
 		code: PROVIDER_KEY_MISSING_CODE,
 		provider,
 		slots,
@@ -194,7 +196,7 @@ export function providerKeyMissing(provider: string, slots: ModelSlotName[]): Pr
  * scary-error) — the envelope's home module owns the string so the
  * writer and the matcher can never drift. */
 export function isProviderKeyRefusal(error: string | undefined): boolean {
-	return !!error && error.endsWith(PROVIDER_KEY_MISSING_TAIL);
+	return !!error && (error.endsWith(PROVIDER_KEY_MISSING_TAIL) || error === CLAUDE_CODE_UNAVAILABLE);
 }
 /** The typed throw for in-process seams (extraction pipeline) — the
  * ProviderKeyMissing sibling of ModelsNotConfiguredError: callers catch
@@ -228,6 +230,98 @@ export interface ModelsSettings {
 	strong?: ModelSlot;
 	cheap?: ModelSlot;
 	vision?: ModelSlot;
+}
+
+// ─── Custom OpenAI-compatible endpoint ───────────────────────────────────────
+// ONE user-configured OpenAI-compatible server (vLLM / Ollama / a proxy). It is
+// one more provider in the Keys list, keyed by a base URL instead of an env var.
+// NON-SECRET config only (base URL + discovered model ids); the API key is a
+// secret in the auth store, never here. Registered into pi-ai as a normal
+// provider (server/custom-provider.ts).
+
+/** Budget fallbacks only; custom endpoint pricing is unknown. */
+export const CUSTOM_MODEL_DEFAULT_CONTEXT_WINDOW = 8192;
+export const CUSTOM_MODEL_DEFAULT_MAX_TOKENS = 4096;
+
+/** Custom budgets accept every positive integer, including small output caps. */
+export const CUSTOM_MODEL_PIN_FLOOR = 1;
+
+/** One discovered custom model. `image`/`reasoning`/`context`/`maxTokens` are
+ *  detected from the endpoint's /models metadata; anything it omits falls back
+ *  to a default. */
+export interface CustomModel {
+	id: string;
+	/** Accepts image input (Vision-capable). Default false (text-only). */
+	image?: boolean;
+	/** Accepts a reasoning effort (thinking). Default false → the only
+	 *  thinking level is "off", exactly like a non-reasoning built-in. */
+	reasoning?: boolean;
+	/** Context window in tokens, from the endpoint. Absent → the default. */
+	context?: number;
+	/** Max output tokens, from the endpoint. Absent → the default. */
+	maxTokens?: number;
+}
+
+/** A user pin for one custom model: it beats what the endpoint publishes
+ *  (owner ruling — explicit user intent wins; a local server's number is
+ *  often wrong or absent). Absent field = no pin. `reasoning` is tri-state:
+ *  true declares reasoning support, false removes that declaration, absent
+ *  uses discovery. This is NOT a backend execution/disable switch. */
+export interface CustomModelOverride {
+	context?: number;
+	maxTokens?: number;
+	reasoning?: boolean;
+}
+
+/** The single custom endpoint's stored config (delta section). */
+export interface CustomProviderSettings {
+	/** Server-owned random authorization nonce; never a credential hash. */
+	credentialBindingId?: string;
+	/** Explicit authentication intent; never inferred from a saved key. */
+	authMode?: "keyless" | "apiKey";
+	/** Normalized base URL (see normalizeBaseUrl). Empty/absent = not configured. */
+	baseUrl?: string;
+	/** Models this endpoint offers: advertised ids merged with the typed
+	 *  manual ones (rewritten on connect; a failed probe keeps the same
+	 *  endpoint's last snapshot). */
+	models?: CustomModel[];
+	/** User pins keyed by model id — pure user intent, never rewritten by
+	 *  discovery, pruned on connect to the ids that connect offers. */
+	overrides?: Record<string, CustomModelOverride>;
+	/** Model ids the user typed by hand, for an endpoint that publishes no
+	 *  usable /models list. Kept apart from the snapshot so a reconnect can
+	 *  re-merge them after discovery refreshes. */
+	manualModels?: string[];
+}
+
+export function parseModelIds(raw: unknown): string[] {
+	const items = typeof raw === "string" ? raw.split(/[\s,]+/) : Array.isArray(raw) ? raw : [];
+	const ids = items.filter((v): v is string => typeof v === "string").map((v) => v.trim()).filter(Boolean);
+	return [...new Set(ids)];
+}
+
+/** Canonical base-URL form (single source): trims, requires absolute http(s),
+ *  drops trailing slashes. Returns "" for anything invalid ("not configured"). */
+export function normalizeBaseUrl(raw: string): string {
+	const value = raw.trim();
+	if (!value) return "";
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		return "";
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+	if (url.username || url.password || url.search || url.hash || value.includes("?") || value.includes("#")) return "";
+	return url.toString().replace(/\/+$/, "");
+}
+
+/** THE single source of "is the custom endpoint usable?": a non-empty base URL.
+ *  Key presence is deliberately excluded (keyless local servers are allowed). */
+export function customProviderUsable(
+	cp: CustomProviderSettings | undefined,
+): cp is CustomProviderSettings & { baseUrl: string } {
+	return Boolean(cp?.baseUrl);
 }
 
 /** First-run gate (model-slots wave, owner 2026-09-20): the app refuses
@@ -406,9 +500,13 @@ export interface UserSettings {
 	version: number;
 	general?: GeneralSettings;
 	dictation?: DictationSettings;
+	/** Explicit app-wide opt-in; absent/invalid is off, including older records. */
+	claudeCode?: { enabled?: boolean };
 	agent?: AgentSettings;
 	/** The strong/cheap/vision model slots (model slots wave, 2026-09-20). */
 	models?: ModelsSettings;
+	/** The custom OpenAI-compatible endpoint (non-secret config only). */
+	customProvider?: CustomProviderSettings;
 	appearance?: AppearanceSettings;
 	graph?: GraphSettings;
 	compaction?: CompactionSettings;
@@ -504,6 +602,15 @@ const THINKING_LEVELS: readonly ThinkingLevel[] = [
 	"max",
 ];
 
+/** Upstream's Claude Code provider (0.4.0) names its models by the CLI's aliases: opus, sonnet, haiku. The fork's
+ *  earlier provider listed dated catalog ids ("claude-sonnet-5-5", …), which settings written before the merge still
+ *  carry: they map onto the alias of the same family so a saved pick keeps working. Pure. */
+export function migrateClaudeCodeModelId(provider: string, id: string): string {
+	if (provider !== CLAUDE_CODE_PROVIDER || id === "opus" || id === "sonnet" || id === "haiku") return id;
+	const family = /opus|sonnet|haiku/.exec(id.toLowerCase())?.[0];
+	return family ?? id;
+}
+
 function sanitizeRoleOverride(raw: unknown): RoleModelOverride | undefined {
 	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
 	const r = raw as Record<string, unknown>;
@@ -515,10 +622,8 @@ function sanitizeRoleOverride(raw: unknown): RoleModelOverride | undefined {
 		typeof (r.model as Record<string, unknown>).provider === "string" &&
 		typeof (r.model as Record<string, unknown>).id === "string"
 	) {
-		out.model = {
-			provider: (r.model as { provider: string }).provider,
-			id: (r.model as { id: string }).id,
-		};
+		const provider = (r.model as { provider: string }).provider;
+		out.model = { provider, id: migrateClaudeCodeModelId(provider, (r.model as { id: string }).id) };
 	}
 	if (typeof r.thinkingLevel === "string" && THINKING_LEVELS.includes(r.thinkingLevel as ThinkingLevel)) {
 		out.thinkingLevel = r.thinkingLevel as ThinkingLevel;
@@ -535,6 +640,80 @@ function sanitizeModels(raw: Record<string, unknown>): ModelsSettings {
 		const cleaned = sanitizeRoleOverride(raw[slot]);
 		if (cleaned) out[slot] = cleaned;
 	}
+	return out;
+}
+
+/** A positive integer, or undefined — keeps only meaningful token counts. */
+function positiveInt(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+/** One pin, clamped up to the floor (clamp-never-reject on read). */
+function sanitizeCustomModelOverride(raw: unknown): CustomModelOverride | undefined {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const rec = raw as Record<string, unknown>;
+	const out: CustomModelOverride = {};
+	const context = positiveInt(rec.context);
+	if (context) out.context = Math.max(CUSTOM_MODEL_PIN_FLOOR, context);
+	const maxTokens = positiveInt(rec.maxTokens);
+	if (maxTokens) out.maxTokens = Math.max(CUSTOM_MODEL_PIN_FLOOR, maxTokens);
+	if (typeof rec.reasoning === "boolean") out.reasoning = rec.reasoning;
+	return Object.keys(out).length ? out : undefined;
+}
+
+/** THE pins map + THE prune law: well-formed entries only, ids trimmed, and
+ *  when `liveIds` is given every entry for a model the endpoint no longer
+ *  advertises drops. POST passes the discovered ids, PATCH the stored list. */
+export function sanitizeCustomModelOverrides(
+	raw: unknown,
+	liveIds?: Iterable<string>,
+): Record<string, CustomModelOverride> {
+	const out: Record<string, CustomModelOverride> = {};
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return out;
+	const live = liveIds ? new Set(liveIds) : undefined;
+	for (const [key, value] of Object.entries(raw)) {
+		const id = key.trim();
+		if (!id || (live && !live.has(id))) continue;
+		const pin = sanitizeCustomModelOverride(value);
+		if (pin) Object.defineProperty(out, id, { value: pin, enumerable: true, configurable: true, writable: true });
+	}
+	return out;
+}
+
+/** The customProvider section: normalized base URL (invalid → dropped) and
+ *  discovered models (ids trimmed, dupes/empties dropped; image kept only when
+ *  true; token counts only as positive ints). Clamp-never-reject. */
+function sanitizeCustomProvider(raw: Record<string, unknown>): CustomProviderSettings {
+	const out: CustomProviderSettings = {};
+	if (typeof raw.credentialBindingId === "string" && /^[a-f0-9]{32}$/.test(raw.credentialBindingId)) out.credentialBindingId = raw.credentialBindingId;
+	if (raw.authMode === "keyless" || raw.authMode === "apiKey") out.authMode = raw.authMode;
+	if (typeof raw.baseUrl === "string") {
+		const base = normalizeBaseUrl(raw.baseUrl);
+		if (base) out.baseUrl = base;
+	}
+	if (Array.isArray(raw.models)) {
+		const byId = new Map<string, CustomModel>();
+		for (const m of raw.models) {
+			if (typeof m !== "object" || m === null) continue;
+			const rec = m as Record<string, unknown>;
+			if (typeof rec.id !== "string") continue;
+			const id = rec.id.trim();
+			if (!id) continue;
+			const model: CustomModel = { id };
+			if (rec.image === true) model.image = true;
+			if (rec.reasoning === true) model.reasoning = true;
+			const context = positiveInt(rec.context);
+			if (context) model.context = context;
+			const maxTokens = positiveInt(rec.maxTokens);
+			if (maxTokens) model.maxTokens = maxTokens;
+			byId.set(id, model);
+		}
+		out.models = [...byId.values()];
+	}
+	const overrides = sanitizeCustomModelOverrides(raw.overrides);
+	if (Object.keys(overrides).length) out.overrides = overrides;
+	const manualModels = parseModelIds(raw.manualModels);
+	if (manualModels.length) out.manualModels = manualModels;
 	return out;
 }
 
@@ -672,6 +851,12 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 			? { language: (raw as DictationSettings).language }
 			: {};
 	}
+	if (r.claudeCode !== undefined) {
+		const raw = r.claudeCode;
+		out.claudeCode = raw !== null && typeof raw === "object" && !Array.isArray(raw)
+			&& typeof (raw as Record<string, unknown>).enabled === "boolean"
+			? { enabled: (raw as { enabled: boolean }).enabled } : {};
+	}
 	if (r.agent !== null && typeof r.agent === "object" && !Array.isArray(r.agent)) {
 		out.agent = sanitizeAgent(r.agent as Record<string, unknown>);
 	}
@@ -685,6 +870,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	if (r.notices !== null && typeof r.notices === "object" && !Array.isArray(r.notices)) {
 		const dismissed = (r.notices as Record<string, unknown>).dismissedUpstreamVersion;
 		out.notices = typeof dismissed === "string" ? { dismissedUpstreamVersion: dismissed } : {};
+	}
+	if (r.customProvider !== null && typeof r.customProvider === "object" && !Array.isArray(r.customProvider)) {
+		out.customProvider = sanitizeCustomProvider(r.customProvider as Record<string, unknown>);
 	}
 	if (r.graph !== null && typeof r.graph === "object" && !Array.isArray(r.graph)) {
 		out.graph = sanitizeGraph(r.graph as Record<string, unknown>);

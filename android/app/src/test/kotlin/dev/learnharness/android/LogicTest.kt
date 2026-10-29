@@ -104,6 +104,7 @@ class LogicTest {
 		assertEquals("3001", env["PORT"])
 		assertEquals(token, env["LH_ACCESS_TOKEN"])
 		assertEquals("127.0.0.1", env["HOSTNAME"])
+		assertEquals("1", env["LH_CLAUDE_IDLE_REUSE"])
 		assertEquals("/root/lh-data", env["LH_DATA_DIR"])
 		assertFalse(env.containsKey("CHROME_PATH"))
 	}
@@ -113,9 +114,13 @@ class LogicTest {
 		for (slot in listOf("strong", "cheap", "vision")) {
 			assertEquals("claude-code", json.getJSONObject(slot).getJSONObject("model").getString("provider"))
 		}
-		assertEquals("claude-opus-5-5", json.getJSONObject("strong").getJSONObject("model").getString("id"))
-		assertEquals("claude-haiku-5-5", json.getJSONObject("cheap").getJSONObject("model").getString("id"))
-		assertEquals("claude-sonnet-5-5", json.getJSONObject("vision").getJSONObject("model").getString("id"))
+		assertEquals("opus", json.getJSONObject("strong").getJSONObject("model").getString("id"))
+		assertEquals("haiku", json.getJSONObject("cheap").getJSONObject("model").getString("id"))
+		assertEquals("sonnet", json.getJSONObject("vision").getJSONObject("model").getString("id"))
+	}
+
+	@Test fun firstRunOptsInToClaudeCodeBecauseItIsWrittenOnlyAfterTheSignIn() {
+		assertTrue(org.json.JSONObject(FirstRun.MODELS_SETTINGS).getJSONObject("claudeCode").getBoolean("enabled"))
 	}
 
 	@Test fun theGuestGetsThePhonesResolversOrPublicOnesWhenThereAreNone() {

@@ -34,7 +34,7 @@ The owner wants to use this fork on an Android tablet: write math derivations an
 - Electron coupling is only an optional `window.lh` (`electron/preload.cjs`).
 
 **(b) `claude` CLI invocation.** Everything is in `src/agent/claude-code.ts`, registered as a pi-ai provider in `src/agent/models.ts:65`.
-- Binary lookup: L69-110 (`LH_CLAUDE_CODE_BIN`).
+- Binary lookup: L69-110 (`LH_CLAUDE_CODE_BIN`; this was the fork's own provider, replaced by upstream's `src/agent/claude-code/binary.ts`, which searches `PATH` and the usual install folders — see the v0.4.0 merge in STATUS.md).
 - Spawn: L616-627. Arguments (L961-997): `-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --no-session-persistence --tools "" --setting-sources "" --strict-mcp-config --disable-slash-commands --system-prompt-file … --model … [--effort] [--mcp-config … --allowedTools mcp__lh]`.
 - Tools reach `claude` through a stdio MCP stub (`process.execPath` running the stub script, L542-588). The stub talks to a token-authenticated TCP bridge on `127.0.0.1:0` (L827). Calls are "held": the pi agent loop runs the real tool and answers the held call.
 - Live sessions: at most 6, 40 minutes idle (L513-538, L596-607). Otherwise a fresh process replays the whole transcript as one user message (`renderClaudeCodeRequest`, L237-280).

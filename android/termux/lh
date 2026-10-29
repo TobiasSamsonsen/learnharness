@@ -289,6 +289,7 @@ write_guest_env() { # non-secret settings the guest start script sources
 	{
 		echo "export PORT=$PORT"
 		echo "export LH_CLAUDE_CODE_MAX_SESSIONS=$MAX_SESSIONS"
+		echo "export LH_CLAUDE_IDLE_REUSE=1"
 		echo "export LH_STT_PIECE_S=$PIECE_SECONDS"
 		echo "export LH_WHISPER_MAX_S=$MAX_REQUEST_SECONDS"
 		if [ -n "$nb" ]; then echo "export LH_WHISPER_URL_NB=$nb"; fi

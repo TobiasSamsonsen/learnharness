@@ -44,7 +44,8 @@ export * from "./compaction.ts";
 export { runPiTurn, piTurnResponse, type PiTurnHandle, type PiTurnSpec } from "./pi/ui-stream.ts";
 export * from "./observability.ts";
 export * from "./model-catalog.ts";
-export { claudeCodeAvailable, claudePlanUsage } from "../agent/claude-code.ts";
+export { claudeCodeAvailable } from "./claude-code-config.ts";
+export { claudePlanUsage } from "../agent/claude-code/plan-usage.ts";
 export { localSttStatuses, prepareLocalStt, sttPieceLimits, transcribeLocal } from "./stt-local.ts";
 export { vocabularyForChat } from "./stt-vocabulary.ts";
 export { dismissUpstreamVersion, launchClaudeUpdate, upstreamStatus } from "./upstream.ts";
@@ -65,3 +66,8 @@ export {
 } from "./courses.ts";
 export { subscriptionControlsResponse, subscriptionBrowserResponse } from "./web-subscription-http.ts";
 export { sessionCost } from "./pricing.ts";
+export { claudeCodeInstallationResponse } from "./claude-code.ts";
+// The custom endpoint module (registers into piModels() + probes for models).
+// No import side effects; the boot sync lives in stores.ts.
+export * from "./custom-provider.ts";
+export { customProviderGet, customProviderMutation } from "./custom-provider-http.ts";

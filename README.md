@@ -12,7 +12,8 @@
   <a href="https://learnharness.ai">Download</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="docs/development.md">Documentation</a> ·
-  <a href="https://github.com/amosblomqvist/learnharness/issues">Issues</a>
+  <a href="https://github.com/amosblomqvist/learnharness/issues">Issues</a> ·
+  <a href="https://discord.gg/5tCHHQEB2e">Discord</a>
 </p>
 
 LearnHarness uses AI agents to plan and teach lessons from your current understanding to your goal. It builds a detailed picture of what you understand and how you reason. That picture is updated as you learn.
@@ -83,10 +84,10 @@ Once the merge is done and you've rebuilt and installed it, the version matches 
 This fork can run every agent on your Claude Pro/Max subscription instead of an API key, by routing model turns through your locally installed [Claude Code](https://claude.com/claude-code) CLI.
 
 1. Install Claude Code and run `claude` once to sign in with your Claude account.
-2. Start LearnHarness. When the `claude` CLI is found, **Claude Code (subscription)** appears under Settings → Keys as a detected provider; no key is needed.
-3. Choose **Use recommended** in the setup dialog, or later **Settings → Agent → Claude subscription preset → Apply**. You can also pick the `claude-code` models yourself.
+2. Start LearnHarness and switch **Claude Code** on in Settings (an explicit opt-in; nothing runs through the CLI until you do). The Android app switches it on for you after its in-app Claude sign-in succeeds. No key is needed.
+3. Choose **Use recommended** in the setup dialog, or later **Settings → Agent → Claude subscription preset → Apply**. You can also pick the Claude Code models (Opus, Sonnet, Haiku) yourself. Settings from before the 0.4.0 merge that pin the old model ids are migrated to these aliases, but the opt-in has to be switched on once.
 
-How it works: each conversation keeps one live `claude -p` process with Claude Code's own prompt, built-in tools, settings and MCP servers switched off. The app's tools are declared through a small MCP bridge. When the model calls one, the bridge hands the call to LearnHarness, which runs the real tool and passes the result back, so Claude Code keeps the true conversation and its own prompt caching. New learner messages go in on the open stdin. If the app's history no longer continues what the process has seen (compaction, a changed system prompt, a restart), a fresh process starts from the replayed transcript. Claude Code owns the sign-in. LearnHarness never sees or stores a credential, and `ANTHROPIC_API_KEY` is stripped from the CLI's environment so turns bill the subscription, not a key. `LH_CLAUDE_CODE_DEBUG=1` logs whether each model call continued a live process or started fresh.
+How it works: each conversation keeps one live `claude -p` process with Claude Code's own prompt, built-in tools, settings and MCP servers switched off. The app's tools are declared through a small MCP bridge. When the model calls one, the bridge hands the call to LearnHarness, which runs the real tool and passes the result back, so Claude Code keeps the true conversation and its own prompt caching. New learner messages go in on the open stdin. If the app's history no longer continues what the process has seen (compaction, a changed system prompt, a restart), a fresh process starts from the replayed transcript. Claude Code owns the sign-in. LearnHarness never sees or stores a credential, and `ANTHROPIC_API_KEY` is stripped from the CLI's environment so turns bill the subscription, not a key. With `LH_CLAUDE_IDLE_REUSE=1` (the Android app sets it) the process is kept idle after a plain final answer, and the learner's next message goes straight into it instead of replaying the transcript.
 
 **Usage on a Claude plan.** The preset routes work by how much a stronger model helps:
 
@@ -100,7 +101,7 @@ How it works: each conversation keeps one live `claude -p` process with Claude C
 
 It also extracts the graph in 12k-token batches and compacts the context at 100k tokens. Measured on a Team plan: a 20-step lesson with graph extraction used about 4% of the 5-hour window and under 1% of the week. Each model call read the conversation from cache and wrote only the new part, about 6× less input-side usage than replaying the transcript every call. The **Plan** pill under the composer shows the 5-hour window, with the week in its tooltip, as Claude Code last reported it. The cost meter shows $0 for these models because they aren't billed per token.
 
-Options: `LH_CLAUDE_CODE_BIN=/path/to/claude` pins the executable (useful when a GUI-launched app's `PATH` misses it), and `LH_CLAUDE_CODE=0` turns the provider off. `LH_CLAUDE_CODE_MAX_SESSIONS=<n>` caps the live `claude` processes kept warm (default 6; a positive integer, anything else is the default). Fewer suits a small device.
+Options: the `claude` executable is looked up on `PATH` and in the usual install folders. `LH_CLAUDE_CODE_MAX_SESSIONS=<n>` caps the live `claude` processes kept warm (default 6; a positive integer, anything else is the default). Fewer suits a small device. `LH_CLAUDE_IDLE_MIN=<n>` sets how many minutes an idle process is kept (default 10; 40 with idle reuse on, inside the one-hour prompt cache).
 
 ### Lesson language: English or Norwegian
 

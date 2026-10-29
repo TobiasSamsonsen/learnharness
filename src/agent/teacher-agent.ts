@@ -18,6 +18,8 @@ import { practiceTools, type PracticeToolContext } from "./tools/practice.ts";
 import { placementProbeTool } from "./tools/course.ts";
 import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
 import { sendToUserTool } from "./tools/send-to-user.ts";
+import { createReadTool, readTool } from "./tools/read.ts";
+import { CLAUDE_CODE_PROVIDER } from "./claude-code/constants.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { figureInputProblems } from "../core/figures/index.ts";
 import { circuitSolveTool, figureGuideTool } from "./tools/figures.ts";
@@ -251,8 +253,10 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 			// Match Claude across providers (including OpenRouter), not the API
 			// transport. Explicit test registries remain caller-owned.
 			tools: [
-				...tools,
-				...(opts.tools === undefined && engine.model.id.toLowerCase().includes("claude")
+				...tools.map((tool) => tool.name === "read" && tool.execute === readTool.execute
+					? { ...tool, execute: createReadTool(engine.model).execute as AgentTool<any>["execute"] }
+					: tool),
+				...(opts.tools === undefined && (engine.model.provider === CLAUDE_CODE_PROVIDER || engine.model.id.toLowerCase().includes("claude"))
 					? [withArgumentHeal(sendToUserTool)]
 					: []),
 			],

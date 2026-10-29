@@ -292,6 +292,17 @@ export function rmsToMeter(rms: number): number {
  * window, one pending question, one target at a time.
  */
 let questionTarget: DictationAppend | null = null;
+let composerTarget: DictationAppend | null = null;
+
+/** File references use the very same default destination as dictation,
+ * including claims whose dock is currently collapsed. A focused editor can
+ * insert at its caret instead; callers use this only as the fallback. */
+export function appendToPrimaryInput(text: string): boolean {
+	const target = questionTarget ?? composerTarget;
+	if (!target) return false;
+	target(text);
+	return true;
+}
 
 /* The finisher registry: submit paths FAR from the hook's owner (the
  * pending question's dock) need finish() without a prop bridge. Same
@@ -428,6 +439,13 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 	 *  retarget (composer↔question) is honored on the very next final. */
 	const appendRef = useRef(append);
 	appendRef.current = append;
+	useEffect(() => {
+		const target = (text: string) => appendRef.current(text);
+		composerTarget = target;
+		return () => {
+			if (composerTarget === target) composerTarget = null;
+		};
+	}, []);
 
 	// Live machinery (non-render values). The MediaStream tracks stop and
 	// the per-run nodes disconnect on teardown; the socket is recreated per

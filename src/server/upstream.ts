@@ -12,7 +12,7 @@ import {
 	type UpstreamStatus,
 } from "../core/upstream.ts";
 import { settingsStore } from "../store/settings.ts";
-import { claudeCodeBin } from "../agent/claude-code.ts";
+import { getClaudeBinary } from "../agent/claude-code/binary.ts";
 
 /**
  * The upstream release notice's server half (fork addition, 2026-10-24) —
@@ -101,7 +101,7 @@ async function latestRelease(refresh: boolean): Promise<CheckCache> {
 export async function upstreamStatus({ refresh = false } = {}): Promise<UpstreamStatus> {
 	const current = forkBaseVersion();
 	const repoPath = forkRepoPath();
-	const claudeAvailable = claudeCodeBin() !== undefined;
+	const claudeAvailable = getClaudeBinary() !== null;
 	if (process.env.LH_UPSTREAM_CHECK === "0") {
 		return { current, latest: null, updateAvailable: false, dismissed: false, repoPath, claudeAvailable, prompt: null };
 	}
@@ -147,7 +147,7 @@ export async function launchClaudeUpdate(): Promise<{ ok: true } | { ok: false; 
 	const status = await upstreamStatus();
 	if (!status.updateAvailable || !status.prompt || !status.latest) return { ok: false, error: "no upstream update to apply" };
 	if (!status.repoPath) return { ok: false, error: "the fork's folder is unknown on this machine — copy the prompt instead" };
-	const claude = claudeCodeBin();
+	const claude = getClaudeBinary();
 	if (!claude) return { ok: false, error: "the claude CLI is not installed — copy the prompt instead" };
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lh-upstream-"));
 	// Cast: the project types NODE_ENV as always present; this env drops

@@ -10,11 +10,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { CLAUDE_SUBSCRIPTION_PRESET, withClaudeSubscriptionPreset } from "../src/core/presets.ts";
-import { claudeCodeModels } from "../src/agent/claude-code.ts";
+import { CLAUDE_CODE_MODELS } from "../src/agent/claude-code/provider.ts";
 import { pct, planUsageHint } from "../components/plan-usage.tsx";
 
 test("every preset model exists in the claude-code catalog at a supported level", () => {
-	const catalog = claudeCodeModels();
+	const catalog = [...CLAUDE_CODE_MODELS];
 	const picks = [...Object.values(CLAUDE_SUBSCRIPTION_PRESET.models), ...Object.values(CLAUDE_SUBSCRIPTION_PRESET.roles)];
 	for (const p of picks) {
 		const model = catalog.find((m) => m.id === p.model.id);
@@ -25,9 +25,9 @@ test("every preset model exists in the claude-code catalog at a supported level"
 
 test("the routing: Sonnet teaches, Opus only plans, Haiku does the cheap tier", () => {
 	const { models, roles } = CLAUDE_SUBSCRIPTION_PRESET;
-	assert.equal(models.strong.model.id, "claude-sonnet-5-5");
-	assert.equal(models.cheap.model.id, "claude-haiku-5-5");
-	assert.equal(roles.planner.model.id, "claude-opus-5-5");
+	assert.equal(models.strong.model.id, "sonnet");
+	assert.equal(models.cheap.model.id, "haiku");
+	assert.equal(roles.planner.model.id, "opus");
 	const opusUses = [...Object.values(models), ...Object.values(roles)].filter((p) => p.model.id.includes("opus"));
 	assert.equal(opusUses.length, 1, "Opus appears exactly once: the planning turn");
 });
@@ -42,11 +42,11 @@ test("applying the preset keeps every other setting", () => {
 	assert.equal(merged.general?.language, "nb");
 	assert.deepEqual(merged.agent?.tools, { demo: false });
 	assert.equal(merged.agent?.models?.researcher?.thinkingLevel, "high", "a role the preset doesn't set is kept");
-	assert.equal(merged.agent?.models?.planner?.model?.id, "claude-opus-5-5");
+	assert.equal(merged.agent?.models?.planner?.model?.id, "opus");
 	assert.equal(merged.graph?.enabled, false);
 	assert.equal(merged.graph?.extractionChunkTokens, 12_288);
 	assert.equal(merged.compaction?.thresholdTokens, 100_000);
-	assert.equal(withClaudeSubscriptionPreset(null).models?.strong?.model?.id, "claude-sonnet-5-5", "a first-boot record works too");
+	assert.equal(withClaudeSubscriptionPreset(null).models?.strong?.model?.id, "sonnet", "a first-boot record works too");
 });
 
 test("the plan meter's text", () => {
@@ -70,14 +70,14 @@ test("an override reaches the role's engine resolution (the runner, extraction a
 	const { resolveRoleSpec } = await import("../src/core/settings-resolution.ts");
 	const { BACKGROUND_MODEL_ROLES } = await import("../src/core/settings.ts");
 	const record = withClaudeSubscriptionPreset(null);
-	assert.equal(resolveRoleSpec("planner", record)?.id, "claude-opus-5-5", "preset: the planner on Opus");
-	assert.equal(resolveRoleSpec("demoBuilder", record)?.id, "claude-sonnet-5-5", "preset: demos on Sonnet, not the cheap slot");
-	assert.equal(resolveRoleSpec("extractor", record)?.id, "claude-haiku-5-5", "no override: follows the cheap slot");
-	assert.equal(resolveRoleSpec("pdfReader", record)?.id, "claude-sonnet-5-5", "no override: follows the vision slot");
+	assert.equal(resolveRoleSpec("planner", record)?.id, "opus", "preset: the planner on Opus");
+	assert.equal(resolveRoleSpec("demoBuilder", record)?.id, "sonnet", "preset: demos on Sonnet, not the cheap slot");
+	assert.equal(resolveRoleSpec("extractor", record)?.id, "haiku", "no override: follows the cheap slot");
+	assert.equal(resolveRoleSpec("pdfReader", record)?.id, "sonnet", "no override: follows the vision slot");
 	for (const role of BACKGROUND_MODEL_ROLES) {
-		const pinned = { ...record, agent: { models: { [role]: { model: { provider: "claude-code", id: "claude-haiku-5-5" }, thinkingLevel: "high" } } } };
+		const pinned = { ...record, agent: { models: { [role]: { model: { provider: "claude-code", id: "haiku" }, thinkingLevel: "high" } } } };
 		const spec = resolveRoleSpec(role, pinned as never);
-		assert.equal(spec?.id, "claude-haiku-5-5", `${role} honours its override`);
+		assert.equal(spec?.id, "haiku", `${role} honours its override`);
 		assert.equal(spec?.thinkingLevel, "high", `${role} honours its thinking level`);
 	}
 });
@@ -85,12 +85,12 @@ test("an override reaches the role's engine resolution (the runner, extraction a
 test("role rows: what an unset role shows, and set/clear keep the other roles", async () => {
 	const { roleModelLabel, withRoleOverride } = await import("../components/settings/agent-section.tsx");
 	assert.deepEqual(roleModelLabel(undefined, null, null), { value: "Lesson's model", inherited: true });
-	assert.deepEqual(roleModelLabel(undefined, "cheap", { model: { id: "claude-haiku-5-5" } }).inherited, true);
-	assert.match(roleModelLabel(undefined, "cheap", { model: { id: "claude-haiku-5-5" } }).value, /^Cheap · /);
-	assert.equal(roleModelLabel({ model: { provider: "claude-code", id: "claude-opus-5-5" } }, null, null).inherited, false);
-	const agent = { tools: { demo: false }, models: { planner: { model: { provider: "claude-code", id: "claude-opus-5-5" } } } };
+	assert.deepEqual(roleModelLabel(undefined, "cheap", { model: { id: "haiku" } }).inherited, true);
+	assert.match(roleModelLabel(undefined, "cheap", { model: { id: "haiku" } }).value, /^Cheap · /);
+	assert.equal(roleModelLabel({ model: { provider: "claude-code", id: "opus" } }, null, null).inherited, false);
+	const agent = { tools: { demo: false }, models: { planner: { model: { provider: "claude-code", id: "opus" } } } };
 	const set = withRoleOverride(agent, "researcher", { thinkingLevel: "low" });
-	assert.equal(set.models?.planner?.model?.id, "claude-opus-5-5");
+	assert.equal(set.models?.planner?.model?.id, "opus");
 	assert.equal(set.models?.researcher?.thinkingLevel, "low");
 	assert.deepEqual(set.tools, { demo: false });
 	const cleared = withRoleOverride(set, "planner", null);

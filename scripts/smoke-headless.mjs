@@ -3,7 +3,8 @@
  * script does (Android plan M6) and prove the headless hardening: token
  * cookie auth on pages and API, the Host/Origin checks, the public health
  * probe, the pairing redirect, and one full chat turn through the real
- * claude-code provider against the fake CLI (tests/fixtures/claude-code).
+ * claude-code provider against the fake CLI (tests/fixtures/claude-code) — found on PATH like a real `claude`, and
+ * switched on through the Settings route like the owner's opt-in.
  *
  * Companion to smoke-server.mjs (the Electron-payload gate, which stays
  * untouched): that one runs open, this one runs in token mode. Run after
@@ -25,7 +26,8 @@ const FAKE = path.join(ROOT, "tests", "fixtures", "claude-code", "fake-claude.mj
 const BOOT_TIMEOUT_MS = 60_000;
 const TURN_TIMEOUT_MS = 60_000;
 const TOKEN = "smoke-" + "0123456789abcdef".repeat(4);
-const REPLY = "Headless smoke reply.";
+const SCENARIO = path.join(ROOT, "tests", "fixtures", "claude-code", "text.jsonl");
+const REPLY = "hello there"; // what text.jsonl streams
 
 if (!fs.existsSync(SERVER)) {
 	console.error("[smoke-headless] .next/standalone/server.js missing — run next build and scripts/build-server.mjs first.");
@@ -48,7 +50,7 @@ function check(cond, message) {
 	console.log(`[smoke-headless] ok: ${message}`);
 }
 
-/** A `claude` the provider can spawn: a shim that runs the fake CLI with this Node. */
+/** A `claude` on PATH for the provider to find: a shim that runs the fake CLI with this Node. */
 function fakeClaudeBin(dir) {
 	if (process.platform === "win32") {
 		const file = path.join(dir, "claude.cmd");
@@ -67,8 +69,9 @@ async function main() {
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), "lh-smoke-headless-"));
 	const authFile = path.join(home, "auth.json");
 	fs.writeFileSync(authFile, "{}\n", "utf-8");
-	const script = path.join(home, "fake-script.json");
-	fs.writeFileSync(script, JSON.stringify([{ text: REPLY }]));
+	const bin = path.join(home, "bin");
+	fs.mkdirSync(bin);
+	fakeClaudeBin(bin);
 
 	const tail = [];
 	const keep = (buf) => {
@@ -83,8 +86,8 @@ async function main() {
 			HOSTNAME: "127.0.0.1",
 			LH_AUTH_FILE: authFile,
 			LH_UPSTREAM_CHECK: "0",
-			LH_CLAUDE_CODE_BIN: fakeClaudeBin(home),
-			FAKE_CLAUDE_SCRIPT: script,
+			PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+			FAKE_CLAUDE_SCENARIO: SCENARIO,
 			LH_CLAUDE_CODE_MAX_SESSIONS: "2",
 			// after probeEnv: it strips every *TOKEN* variable
 			LH_ACCESS_TOKEN: TOKEN,
@@ -176,14 +179,16 @@ async function main() {
 		const foreign = await hit("/api/chats", { method: "POST", headers: { ...jsonPaired, origin: "http://evil.example" }, body: "{}" });
 		check(foreign.status === 403, "a cross-origin write → 403");
 
-		// one full turn through the claude-code provider against the fake CLI
+		// one full turn through the claude-code provider against the fake CLI (opt-in first, as in Settings)
+		const optIn = await hit("/api/settings/claudeCode", { method: "PUT", headers: jsonPaired, body: JSON.stringify({ enabled: true }) });
+		check(optIn.status === 200, `Claude Code is switched on (status ${optIn.status})`);
 		const created = await hit("/api/chats", { method: "POST", headers: jsonPaired, body: JSON.stringify({ title: "smoke" }) });
 		check(created.status === 200, "POST /api/chats with cookie + Origin → 200");
 		const { id } = await created.json();
 		const set = await hit(`/api/chats/${id}/settings`, {
 			method: "PUT",
 			headers: jsonPaired,
-			body: JSON.stringify({ model: { provider: "claude-code", id: "claude-sonnet-5-5" } }),
+			body: JSON.stringify({ model: { provider: "claude-code", id: "sonnet" } }),
 		});
 		check(set.status === 200, `the chat's model is claude-code (status ${set.status})`);
 		const turn = await hit("/api/chat", { method: "POST", headers: jsonPaired, body: JSON.stringify({ chatId: id, input: { type: "text", text: "hello" } }) });
