@@ -9,6 +9,7 @@ import { isDictationActive } from "@/components/dictation";
 import { FloatingProblem } from "@/components/sketch/floating-problem";
 import { lowestInk, SketchCanvas, sketchPageHeight, type SketchTool } from "@/components/sketch/sketch-canvas";
 import { useNativeInk } from "@/components/sketch/use-native-ink";
+import { loadPen, savePen, SKETCH_COLORS, SKETCH_WIDTHS, type PenSettings } from "@/components/sketch/pen-settings";
 import { applyOp, pagePayload, readInk, revertOp, sendPage, useInk, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
 import { cn } from "@/lib/utils";
 import { SketchPayloadError, type SketchPayload } from "@/src/core";
@@ -106,6 +107,12 @@ export function SketchView({
 	const ink = useInk(inkKey);
 	const kept = useKept(inkKey);
 	const [tool, setTool] = useState<SketchTool>("pen");
+	const [pen, setPenState] = useState<PenSettings>(loadPen);
+	const setPen = (next: PenSettings) => {
+		setPenState(next);
+		savePen(next);
+		setTool("pen");
+	};
 	const [error, setError] = useState<string | null>(null);
 	const canvasRef = useRef<HTMLDivElement | null>(null);
 	const setInk = (next: InkState) => {
@@ -133,6 +140,10 @@ export function SketchView({
 	const addStroke = (stroke: InkState["strokes"][number]) => {
 		const state = readInk(inkKey);
 		record(state, [...state.strokes, stroke], { kind: "add", stroke });
+	};
+	const clear = () => {
+		const state = readInk(inkKey);
+		if (state.strokes.length > 0) record(state, [], { kind: "clear", removed: state.strokes });
 	};
 	const erase = (indices: number[]) => {
 		const state = readInk(inkKey);
@@ -238,11 +249,45 @@ export function SketchView({
 						<div style={{ height: sketchPageHeight(native.viewHeight, Math.max(lowestInk(kept?.strokes ?? []), lowestInk(ink.strokes))) }} />
 					</div>
 				) : (
-					<SketchCanvas strokes={ink.strokes} kept={kept?.strokes} tool={tool} onStroke={addStroke} onErase={erase} />
+					<SketchCanvas strokes={ink.strokes} kept={kept?.strokes} tool={tool} brush={pen} onStroke={addStroke} onErase={erase} />
 				)}
 				<FloatingProblem label={label} statement={statement}>
 					{choices}
 				</FloatingProblem>
+			</div>
+			{/* The native ink layer still draws one fixed pen: no choices there until the shell takes the brush. */}
+			<div data-testid="sketch-pen-strip" className={cn("flex items-center gap-1 overflow-x-auto border-t bg-background px-3 py-1", native.active && "hidden")}>
+				{SKETCH_COLORS.map((c) => (
+					<button
+						key={c.value}
+						type="button"
+						data-testid={`sketch-color-${c.name.toLowerCase()}`}
+						aria-label={`${c.name} ink`}
+						aria-pressed={tool === "pen" && pen.color === c.value}
+						onClick={() => setPen({ ...pen, color: c.value })}
+						className="lh-touch grid size-8 shrink-0 place-items-center rounded-full"
+					>
+						<span
+							aria-hidden
+							style={{ backgroundColor: c.value }}
+							className={cn("size-5 rounded-full border border-black/10", tool === "pen" && pen.color === c.value && "ring-2 ring-ring ring-offset-2 ring-offset-background")}
+						/>
+					</button>
+				))}
+				<span aria-hidden className="mx-1 h-5 w-px bg-border" />
+				{SKETCH_WIDTHS.map((w) => (
+					<button
+						key={w.value}
+						type="button"
+						data-testid={`sketch-width-${w.name.toLowerCase()}`}
+						aria-label={`${w.name} pen`}
+						aria-pressed={tool === "pen" && pen.size === w.value}
+						onClick={() => setPen({ ...pen, size: w.value })}
+						className={cn("lh-touch grid size-8 shrink-0 place-items-center rounded-md", tool === "pen" && pen.size === w.value && "bg-accent")}
+					>
+						<span aria-hidden style={{ width: w.value + 4, height: w.value + 4, backgroundColor: pen.color }} className="rounded-full" />
+					</button>
+				))}
 			</div>
 			<div className="flex items-center gap-1 border-t bg-background px-3 py-2">
 				<Button type="button" variant="ghost" size="icon" data-testid="sketch-close" aria-label="Close sketch" onClick={onClose}>
@@ -261,7 +306,7 @@ export function SketchView({
 					data-testid="sketch-clear"
 					aria-label="Clear"
 					disabled={empty}
-					onClick={() => setInk({ strokes: [], undo: [], redo: [] })}
+					onClick={clear}
 				>
 					<Trash2Icon className="size-4" />
 				</Button>

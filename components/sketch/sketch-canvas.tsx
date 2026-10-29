@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { SKETCH_INK, sketchStrokeHit, sketchStrokePath, type SketchStroke } from "@/src/core";
+import { DEFAULT_PEN, penStroke, type PenSettings } from "@/components/sketch/pen-settings";
 
 /**
  * The web canvas (Android plan M1 + M3): a tall white page the learner
@@ -24,8 +25,8 @@ import { SKETCH_INK, sketchStrokeHit, sketchStrokePath, type SketchStroke } from
  * kept page, drawn dimmed) are locked.
  */
 
-/** Base stroke diameter, CSS pixels. */
-export const SKETCH_PEN_SIZE = 4;
+/** The default stroke diameter, CSS pixels (the pen's own is `pen.size`). */
+export const SKETCH_PEN_SIZE = DEFAULT_PEN.size;
 /** The eraser's reach, CSS pixels. */
 export const SKETCH_ERASER_RADIUS = 10;
 /** The page never grows taller than this (the server's six pages of ≤ 2000 px). */
@@ -50,6 +51,7 @@ export function SketchCanvas({
 	strokes,
 	kept = [],
 	tool = "pen",
+	brush = DEFAULT_PEN,
 	onStroke,
 	onErase,
 }: {
@@ -58,6 +60,8 @@ export function SketchCanvas({
 	/** The kept page: submitted strokes, dimmed and locked. */
 	kept?: readonly SketchStroke[];
 	tool?: SketchTool;
+	/** The pen's colour and width for the next stroke. */
+	brush?: PenSettings;
 	/** A finished stroke (pointer up). */
 	onStroke: (stroke: SketchStroke) => void;
 	/** One eraser gesture finished: indices into `strokes` it touched. */
@@ -82,6 +86,8 @@ export function SketchCanvas({
 	strokesRef.current = strokes;
 	const keptRef = useRef(kept);
 	keptRef.current = kept;
+	const brushRef = useRef(brush);
+	brushRef.current = brush;
 
 	const pathOf = (s: SketchStroke): Path2D => {
 		let p = paths.current.get(s);
@@ -116,8 +122,9 @@ export function SketchCanvas({
 		});
 		ctx.globalAlpha = 1;
 		if (live.current && !live.current.erase && live.current.points.length >= 3) {
-			ctx.fillStyle = SKETCH_INK;
-			ctx.fill(new Path2D(sketchStrokePath({ size: SKETCH_PEN_SIZE, points: live.current.points })));
+			const live_ = penStroke(brushRef.current, live.current.points);
+			ctx.fillStyle = live_.color ?? SKETCH_INK;
+			ctx.fill(new Path2D(sketchStrokePath(live_)));
 		}
 	};
 
@@ -259,7 +266,7 @@ export function SketchCanvas({
 						if (erase) {
 							if (erase.size > 0) onErase?.([...erase]);
 							else draw();
-						} else onStroke({ size: SKETCH_PEN_SIZE, points });
+						} else onStroke(penStroke(brushRef.current, points));
 					}}
 					onPointerCancel={(e) => {
 						// The OS took the pointer (a palm, a gesture): drop the stroke.

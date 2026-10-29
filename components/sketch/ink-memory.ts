@@ -17,7 +17,11 @@ import { newSketchId, parseSketchPayload, type SketchPayload, type SketchStroke 
  * stroke.
  */
 
-export type InkOp = { kind: "add"; stroke: SketchStroke } | { kind: "erase"; removed: { index: number; stroke: SketchStroke }[] };
+export type InkOp =
+	| { kind: "add"; stroke: SketchStroke }
+	| { kind: "erase"; removed: { index: number; stroke: SketchStroke }[] }
+	/** Clear: every unsent stroke went at once (undo brings them all back). */
+	| { kind: "clear"; removed: SketchStroke[] };
 
 export interface InkState {
 	strokes: SketchStroke[];
@@ -175,6 +179,7 @@ export async function sendPage(
 /** Apply an operation to the strokes. */
 export function applyOp(strokes: SketchStroke[], op: InkOp): SketchStroke[] {
 	if (op.kind === "add") return [...strokes, op.stroke];
+	if (op.kind === "clear") return [];
 	const gone = new Set(op.removed.map((r) => r.stroke));
 	return strokes.filter((s) => !gone.has(s));
 }
@@ -182,6 +187,7 @@ export function applyOp(strokes: SketchStroke[], op: InkOp): SketchStroke[] {
 /** Reverse an operation. */
 export function revertOp(strokes: SketchStroke[], op: InkOp): SketchStroke[] {
 	if (op.kind === "add") return strokes.filter((s) => s !== op.stroke);
+	if (op.kind === "clear") return [...op.removed];
 	const out = [...strokes];
 	for (const { index, stroke } of [...op.removed].sort((a, b) => a.index - b.index)) out.splice(index, 0, stroke);
 	return out;

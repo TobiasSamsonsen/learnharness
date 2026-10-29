@@ -43,6 +43,7 @@ Object.assign(globalThis, {
 const { SketchView } = await import("../components/sketch/sketch-view.tsx");
 const { readInk, writeInk, inkFromStrokes, readKept, writeKept, applyOp, revertOp, pagePayload } = await import("../components/sketch/ink-memory.ts");
 const { clampBoxPosition } = await import("../components/sketch/floating-problem.tsx");
+const pen = await import("../components/sketch/pen-settings.ts");
 const { handleBack } = await import("../components/back-layers.ts");
 import type { SketchPayload, SketchStroke } from "../src/core";
 
@@ -280,5 +281,65 @@ describe("the floating problem box", () => {
 		assert.deepEqual(clampBoxPosition(900, 590, size, bounds), { x: 696, y: 476 });
 		// Larger than its parent: pinned top-left, never negative.
 		assert.deepEqual(clampBoxPosition(50, 50, { width: 2000, height: 900 }, bounds), { x: 4, y: 4 });
+	});
+});
+
+describe("pen and clear (M13b)", () => {
+	const { loadPen, savePen, penStroke, DEFAULT_PEN, SKETCH_COLORS, SKETCH_WIDTHS } = pen;
+	const click = (testid: string) =>
+		act(async () => {
+			document.querySelector(`[data-testid="${testid}"]`)!.dispatchEvent(new dom.window.Event("click", { bubbles: true, cancelable: true }));
+		});
+
+	it("the palette keeps clear of the margin bracket's magenta", () => {
+		assert.equal(SKETCH_COLORS.length, 5);
+		assert.equal(SKETCH_WIDTHS.length, 3);
+		for (const c of SKETCH_COLORS) assert.notEqual(c.value, "#d946ef");
+	});
+
+	it("penStroke: default ink carries no colour, any other does", () => {
+		assert.deepEqual(penStroke(DEFAULT_PEN, [1, 2, 0.5]), { size: 4, points: [1, 2, 0.5] });
+		assert.deepEqual(penStroke({ color: "#dc2626", size: 8 }, [1, 2, 0.5]), { size: 8, color: "#dc2626", points: [1, 2, 0.5] });
+	});
+
+	it("the remembered pen survives a reload; unknown values fall back to the default", () => {
+		savePen({ color: "#16a34a", size: 2 });
+		assert.deepEqual(loadPen(), { color: "#16a34a", size: 2 });
+		localStorage.setItem("lh:sketch-pen", JSON.stringify({ color: "#123456", size: 99 }));
+		assert.deepEqual(loadPen(), DEFAULT_PEN);
+		localStorage.setItem("lh:sketch-pen", "not json");
+		assert.deepEqual(loadPen(), DEFAULT_PEN);
+		localStorage.removeItem("lh:sketch-pen");
+	});
+
+	it("choosing a colour or width marks it pressed and is remembered", async () => {
+		localStorage.removeItem("lh:sketch-pen");
+		await mount({ inkKey: "k-pen", onSubmit: async () => true });
+		const pressed = (id: string) => document.querySelector(`[data-testid="${id}"]`)!.getAttribute("aria-pressed");
+		assert.equal(pressed("sketch-color-black"), "true");
+		await click("sketch-color-red");
+		await click("sketch-width-thick");
+		assert.equal(pressed("sketch-color-red"), "true");
+		assert.equal(pressed("sketch-color-black"), "false");
+		assert.equal(pressed("sketch-width-thick"), "true");
+		assert.deepEqual(loadPen(), { color: "#dc2626", size: 8 });
+		localStorage.removeItem("lh:sketch-pen");
+	});
+
+	it("Clear is undoable (and redoable), and still leaves nothing to submit", async () => {
+		writeInk("k-clear", inkFromStrokes([STROKE, { ...STROKE }]));
+		await mount({ inkKey: "k-clear", onSubmit: async () => true });
+		await click("sketch-clear");
+		assert.equal(readInk("k-clear").strokes.length, 0);
+		await click("sketch-undo");
+		assert.equal(readInk("k-clear").strokes.length, 2, "undo brings every stroke back");
+		await click("sketch-redo");
+		assert.equal(readInk("k-clear").strokes.length, 0, "redo clears again");
+	});
+
+	it("applyOp / revertOp handle a clear", () => {
+		const op = { kind: "clear" as const, removed: [STROKE, { ...STROKE }] };
+		assert.deepEqual(applyOp([STROKE, op.removed[1]!], op), []);
+		assert.equal(revertOp([], op).length, 2);
 	});
 });
