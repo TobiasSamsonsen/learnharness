@@ -272,7 +272,7 @@ function KeyTableRow({
 				aria-expanded={expanded}
 				data-testid={`${testid}-row`}
 				onClick={() => !envOwned && onToggle()}
-				className={`flex w-full items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left ${
+				className={`lh-touch flex w-full items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left ${
 					envOwned ? "cursor-default" : "cursor-pointer transition-colors hover:bg-accent/50"
 				}`}
 			>
@@ -345,7 +345,7 @@ function AddProviderRow({
 				aria-expanded={open}
 				data-testid="add-provider"
 				onClick={() => setOpen((v) => !v)}
-				className="flex w-full items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left font-ui text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+				className="lh-touch flex w-full items-center justify-between gap-3 rounded-sm px-1 py-1.5 text-left font-ui text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
 			>
 				<span>+ Add a provider</span>
 				{addable.length > 0 && <span className="font-mono text-[11px]">{addable.length}</span>}
@@ -380,7 +380,10 @@ export function KeysSection({
 	initialRow,
 	general,
 	onGeneralChange,
+	scope = "providers",
 }: {
+	/** Phone settings list (owner, 2026-10-29): Providers and Dictation are two categories over one set of keys. */
+	scope?: "providers" | "dictation";
 	initialRow?: string;
 	/** The General settings section: the dictation engine rows read and write it (replace-whole). */
 	general?: GeneralSettings;
@@ -508,6 +511,7 @@ export function KeysSection({
 
 	return (
 		<>
+			{scope === "providers" && <>
 			<SettingsGroup label="Model API keys" testid="group-provider-keys">
 				{providerRows.map((status) => (
 					<KeyTableRow
@@ -605,8 +609,9 @@ export function KeysSection({
 			<SettingsGroup label="External CLI" testid="group-external-cli">
 				<ClaudeCodeInstallationStatus />
 			</SettingsGroup>
+			</>}
 
-			{(["Dictation", "Search"] as const).map((label) => <SettingsGroup key={label} label={label} testid={label === "Dictation" ? "group-dictation" : "group-search"}>
+			{((scope === "providers" ? ["Search"] : ["Dictation"]) as readonly ("Dictation" | "Search")[]).map((label) => <SettingsGroup key={label} label={label} hideLabelOnPhone={label === "Dictation"} testid={label === "Dictation" ? "group-dictation" : "group-search"}>
 				{label === "Dictation" && onGeneralChange && <DictationEngineRows general={general} onChange={onGeneralChange} />}
 				{toolRows.filter((status) => label === "Dictation" ? status.id === "DEEPGRAM_API_KEY" : status.id !== "DEEPGRAM_API_KEY").map((status) => (
 					<KeyTableRow

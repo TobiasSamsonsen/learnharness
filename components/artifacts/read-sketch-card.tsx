@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronRightIcon } from "lucide-react";
 import { useContext, useRef, useState } from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ChatActionsContext } from "@/components/chat";
@@ -71,6 +72,7 @@ export function SketchReadingBody({ part, framed = false }: { part: ArtifactPart
 	const actions = useContext(ChatActionsContext);
 	const { sketchId, reading, doubts, settled, dispute, open } = readingOf(part, actions);
 	const [asking, setAsking] = useState(false);
+	const [showReading, setShowReading] = useState(false);
 	// Uncontrolled: the words are read on submit, nothing renders from them.
 	const wroteRef = useRef<HTMLInputElement>(null);
 	if (!sketchId || !reading) return null;
@@ -81,10 +83,22 @@ export function SketchReadingBody({ part, framed = false }: { part: ArtifactPart
 			data-needs-clarification={framed && open ? "true" : undefined}
 			className={framed ? cn("mt-3", open && "rounded-lg border border-destructive/60 bg-destructive/5 p-2.5") : undefined}
 		>
-			<div className="text-xs font-medium text-muted-foreground">I read:</div>
-			<div data-testid="read-sketch-reading" className="lh-prose mt-1 text-[15px]">
-				<MessageResponse>{repairMathForDisplay(reading)}</MessageResponse>
-			</div>
+			{/* The transcription itself stays folded (owner, 2026-10-29): only what the tutor is unsure about is always shown. */}
+			<button
+				type="button"
+				data-testid="read-sketch-toggle"
+				aria-expanded={showReading}
+				onClick={() => setShowReading((v) => !v)}
+				className="lh-touch flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+			>
+				<ChevronRightIcon className={cn("size-3.5 transition-transform", showReading && "rotate-90")} />
+				I read
+			</button>
+			{showReading && (
+				<div data-testid="read-sketch-reading" className="lh-prose mt-1 text-[15px]">
+					<MessageResponse>{repairMathForDisplay(reading)}</MessageResponse>
+				</div>
+			)}
 			{settled.length > 0 && (
 				<div data-testid="read-sketch-settled" className="mt-2 text-sm text-muted-foreground">
 					<div className="text-xs font-medium">Took these as:</div>

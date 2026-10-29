@@ -78,12 +78,18 @@ const has = (testid: string) => document.querySelector(`[data-testid="${testid}"
 const el = (testid: string) => document.querySelector(`[data-testid="${testid}"]`) as HTMLElement;
 
 describe("ReadSketchCard", () => {
-	it("shows the sketch, the reading under \"I read:\", and the doubts", async () => {
+	it("shows the sketch, the reading folded under \"I read\", and the doubts always", async () => {
 		await mount({ part: { input: { sketchId: SK, reading: "$x^2 + 1$", uncertain: ["the exponent could be 3", "  "] } } });
 		const html = host!.innerHTML;
-		assert.match(html, /I read:/);
+		assert.match(el("read-sketch-toggle").textContent ?? "", /I read/);
 		assert.match(html, /\/api\/chats\/chat_c\/sketches\/sk_cardtest0000001\/0/, "the thumbnail");
-		assert.ok(has("read-sketch-reading"));
+		assert.ok(!has("read-sketch-reading"), "the transcription is folded away");
+		assert.equal(el("read-sketch-toggle").getAttribute("aria-expanded"), "false");
+		await act(async () => el("read-sketch-toggle").click());
+		assert.ok(has("read-sketch-reading"), "the dropdown opens it");
+		assert.equal(el("read-sketch-toggle").getAttribute("aria-expanded"), "true");
+		await act(async () => el("read-sketch-toggle").click());
+		assert.ok(!has("read-sketch-reading"), "and closes it again");
 		assert.match(el("read-sketch-doubts").textContent ?? "", /the exponent could be 3/);
 		assert.equal(el("read-sketch-doubts").querySelectorAll("li").length, 1, "blank doubts are dropped");
 	});
@@ -125,6 +131,7 @@ describe("ReadSketchCard", () => {
 		await mount({ part: { input: { sketchId: `${SK}</parameter>
 <parameter name="reading">Z then x</parameter>`, uncertain: ["the first glyph"] } } });
 		assert.ok(has("read-sketch-card"), "the reading was in the wrong field, not lost");
+		await act(async () => el("read-sketch-toggle").click());
 		assert.match(el("read-sketch-reading").textContent ?? "", /Z then x/);
 		assert.match(host!.innerHTML, /sketches\/sk_cardtest0000001\/0/, "and the id is the clean one");
 	});

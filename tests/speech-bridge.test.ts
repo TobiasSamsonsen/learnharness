@@ -182,6 +182,40 @@ test("when the run ends, what is in the field stays, and a stray partial is not 
 	assert.equal(f.text, "left over");
 });
 
+test("a new stretch that starts over without a final keeps the long one before it (long dictation lost its text)", () => {
+	const f = field();
+	const live = createLiveTranscript(() => f.append);
+	const stretch = "snakke sånn som det her da eh til her ehm det du burde jo bare få han til å følge med";
+	live.partial(stretch);
+	live.partial(stretch + " på loggene");
+	live.partial("Hei");
+	assert.equal(f.text, stretch + " på loggene Hei");
+	live.partial("Hei Halla");
+	assert.equal(f.text, stretch + " på loggene Hei Halla", "the new stretch is replaced by its own partials as before");
+	live.final("Hei, hallo.");
+	assert.equal(f.text, stretch + " på loggene Hei, hallo.");
+	live.discard();
+	assert.equal(f.text, "", "Esc takes the kept stretch back out too");
+});
+
+test("revisions of a long partial are not mistaken for a new stretch", () => {
+	const f = field();
+	const live = createLiveTranscript(() => f.append);
+	const head = "la oss bare se vi snakke i 3 minutt ja så får jeg satse på å se om denne boks";
+	live.partial(head + " tilogs");
+	live.partial(head + " The Long");
+	live.partial(head.toUpperCase().slice(0, 1) + head.slice(1) + " the long"); // a capital letter at the start
+	assert.equal(f.text, head.toUpperCase().slice(0, 1) + head.slice(1) + " the long");
+});
+
+test("a short partial that is corrected to another word is replaced, not kept", () => {
+	const f = field();
+	const live = createLiveTranscript(() => f.append);
+	live.partial("Hei");
+	live.partial("Hvem");
+	assert.equal(f.text, "Hvem");
+});
+
 test("a stretch stays in the field it began in, the next one goes to the field that holds the claim then", () => {
 	const composer = field();
 	const question = field();

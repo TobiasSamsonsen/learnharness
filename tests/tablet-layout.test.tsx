@@ -30,13 +30,15 @@ describe("settings dialog below 1024px", () => {
 		assert.match(html, /h-\[620px\][^"]*w-\[920px\]/);
 	});
 
-	it("turns the section nav into a scrollable tab strip", () => {
+	it("replaces the left nav with a category list (one large row per section) that is hidden on desktop", () => {
 		const nav = html.match(/<nav[^>]*data-testid="settings-nav"[^>]*>/)?.[0] ?? "";
-		for (const cls of ["max-lg:flex-row", "max-lg:overflow-x-auto", "max-lg:border-b", "max-lg:border-r-0", "max-lg:w-auto"]) {
-			assert.ok(nav.includes(cls), cls);
-		}
-		assert.match(html, /<button[^>]*data-testid="settings-nav-keys"[^>]*max-lg:shrink-0[^>]*max-lg:whitespace-nowrap|max-lg:shrink-0[^"]*max-lg:whitespace-nowrap[^>]*data-testid="settings-nav-keys"/);
-		assert.match(html, /min-h-0 flex-1 max-lg:flex-col/, "the body stacks the strip over the content");
+		assert.ok(nav.includes("max-lg:hidden"), "the left nav is for desktop");
+		const list = html.match(/<nav[^>]*data-testid="settings-list"[^>]*>/)?.[0] ?? "";
+		assert.ok(list.includes("lg:hidden"), "the category list is for phones and tablets");
+		const rows = [...html.matchAll(/data-testid="settings-list-([^"]+)"/g)].map((m) => m[1]);
+		assert.deepEqual(rows, ["keys", "agent", "dictation", "appearance", "graph", "keyboard", "general"]);
+		assert.match(html, /min-h-0 flex-1 max-lg:flex-col/, "the body stacks the list over the page");
+		assert.ok(html.includes("Updates and default lesson language"), "each row says what is behind it");
 	});
 });
 

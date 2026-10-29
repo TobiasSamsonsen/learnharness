@@ -59,12 +59,13 @@ import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
  *  prose is out; only the keyboard note stays (storage location is a
  *  real question users ask). */
 const SECTIONS = [
-	{ id: "keys", label: "Providers" },
-	{ id: "agent", label: "Agent" },
-	{ id: "appearance", label: "Appearance" },
-	{ id: "graph", label: "Graph" },
-	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device" },
-	{ id: "general", label: "General" },
+	{ id: "keys", label: "Providers", summary: "API keys, subscriptions, Claude CLI, search keys" },
+	{ id: "agent", label: "Agent", summary: "Models, roles, tools, prompts" },
+	{ id: "dictation", label: "Dictation", summary: "Engine, language, speech models" },
+	{ id: "appearance", label: "Appearance", summary: "Background, reading font, colours" },
+	{ id: "graph", label: "Graph", summary: "Extraction and rendering" },
+	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device", summary: "Shortcuts, stored on this device" },
+	{ id: "general", label: "General", summary: "Updates and default lesson language" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
 
@@ -85,10 +86,13 @@ export function SettingsDialogProvider({
 }) {
 	const [show, setShow] = useState(false);
 	const [landOn, setLandOn] = useState<SectionId>("keys");
+	/** Below 1024px the dialog opens on the category list; a deep link (a section was named) lands on its page. */
+	const [landOnPage, setLandOnPage] = useState(false);
 	const [landOnRow, setLandOnRow] = useState<string | null>(null);
 	const open = useCallback((section?: string, row?: string) => {
 		setLandOn(section ? section as SectionId : "keys");
 		setLandOnRow(row ?? null);
+		setLandOnPage(section !== undefined);
 		setShow(true);
 	}, []);
 	useEffect(() => window.lh?.onOpenSettings?.((section) => open(section)), [open]);
@@ -96,7 +100,7 @@ export function SettingsDialogProvider({
 		<ChatGPTUIProvider><NativeSubscriptionUIProvider><DialogContext.Provider value={{ open }}>
 			{children}
 			{show && (
-				<SettingsDialog onClose={() => setShow(false)} initialSection={landOn} initialRow={landOnRow} />
+				<SettingsDialog onClose={() => setShow(false)} initialSection={landOn} initialRow={landOnRow} initialPage={landOnPage} />
 			)}
 		</DialogContext.Provider></NativeSubscriptionUIProvider></ChatGPTUIProvider>
 	);
@@ -110,11 +114,14 @@ function SettingsDialog({
 	onClose,
 	initialSection,
 	initialRow,
+	initialPage = false,
 }: {
 	onClose: () => void;
 	initialSection: SectionId;
 	/** The keys-section row to unfold (see DialogContext above). */
 	initialRow: string | null;
+	/** Phone layout: open on the section's page (a deep link) instead of the category list. */
+	initialPage?: boolean;
 }) {
 	const backdropDismiss = useBackdropDismiss(onClose);
 	// Plain dim backdrop (no blur — nothing decorative); a genuine
@@ -125,7 +132,7 @@ function SettingsDialog({
 			data-testid="settings-backdrop"
 			{...backdropDismiss}
 		>
-			<SettingsDialogBody onClose={onClose} initialSection={initialSection} initialRow={initialRow} />
+			<SettingsDialogBody onClose={onClose} initialSection={initialSection} initialRow={initialRow} initialPage={initialPage} />
 		</div>,
 		document.body,
 	);
@@ -137,12 +144,15 @@ export function SettingsDialogBody({
 	onClose,
 	initialSection = "keys",
 	initialRow = null,
+	initialPage = false,
 }: {
 	onClose: () => void;
 	initialSection?: SectionId;
 	/** The keys row to unfold on arrival (null = none). While-open
 	 *  retargets follow it exactly like initialSection below. */
 	initialRow?: string | null;
+	/** Phone layout: open on the section's page (a deep link) instead of the category list. */
+	initialPage?: boolean;
 }) {
 	const { onAppearanceChange } = useAppearance();
 	const [record, setRecord] = useState<UserSettings | null | undefined>(
@@ -182,6 +192,8 @@ export function SettingsDialogBody({
 		};
 	}, []);
 	const [active, setActive] = useState<SectionId>(initialSection);
+	/** Below 1024px: the category list, or one category's page (the left nav and the tab strip are gone there). */
+	const [view, setView] = useState<"list" | "page">(initialPage ? "page" : "list");
 	// A deep-link fired while the dialog is ALREADY open (first exercised by
 	// the wave-6 embedding picker's "Add a provider key first…" link — the
 	// picker itself died with wave 7, the mechanism is general) changes
@@ -189,7 +201,8 @@ export function SettingsDialogBody({
 	// nothing.
 	useEffect(() => {
 		setActive(initialSection);
-	}, [initialSection]);
+		if (initialPage) setView("page");
+	}, [initialSection, initialPage]);
 
 	// Fetch once per dialog mount. 200 {settings: null} is FIRST BOOT
 	// (no record = factory everything), not a failure — the error state is
@@ -223,7 +236,11 @@ export function SettingsDialogBody({
 		return () => document.removeEventListener("keydown", onKey);
 	}, [onClose]);
 	// Android back closes the dialog too (mounted only while open).
-	useBackLayer(true, onClose);
+	// On a phone, back from a category's page returns to the list; from the list it closes.
+	useBackLayer(true, () => {
+		if (view === "page" && window.matchMedia("(max-width: 1023.98px)").matches) setView("list");
+		else onClose();
+	});
 
 	/** The Claude-subscription preset (fork addition): one server write over
 	 *  several sections; the dialog takes the stored record back and every
@@ -298,7 +315,29 @@ export function SettingsDialogBody({
 		>
 			{/* Header — the app's quiet CMU title language. */}
 			<header className="flex h-15 shrink-0 items-center gap-3 border-b border-border px-5">
-				<h2 className="font-title text-2xl tracking-tight">Settings</h2>
+				{view === "page" && (
+					<button
+						type="button"
+						aria-label="Back to settings"
+						data-testid="settings-back"
+						onClick={() => setView("list")}
+						className="lh-touch -ml-3 flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:hidden"
+					>
+						<svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+							<path d="M10 3L5 8l5 5" />
+						</svg>
+					</button>
+				)}
+				<h2 className="font-title text-2xl tracking-tight">
+					{view === "page" ? (
+						<>
+							<span className="lg:hidden">{SECTIONS.find((s) => s.id === active)?.label}</span>
+							<span className="max-lg:hidden">Settings</span>
+						</>
+					) : (
+						"Settings"
+					)}
+				</h2>
 				<Hint
 						// Esc closes the dialog (its own listener) — surface it.
 						label="Close"
@@ -331,8 +370,8 @@ export function SettingsDialogBody({
 				<nav
 					aria-label="Settings sections"
 					data-testid="settings-nav"
-					// Below 1024px the section nav is a scrollable tab strip under the header.
-					className="flex w-44 shrink-0 flex-col gap-1 border-r border-border p-2 max-lg:w-auto max-lg:flex-row max-lg:overflow-x-auto max-lg:lh-no-scrollbar max-lg:border-b max-lg:border-r-0"
+					// Below 1024px the left nav gives way to the category list (settings-list) and one category's page.
+					className="flex w-44 shrink-0 flex-col gap-1 border-r border-border p-2 max-lg:hidden"
 				>
 					{SECTIONS.map((s) => (
 						<button
@@ -340,7 +379,7 @@ export function SettingsDialogBody({
 							type="button"
 							data-testid={`settings-nav-${s.id}`}
 							aria-current={active === s.id}
-							className={`rounded-sm px-3 py-1.5 text-left font-ui text-sm transition-colors max-lg:shrink-0 max-lg:whitespace-nowrap [@media(pointer:coarse)]:py-2.5 ${
+							className={`rounded-sm px-3 py-1.5 text-left font-ui text-sm transition-colors [@media(pointer:coarse)]:py-2.5 ${
 								active === s.id
 									? "bg-accent text-foreground"
 									: "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -352,6 +391,36 @@ export function SettingsDialogBody({
 					))}
 				</nav>
 
+				{/* The phone's category list (Material 3 Expressive, owner 2026-10-29): every category is one large row with a
+				    one-line description; a tap opens that category's page, the back arrow returns. */}
+				{view === "list" && (
+					<nav aria-label="Settings categories" data-testid="settings-list" className="min-h-0 flex-1 overflow-y-auto p-3 lg:hidden">
+						<ul className="flex flex-col gap-2">
+							{SECTIONS.map((s) => (
+								<li key={s.id}>
+									<button
+										type="button"
+										data-testid={`settings-list-${s.id}`}
+										onClick={() => {
+											setActive(s.id);
+											setView("page");
+										}}
+										className="lh-touch lh-press flex min-h-14 w-full items-center gap-3 rounded-lgi bg-accent/60 px-4 py-3 text-left transition-colors hover:bg-accent active:rounded-xl"
+									>
+										<span className="min-w-0 flex-1">
+											<span className="block font-ui text-sm text-foreground">{s.label}</span>
+											<span className="block text-xs text-muted-foreground">{s.summary}</span>
+										</span>
+										<svg viewBox="0 0 16 16" aria-hidden className="size-4 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+											<path d="M6 3l5 5-5 5" />
+										</svg>
+									</button>
+								</li>
+							))}
+						</ul>
+					</nav>
+				)}
+
 				{/* Content column — one section at a time, this scrolls — and
 				    LOCKS while any MenuShell is open (owner ruling: no
 				    scrolling with a dropdown down; MenuShell announces
@@ -360,7 +429,7 @@ export function SettingsDialogBody({
 				    nothing may shift when the lock engages. */}
 				<div
 					ref={contentRef}
-					className="min-h-0 min-w-0 flex-1 overflow-y-auto"
+					className={`min-h-0 min-w-0 flex-1 overflow-y-auto${view === "list" ? " max-lg:hidden" : ""}`}
 					data-testid="settings-content"
 				>
 					{error && (
@@ -402,6 +471,16 @@ export function SettingsDialogBody({
 							{active === "keys" && (
 								<SettingsSection title="Providers" testid="section-keys">
 									<KeysSection
+										initialRow={initialRow ?? undefined}
+										general={record.general}
+										onGeneralChange={(next) => void write("general", next)}
+									/>
+								</SettingsSection>
+							)}
+							{active === "dictation" && (
+								<SettingsSection title="Dictation" testid="section-dictation">
+									<KeysSection
+										scope="dictation"
 										initialRow={initialRow ?? undefined}
 										general={record.general}
 										onGeneralChange={(next) => void write("general", next)}

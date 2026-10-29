@@ -214,7 +214,7 @@ export function AnsweredCard({ answer: savedAnswer, input, chatId, reading }: { 
 					<button
 						type="button"
 						onClick={() => setWhyOpen((v) => !v)}
-						className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+						className="lh-touch text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
 					>
 						{whyOpen ? "Hide why" : "Why"}
 					</button>

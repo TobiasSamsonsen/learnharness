@@ -105,10 +105,14 @@ export function Composer({
 			aria-label={busy && !canSend ? "Stop" : "Send"}
 			disabled={!busy && !canSend}
 			className={cn(
-				"flex size-10 shrink-0 items-center justify-center rounded-[10px] transition-colors",
+				// Material 3 Expressive (owner, 2026-10-29): the main action is the biggest, brightest thing in the
+					// composer: 48 dp on touch screens (corners stay concentric with the shell: 25% of the side) that morphs
+					// squarer under the finger. With nothing to send it
+					// stays a visible quiet gold tone (gold glyph on 25% gold, about 5:1), not a faded copy of itself.
+					"lh-press flex size-10 touch:size-12 shrink-0 items-center justify-center rounded-[10px] touch:rounded-xl active:rounded-md",
 				busy && !canSend
 					? "bg-secondary text-foreground hover:bg-accent"
-					: "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40",
+					: "bg-primary text-primary-foreground hover:opacity-90 disabled:bg-primary/25 disabled:text-primary",
 			)}
 		>
 			{busy && !canSend ? <SquareIcon className="size-4" /> : <CornerDownLeftIcon className="size-5" />}
@@ -150,7 +154,7 @@ export function Composer({
 				placeholder={placeholder}
 				autoFocus={autoFocus}
 				className={cn(
-					"field-sizing-content lh-input max-h-48 min-h-10 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground",
+					"field-sizing-content lh-input max-h-48 min-h-10 touch:min-h-12 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground",
 					edge ? "w-full" : "flex-1",
 				)}
 			/>

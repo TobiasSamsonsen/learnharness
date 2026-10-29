@@ -10,7 +10,7 @@ export function ConnectionRow({ label, action, actionVariant, disabled, onAction
 	return <div className="flex flex-wrap items-center gap-3" data-testid={testid}>
 		<span className={labelClassName ?? "font-ui text-xs text-foreground"}>{label}</span>
 		{children}
-		<Button type="button" size="xs" variant={variant} className={`cursor-pointer disabled:cursor-not-allowed ${variant === "outline" ? "" : "text-muted-foreground hover:text-foreground"}`} data-testid={actionTestid} disabled={disabled} onClick={onAction}>{action}</Button>
+		<Button type="button" size="xs" variant={variant} className={`lh-hit cursor-pointer disabled:cursor-not-allowed ${variant === "outline" ? "" : "text-muted-foreground hover:text-foreground"}`} data-testid={actionTestid} disabled={disabled} onClick={onAction}>{action}</Button>
 	</div>;
 }
 

@@ -60,7 +60,7 @@ export function PlanUsage({ variant = "pill", separated = false }: { variant?: "
 				data-testid="plan-usage"
 				className={
 					variant === "text"
-						? `tabular-nums ${high ? "text-red-500" : ""}`
+						? `whitespace-nowrap tabular-nums ${high ? "text-red-500" : ""}`
 						: `rounded-full border bg-card/85 px-2 py-1 font-mono text-[11px] shadow-lg backdrop-blur ${high ? "text-red-500" : "text-muted-foreground"}`
 				}
 			>

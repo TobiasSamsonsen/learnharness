@@ -5,8 +5,8 @@ import { cn } from "@/lib/utils";
 import { useSwipe } from "./use-swipe.ts";
 
 /**
- * Swipe-left row actions (Android phone pass, owner 2026-10-28): swiping a sidebar row left slides it over and reveals its
- * actions behind it (Rename, Delete). Only one row is open at a time (`openId` is owned by the list); a tap anywhere else
+ * Swipe-right row actions (Android phone pass, owner 2026-10-28; mirrored from swipe-left on 2026-10-29): swiping a sidebar
+ * row right slides it over and reveals its actions behind it, on the left (Rename, Delete). Only one row is open at a time (`openId` is owned by the list); a tap anywhere else
  * closes it. The actions are `div role="button"`, not `<button>`: the sidebar's keyboard walk indexes the row buttons
  * (`querySelectorAll("button")`), and a second button per row would break it.
  */
@@ -22,16 +22,16 @@ export interface RowAction {
 /** The width of one revealed action. */
 export const ACTION_WIDTH = 76;
 
-/** Pure: where the row sits (px, 0 = closed, negative = slid left) for a finger offset from where it started. */
+/** Pure: where the row sits (px, 0 = closed, positive = slid right) for a finger offset from where it started. */
 export function rowPosition(startedOpen: boolean, offset: number, revealWidth: number): number {
-	const base = startedOpen ? -revealWidth : 0;
-	return Math.max(-revealWidth, Math.min(0, base + offset));
+	const base = startedOpen ? revealWidth : 0;
+	return Math.max(0, Math.min(revealWidth, base + offset));
 }
 
 /** Pure: does the row end up open? Past the halfway point, or a committed flick in the opening direction. */
 export function endsOpen(startedOpen: boolean, offset: number, commit: boolean, revealWidth: number): boolean {
-	if (commit) return offset < 0; // a flick left opens, a flick right closes
-	return rowPosition(startedOpen, offset, revealWidth) <= -revealWidth / 2;
+	if (commit) return offset > 0; // a flick right opens, a flick left closes
+	return rowPosition(startedOpen, offset, revealWidth) >= revealWidth / 2;
 }
 
 export function SwipeRow({
@@ -55,7 +55,7 @@ export function SwipeRow({
 	const containerRef = useRef<HTMLDivElement>(null);
 
 	const slider = useSwipe<HTMLDivElement>(
-		// "both": open it by swiping left, close an open one by swiping right
+		// "both": open it by swiping right, close an open one by swiping left
 		{ axis: "x", way: "both", commitDistance: ACTION_WIDTH / 2, flickMinDistance: 20 },
 		{
 			onStart: () => {
@@ -83,13 +83,18 @@ export function SwipeRow({
 		return () => document.removeEventListener("pointerdown", onDown, true);
 	}, [open, onOpenChange]);
 
-	const position = drag ?? (open ? -revealWidth : 0);
-	const showActions = drag !== null || open;
+	const position = drag ?? (open ? revealWidth : 0);
 
 	return (
 		<div ref={containerRef} data-testid="swipe-row" data-swipe-row="" className="relative overflow-hidden rounded-lg">
-			{showActions && (
-				<div className="absolute inset-y-0 right-0 flex" style={{ width: revealWidth }}>
+			{/* The actions live in a strip exactly as wide as the row has slid, so nothing of them can show beside or under a closed
+			    row (a swipe the other way moves nothing, and the strip stays zero wide); it follows the row back on release. */}
+			<div
+				className={cn("absolute inset-y-0 left-0 overflow-hidden", drag === null && "transition-[width] duration-200")}
+				style={{ width: position }}
+				aria-hidden={!open && drag === null}
+			>
+				<div className="flex h-full" style={{ width: revealWidth }}>
 					{actions.map((a) => (
 						<div
 							key={a.key}
@@ -117,7 +122,7 @@ export function SwipeRow({
 						</div>
 					))}
 				</div>
-			)}
+			</div>
 			<div
 				ref={slider}
 				className={cn("relative bg-background", drag === null && "transition-transform duration-200")}

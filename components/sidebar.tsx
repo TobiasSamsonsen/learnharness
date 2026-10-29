@@ -368,7 +368,7 @@ export function SessionRow({
 			data-drawer-close
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
 			className={cn(
-				"relative mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent",
+				"relative mb-0.5 flex w-full items-center gap-2 rounded-xl px-3 py-2 touch:py-2.5 text-left transition-colors hover:bg-accent",
 				active && "bg-accent",
 				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
 			)}
@@ -849,9 +849,9 @@ function SessionsSidebar() {
 						data-testid="new-session"
 						data-drawer-close
 						onClick={() => void newSession()}
-						className="lh-touch flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						className="lh-touch lh-press flex w-full items-center gap-2 rounded-lgi bg-accent px-2.5 py-1.5 touch:px-3.5 touch:py-2.5 text-xs uppercase tracking-wider text-foreground hover:bg-accent/70 active:rounded-xl"
 					>
-						<PlusIcon className="size-3" />
+						<PlusIcon className="size-3 touch:size-4" />
 						Teaching
 						<span className="sr-only">create a new teaching session</span>
 					</button>
@@ -860,9 +860,9 @@ function SessionsSidebar() {
 						data-testid="new-session-practice"
 						data-drawer-close
 						onClick={() => router.push("/chat/new?mode=practice")}
-						className="lh-touch flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						className="lh-touch lh-press flex w-full items-center gap-2 rounded-lgi bg-accent px-2.5 py-1.5 touch:px-3.5 touch:py-2.5 text-xs uppercase tracking-wider text-foreground hover:bg-accent/70 active:rounded-xl"
 					>
-						<DumbbellIcon className="size-3" />
+						<DumbbellIcon className="size-3 touch:size-4" />
 						Practice
 						<span className="sr-only">create a new practice session</span>
 					</button>
@@ -873,7 +873,6 @@ function SessionsSidebar() {
 				<CoursesSection onCourses={setCourses} />
 
 				<div className="mx-3 mb-2 flex items-center gap-2">
-					<span className="text-xs uppercase tracking-widest text-muted-foreground/70">Sessions</span>
 					<Hint label="Search sessions" action="sessions-search" side="bottom">
 					<span className="relative flex-1">
 						<Input
@@ -924,11 +923,11 @@ function SessionsSidebar() {
 									e.currentTarget.blur();
 								}
 							}}
-							placeholder="Search…"
+							placeholder="Search sessions…"
 							aria-label="Search sessions"
-							className="lh-touch h-6 rounded-sm border-border bg-background pl-6 text-xs placeholder:text-muted-foreground/60"
+							className="lh-touch h-6 touch:h-8 rounded-full border-transparent bg-accent/60 pl-6 touch:pl-8 text-xs placeholder:text-muted-foreground"
 						/>
-						<SearchIcon className="pointer-events-none absolute left-1.5 top-1/2 size-3 -translate-y-1/2 text-muted-foreground/70" />
+						<SearchIcon className="pointer-events-none absolute left-1.5 touch:left-3 top-1/2 size-3 touch:size-3.5 -translate-y-1/2 text-muted-foreground" />
 					</span>
 					</Hint>
 				</div>
@@ -940,7 +939,7 @@ function SessionsSidebar() {
 				    Practice / All — the real modes first, "All" as the escape
 				    hatch on the right, mirroring the create-buttons above.
 				    Persisted client-side. */}
-				<div className="mx-3 flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="session-kind-filter">
+				<div className="mx-3 flex items-center gap-0.5" data-testid="session-kind-filter">
 					{(["teach", "practice", "all"] as const).map((f) => (
 						<button
 							key={f}
@@ -948,10 +947,11 @@ function SessionsSidebar() {
 							data-testid={`kind-filter-${f}`}
 							onClick={() => setFilter(f)}
 							className={cn(
-								"lh-touch flex-1 rounded-sm px-2 py-1 text-[11px] uppercase tracking-wider transition-colors",
+								// a connected button group, as on home: the selected segment is a tonal gold pill
+								"lh-touch lh-press flex-1 px-2 py-1 touch:py-1.5 text-xs uppercase tracking-wider",
 								kindFilter === f
-									? "bg-accent text-foreground"
-									: "text-muted-foreground hover:text-foreground",
+									? "rounded-pill bg-primary/20 text-primary"
+									: "rounded-lg bg-accent/50 text-muted-foreground hover:text-foreground",
 							)}
 						>
 							{f === "teach" ? "Teaching" : f === "all" ? "All" : "Practice"}

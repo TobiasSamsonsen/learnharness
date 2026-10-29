@@ -79,15 +79,17 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 	private val listener = object : RecognitionListener {
 		override fun onResults(results: Bundle?) {
 			val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim().orEmpty()
-			lastPartial = ""
-			if (text.isNotEmpty()) post(SpeechWire.final(text))
+			if (text.isNotEmpty()) { lastPartial = ""; post(SpeechWire.final(text)) } else keepPartial()
 			if (wanted && !stopping) listenAgain() else finish()
 		}
 
 		override fun onError(code: Int) {
 			when (code) {
 				// nothing was said in this stretch: not an error, keep going while the learner has not stopped
-				SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> if (wanted && !stopping) listenAgain() else finish()
+				SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
+					keepPartial()
+					if (wanted && !stopping) listenAgain() else finish()
+				}
 				SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> {
 					downloadPack()
 					fail("language", language)
@@ -117,6 +119,15 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 		}
 
 		override fun onEvent(eventType: Int, params: Bundle?) = Unit
+	}
+
+	/**
+	 * A stretch ended with no final but with a guess shown in the field: send the guess as the final. Otherwise the page
+	 * replaces it with the next stretch's first partial and the whole stretch's text disappears (long dictation).
+	 */
+	private fun keepPartial() {
+		if (lastPartial.isNotEmpty()) post(SpeechWire.final(lastPartial))
+		lastPartial = ""
 	}
 
 	private fun listenAgain() {
@@ -182,7 +193,9 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 	private fun downloadPack() {
 		if (Build.VERSION.SDK_INT < 33) return
 		val r = recognizer ?: return
-		intent?.let { r.triggerModelDownload(it) }
+		val tag = SpeechWire.locale(language) ?: return
+		// not the listening intent: it carries the microphone pipe, which is closed by now ("Bad file descriptor")
+		r.triggerModelDownload(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag))
 	}
 
 	/** Called when the page goes away (a reload, the activity ending): stop listening. */

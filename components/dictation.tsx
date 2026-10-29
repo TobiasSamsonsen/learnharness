@@ -1033,7 +1033,7 @@ export function DictationBar({ dictation, compact = false }: { dictation: Dictat
 					onClick={() => {
 						if (keyless) {
 							clearError();
-							openSettings("keys", DEEPGRAM_KEY_ID);
+							openSettings("dictation", DEEPGRAM_KEY_ID);
 						} else {
 							toggle();
 						}

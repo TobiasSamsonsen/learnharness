@@ -249,7 +249,7 @@ export function Home({
 					/>
 					{startError && <p role="alert" className="mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 					<form
-						className="flex flex-col gap-0.5 rounded-2xl border bg-card p-1.5 shadow-lg"
+						className="flex flex-col gap-0.5 rounded-xxl border border-border/50 bg-card p-1.5 touch:p-2 shadow-lg"
 					onSubmit={(e) => {
 						e.preventDefault();
 						void start();
@@ -280,7 +280,7 @@ export function Home({
 						}}
 						placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
 						autoFocus
-						className="field-sizing-content lh-input max-h-48 min-h-10 w-full resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
+						className="field-sizing-content lh-input max-h-48 min-h-10 touch:min-h-12 w-full resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 					/>
 					{/* The shell's bottom edge (owner, 2026-10-25 — composer-edge.tsx):
 					    sources, language, the mic, then the start square. No
@@ -293,7 +293,7 @@ export function Home({
 								type="submit"
 								aria-label="Start session"
 								disabled={(!topic.trim() && !dictation.active) || busy}
-								className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground transition-colors hover:opacity-90 disabled:opacity-40"
+								className="lh-press flex size-10 touch:size-12 shrink-0 items-center justify-center rounded-lgi bg-primary text-primary-foreground hover:opacity-90 active:rounded-xl disabled:bg-primary/25 disabled:text-primary"
 							>
 								<CornerDownLeftIcon className="size-5" />
 							</button>
@@ -307,7 +307,7 @@ export function Home({
 					<StatsBar
 						turns={[] as TurnUsage[]}
 						leadingSlot={
-							<div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="home-mode-switch">
+							<div className="flex items-center gap-0.5" data-testid="home-mode-switch">
 								{(["teach", "practice"] as const).map((m) => (
 									<button
 										key={m}
@@ -315,10 +315,12 @@ export function Home({
 										data-testid={`home-mode-${m}`}
 										onClick={() => setMode(m)}
 										className={
-											"lh-touch flex items-center gap-1 rounded-sm px-2 py-0.5 text-[11px] uppercase tracking-wider transition-colors " +
+											// A connected button group (Material 3 Expressive, owner 2026-10-29): the selected segment is a filled
+												// gold pill, the others tonal and squarer; the shapes morph on the fast spatial spring.
+												"lh-touch lh-press flex items-center gap-1 px-2 py-0.5 touch:h-9 touch:px-2.5 text-xs uppercase " +
 											(mode === m
-												? "bg-accent text-foreground"
-												: "text-muted-foreground hover:text-foreground")
+												? "rounded-pill bg-primary text-primary-foreground"
+												: "rounded-lg bg-accent text-foreground hover:bg-accent/70")
 										}
 									>
 										{m === "practice" ? <DumbbellIcon aria-hidden="true" className="size-3" /> : null}

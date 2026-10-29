@@ -116,7 +116,7 @@ describe("one box", () => {
 			</ChatActionsContext.Provider>,
 		);
 		assert.equal(count("img"), 1, "one image");
-		assert.match(document.body.textContent ?? "", /I read:/);
+		assert.match(document.body.textContent ?? "", /I read/);
 		const reading = document.querySelector('[data-testid="answer-sketch-reading"]')!;
 		const image = document.querySelector("img")!;
 		assert.ok(reading, "the reading sits in the answer box");
@@ -132,7 +132,7 @@ describe("one box", () => {
 			</ChatActionsContext.Provider>,
 		);
 		assert.equal(count("img"), 1);
-		assert.match(document.body.textContent ?? "", /I read:/);
+		assert.match(document.body.textContent ?? "", /I read/);
 		assert.ok(document.querySelector('[data-testid="answer-sketch-reading"]'));
 	});
 
@@ -163,6 +163,6 @@ describe("one box", () => {
 			</ChatActionsContext.Provider>,
 		);
 		assert.equal(count('[data-testid="read-sketch-card"]'), 1);
-		assert.match(document.body.textContent ?? "", /I read:/);
+		assert.match(document.body.textContent ?? "", /I read/);
 	});
 });
