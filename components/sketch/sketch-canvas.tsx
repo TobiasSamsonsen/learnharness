@@ -1,41 +1,52 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { MinusIcon, PlusIcon } from "lucide-react";
 import { SKETCH_INK, sketchStrokeCut, sketchStrokeHit, sketchStrokePath, type SketchStroke } from "@/src/core";
 import { DEFAULT_ERASER, DEFAULT_PEN, penStroke, type EraserSettings, type PenSettings } from "@/components/sketch/pen-settings";
+import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, penWorldSize, pinchOf, pinchStep, thinPath, toWorld, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
 
 /**
- * The web canvas (Android plan M1 + M3): a tall white page the learner
- * draws on with a pen, mouse or finger. Strokes are vector data — flat
- * [x, y, pressure] in PAGE CSS pixels (origin at the page's top-left,
- * y grows downward) — drawn as perfect-freehand outlines with the SAME
- * path function the server render uses (core/sketch.ts sketchStrokePath),
- * so what the learner sees is what the model sees.
+ * The web canvas (Android plan M1 + M3, infinite since M13c): an unbounded
+ * white plane the learner draws on with a pen, mouse or finger. Strokes are
+ * vector data — flat [x, y, pressure] in WORLD pixels (any origin, negatives
+ * included; zoom 1 = one CSS pixel) — drawn as perfect-freehand outlines with
+ * the SAME path function the server render uses (core/sketch.ts
+ * sketchStrokePath), so what the learner sees is what the model sees (the
+ * server then normalises the size to the writing, glyph-adaptive).
  *
- * The page scrolls: a viewport-sized canvas sticks to the top of a
- * scroller and redraws under the scroll offset (a page-tall canvas would
- * blow browsers' canvas size limits). The page always has room below the
- * lowest ink, up to SKETCH_PAGE_MAX_HEIGHT.
+ * The view (components/sketch/view-transform.ts) says which part of the plane
+ * the canvas shows. The pen keeps its width on SCREEN at any zoom (the world
+ * width is the chosen width over the zoom, clamped), so zooming in lets the
+ * learner write fine.
  *
- * Pen-only once a pen is seen (palm rejection for stylus users): after the
- * first pen stroke, touch is ignored and pans the page natively. Without
- * a pen one finger draws and two fingers pan. A mouse scrolls with the
- * wheel. The eraser (the pen's eraser end or button, or the toolbar's)
- * either cuts the part of a stroke it passes over ("pixel") or removes
- * whole strokes ("stroke"); strokes already submitted (the kept page,
- * drawn dimmed) are locked.
+ * Input (owner, M13c; modelled on how note apps do it — GoodNotes and
+ * Samsung Notes' zoom lock): a pen draws. Once a pen has been seen, one
+ * finger does nothing and a touch is ignored while the pen is down or has
+ * just been near (a resting palm); two fingers pan and pinch to zoom. Without
+ * a pen one finger draws and two fingers pan and zoom. A mouse: left draws,
+ * the middle button drags the page, the wheel pans, Ctrl+wheel (or a
+ * trackpad pinch) zooms. The eraser (the pen's eraser end or button, or the
+ * toolbar's) either cuts the part of a stroke it passes over ("pixel") or
+ * removes whole strokes ("stroke"); strokes already submitted (the kept page,
+ * drawn dimmed) are locked until the eraser first touches them (see
+ * ink-memory thawInk).
  */
 
 /** The default stroke diameter, CSS pixels (the pen's own is `pen.size`). */
 export const SKETCH_PEN_SIZE = DEFAULT_PEN.size;
 /** The eraser's default reach, CSS pixels. */
 export const SKETCH_ERASER_RADIUS = 10;
-/** The page never grows taller than this (the server's six pages of ≤ 2000 px). */
+/** The native (Android shell) page still scrolls and never grows taller than this. */
 export const SKETCH_PAGE_MAX_HEIGHT = 12000;
 /** Opacity of the kept (already submitted) strokes. */
 const KEPT_ALPHA = 0.45;
+/** A touch this soon after the pen was last near is a palm, not a finger. */
+const PALM_MS = 600;
+/** The zoom buttons' step. */
+const ZOOM_STEP = 1.25;
 
-/** The page's height: at least the viewport, and room below the lowest ink. */
+/** The native page's height: at least the viewport, and room below the lowest ink. */
 export function sketchPageHeight(viewHeight: number, lowestY: number): number {
 	return Math.min(SKETCH_PAGE_MAX_HEIGHT, Math.max(viewHeight, Math.ceil(lowestY + viewHeight * 0.6)));
 }
@@ -70,30 +81,34 @@ export function SketchCanvas({
 	/** The kept page: submitted strokes, dimmed and locked. */
 	kept?: readonly SketchStroke[];
 	tool?: SketchTool;
-	/** The pen's colour and width for the next stroke. */
+	/** The pen's colour and width (on screen) for the next stroke. */
 	brush?: PenSettings;
-	/** The eraser's mode and radius. */
+	/** The eraser's mode and radius (on screen). */
 	eraser?: EraserSettings;
-	/** A finished stroke (pointer up). */
+	/** A finished stroke (pointer up), its width already in world units. */
 	onStroke: (stroke: SketchStroke) => void;
 	/** One eraser gesture finished: indices into `strokes` it touched. */
 	onErase?: (indices: number[]) => void;
-	/** One pixel-eraser gesture finished: its path, flat [x, y, …] in page pixels. */
-	onCut?: (path: number[]) => void;
+	/** One pixel-eraser gesture finished: its path (flat [x, y, …], world) and the eraser's radius in world units. */
+	onCut?: (path: number[], radius: number) => void;
 }) {
-	const scrollerRef = useRef<HTMLDivElement>(null);
+	const wrapRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
-	// The gesture in progress. `rect` is read once at pointerdown (a layout
-	// read per sample would stall a 240 Hz pen); `erase` collects hit indices.
-	const live = useRef<{ pointerId: number; points: number[]; rect: DOMRect; erase: Set<number> | null } | null>(null);
+	// The gesture in progress. `erase` collects hit indices; `size` and `radius` are fixed at pointerdown, in
+	// world units, so a zoom mid-stroke cannot change them.
+	const live = useRef<{ pointerId: number; points: number[]; erase: Set<number> | null; size: number; radius: number } | null>(null);
 	const frame = useRef<number | null>(null);
 	const penSeen = useRef(false);
+	const penNearAt = useRef(0);
 	const [pen, setPen] = useState(false);
-	const scrollTop = useRef(0);
-	const [viewHeight, setViewHeight] = useState(0);
-	// Two-finger pan (touch without a pen): the fingers down, by pointer id.
-	const touches = useRef(new Map<number, number>());
-	const panning = useRef(false);
+	const view = useRef<SketchView>(HOME_VIEW);
+	const rect = useRef({ left: 0, top: 0, width: 0, height: 0 });
+	const fitted = useRef(false);
+	const [zoomPct, setZoomPct] = useState(100);
+	// Touch: the fingers down (canvas-relative), and the pinch they make.
+	const touches = useRef(new Map<number, { x: number; y: number }>());
+	const pinch = useRef<ReturnType<typeof pinchOf> | null>(null);
+	const drag = useRef<{ pointerId: number; x: number; y: number } | null>(null);
 	// Path2D per finished stroke — redraws stay cheap on a busy page.
 	const paths = useRef(new WeakMap<SketchStroke, Path2D>());
 	const strokesRef = useRef(strokes);
@@ -104,6 +119,8 @@ export function SketchCanvas({
 	brushRef.current = brush;
 	const eraserRef = useRef(eraser);
 	eraserRef.current = eraser;
+	const toolRef = useRef(tool);
+	toolRef.current = tool;
 
 	const pathOf = (s: SketchStroke): Path2D => {
 		let p = paths.current.get(s);
@@ -119,11 +136,12 @@ export function SketchCanvas({
 		const ctx = canvas?.getContext("2d");
 		if (!canvas || !ctx) return;
 		const dpr = window.devicePixelRatio || 1;
+		const v = view.current;
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.globalAlpha = 1;
 		ctx.fillStyle = "#ffffff";
 		ctx.fillRect(0, 0, canvas.width / dpr, canvas.height / dpr);
-		ctx.setTransform(dpr, 0, 0, dpr, 0, -scrollTop.current * dpr);
+		ctx.setTransform(dpr * v.zoom, 0, 0, dpr * v.zoom, -v.x * v.zoom * dpr, -v.y * v.zoom * dpr);
 		ctx.globalAlpha = KEPT_ALPHA;
 		for (const s of keptRef.current) {
 			ctx.fillStyle = s.color ?? SKETCH_INK;
@@ -131,11 +149,12 @@ export function SketchCanvas({
 		}
 		const hits = live.current?.erase;
 		// the pixel eraser shows its cut live: a touched stroke is drawn as its pieces
-		const cutPath = live.current?.erase && eraserRef.current.mode === "pixel" ? xyOf(live.current.points) : null;
+		const radius = live.current?.radius ?? 0;
+		const cutPath = live.current?.erase && eraserRef.current.mode === "pixel" ? thinPath(xyOf(live.current.points), radius / 4) : null;
 		strokesRef.current.forEach((s, i) => {
-			const pieces = cutPath ? sketchStrokeCut(s, cutPath, eraserRef.current.radius) : null;
-			// A stroke the stroke eraser is over fades until the gesture ends.
-			// sent ink being edited (thawed, marked `fresh: false`) stays dimmed like the kept page
+			const pieces = cutPath ? sketchStrokeCut(s, cutPath, radius) : null;
+			// sent ink being edited (thawed, marked `fresh: false`) stays dimmed like the kept page; a stroke the
+			// stroke eraser is over fades until the gesture ends
 			ctx.globalAlpha = s.fresh === false ? KEPT_ALPHA : hits?.has(i) && !cutPath ? 0.2 : 1;
 			ctx.fillStyle = s.color ?? SKETCH_INK;
 			if (pieces) for (const piece of pieces) ctx.fill(new Path2D(sketchStrokePath(piece)));
@@ -143,36 +162,13 @@ export function SketchCanvas({
 		});
 		ctx.globalAlpha = 1;
 		if (live.current && !live.current.erase && live.current.points.length >= 3) {
-			const live_ = penStroke(brushRef.current, live.current.points);
-			ctx.fillStyle = live_.color ?? SKETCH_INK;
-			ctx.fill(new Path2D(sketchStrokePath(live_)));
+			const l = penStroke({ color: brushRef.current.color, size: live.current.size }, live.current.points);
+			ctx.fillStyle = l.color ?? SKETCH_INK;
+			ctx.fill(new Path2D(sketchStrokePath(l)));
 		}
 	};
 
-	// Size the backing store to the viewport (and the screen's density).
-	useEffect(() => {
-		const scroller = scrollerRef.current;
-		const canvas = canvasRef.current;
-		if (!scroller || !canvas) return;
-		const fit = () => {
-			const dpr = window.devicePixelRatio || 1;
-			const { width, height } = scroller.getBoundingClientRect();
-			setViewHeight(Math.round(height));
-			canvas.width = Math.max(1, Math.round(width * dpr));
-			canvas.height = Math.max(1, Math.round(height * dpr));
-			draw();
-		};
-		fit();
-		const observer = new ResizeObserver(fit);
-		observer.observe(scroller);
-		return () => observer.disconnect();
-	}, []); // draw reads refs only
-
-	useEffect(draw, [strokes, kept]);
-	useEffect(() => () => {
-		if (frame.current !== null) cancelAnimationFrame(frame.current);
-	}, []);
-	/** At most one redraw per frame while the pen moves or the page scrolls. */
+	/** At most one redraw per frame while the pen moves or the view changes. */
 	const drawSoon = () => {
 		if (frame.current !== null) return;
 		frame.current = requestAnimationFrame(() => {
@@ -181,30 +177,72 @@ export function SketchCanvas({
 		});
 	};
 
-	const accepts = (e: React.PointerEvent) => {
-		if (e.pointerType === "pen" && !penSeen.current) {
-			penSeen.current = true;
-			setPen(true);
-		}
-		return !(penSeen.current && e.pointerType === "touch");
+	const setView = (next: SketchView) => {
+		view.current = next;
+		setZoomPct(Math.round(next.zoom * 100));
+		drawSoon();
 	};
 
-	const sample = (e: PointerEvent, rect: DOMRect, out: number[]) => {
+	// Size the backing store to the viewport (and the screen's density); open on the ink the first time.
+	useEffect(() => {
+		const wrap = wrapRef.current;
+		const canvas = canvasRef.current;
+		if (!wrap || !canvas) return;
+		const fit = () => {
+			const dpr = window.devicePixelRatio || 1;
+			const r = wrap.getBoundingClientRect();
+			rect.current = { left: r.left, top: r.top, width: r.width, height: r.height };
+			canvas.width = Math.max(1, Math.round(r.width * dpr));
+			canvas.height = Math.max(1, Math.round(r.height * dpr));
+			if (!fitted.current && r.width > 0 && r.height > 0) {
+				fitted.current = true;
+				view.current = fitInk([...keptRef.current, ...strokesRef.current].map((s) => s.points), r.width, r.height);
+				setZoomPct(Math.round(view.current.zoom * 100));
+			}
+			draw();
+		};
+		fit();
+		const observer = new ResizeObserver(fit);
+		observer.observe(wrap);
+		return () => observer.disconnect();
+	}, []); // draw reads refs only
+
+	useEffect(draw, [strokes, kept]);
+	useEffect(() => () => {
+		if (frame.current !== null) cancelAnimationFrame(frame.current);
+	}, []);
+
+	// The wheel pans; Ctrl+wheel (a trackpad pinch arrives so) zooms about the cursor. Not passive: the page must not scroll.
+	useEffect(() => {
+		const canvas = canvasRef.current;
+		if (!canvas) return;
+		const onWheel = (e: WheelEvent) => {
+			e.preventDefault();
+			const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? rect.current.height : 1;
+			if (e.ctrlKey) {
+				const r = canvas.getBoundingClientRect();
+				setView(zoomAbout(view.current, Math.exp(-e.deltaY * unit * 0.01), e.clientX - r.left, e.clientY - r.top));
+			} else {
+				setView(panBy(view.current, -e.deltaX * unit, -e.deltaY * unit));
+			}
+		};
+		canvas.addEventListener("wheel", onWheel, { passive: false });
+		return () => canvas.removeEventListener("wheel", onWheel);
+	}, []);
+
+	const sample = (e: PointerEvent, out: number[]) => {
 		// Mice and fingers report no real pressure: a steady middle value.
 		const pressure = e.pointerType === "pen" && e.pressure > 0 ? e.pressure : 0.5;
-		out.push(
-			Math.round((e.clientX - rect.left) * 10) / 10,
-			Math.round((e.clientY - rect.top + scrollTop.current) * 10) / 10,
-			Math.round(pressure * 100) / 100,
-		);
+		const w = toWorld(view.current, e.clientX - rect.current.left, e.clientY - rect.current.top);
+		out.push(Math.round(w.x * 10) / 10, Math.round(w.y * 10) / 10, Math.round(pressure * 100) / 100);
 	};
 
 	/** Mark the new strokes under the eraser's newest samples. */
-	const eraseAt = (points: number[], from: number, hits: Set<number>) => {
+	const eraseAt = (points: number[], from: number, hits: Set<number>, radius: number) => {
 		strokesRef.current.forEach((s, i) => {
 			if (hits.has(i)) return;
 			for (let k = from; k < points.length; k += 3) {
-				if (sketchStrokeHit(s, points[k]!, points[k + 1]!, eraserRef.current.radius)) {
+				if (sketchStrokeHit(s, points[k]!, points[k + 1]!, radius)) {
 					hits.add(i);
 					return;
 				}
@@ -212,93 +250,136 @@ export function SketchCanvas({
 		});
 	};
 
-	const pageHeight = sketchPageHeight(viewHeight, Math.max(lowestInk(kept), lowestInk(strokes)));
+	const local = (e: React.PointerEvent) => ({ x: e.clientX - rect.current.left, y: e.clientY - rect.current.top });
+	const firstTwo = () => {
+		const [a, b] = [...touches.current.values()];
+		return pinchOf(a!, b!);
+	};
+	const zoomBy = (factor: number) => setView(zoomAbout(view.current, factor, rect.current.width / 2, rect.current.height / 2));
 
 	return (
-		<div
-			ref={scrollerRef}
-			data-testid="sketch-scroller"
-			className="absolute inset-0 overflow-y-auto overscroll-contain"
-			onScroll={(e) => {
-				scrollTop.current = e.currentTarget.scrollTop;
-				drawSoon();
-			}}
-		>
-			<div style={{ height: pageHeight }}>
-				<canvas
-					ref={canvasRef}
-					data-testid="sketch-canvas"
-					data-tool={tool}
-					// A pen seen → touch pans the page natively; before that the
-					// canvas owns every gesture (two fingers pan by hand, below).
-					style={{ touchAction: pen ? "pan-y" : "none", height: viewHeight || "100%" }}
-					className={`sticky top-0 block w-full ${tool === "eraser" ? "cursor-cell" : "cursor-crosshair"}`}
-					onPointerDown={(e) => {
-						if (e.button !== 0 && e.button !== 5) return;
-						if (!accepts(e)) return;
-						e.preventDefault();
-						e.currentTarget.setPointerCapture(e.pointerId);
-						if (e.pointerType === "touch") {
-							touches.current.set(e.pointerId, e.clientY);
-							if (touches.current.size >= 2) {
-								// A second finger: the stroke the first began is a pan.
-								panning.current = true;
-								if (live.current) {
-									live.current = null;
-									draw();
-								}
-								return;
-							}
+		<div ref={wrapRef} data-testid="sketch-viewport" className="absolute inset-0 overflow-hidden overscroll-contain">
+			<canvas
+				ref={canvasRef}
+				data-testid="sketch-canvas"
+				data-tool={tool}
+				// JavaScript owns every gesture: there is no native scrolling on an infinite plane.
+				style={{ touchAction: "none" }}
+				className={`block size-full ${tool === "eraser" ? "cursor-cell" : "cursor-crosshair"}`}
+				onPointerDown={(e) => {
+					if (e.pointerType === "pen") {
+						penNearAt.current = performance.now();
+						if (!penSeen.current) {
+							penSeen.current = true;
+							setPen(true);
 						}
-						if (live.current || panning.current) return;
-						const points: number[] = [];
-						const rect = e.currentTarget.getBoundingClientRect();
-						sample(e.nativeEvent, rect, points);
-						// The toolbar's eraser, the pen's eraser end (button 5), or its
-						// eraser button (buttons bit 32).
-						const erase = tool === "eraser" || e.button === 5 || (e.buttons & 32) !== 0 ? new Set<number>() : null;
-						live.current = { pointerId: e.pointerId, points, rect, erase };
-						if (erase && eraserRef.current.mode === "stroke") eraseAt(points, 0, erase);
-						draw();
-					}}
-					onPointerMove={(e) => {
-						if (panning.current && touches.current.has(e.pointerId)) {
-							const prev = touches.current.get(e.pointerId)!;
-							touches.current.set(e.pointerId, e.clientY);
-							// Two fingers move together: each contributes half.
-							const scroller = scrollerRef.current;
-							if (scroller) scroller.scrollTop -= (e.clientY - prev) / touches.current.size;
+					}
+					const box = e.currentTarget.getBoundingClientRect();
+					rect.current = { left: box.left, top: box.top, width: box.width, height: box.height };
+					if (e.pointerType === "touch") {
+						// a palm beside the pen, or while it draws: not a finger
+						if (live.current || performance.now() - penNearAt.current < PALM_MS) return;
+						e.currentTarget.setPointerCapture(e.pointerId);
+						touches.current.set(e.pointerId, local(e));
+						if (touches.current.size >= 2) {
+							// a second finger: the stroke the first began was a pan/zoom after all
+							if (live.current) {
+								live.current = null;
+								draw();
+							}
+							pinch.current = firstTwo();
 							return;
 						}
-						if (!live.current || live.current.pointerId !== e.pointerId) return;
-						const native = e.nativeEvent;
-						const events = typeof native.getCoalescedEvents === "function" ? native.getCoalescedEvents() : [];
-						const from = live.current.points.length;
-						for (const ev of events.length > 0 ? events : [native]) sample(ev, live.current.rect, live.current.points);
-						if (live.current.erase && eraserRef.current.mode === "stroke") eraseAt(live.current.points, from, live.current.erase);
-						drawSoon();
-					}}
-					onPointerUp={(e) => {
-						touches.current.delete(e.pointerId);
-						if (touches.current.size === 0) panning.current = false;
-						if (!live.current || live.current.pointerId !== e.pointerId) return;
-						const { points, erase } = live.current;
-						live.current = null;
-						if (erase) {
-							if (eraserRef.current.mode === "pixel") onCut?.(xyOf(points));
-							else if (erase.size > 0) onErase?.([...erase]);
-							else draw();
-						} else onStroke(penStroke(brushRef.current, points));
-					}}
-					onPointerCancel={(e) => {
-						// The OS took the pointer (a palm, a gesture): drop the stroke.
-						touches.current.delete(e.pointerId);
-						if (touches.current.size === 0) panning.current = false;
-						if (!live.current || live.current.pointerId !== e.pointerId) return;
-						live.current = null;
-						draw();
-					}}
-				/>
+						if (penSeen.current) return; // with a pen about, one finger does nothing (no palm drags)
+					} else if (e.pointerType === "mouse" && e.button === 1) {
+						e.preventDefault();
+						e.currentTarget.setPointerCapture(e.pointerId);
+						drag.current = { pointerId: e.pointerId, ...local(e) };
+						return;
+					}
+					if (e.button !== 0 && e.button !== 5) return;
+					if (live.current || pinch.current) return;
+					e.preventDefault();
+					e.currentTarget.setPointerCapture(e.pointerId);
+					const points: number[] = [];
+					sample(e.nativeEvent, points);
+					// The toolbar's eraser, the pen's eraser end (button 5), or its eraser button (buttons bit 32).
+					const erasing = toolRef.current === "eraser" || e.button === 5 || (e.buttons & 32) !== 0;
+					const l = {
+						pointerId: e.pointerId,
+						points,
+						erase: erasing ? new Set<number>() : null,
+						size: penWorldSize(brushRef.current.size, view.current.zoom),
+						radius: eraserWorldRadius(eraserRef.current.radius, view.current.zoom),
+					};
+					live.current = l;
+					if (l.erase && eraserRef.current.mode === "stroke") eraseAt(points, 0, l.erase, l.radius);
+					draw();
+				}}
+				onPointerMove={(e) => {
+					if (e.pointerType === "pen") penNearAt.current = performance.now(); // hovering counts: the palm is near
+					if (drag.current && drag.current.pointerId === e.pointerId) {
+						const p = local(e);
+						setView(panBy(view.current, p.x - drag.current.x, p.y - drag.current.y));
+						drag.current = { pointerId: e.pointerId, ...p };
+						return;
+					}
+					if (touches.current.has(e.pointerId)) {
+						touches.current.set(e.pointerId, local(e));
+						if (pinch.current && touches.current.size >= 2) {
+							const next = firstTwo();
+							setView(pinchStep(view.current, pinch.current, next));
+							pinch.current = next;
+							return;
+						}
+					}
+					if (!live.current || live.current.pointerId !== e.pointerId) return;
+					const native = e.nativeEvent;
+					const events = typeof native.getCoalescedEvents === "function" ? native.getCoalescedEvents() : [];
+					const from = live.current.points.length;
+					for (const ev of events.length > 0 ? events : [native]) sample(ev, live.current.points);
+					if (live.current.erase && eraserRef.current.mode === "stroke") eraseAt(live.current.points, from, live.current.erase, live.current.radius);
+					drawSoon();
+				}}
+				onPointerUp={(e) => {
+					touches.current.delete(e.pointerId);
+					if (touches.current.size < 2) pinch.current = null;
+					if (drag.current?.pointerId === e.pointerId) drag.current = null;
+					if (!live.current || live.current.pointerId !== e.pointerId) return;
+					const { points, erase, size, radius } = live.current;
+					live.current = null;
+					if (erase) {
+						if (eraserRef.current.mode === "pixel") onCut?.(thinPath(xyOf(points), radius / 4), radius);
+						else if (erase.size > 0) onErase?.([...erase]);
+						else draw();
+					} else onStroke(penStroke({ color: brushRef.current.color, size }, points));
+				}}
+				onPointerCancel={(e) => {
+					// The OS took the pointer (a palm, a gesture): drop the stroke.
+					touches.current.delete(e.pointerId);
+					if (touches.current.size < 2) pinch.current = null;
+					if (drag.current?.pointerId === e.pointerId) drag.current = null;
+					if (!live.current || live.current.pointerId !== e.pointerId) return;
+					live.current = null;
+					draw();
+				}}
+			/>
+			<div className="pointer-events-none absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md border bg-background/90 p-0.5 text-xs shadow-sm" data-pen-seen={pen}>
+				<button type="button" data-testid="sketch-zoom-out" aria-label="Zoom out" onClick={() => zoomBy(1 / ZOOM_STEP)} className="lh-touch pointer-events-auto grid size-8 place-items-center rounded">
+					<MinusIcon className="size-4" />
+				</button>
+				<button
+					type="button"
+					data-testid="sketch-zoom-reset"
+					aria-label="Reset zoom"
+					onClick={() => setView(fitInk([...keptRef.current, ...strokesRef.current].map((s) => s.points), rect.current.width, rect.current.height))}
+					className="lh-touch pointer-events-auto h-8 min-w-12 rounded px-1 tabular-nums"
+				>
+					{zoomPct}%
+				</button>
+				<button type="button" data-testid="sketch-zoom-in" aria-label="Zoom in" onClick={() => zoomBy(ZOOM_STEP)} className="lh-touch pointer-events-auto grid size-8 place-items-center rounded">
+					<PlusIcon className="size-4" />
+				</button>
 			</div>
 		</div>
 	);

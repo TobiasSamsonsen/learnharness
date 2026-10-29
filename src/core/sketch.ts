@@ -43,6 +43,8 @@ const MIN_FIT_SCALE = 0.75;
  *  measured 2026-10-29, docs/android/m13-plan.md). */
 const FLOOR_GLYPH = 16;
 const COMFORT_GLYPH = 20;
+/** The most small writing is enlarged to reach COMFORT_GLYPH (the canvas zooms to 8×). */
+const MAX_GLYPH_UPSCALE = 8;
 /** Tiles a sketch spreads over before it shrinks further (one tile ≈ 5k
  *  visual tokens; the hard cap is SKETCH_MAX_PAGES). */
 const PREFERRED_PAGES = 3;
@@ -356,8 +358,10 @@ export function planSketch(payload: SketchPayload): SketchPagePlan[] {
 	// 1:1 canvas pixels read well; a tiny sketch is enlarged (≤ 2×) so its
 	// long edge reaches ~MIN_EDGE.
 	const long = Math.max(width, height);
-	const base = long < MIN_EDGE ? Math.min(MAX_UPSCALE, MIN_EDGE / long) : 1;
 	const glyph = glyphSize(strokes);
+	// Small WRITING (a canvas zoomed in while it was drawn: the pen's world size shrinks with the zoom) is
+	// enlarged until it reads comfortably; the render is vector, so this costs no sharpness.
+	const base = Math.max(long < MIN_EDGE ? Math.min(MAX_UPSCALE, MIN_EDGE / long) : 1, Math.min(MAX_GLYPH_UPSCALE, COMFORT_GLYPH / glyph));
 	const floor = Math.min(base, FLOOR_GLYPH / glyph);
 	const comfort = Math.min(base, COMFORT_GLYPH / glyph);
 	let scale = Math.min(base, SKETCH_MAX_EDGE / width, SKETCH_MAX_EDGE / height);

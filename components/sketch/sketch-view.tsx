@@ -153,15 +153,15 @@ export function SketchView({
 		if (state.strokes.length > 0) record(state, [], { kind: "clear", removed: state.strokes });
 	};
 	/** The pixel eraser: every stroke the path touched becomes its surviving pieces (one undo step). */
-	const cut = (path: number[]) => {
+	const cut = (path: number[], radius: number) => {
 		let state = readInk(inkKey);
 		// sent ink the eraser reaches is thawed into the working page first, then cut like the rest
-		if (kept && state.thawed === undefined && keptStatus === "ready" && kept.strokes.some((s) => sketchStrokeCut(s, path, eraser.radius))) {
+		if (kept && state.thawed === undefined && keptStatus === "ready" && kept.strokes.some((s) => sketchStrokeCut(s, path, radius))) {
 			state = thawInk(state, kept);
 		}
 		const changes: Extract<InkOp, { kind: "cut" }>["changes"] = [];
 		state.strokes.forEach((stroke, index) => {
-			const pieces = sketchStrokeCut(stroke, path, eraser.radius);
+			const pieces = sketchStrokeCut(stroke, path, radius);
 			if (pieces) changes.push({ index, stroke, pieces });
 		});
 		if (changes.length === 0) return;

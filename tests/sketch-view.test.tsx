@@ -33,6 +33,8 @@ Object.assign(globalThis, {
 		},
 	},
 	// The canvas needs a box observer and a 2D context; linkedom has neither.
+	requestAnimationFrame: (fn: () => void) => setTimeout(fn, 0) as unknown as number,
+	cancelAnimationFrame: (id: number) => clearTimeout(id),
 	ResizeObserver: class {
 		observe() {}
 		disconnect() {}
@@ -349,6 +351,19 @@ describe("pen and clear (M13b)", () => {
 		const after = applyOp(before, op);
 		assert.deepEqual(after, [a1, a2, b, d]);
 		assert.deepEqual(revertOp(after, op), before, "undo restores the strokes in their places");
+	});
+
+	it("the canvas has zoom buttons: in, out and reset, with the zoom shown", async () => {
+		await mount({ inkKey: "k-zoom", onSubmit: async () => true });
+		const label = () => document.querySelector('[data-testid="sketch-zoom-reset"]')!.textContent;
+		assert.equal(label(), "100%");
+		await click("sketch-zoom-in");
+		assert.equal(label(), "125%");
+		await click("sketch-zoom-out");
+		await click("sketch-zoom-out");
+		assert.equal(label(), "80%");
+		await click("sketch-zoom-reset");
+		assert.equal(label(), "100%", "reset goes home (no ink to fit)");
 	});
 
 	it("applyOp / revertOp handle a clear", () => {

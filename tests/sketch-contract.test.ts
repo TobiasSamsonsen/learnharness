@@ -155,6 +155,16 @@ describe("planSketch", () => {
 		assert.ok(plan[0]!.width <= SKETCH_MAX_EDGE);
 	});
 
+	it("enlarges small writing (drawn zoomed in) until a glyph reads at ~20 px, without ever passing the edge cap", () => {
+		// glyphs 3 px tall in world units: a canvas drawn at 8x zoom
+		const tiny = Array.from({ length: 40 }, (_, i) => line(i * 4, 0, i * 4 + 2.5, 3, 6, 0.5));
+		const [page] = planSketch(payload(tiny));
+		assert.equal(planSketch(payload(tiny)).length, 1);
+		const scale = page!.width / (viewBox(page!.svg)[2] ?? 1);
+		assert.ok(scale > 3 && scale <= 8.01, `scale ${scale}`);
+		assert.ok(page!.width <= SKETCH_MAX_EDGE && page!.height <= SKETCH_MAX_EDGE);
+	});
+
 	it("handles ink around a negative origin", () => {
 		const plan = planSketch(payload(writing(-5000, -3000, 10)));
 		assert.equal(plan.length, 1);

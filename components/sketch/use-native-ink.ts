@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { decodeShellLine, encodeInkOp, eraseHits, type NativeInkOp, type NativeInkRect, type NativeInkTool, type SketchStroke } from "@/src/core";
 import { SKETCH_ERASER_RADIUS } from "@/components/sketch/sketch-canvas";
+import { thinPath } from "@/components/sketch/view-transform";
 
 /**
  * The native ink surface, web side (Android plan M10, docs/android/m10-plan.md). In the Android shell
@@ -63,7 +64,7 @@ export interface NativeInkOptions {
 	onStroke: (stroke: SketchStroke) => void;
 	onErase: (indices: number[]) => void;
 	/** A pixel-eraser gesture: its path, flat [x, y, …]. */
-	onCut?: (path: number[]) => void;
+	onCut?: (path: number[], radius: number) => void;
 }
 
 export interface NativeInk {
@@ -154,7 +155,7 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 					break;
 				case "erase": {
 					if (o.eraser?.mode === "pixel" && o.onCut) {
-						o.onCut(shell.points);
+						o.onCut(thinPath(shell.points, o.eraser.radius / 4), o.eraser.radius);
 						break;
 					}
 					const hits = eraseHits(o.strokes, shell.points, o.eraser?.radius ?? SKETCH_ERASER_RADIUS);
