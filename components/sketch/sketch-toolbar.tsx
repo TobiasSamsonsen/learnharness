@@ -63,6 +63,8 @@ export interface SketchToolbarProps {
 	eraser: EraserSettings;
 	background: SketchBackground;
 	tone: SheetTone;
+	/** The ruler is on (M16c). */
+	ruler: boolean;
 	canUndo: boolean;
 	canRedo: boolean;
 	canClear: boolean;
@@ -82,6 +84,7 @@ export interface SketchToolbarProps {
 	onEraser: (next: EraserSettings) => void;
 	onBackground: (next: SketchBackground) => void;
 	onToggleTone: () => void;
+	onRuler: (on: boolean) => void;
 	onClose: () => void;
 	onUndo: () => void;
 	onRedo: () => void;
@@ -315,6 +318,19 @@ export function SketchToolbar(p: SketchToolbarProps) {
 									>
 										{p.tone === "dark" ? <MoonIcon className="size-4" /> : <SunIcon className="size-4" />}
 										{p.tone === "dark" ? "Dark" : "Light"}
+									</button>
+								</PanelSection>
+								<PanelSection title="Ruler">
+									<button
+										type="button"
+										role="switch"
+										data-testid="sketch-ruler"
+										aria-checked={p.ruler}
+										aria-label="Ruler"
+										onClick={() => p.onRuler(!p.ruler)}
+										className={cn("lh-touch shrink-0 rounded-full px-3 text-xs font-medium", p.ruler ? "bg-accent" : "text-muted-foreground")}
+									>
+										Ruler: {p.ruler ? "on" : "off"}
 									</button>
 								</PanelSection>
 								<PanelSection title="Bar">

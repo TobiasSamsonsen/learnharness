@@ -8,6 +8,7 @@ import { displayInk, SHEET_COLOR, type SheetTone } from "@/components/sketch/ske
 import { ZoomControls } from "@/components/sketch/zoom-controls";
 import { notePenNear } from "@/components/sketch/palm-guard";
 import { liftTap, moveTap, startTap, type TapTracker } from "@/components/sketch/tap-gesture";
+import { dist, HOLD_MS, isHeld, linePoints, MIN_LINE_PX, snapAngle } from "@/components/sketch/straight-line";
 import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, penWorldSize, pinchOf, pinchStep, thinPath, toWorld, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
 
 /**
@@ -80,6 +81,7 @@ export function SketchCanvas({
 	onErase,
 	onCut,
 	onTwoFingerTap,
+	onViewChange,
 	}: {
 	/** The unsent ink (editable). */
 	strokes: readonly SketchStroke[];
@@ -102,12 +104,17 @@ export function SketchCanvas({
 	onCut?: (path: number[], radius: number) => void;
 	/** Two fingers tapped together (M16b): undo, as in the note apps. */
 	onTwoFingerTap?: () => void;
+	/** The view changed (pan, zoom, the first fit): the ruler overlay follows it. */
+	onViewChange?: (view: SketchView) => void;
 	}) {
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	// The gesture in progress. `erase` collects hit indices; `size` and `radius` are fixed at pointerdown, in
 	// world units, so a zoom mid-stroke cannot change them.
-	const live = useRef<{ pointerId: number; pointerType: string; points: number[]; erase: Set<number> | null; size: number; radius: number } | null>(null);
+	const live = useRef<{ pointerId: number; pointerType: string; points: number[]; erase: Set<number> | null; size: number; radius: number; straight: boolean } | null>(null);
+	// Hold to straighten (M16c): where the pen has been (screen px, with times) and the timer that checks it stayed put
+	const holdSamples = useRef<{ x: number; y: number; t: number }[]>([]);
+	const holdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	const frame = useRef<number | null>(null);
 	const penSeen = useRef(false);
 	const penNearAt = useRef(0);
@@ -126,6 +133,8 @@ export function SketchCanvas({
 	const spaceDown = useRef(false);
 	const onTwoFingerTapRef = useRef(onTwoFingerTap);
 	onTwoFingerTapRef.current = onTwoFingerTap;
+	const onViewChangeRef = useRef(onViewChange);
+	onViewChangeRef.current = onViewChange;
 	// Path2D per finished stroke — redraws stay cheap on a busy page.
 	const paths = useRef(new WeakMap<SketchStroke, Path2D>());
 	const strokesRef = useRef(strokes);
@@ -226,9 +235,10 @@ export function SketchCanvas({
 	};
 
 	const setView = (next: SketchView) => {
-		view.current = next;
-		setZoomPct(Math.round(next.zoom * 100));
-		drawSoon();
+	view.current = next;
+	setZoomPct(Math.round(next.zoom * 100));
+	onViewChangeRef.current?.(next);
+	drawSoon();
 	};
 
 	// Size the backing store to the viewport (and the screen's density); open on the ink the first time.
@@ -246,6 +256,7 @@ export function SketchCanvas({
 				fitted.current = true;
 				view.current = fitInk([...keptRef.current, ...strokesRef.current].map((s) => s.points), r.width, r.height);
 				setZoomPct(Math.round(view.current.zoom * 100));
+				onViewChangeRef.current?.(view.current);
 			}
 			draw();
 		};
@@ -307,6 +318,28 @@ export function SketchCanvas({
 		return () => canvas.removeEventListener("wheel", onWheel);
 	}, []);
 
+	const armHold = () => {
+	clearTimeout(holdTimer.current);
+	holdTimer.current = setTimeout(checkHold, HOLD_MS);
+	};
+	const disarmHold = () => {
+	clearTimeout(holdTimer.current);
+	holdTimer.current = undefined;
+	holdSamples.current = [];
+	};
+	/** The pen has been still for a while: if it is mid-stroke and long enough, the stroke becomes a straight line (and follows the pen from here). */
+	const checkHold = () => {
+	const l = live.current;
+	if (!l || l.erase || l.straight || l.points.length < 6) return;
+	if (!isHeld(holdSamples.current, performance.now())) return;
+	const first = { x: l.points[0]!, y: l.points[1]! };
+	const last = { x: l.points[l.points.length - 3]!, y: l.points[l.points.length - 2]! };
+	if (dist(first, last) * view.current.zoom < MIN_LINE_PX) return;
+	l.straight = true;
+	l.points = linePoints(first, snapAngle(first, last));
+	if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate(8);
+	draw();
+	};
 	const sample = (e: PointerEvent, out: number[]) => {
 		// Mice and fingers report no real pressure: a steady middle value.
 		const pressure = e.pointerType === "pen" && e.pressure > 0 ? e.pressure : 0.5;
@@ -396,8 +429,13 @@ export function SketchCanvas({
 						erase: erasing ? new Set<number>() : null,
 						size: penWorldSize(brushRef.current.size, view.current.zoom),
 						radius: eraserWorldRadius(eraserRef.current.radius, view.current.zoom),
-					};
-					live.current = l;
+						straight: false,
+						};
+						live.current = l;
+						if (!erasing) {
+						holdSamples.current = [{ ...local(e), t: performance.now() }];
+						armHold();
+						}
 					if (l.erase && eraserRef.current.mode === "stroke") eraseAt(points, 0, l.erase, l.radius);
 					draw();
 				}}
@@ -431,6 +469,17 @@ export function SketchCanvas({
 					const events = typeof native.getCoalescedEvents === "function" ? native.getCoalescedEvents() : [];
 					const from = live.current.points.length;
 					for (const ev of events.length > 0 ? events : [native]) sample(ev, live.current.points);
+					if (!live.current.erase) {
+					holdSamples.current.push({ ...local(e), t: performance.now() });
+					if (holdSamples.current.length > 64) holdSamples.current.splice(0, holdSamples.current.length - 64);
+					if (live.current.straight) {
+					// a held line follows the pen: from the first point to wherever it is now, the angle snapped
+					const pts = live.current.points;
+					const first = { x: pts[0]!, y: pts[1]! };
+					const now = { x: pts[pts.length - 3]!, y: pts[pts.length - 2]! };
+					live.current.points = linePoints(first, snapAngle(first, now));
+					} else armHold();
+					}
 					if (live.current.erase && eraserRef.current.mode === "stroke") eraseAt(live.current.points, from, live.current.erase, live.current.radius);
 					drawSoon();
 				}}
@@ -446,6 +495,7 @@ export function SketchCanvas({
 					if (!live.current || live.current.pointerId !== e.pointerId) return;
 					const { points, erase, size, radius } = live.current;
 					live.current = null;
+					disarmHold();
 					if (erase) {
 						if (eraserRef.current.mode === "pixel") onCut?.(thinPath(xyOf(points), radius / 4), radius);
 						else if (erase.size > 0) onErase?.([...erase]);
@@ -466,8 +516,9 @@ export function SketchCanvas({
 					if (drag.current?.pointerId === e.pointerId) drag.current = null;
 					if (!live.current || live.current.pointerId !== e.pointerId) return;
 					live.current = null;
+					disarmHold();
 					draw();
-				}}
+					}}
 			/>
 			<ZoomControls
 				zoomPct={zoomPct}

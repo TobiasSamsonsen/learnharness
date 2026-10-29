@@ -661,3 +661,121 @@ describe("two-finger tap and Space pan (M16)", () => {
 		assert.equal(readInk("k-space").strokes.length, 1, "no Space: the drag draws");
 	});
 });
+
+describe("hold to straighten (M16c)", () => {
+	const setup = async (key: string) => {
+		const proto = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>;
+		proto.setPointerCapture = () => {};
+		proto.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 600, width: 400, height: 600, x: 0, y: 0 });
+		await mount({ inkKey: key, onSubmit: async () => true });
+		const canvas = document.querySelector('[data-testid="sketch-canvas"]')!;
+		const mouse = (type: string, x: number, y: number) =>
+			act(async () => {
+				canvas.dispatchEvent(Object.assign(new dom.window.Event(type, { bubbles: true, cancelable: true }), { pointerId: 5, pointerType: "mouse", clientX: x, clientY: y, button: 0, buttons: 1, pressure: 0.5 }));
+			});
+		return { mouse };
+	};
+	const wait = (ms: number) => act(async () => await new Promise((r) => setTimeout(r, ms)));
+
+	it("a stroke held still at its end becomes a straight line, the angle snapped", async () => {
+		const { mouse } = await setup("k-hold");
+		await mouse("pointerdown", 100, 100);
+		await mouse("pointermove", 150, 101);
+		await mouse("pointermove", 200, 104);
+		await wait(650); // hold
+		await mouse("pointerup", 200, 104);
+		const strokes = readInk("k-hold").strokes;
+		assert.equal(strokes.length, 1);
+		const ys = strokes[0]!.points.filter((_, i) => i % 3 === 1);
+		assert.ok(ys.every((y) => Math.abs(y - ys[0]!) < 1e-6), "every point is on the horizontal line");
+		assert.ok(strokes[0]!.points.length / 3 > 10, "written as a line of evenly spaced points");
+	});
+
+	it("a stroke that keeps moving, or is lifted at once, stays as drawn", async () => {
+		const { mouse } = await setup("k-nohold");
+		await mouse("pointerdown", 100, 100);
+		await mouse("pointermove", 150, 130);
+		await mouse("pointermove", 200, 104);
+		await mouse("pointerup", 200, 104);
+		await wait(650);
+		const points = readInk("k-nohold").strokes[0]!.points;
+		assert.equal(points.length / 3, 3, "the three points drawn, nothing replaced");
+	});
+
+	it("a held line follows the pen from then on", async () => {
+		const { mouse } = await setup("k-follow");
+		await mouse("pointerdown", 100, 100);
+		await mouse("pointermove", 200, 100);
+		await wait(650);
+		await mouse("pointermove", 200, 200); // still held: the line swings to the new end (a 45 degree snap)
+		await mouse("pointerup", 200, 200);
+		const p = readInk("k-follow").strokes[0]!.points;
+		const last = { x: p[p.length - 3]!, y: p[p.length - 2]! };
+		assert.ok(Math.abs(last.x - 200) < 1e-6 && Math.abs(last.y - 200) < 1e-6, `ends at the pen (${last.x}, ${last.y})`);
+		for (let i = 0; i < p.length; i += 3) assert.ok(Math.abs(p[i]! - 100 - (p[i + 1]! - 100)) < 1e-6, "on the 45 degree line from the start");
+	});
+});
+
+describe("the ruler (M16c)", () => {
+	const setup = async (key: string) => {
+		localStorage.removeItem("lh:sketch-ruler");
+		const proto = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>;
+		proto.setPointerCapture = () => {};
+		proto.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 600, width: 400, height: 600, x: 0, y: 0 });
+		await mount({ inkKey: key, onSubmit: async () => true });
+		const canvas = document.querySelector('[data-testid="sketch-canvas"]')!;
+		const mouse = (type: string, x: number, y: number) =>
+			act(async () => {
+				canvas.dispatchEvent(Object.assign(new dom.window.Event(type, { bubbles: true, cancelable: true }), { pointerId: 7, pointerType: "mouse", clientX: x, clientY: y, button: 0, buttons: 1, pressure: 0.5 }));
+			});
+		const click = (id: string) =>
+			act(async () => {
+				document.querySelector(`[data-testid="${id}"]`)!.dispatchEvent(new dom.window.Event("click", { bubbles: true, cancelable: true }));
+			});
+		const drawLine = async (x0: number, y0: number, x1: number, y1: number) => {
+			await mouse("pointerdown", x0, y0);
+			await mouse("pointermove", (x0 + x1) / 2, (y0 + y1) / 2);
+			await mouse("pointermove", x1, y1);
+			await mouse("pointerup", x1, y1);
+		};
+		return { click, drawLine };
+	};
+	const has = (id: string) => document.querySelector(`[data-testid="${id}"]`) !== null;
+
+	it("is off at first; the menu switch and the R key bring it up and take it away, and the choice is remembered", async () => {
+		const { click } = await setup("k-ruler-on");
+		assert.ok(!has("sketch-ruler"));
+		await click("sketch-more");
+		await click("sketch-ruler");
+		assert.ok(has("sketch-ruler-body") && has("sketch-ruler-end-a") && has("sketch-ruler-end-b"));
+		assert.ok(document.querySelector('[data-testid="sketch-ruler-body"]')!.hasAttribute("data-ink-hole"), "a touch hole for the native layer");
+		assert.equal(localStorage.getItem("lh:sketch-ruler"), "on");
+		await key({ key: "r" });
+		assert.ok(!has("sketch-ruler-body"));
+		assert.equal(localStorage.getItem("lh:sketch-ruler"), "off");
+		await key({ key: "r" });
+		assert.ok(has("sketch-ruler-body"));
+		localStorage.removeItem("lh:sketch-ruler");
+	});
+
+	it("straightens a stroke drawn beside its edge onto the edge, and leaves one drawn elsewhere", async () => {
+		const { click, drawLine } = await setup("k-ruler-snap");
+		await click("sketch-more");
+		await click("sketch-ruler"); // placed across the middle: y = 300, from x = 80 to 320; its top edge is y = 282
+		await drawLine(100, 270, 250, 273);
+		const first = readInk("k-ruler-snap").strokes[0]!;
+		const ys = first.points.filter((_, i) => i % 3 === 1);
+		assert.ok(ys.every((y) => Math.abs(y - 282) < 1e-6), `on the top edge, got ${ys.slice(0, 3).join(", ")}`);
+		assert.ok(Math.abs(first.points[0]! - 100) < 1e-6 && Math.abs(first.points[first.points.length - 3]! - 250) < 1e-6, "from where it started to where it ended");
+		await drawLine(100, 450, 250, 460); // far from the ruler
+		const second = readInk("k-ruler-snap").strokes[1]!;
+		assert.equal(second.points.length / 3, 3, "left as drawn");
+		localStorage.removeItem("lh:sketch-ruler");
+	});
+
+	it("does nothing to strokes while the ruler is off", async () => {
+		const { drawLine } = await setup("k-ruler-off");
+		await drawLine(100, 270, 250, 273);
+		assert.equal(readInk("k-ruler-off").strokes[0]!.points.length / 3, 3);
+	});
+});
