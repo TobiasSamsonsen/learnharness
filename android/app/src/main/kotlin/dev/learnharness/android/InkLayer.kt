@@ -176,14 +176,17 @@ var paper = Color.WHITE
 
 	private fun toInk(s: InkWire.Stroke): Stroke? = try {
 		val color = InkSheet.displayColor(s.color, dark)
-		val brush = Brush.createWithColorIntArgb(StockBrushes.pressurePen(), color, s.size, 0.1f)
+		// the mesh tolerance is in page px, so it shows as facets when zoomed in: 0.03 stays under a device pixel up to 8x
+		val brush = Brush.createWithColorIntArgb(StockBrushes.pressurePen(), color, s.size, EPSILON)
 		val batch = MutableStrokeInputBatch()
 		var t = 0L
 		var i = 0
-		while (i + 2 < s.points.size) {
-			batch.add(InputToolType.STYLUS, s.points[i], s.points[i + 1], t, StrokeInput.NO_STROKE_UNIT_LENGTH, s.points[i + 2].coerceIn(0f, 1f))
-			t += 8
-			i += 3
+		// a curve through the sparse touch samples, so the stroke is round at any zoom (display only, see InkSmooth)
+		val pts = InkSmooth.densify(s.points)
+		while (i + 2 < pts.size) {
+		batch.add(InputToolType.STYLUS, pts[i], pts[i + 1], t, StrokeInput.NO_STROKE_UNIT_LENGTH, pts[i + 2].coerceIn(0f, 1f))
+		t += 8
+		i += 3
 		}
 		Stroke(brush, batch)
 	} catch (_: RuntimeException) {
@@ -195,7 +198,9 @@ var paper = Color.WHITE
 		const val KEPT_ALPHA = 0.45f
 		/** The strokes the stroke eraser is over (the web canvas fades them to 0.2 too). */
 		const val FADE_ALPHA = 0.2f
-	}
+		/** The finished strokes' mesh tolerance, page px (it was 0.1: visible as facets at high zoom). */
+		const val EPSILON = 0.03f
+		}
 }
 
 /** What the layer reports (the web decides what to do with it). */
