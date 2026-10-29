@@ -7,7 +7,7 @@ Status: **Approved by the owner 2026-10-29. M16a and M16b built (see STATUS.md);
 | Question | Answer |
 | --- | --- |
 | Scope | All four bundles: UX polish, toolbar and gestures, drawing aids, Android stylus and stroke look |
-| Straight lines | **Hold to straighten, plus a ruler tool** |
+| Straight lines | **Hold to straighten, plus a ruler tool** (the ruler was dropped later the same day, see below) |
 | Highlighter | **No** |
 | Stroke look on Android | **Android draws like the model's image** (the same perfect-freehand outline the server renders) |
 | Toolbars | **Manual collapse, remembered, plus an "auto-hide while drawing" switch** (off by default) |
@@ -39,7 +39,7 @@ Status: **Approved by the owner 2026-10-29. M16a and M16b built (see STATUS.md);
 
 **M16c, drawing aids.**
 - *Hold to straighten:* at the end of a stroke, holding the pen still for about 0.5 s (less than 4 px of movement) replaces the stroke by a straight line from its start to its end. A line within 5 degrees of horizontal, vertical or 45 degrees snaps to it. One undo step; a short flash confirms. The native live preview shows the freehand stroke until the pen lifts and the web then swaps in the straight line (the web owns the strokes).
-- *Ruler tool:* a toolbar tool that shows a ruler on the canvas, dragged with one finger or the pen, rotated with two fingers or the handle, with an angle readout. It is drawn in the UI only and never sent (like the paper). A stroke that starts within about 24 px of its edge and runs mostly along it becomes a straight segment on the edge when the pen lifts (the same post-lift swap as straighten, so it behaves the same on the web and the native path).
+- *Ruler tool: built, then REMOVED (owner, 2026-10-29: "the ruler is not necessary, this is not supposed to be a note app, but just sketching for doing the questions you get").* The scope rule going forward: only what helps answering a question by sketch.
 
 **M16d, Android stylus and stroke look (Kotlin).**
 - Palm rejection also honours `FLAG_CANCELED`; the barrel button and a double press of the S Pen button toggle the eraser; a hover preview on the native layer.

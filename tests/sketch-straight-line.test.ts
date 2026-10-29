@@ -1,8 +1,8 @@
-/** Straight lines (M16c): the snap, the line a held stroke becomes, the hold rule and the ruler's snap. */
+/** Straight lines (M16c): the snap, the line a held stroke becomes and the hold rule. */
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ANGLE_SNAP_DEG, dist, HOLD_MS, HOLD_RADIUS, isHeld, linePoints, MIN_LINE_PX, RULER_THICKNESS, rulerSnap, snapAngle, straightenStroke } from "../components/sketch/straight-line.ts";
+import { ANGLE_SNAP_DEG, HOLD_MS, HOLD_RADIUS, isHeld, linePoints, snapAngle, straightenStroke } from "../components/sketch/straight-line.ts";
 import type { SketchStroke } from "../src/core";
 
 const near = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps, `${a} is not ${b}`);
@@ -87,82 +87,5 @@ describe("isHeld", () => {
 	assert.equal(isHeld([], 1000), false);
 	assert.equal(isHeld([at(0, 0, 0)], HOLD_MS + 1), true);
 	assert.equal(isHeld([at(0, 0, 0)], 100), false);
-	});
-});
-
-describe("the ruler", () => {
-	// a horizontal ruler from (100, 200) to (400, 200); its top edge is at y = 200 - 18, its bottom edge at 200 + 18
-	const ruler = { a: { x: 100, y: 200 }, b: { x: 400, y: 200 } };
-	const half = RULER_THICKNESS / 2;
-
-	it("draws a stroke along the edge it started beside onto that edge", () => {
-		const above = [
-			{ x: 150, y: 200 - half - 6 },
-			{ x: 220, y: 200 - half - 9 },
-			{ x: 300, y: 200 - half - 4 },
-		];
-		const [p, q] = rulerSnap(above, ruler)!;
-		near(p.x, 150);
-		near(q.x, 300);
-		near(p.y, 200 - half);
-		near(q.y, 200 - half);
-		const below = [
-			{ x: 150, y: 200 + half + 6 },
-			{ x: 300, y: 200 + half + 8 },
-		];
-		const [r, s] = rulerSnap(below, ruler)!;
-		near(r.y, 200 + half);
-		near(s.y, 200 + half);
-	});
-
-	it("keeps the line on the ruler: ends beyond it are clamped to its ends", () => {
-		const long = [
-			{ x: 60, y: 200 - half - 5 },
-			{ x: 440, y: 200 - half - 5 },
-		];
-		assert.equal(rulerSnap(long, ruler), null, "starting past the end is not along the ruler");
-		const over = [
-			{ x: 120, y: 200 - half - 5 },
-			{ x: 440, y: 200 - half - 5 },
-		];
-		const [, q] = rulerSnap(over, ruler)!;
-		near(q.x, 400, 1e-6);
-	});
-
-	it("works for a tilted ruler: the edge follows the angle", () => {
-		const tilted = { a: { x: 0, y: 0 }, b: { x: 300, y: 300 } };
-		const n = { x: -Math.SQRT1_2, y: Math.SQRT1_2 }; // the normal
-		const start = { x: 50 + n.x * (half + 6), y: 50 + n.y * (half + 6) };
-		const end = { x: 200 + n.x * (half + 6), y: 200 + n.y * (half + 6) };
-		const [p, q] = rulerSnap([start, end], tilted)!;
-		near(dist(p, q), 150 * Math.SQRT2, 1e-6);
-		near((q.y - p.y) / (q.x - p.x), 1, 1e-9);
-	});
-
-	it("leaves a stroke that is far away, wanders, crosses, or is too short", () => {
-		const far = [
-			{ x: 150, y: 100 },
-			{ x: 300, y: 100 },
-		];
-		assert.equal(rulerSnap(far, ruler), null, "too far from the edge");
-		const wavy = [
-			{ x: 150, y: 150 },
-			{ x: 200, y: 135 },
-			{ x: 250, y: 150 },
-			{ x: 300, y: 128 },
-		];
-		assert.equal(rulerSnap(wavy, ruler), null, "wanders off the run");
-		const crossing = [
-			{ x: 250, y: 150 },
-			{ x: 250, y: 250 },
-		];
-		assert.equal(rulerSnap(crossing, ruler), null, "runs across, not along");
-		const tick = [
-			{ x: 250, y: 160 },
-			{ x: 250 + MIN_LINE_PX - 2, y: 160 },
-		];
-		assert.equal(rulerSnap(tick, ruler), null, "too short");
-		assert.equal(rulerSnap([{ x: 250, y: 160 }], ruler), null);
-		assert.equal(rulerSnap(tick, { a: { x: 5, y: 5 }, b: { x: 5, y: 5 } }), null, "a ruler with no length");
 	});
 });

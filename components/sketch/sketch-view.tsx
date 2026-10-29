@@ -10,12 +10,9 @@ import { ZoomControls } from "@/components/sketch/zoom-controls";
 import { loadTone, saveTone, type SheetTone } from "@/components/sketch/sketch-sheet";
 import { backgroundCss, loadBackground, nextBackground, saveBackground, type SketchBackground } from "@/components/sketch/sketch-background";
 import { SketchToolbar, usePenDown, type SketchPanel } from "@/components/sketch/sketch-toolbar";
-import { SketchRuler } from "@/components/sketch/sketch-ruler";
-import { linePoints, rulerSnap, type Ruler } from "@/components/sketch/straight-line";
-import { HOME_VIEW, toScreen, toWorld, type SketchView } from "@/components/sketch/view-transform";
 import { limitShare, sketchStatus, submitBlockReason } from "@/components/sketch/sketch-status";
 import { useNativeInk } from "@/components/sketch/use-native-ink";
-import { loadEraser, loadPen, loadRulerOn, loadToolbar, saveEraser, savePen, saveRulerOn, saveToolbar, SKETCH_COLORS, SKETCH_WIDTHS, type EraserSettings, type PenSettings, type ToolbarPrefs } from "@/components/sketch/pen-settings";
+import { loadEraser, loadPen, loadToolbar, saveEraser, savePen, saveToolbar, SKETCH_COLORS, SKETCH_WIDTHS, type EraserSettings, type PenSettings, type ToolbarPrefs } from "@/components/sketch/pen-settings";
 import { applyOp, hasNewInk, pagePayload, readInk, revertOp, sendPage, thawInk, useInk, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
 import { cn } from "@/lib/utils";
 import { SketchPayloadError, sketchStrokeCut, type SketchPayload } from "@/src/core";
@@ -132,11 +129,7 @@ export function SketchView({
 		saveToolbar(next);
 	};
 	const [panel, setPanel] = useState<SketchPanel>(null);
-	// The ruler (M16c): in world coordinates, so it follows pan and zoom; the canvas reports its view, the native layer has its own
-	const [rulerOn, setRulerOnState] = useState(loadRulerOn);
-	const [ruler, setRuler] = useState<Ruler | null>(null);
-	const [webView, setWebView] = useState<SketchView>(HOME_VIEW);
-	const drawing = usePenDown();
+		const drawing = usePenDown();
 	// the options panel belongs to its tool: another tool (the E key, say) takes it away
 	useEffect(() => setPanel((p) => ((p === "pen" || p === "eraser") && p !== tool ? null : p)), [tool]);
 	const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -165,9 +158,8 @@ export function SketchView({
 		if (!op) return;
 		setInk({ ...state, strokes: applyOp(state.strokes, op), undo: [...state.undo, op], redo: state.redo.slice(0, -1) });
 	};
-	const addStroke = (drawn: InkState["strokes"][number]) => {
+	const addStroke = (stroke: InkState["strokes"][number]) => {
 	const state = readInk(inkKey);
-	const stroke = onRuler(drawn);
 	record(state, [...state.strokes, stroke], { kind: "add", stroke });
 	};
 	const clear = () => {
@@ -198,38 +190,6 @@ export function SketchView({
 	};
 	// The Android shell's native ink layer, when the setting is on (owner, M10): it draws under the transparent page
 	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: ink.strokes, kept: ink.thawed === undefined ? kept?.strokes : undefined, tool, pen, tone, eraser, onStroke: addStroke, onErase: erase, onCut: cut });
-	const viewNow: SketchView = native.active ? native.view : webView;
-	const viewRef = useRef(viewNow);
-	viewRef.current = viewNow;
-	const rulerRef = useRef(ruler);
-	rulerRef.current = ruler;
-	const rulerOnRef = useRef(rulerOn);
-	rulerOnRef.current = rulerOn;
-	/** A stroke drawn along the ruler's edge goes onto it as a straight line; any other stroke is left as drawn. */
-	function onRuler(stroke: InkState["strokes"][number]): InkState["strokes"][number] {
-	const r = rulerRef.current;
-	if (!rulerOnRef.current || !r) return stroke;
-	const view = viewRef.current;
-	const pts: { x: number; y: number }[] = [];
-	for (let i = 0; i + 2 < stroke.points.length; i += 3) pts.push(toScreen(view, stroke.points[i]!, stroke.points[i + 1]!));
-	const ends = rulerSnap(pts, { a: toScreen(view, r.a.x, r.a.y), b: toScreen(view, r.b.x, r.b.y) });
-	if (!ends) return stroke;
-	const from = toWorld(view, ends[0].x, ends[0].y);
-	const to = toWorld(view, ends[1].x, ends[1].y);
-	return { ...stroke, points: linePoints(from, to) };
-	}
-	const setRulerOn = (on: boolean) => {
-	setRulerOnState(on);
-	saveRulerOn(on);
-	};
-	// switched on with no ruler yet: it appears across the middle of the page
-	useEffect(() => {
-	if (!rulerOn || rulerRef.current) return;
-	const box = canvasRef.current?.getBoundingClientRect();
-	const w = box?.width || 400;
-	const h = box?.height || 600;
-	setRuler({ a: toWorld(viewRef.current, w * 0.2, h * 0.5), b: toWorld(viewRef.current, w * 0.8, h * 0.5) });
-	}, [rulerOn]);
 	// Submit has been pressed on a quiz answer: the confidence buttons stand in for it until one is pressed
 	const [asking, setAsking] = useState(false);
 	const submit = (confidenceIndex?: number) => {
@@ -267,9 +227,8 @@ export function SketchView({
 		const c = SKETCH_COLORS[i];
 		if (c) setPen({ ...pen, color: c.value });
 	};
-	const toggleRuler = () => setRulerOn(!rulerOn);
-	const handlers = useRef({ toggleRuler, undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, stepWidth, cycleBackground, confirmOpen: confirmClear, cancelConfirm: () => setConfirmClear(false), panelOpen: panel !== null, closePanel: () => setPanel(null) });
-	handlers.current = { toggleRuler, undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, stepWidth, cycleBackground, confirmOpen: confirmClear, cancelConfirm: () => setConfirmClear(false), panelOpen: panel !== null, closePanel: () => setPanel(null) };
+	const handlers = useRef({ undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, stepWidth, cycleBackground, confirmOpen: confirmClear, cancelConfirm: () => setConfirmClear(false), panelOpen: panel !== null, closePanel: () => setPanel(null) });
+	handlers.current = { undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, stepWidth, cycleBackground, confirmOpen: confirmClear, cancelConfirm: () => setConfirmClear(false), panelOpen: panel !== null, closePanel: () => setPanel(null) };
 	// drawing on, or the answer changing under the page, puts Submit back
 	const strokeCount = ink.strokes.length;
 	useEffect(() => setAsking(false), [strokeCount, blocked, disabled, confidenceLevels]);
@@ -291,12 +250,11 @@ export function SketchView({
 			} else if (mod && e.key.toLowerCase() === "z") {
 				if (e.shiftKey) h.redo();
 				else h.undo();
-			} else if (!mod && !e.altKey && !e.shiftKey && /^[egrEGR1-5[\]]$/.test(e.key) && !isEditable(e.target)) {
+			} else if (!mod && !e.altKey && !e.shiftKey && /^[egEG1-5[\]]$/.test(e.key) && !isEditable(e.target)) {
 				const k = e.key.toLowerCase();
 				if (k === "[") h.stepWidth(-1);
 				else if (k === "]") h.stepWidth(1);
 				else if (k === "e") h.toggleEraser();
-				else if (k === "r") h.toggleRuler();
 				else if (k === "g") h.cycleBackground();
 				else h.pickColor(Number(k) - 1);
 			} else {
@@ -354,7 +312,6 @@ export function SketchView({
 				eraser={eraser}
 				background={background}
 				tone={tone}
-				ruler={rulerOn}
 				canUndo={canUndo}
 				canRedo={ink.redo.length > 0}
 				canClear={!empty}
@@ -374,7 +331,6 @@ export function SketchView({
 					saveBackground(next);
 				}}
 				onToggleTone={toggleTone}
-				onRuler={setRulerOn}
 				onClose={onClose}
 				onUndo={undo}
 				onRedo={redo}
@@ -393,10 +349,9 @@ export function SketchView({
 						<ZoomControls zoomPct={native.zoomPct} onZoom={native.zoomBy} onReset={native.resetView} />
 					</>
 				) : (
-					<SketchCanvas strokes={ink.strokes} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={tool} brush={pen} eraser={eraser} background={background} tone={tone} onStroke={addStroke} onErase={erase} onCut={cut} onTwoFingerTap={undo} onViewChange={setWebView} />
+					<SketchCanvas strokes={ink.strokes} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={tool} brush={pen} eraser={eraser} background={background} tone={tone} onStroke={addStroke} onErase={erase} onCut={cut} onTwoFingerTap={undo} />
 				)}
-				{rulerOn && ruler && <SketchRuler ruler={ruler} view={viewNow} onChange={setRuler} />}
-				{empty && ink.strokes.length === 0 && (
+{empty && ink.strokes.length === 0 && (
 					<p aria-hidden data-testid="sketch-empty-hint" className="pointer-events-none absolute inset-x-0 bottom-[20%] text-center text-sm text-muted-foreground/70">
 						Write or draw here
 					</p>

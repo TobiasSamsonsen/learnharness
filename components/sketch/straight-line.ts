@@ -2,8 +2,9 @@ import type { SketchStroke } from "@/src/core";
 
 /**
  * Straight lines in the sketch view (M16c, docs/android/m16-plan.md): hold the pen still at the end of a stroke and it
- * becomes a straight line (angles near a multiple of 45 degrees snap to it), and a ruler to draw along. Pure geometry, so the
- * rules are tested without a screen; the canvas, the native layer and the ruler overlay call into it.
+ * becomes a straight line (angles near a multiple of 45 degrees snap to it). Pure geometry, so the rules are tested without
+ * a screen; the canvas and the native layer call into it. (A ruler was built and removed again: owner, 2026-10-29, this is
+ * for sketching answers, not a note app.)
  */
 
 export interface Pt {
@@ -80,50 +81,4 @@ export function isHeld(samples: readonly { x: number; y: number; t: number }[], 
 		since = s.t;
 	}
 	return now - since >= HOLD_MS - HOLD_GRACE_MS;
-}
-
-// ─── the ruler ───────────────────────────────────────────────────────────────
-
-/** The ruler's centre line from `a` to `b`, in one coordinate space (the caller's: screen px). */
-export interface Ruler {
-	a: Pt;
-	b: Pt;
-}
-
-/** How thick the ruler is drawn, in the same space as its points. */
-export const RULER_THICKNESS = 36;
-/** A stroke that starts within this far of the ruler's edge is drawn along it. */
-export const RULER_NEAR = 28;
-/** …and may wander this far from a straight run beside the edge. */
-export const RULER_WANDER = 14;
-
-/**
- * The stroke's two ends, snapped onto the ruler's edge, when it was drawn along it: it starts beside the edge, runs
- * the ruler's way without wandering, and is long enough to be a line. `null` means: leave the stroke as drawn.
- * `points` are in the ruler's space.
- */
-export function rulerSnap(points: readonly Pt[], ruler: Ruler, thickness = RULER_THICKNESS): [Pt, Pt] | null {
-	const first = points[0];
-	const last = points[points.length - 1];
-	if (!first || !last || points.length < 2) return null;
-	const length = dist(ruler.a, ruler.b);
-	if (length === 0) return null;
-	const d = { x: (ruler.b.x - ruler.a.x) / length, y: (ruler.b.y - ruler.a.y) / length };
-	const n = { x: -d.y, y: d.x };
-	const along = (p: Pt) => (p.x - ruler.a.x) * d.x + (p.y - ruler.a.y) * d.y;
-	const across = (p: Pt) => (p.x - ruler.a.x) * n.x + (p.y - ruler.a.y) * n.y;
-	const s0 = across(first);
-	if (Math.abs(s0) > thickness / 2 + RULER_NEAR) return null;
-	const t0 = along(first);
-	const t1 = along(last);
-	if (Math.abs(t1 - t0) < MIN_LINE_PX) return null;
-	if (t0 < -RULER_NEAR || t0 > length + RULER_NEAR) return null;
-	for (const p of points) if (Math.abs(across(p) - s0) > RULER_WANDER) return null;
-	const side = s0 < 0 ? -1 : 1;
-	const clamp = (t: number) => Math.min(length, Math.max(0, t));
-	const at = (t: number): Pt => ({
-		x: ruler.a.x + d.x * clamp(t) + n.x * side * (thickness / 2),
-		y: ruler.a.y + d.y * clamp(t) + n.y * side * (thickness / 2),
-	});
-	return [at(t0), at(t1)];
 }

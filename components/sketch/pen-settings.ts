@@ -140,22 +140,3 @@ export function saveToolbar(prefs: ToolbarPrefs): void {
 		// a blocked store: the choice lasts for this view only
 	}
 }
-
-const RULER_KEY = "lh:sketch-ruler";
-
-/** The ruler (M16c) shows when it was left on. */
-export function loadRulerOn(): boolean {
-	try {
-		return storage()?.getItem(RULER_KEY) === "on";
-	} catch {
-		return false;
-	}
-}
-
-export function saveRulerOn(on: boolean): void {
-	try {
-		storage()?.setItem(RULER_KEY, on ? "on" : "off");
-	} catch {
-		// a blocked store: the choice lasts for this view only
-	}
-}

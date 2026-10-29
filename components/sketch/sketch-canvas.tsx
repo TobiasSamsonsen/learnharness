@@ -81,7 +81,6 @@ export function SketchCanvas({
 	onErase,
 	onCut,
 	onTwoFingerTap,
-	onViewChange,
 	}: {
 	/** The unsent ink (editable). */
 	strokes: readonly SketchStroke[];
@@ -104,8 +103,6 @@ export function SketchCanvas({
 	onCut?: (path: number[], radius: number) => void;
 	/** Two fingers tapped together (M16b): undo, as in the note apps. */
 	onTwoFingerTap?: () => void;
-	/** The view changed (pan, zoom, the first fit): the ruler overlay follows it. */
-	onViewChange?: (view: SketchView) => void;
 	}) {
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -133,9 +130,7 @@ export function SketchCanvas({
 	const spaceDown = useRef(false);
 	const onTwoFingerTapRef = useRef(onTwoFingerTap);
 	onTwoFingerTapRef.current = onTwoFingerTap;
-	const onViewChangeRef = useRef(onViewChange);
-	onViewChangeRef.current = onViewChange;
-	// Path2D per finished stroke — redraws stay cheap on a busy page.
+// Path2D per finished stroke — redraws stay cheap on a busy page.
 	const paths = useRef(new WeakMap<SketchStroke, Path2D>());
 	const strokesRef = useRef(strokes);
 	strokesRef.current = strokes;
@@ -237,7 +232,6 @@ export function SketchCanvas({
 	const setView = (next: SketchView) => {
 	view.current = next;
 	setZoomPct(Math.round(next.zoom * 100));
-	onViewChangeRef.current?.(next);
 	drawSoon();
 	};
 
@@ -256,7 +250,6 @@ export function SketchCanvas({
 				fitted.current = true;
 				view.current = fitInk([...keptRef.current, ...strokesRef.current].map((s) => s.points), r.width, r.height);
 				setZoomPct(Math.round(view.current.zoom * 100));
-				onViewChangeRef.current?.(view.current);
 			}
 			draw();
 		};
