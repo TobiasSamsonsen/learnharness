@@ -10,7 +10,7 @@ import { FloatingProblem } from "@/components/sketch/floating-problem";
 import { lowestInk, SketchCanvas, sketchPageHeight, type SketchTool } from "@/components/sketch/sketch-canvas";
 import { useNativeInk } from "@/components/sketch/use-native-ink";
 import { loadEraser, loadPen, saveEraser, savePen, SKETCH_COLORS, SKETCH_ERASER_SIZES, SKETCH_WIDTHS, type EraserSettings, type PenSettings } from "@/components/sketch/pen-settings";
-import { applyOp, pagePayload, readInk, revertOp, sendPage, useInk, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
+import { applyOp, hasNewInk, pagePayload, readInk, revertOp, sendPage, thawInk, useInk, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
 import { cn } from "@/lib/utils";
 import { SketchPayloadError, sketchStrokeCut, type SketchPayload } from "@/src/core";
 import { useBackLayer } from "../back-layers.ts";
@@ -128,20 +128,21 @@ export function SketchView({
 
 	/** Record an operation: it joins the history and clears redo. */
 	const record = (state: InkState, strokes: InkState["strokes"], op: InkOp) =>
-		setInk({ strokes, undo: [...state.undo, op], redo: [] });
+		setInk({ ...state, strokes, undo: [...state.undo, op], redo: [] });
 	const undo = () => {
 		const state = readInk(inkKey);
 		// Ink restored from a reload has no history: undo takes the newest stroke.
 		const fromStack = state.undo[state.undo.length - 1];
-		const op: InkOp | undefined = fromStack ?? (state.strokes.length > 0 ? { kind: "add", stroke: state.strokes[state.strokes.length - 1]! } : undefined);
+		const newest = state.strokes[state.strokes.length - 1];
+		const op: InkOp | undefined = fromStack ?? (newest && newest.fresh !== false ? { kind: "add", stroke: newest } : undefined);
 		if (!op) return;
-		setInk({ strokes: revertOp(state.strokes, op), undo: fromStack ? state.undo.slice(0, -1) : [], redo: [...state.redo, op] });
+		setInk({ ...state, strokes: revertOp(state.strokes, op), undo: fromStack ? state.undo.slice(0, -1) : [], redo: [...state.redo, op] });
 	};
 	const redo = () => {
 		const state = readInk(inkKey);
 		const op = state.redo[state.redo.length - 1];
 		if (!op) return;
-		setInk({ strokes: applyOp(state.strokes, op), undo: [...state.undo, op], redo: state.redo.slice(0, -1) });
+		setInk({ ...state, strokes: applyOp(state.strokes, op), undo: [...state.undo, op], redo: state.redo.slice(0, -1) });
 	};
 	const addStroke = (stroke: InkState["strokes"][number]) => {
 		const state = readInk(inkKey);
@@ -153,7 +154,11 @@ export function SketchView({
 	};
 	/** The pixel eraser: every stroke the path touched becomes its surviving pieces (one undo step). */
 	const cut = (path: number[]) => {
-		const state = readInk(inkKey);
+		let state = readInk(inkKey);
+		// sent ink the eraser reaches is thawed into the working page first, then cut like the rest
+		if (kept && state.thawed === undefined && keptStatus === "ready" && kept.strokes.some((s) => sketchStrokeCut(s, path, eraser.radius))) {
+			state = thawInk(state, kept);
+		}
 		const changes: Extract<InkOp, { kind: "cut" }>["changes"] = [];
 		state.strokes.forEach((stroke, index) => {
 			const pieces = sketchStrokeCut(stroke, path, eraser.radius);
@@ -170,19 +175,20 @@ export function SketchView({
 		record(state, applyOp(state.strokes, { kind: "erase", removed }), { kind: "erase", removed });
 	};
 	// The Android shell's native ink layer, when the setting is on (owner, M10): it draws under the transparent page
-	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: ink.strokes, kept: kept?.strokes, tool, pen, eraser, onStroke: addStroke, onErase: erase, onCut: cut });
+	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: ink.strokes, kept: ink.thawed === undefined ? kept?.strokes : undefined, tool, pen, eraser, onStroke: addStroke, onErase: erase, onCut: cut });
 	// Submit has been pressed on a quiz answer: the confidence buttons stand in for it until one is pressed
 	const [asking, setAsking] = useState(false);
 	const submit = (confidenceIndex?: number) => {
-		const unsent = readInk(inkKey).strokes;
-		if (disabled || blocked || keptStatus === "loading" || unsent.length === 0) return;
+		const state = readInk(inkKey);
+		const unsent = state.strokes;
+		if (disabled || blocked || keptStatus === "loading" || !hasNewInk(state)) return;
 		if (confidenceLevels && confidenceIndex === undefined) {
 			setAsking(true);
 			return;
 		}
 		let payload: SketchPayload;
 		try {
-			payload = pagePayload(kept, unsent, native.active ? "android-ink" : "web-canvas");
+			payload = pagePayload(kept, unsent, native.active ? "android-ink" : "web-canvas", state.thawed !== undefined);
 		} catch (err) {
 			if (err instanceof SketchPayloadError) {
 				setError(err.message);
@@ -233,8 +239,8 @@ export function SketchView({
 	});
 
 	if (typeof document === "undefined") return null;
-	const empty = ink.strokes.length === 0;
-	const canUndo = ink.undo.length > 0 || ink.strokes.length > 0;
+	const empty = !hasNewInk(ink);
+	const canUndo = ink.undo.length > 0 || ink.strokes.some((s) => s.fresh !== false);
 	return createPortal(
 		<div
 			data-testid="sketch-view"
@@ -267,7 +273,7 @@ export function SketchView({
 						<div style={{ height: sketchPageHeight(native.viewHeight, Math.max(lowestInk(kept?.strokes ?? []), lowestInk(ink.strokes))) }} />
 					</div>
 				) : (
-					<SketchCanvas strokes={ink.strokes} kept={kept?.strokes} tool={tool} brush={pen} eraser={eraser} onStroke={addStroke} onErase={erase} onCut={cut} />
+					<SketchCanvas strokes={ink.strokes} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={tool} brush={pen} eraser={eraser} onStroke={addStroke} onErase={erase} onCut={cut} />
 				)}
 				<FloatingProblem label={label} statement={statement}>
 					{choices}

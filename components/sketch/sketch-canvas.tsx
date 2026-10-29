@@ -135,7 +135,8 @@ export function SketchCanvas({
 		strokesRef.current.forEach((s, i) => {
 			const pieces = cutPath ? sketchStrokeCut(s, cutPath, eraserRef.current.radius) : null;
 			// A stroke the stroke eraser is over fades until the gesture ends.
-			ctx.globalAlpha = hits?.has(i) && !cutPath ? 0.2 : 1;
+			// sent ink being edited (thawed, marked `fresh: false`) stays dimmed like the kept page
+			ctx.globalAlpha = s.fresh === false ? KEPT_ALPHA : hits?.has(i) && !cutPath ? 0.2 : 1;
 			ctx.fillStyle = s.color ?? SKETCH_INK;
 			if (pieces) for (const piece of pieces) ctx.fill(new Path2D(sketchStrokePath(piece)));
 			else ctx.fill(pathOf(s));

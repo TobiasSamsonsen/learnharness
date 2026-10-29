@@ -44,7 +44,8 @@ Object.assign(globalThis, {
 });
 
 const { SketchView } = await import("../components/sketch/sketch-view.tsx");
-const { readInk, writeInk, inkFromStrokes } = await import("../components/sketch/ink-memory.ts");
+const { readInk, writeInk, inkFromStrokes, writeKept, readKept, pagePayload } = await import("../components/sketch/ink-memory.ts");
+const { planSketch } = await import("../src/core/index.ts");
 import type { SketchPayload, SketchStroke } from "../src/core";
 
 const STROKE: SketchStroke = { size: 4, points: [10, 10, 0.5, 90, 50, 0.6, 200, 30, 0.5] };
@@ -171,6 +172,54 @@ describe("native ink is on", () => {
 		assert.equal(readInk("k-erase").strokes.length, 2, "the erase is one step");
 		await shell.say("erase 900,900"); // touches nothing
 		assert.equal(readInk("k-erase").strokes.length, 2);
+	});
+
+	it("erasing part of SENT ink thaws the kept page: one undo step, edited pieces are bracketed, a pure unsent page is untouched", async () => {
+		store.delete("lh:sketch-eraser"); // the default: part of a stroke
+		const old: SketchStroke = { size: 4, points: [0, 100, 0.5, 200, 100, 0.5] }; // sent earlier
+		const added: SketchStroke = { size: 4, points: [0, 300, 0.5, 100, 300, 0.5] }; // written since
+		writeKept("k-thaw", { id: "sk_oldoldold0000009", strokes: [old] });
+		writeInk("k-thaw", inkFromStrokes([added]));
+		const shell = fakeShell();
+		await mount("k-thaw");
+		await shell.say("erase 100,100"); // through the middle of the sent stroke
+		const ink = readInk("k-thaw");
+		assert.equal(ink.thawed, "sk_oldoldold0000009");
+		assert.equal(ink.strokes[0], added, "the unsent strokes keep their places");
+		assert.ok(ink.strokes.length >= 3, `the sent stroke became pieces: ${ink.strokes.length}`);
+		const pieces = ink.strokes.slice(1);
+		assert.ok(pieces.every((s) => s.fresh === undefined), "the pieces are edited ink");
+		// what goes out: nothing of the sent stroke is left plain, the pieces and the new stroke are flagged
+		const payload = pagePayload(readKept("k-thaw"), ink.strokes, "web-canvas", true);
+		assert.equal(payload.strokes.length, ink.strokes.length);
+		assert.ok(payload.strokes.every((s) => s.fresh === true), "every stroke here is new or edited");
+		assert.match(planSketch(payload)[0]!.svg, /stroke="#d946ef"/, "the margin bracket marks the edit");
+		// one undo puts the sent stroke back whole (still thawed, still dimmed)
+		await click("sketch-undo");
+		const undone = readInk("k-thaw");
+		assert.equal(undone.strokes.length, 2);
+		assert.deepEqual(undone.strokes[1], { ...old, fresh: false });
+		// it survives a reload: the whole page is stored with which strokes were sent
+		const saved = JSON.parse(store.get("lh:ink:k-thaw")!);
+		assert.equal(saved.thawed, "sk_oldoldold0000009");
+		assert.deepEqual(saved.sent, [1]);
+	});
+
+	it("a thawed page goes out whole, and once the server accepts it that page is the kept page and nothing is left unsent", async () => {
+		store.delete("lh:sketch-eraser");
+		const old: SketchStroke = { size: 4, points: [0, 100, 0.5, 200, 100, 0.5] };
+		writeKept("k-thaw2", { id: "sk_oldoldold0000010", strokes: [old] });
+		const shell = fakeShell();
+		let sent: SketchPayload | null = null;
+		await mount("k-thaw2", async (s) => ((sent = s), true));
+		await shell.say("erase 100,100");
+		await key({ key: "Enter", ctrlKey: true });
+		await act(async () => await new Promise((r) => setTimeout(r, 0)));
+		assert.notEqual(sent, null, "a pure edit of sent ink can be submitted");
+		assert.ok(sent!.strokes.length >= 2 && sent!.strokes.every((s) => s.fresh === true));
+		assert.equal(readInk("k-thaw2").strokes.length, 0);
+		assert.equal(readInk("k-thaw2").thawed, undefined);
+		assert.ok(readKept("k-thaw2")!.strokes.every((s) => s.fresh === undefined), "the kept page carries no flags");
 	});
 
 	it("two-finger pans scroll the transparent scroller, and its scroll is reported", async () => {

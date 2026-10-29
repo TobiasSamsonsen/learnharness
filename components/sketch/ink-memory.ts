@@ -26,7 +26,11 @@ export type InkOp =
 	| { kind: "cut"; changes: { index: number; stroke: SketchStroke; pieces: SketchStroke[] }[] };
 
 export interface InkState {
+	/** The page being written. Normally just the unsent ink. After a THAW (below) it is the whole page: the
+	 *  kept strokes too, each marked `fresh: false` (a local marker; the wire never carries it). */
 	strokes: SketchStroke[];
+	/** Set once sent ink has been edited (M13c): the id of the kept page its strokes were copied from. */
+	thawed?: string;
 	/** Done operations, newest last (undo pops from here). */
 	undo: InkOp[];
 	/** Undone operations, newest last (redo pops from here). */
@@ -53,6 +57,19 @@ const subscribe = (l: () => void) => {
 	};
 };
 
+/** Editing sent ink (M13c): copy the kept page's strokes into the working page, marked as sent, so the
+ *  eraser can cut them like any other. Idempotent. The kept copies go AFTER the unsent strokes, so the
+ *  indexes the undo history holds stay right. */
+export function thawInk(state: InkState, kept: KeptPage): InkState {
+	if (state.thawed !== undefined) return state;
+	return { ...state, strokes: [...state.strokes, ...kept.strokes.map((s) => ({ ...s, fresh: false }))], thawed: kept.id };
+}
+
+/** Is there anything to send? New or edited ink; after a thaw, an edit that left no stroke (a pure deletion) counts too. */
+export function hasNewInk(state: InkState): boolean {
+	return state.strokes.some((s) => s.fresh !== false) || (state.thawed !== undefined && state.undo.length > 0);
+}
+
 export function inkFromStrokes(strokes: SketchStroke[]): InkState {
 	return { strokes, undo: strokes.map((stroke) => ({ kind: "add" as const, stroke })), redo: [] };
 }
@@ -70,6 +87,14 @@ function restoreInk(key: string): InkState | null {
 		const raw = storage()?.getItem(LS_PREFIX + key);
 		if (!raw) return null;
 		const parsed: unknown = JSON.parse(raw);
+		if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+			// a thawed page: the whole page plus which strokes are the sent ones
+			const { thawed, strokes, sent } = parsed as { thawed?: unknown; strokes?: unknown; sent?: unknown };
+			if (typeof thawed !== "string" || !Array.isArray(strokes) || !Array.isArray(sent)) return null;
+			const clean = strokes.length === 0 ? [] : parseSketchPayload({ id: newSketchId(), producer: "web-canvas", strokes }).strokes;
+			const gone = new Set(sent as unknown[]);
+			return { strokes: clean.map((s, i) => (gone.has(i) ? { ...s, fresh: false } : s)), thawed, undo: [], redo: [] };
+		}
 		if (!Array.isArray(parsed) || parsed.length === 0) return null;
 		// The same validation a submit gets: a damaged entry restores nothing.
 		const payload = parseSketchPayload({ id: newSketchId(), producer: "web-canvas", strokes: parsed });
@@ -83,7 +108,10 @@ function persistInk(key: string, state: InkState): void {
 	try {
 		const ls = storage();
 		if (!ls) return;
-		if (state.strokes.length === 0) ls.removeItem(LS_PREFIX + key);
+		if (state.thawed !== undefined) {
+			const sent = state.strokes.flatMap((s, i) => (s.fresh === false ? [i] : []));
+			ls.setItem(LS_PREFIX + key, JSON.stringify({ thawed: state.thawed, strokes: state.strokes, sent }));
+		} else if (state.strokes.length === 0) ls.removeItem(LS_PREFIX + key);
 		else ls.setItem(LS_PREFIX + key, JSON.stringify(state.strokes));
 	} catch {
 		// quota or a blocked store: the in-memory ink still works
@@ -99,7 +127,7 @@ export function readInk(key: string): InkState {
 }
 
 export function writeInk(key: string, state: InkState): void {
-	if (state.strokes.length === 0 && state.undo.length === 0 && state.redo.length === 0) ink.delete(key);
+	if (state.strokes.length === 0 && state.undo.length === 0 && state.redo.length === 0 && state.thawed === undefined) ink.delete(key);
 	else ink.set(key, state);
 	persistInk(key, state);
 	notify();
@@ -132,7 +160,21 @@ export function useKept(key: string): KeptPage | null {
 
 /** The whole page as one payload: the kept strokes, then the unsent ink,
  *  bracketed from where the new ink starts. Throws SketchPayloadError. */
-export function pagePayload(page: KeptPage | null, unsent: readonly SketchStroke[], producer: SketchPayload["producer"] = "web-canvas"): SketchPayload {
+export function pagePayload(
+	page: KeptPage | null,
+	unsent: readonly SketchStroke[],
+	producer: SketchPayload["producer"] = "web-canvas",
+	thawed = false,
+): SketchPayload {
+	if (thawed) {
+		// the working strokes ARE the page: the sent ones (marked `fresh: false`) go plain, everything else —
+		// new ink and the pieces left of edited ink — is flagged for the margin bracket
+		return parseSketchPayload({
+			id: newSketchId(),
+			producer,
+			strokes: unsent.map(({ fresh, ...rest }) => (fresh === false ? rest : { ...rest, fresh: true })),
+		});
+	}
 	const base = page?.strokes ?? [];
 	return parseSketchPayload({
 		id: newSketchId(),
@@ -147,7 +189,7 @@ export function pagePayload(page: KeptPage | null, unsent: readonly SketchStroke
  *  strokes that went out (anything drawn since stays). */
 export function commitSketch(key: string, payload: SketchPayload, sent: readonly SketchStroke[]): void {
 	// parseSketchPayload copies strokes; the kept page holds the payload's.
-	writeKept(key, { id: payload.id, strokes: payload.strokes });
+	writeKept(key, { id: payload.id, strokes: payload.strokes.map(({ fresh: _fresh, ...stroke }) => stroke) });
 	const current = readInk(key);
 	const gone = new Set(sent);
 	const rest = current.strokes.filter((s) => !gone.has(s));
@@ -181,7 +223,7 @@ export async function sendPage(
 /** Apply an operation to the strokes. */
 export function applyOp(strokes: SketchStroke[], op: InkOp): SketchStroke[] {
 	if (op.kind === "add") return [...strokes, op.stroke];
-	if (op.kind === "clear") return [];
+	if (op.kind === "clear") return strokes.filter((s) => s.fresh === false); // what was sent stays
 	if (op.kind === "cut") {
 		const pieces = new Map(op.changes.map((c) => [c.index, c.pieces]));
 		return strokes.flatMap((s, i) => pieces.get(i) ?? [s]);
@@ -193,7 +235,7 @@ export function applyOp(strokes: SketchStroke[], op: InkOp): SketchStroke[] {
 /** Reverse an operation. */
 export function revertOp(strokes: SketchStroke[], op: InkOp): SketchStroke[] {
 	if (op.kind === "add") return strokes.filter((s) => s !== op.stroke);
-	if (op.kind === "clear") return [...op.removed];
+	if (op.kind === "clear") return [...strokes, ...op.removed];
 	if (op.kind === "cut") {
 		// ascending: every change before this one is already back to one stroke, so its index is still right
 		const out = [...strokes];

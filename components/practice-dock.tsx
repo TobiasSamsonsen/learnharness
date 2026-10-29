@@ -128,7 +128,7 @@ export function PracticeDock({
 		if (attach && ink.strokes.length > 0) {
 			if (keptStatus === "loading") return; // the earlier page is still on its way
 			try {
-				payload = pagePayload(kept, ink.strokes);
+				payload = pagePayload(kept, ink.strokes, undefined, ink.thawed !== undefined);
 			} catch (err) {
 				if (!(err instanceof SketchPayloadError)) throw err;
 				setSketchError(err.message);
