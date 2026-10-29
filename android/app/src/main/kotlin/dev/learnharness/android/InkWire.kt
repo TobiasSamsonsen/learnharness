@@ -8,7 +8,7 @@ import org.json.JSONException
  * The native-ink bridge, pure parts (Android plan M10, docs/android/m10-plan.md). The web store owns the strokes
  * (owner decision B, 2026-10-27): the shell draws, reports each finished stroke and eraser gesture, and the web pushes
  * the finished set back. Lines the web sends (`src/core/ink-bridge.ts` writes them): `open`, `holes`, `tool`,
- * `brush`, `strokes`, `kept`, `view`, `ack`, `close`. Lines the shell sends back: `stroke`, `erase`, `gesture`, `penseen`, `fallback`.
+ * `brush`, `sheet`, `strokes`, `kept`, `view`, `ack`, `close`. Lines the shell sends back: `stroke`, `erase`, `gesture`, `penseen`, `fallback`.
  * No Android types except org.json, so `./gradlew test` covers it.
  */
 
@@ -22,6 +22,8 @@ sealed interface InkOp {
 	/** Web UI over the canvas (the floating question box, its collapsed pill): touches there stay with the page. */
 	data class Holes(val rects: List<InkRect>) : InkOp
 	data class Tool(val eraser: Boolean) : InkOp
+	/** The sheet's tone (M13): a dark sheet shows ink in lighter variants. A display choice; the strokes are unchanged. */
+	data class Sheet(val dark: Boolean) : InkOp
 	/** The pen's colour (#rrggbb) and base size in CSS px: the strokes drawn from now on use it. */
 	data class Brush(val color: String, val size: Float) : InkOp
 	/** The finished strokes of the page being written (page CSS px). */
@@ -61,6 +63,11 @@ object InkWire {
 				if (parts.size != 2 || !Regex("#[0-9a-fA-F]{6}").matches(parts[0])) return null
 				val size = finite(parts[1])?.takeIf { it in 0.5f..64f } ?: return null
 				InkOp.Brush(parts[0], size)
+			}
+			"sheet" -> when (rest) {
+				"dark" -> InkOp.Sheet(dark = true)
+				"light" -> InkOp.Sheet(dark = false)
+				else -> null
 			}
 			"strokes" -> InkOp.Strokes(strokes(rest) ?: return null)
 			"kept" -> InkOp.Kept(strokes(rest) ?: return null)

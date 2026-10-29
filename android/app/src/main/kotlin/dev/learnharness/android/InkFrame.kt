@@ -44,6 +44,7 @@ class InkFrame(context: Context, private val webView: WebView, private val close
 				is InkOp.Holes -> holes = op.rects.map { px(it) }
 				is InkOp.Tool -> layer.eraser = op.eraser
 				is InkOp.Brush -> layer.setBrush(op.color, op.size)
+				is InkOp.Sheet -> layer.setDark(op.dark)
 				is InkOp.Strokes -> layer.finished.setStrokes(op.strokes)
 				is InkOp.Kept -> layer.finished.setKept(op.strokes)
 				is InkOp.View -> layer.setView(op.view)

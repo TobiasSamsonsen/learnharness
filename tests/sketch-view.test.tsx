@@ -332,6 +332,8 @@ describe("pen and clear (M13b)", () => {
 		writeInk("k-clear", inkFromStrokes([STROKE, { ...STROKE }]));
 		await mount({ inkKey: "k-clear", onSubmit: async () => true });
 		await click("sketch-clear");
+		assert.equal(readInk("k-clear").strokes.length, 2, "Clear asks first: nothing is deleted yet");
+		await click("sketch-clear-confirm");
 		assert.equal(readInk("k-clear").strokes.length, 0);
 		await click("sketch-undo");
 		assert.equal(readInk("k-clear").strokes.length, 2, "undo brings every stroke back");
@@ -424,6 +426,52 @@ describe("pen and clear (M13b)", () => {
 		await click("sketch-background");
 		assert.equal(localStorage.getItem("lh:sketch-background"), "grid");
 		localStorage.removeItem("lh:sketch-background");
+	});
+
+	it("Clear asks for confirmation: Cancel and Esc keep the ink and leave the view open; Delete removes it", async () => {
+		writeInk("k-confirm", inkFromStrokes([STROKE, { ...STROKE }]));
+		let closed = 0;
+		await mount({ inkKey: "k-confirm", onSubmit: async () => true, onClose: () => closed++ });
+		const dialog = () => document.querySelector('[data-testid="sketch-clear-dialog"]');
+		assert.equal(dialog(), null);
+		await click("sketch-clear");
+		assert.ok(dialog(), "the dialog opens");
+		assert.equal(dialog()!.getAttribute("role"), "alertdialog");
+		assert.ok(dialog()!.hasAttribute("data-ink-hole"), "a touch hole: the native layer must not draw under it");
+		assert.match(dialog()!.textContent ?? "", /Delete the whole sketch\?/);
+		await click("sketch-clear-cancel");
+		assert.equal(dialog(), null);
+		assert.equal(readInk("k-confirm").strokes.length, 2, "Cancel keeps the ink");
+		await click("sketch-clear");
+		await key({ key: "Escape" });
+		assert.equal(dialog(), null, "Esc closes the dialog");
+		assert.equal(closed, 0, "...and only the dialog, not the sketch view");
+		assert.equal(readInk("k-confirm").strokes.length, 2);
+		await click("sketch-clear");
+		await act(async () => {
+			assert.equal(handleBack(), true);
+		});
+		assert.equal(dialog(), null, "the Android back button closes the dialog first");
+		assert.equal(closed, 0);
+		await click("sketch-clear");
+		await click("sketch-clear-confirm");
+		assert.equal(readInk("k-confirm").strokes.length, 0, "Delete removes the ink");
+		assert.equal(dialog(), null);
+	});
+
+	it("the sheet toggle switches light and dark, and is remembered", async () => {
+		localStorage.removeItem("lh:sketch-sheet");
+		await mount({ inkKey: "k-tone", onSubmit: async () => true });
+		const label = () => document.querySelector('[data-testid="sketch-sheet-tone"]')!.getAttribute("aria-label");
+		assert.equal(label(), "Sheet: light");
+		await click("sketch-sheet-tone");
+		assert.equal(label(), "Sheet: dark");
+		assert.equal(localStorage.getItem("lh:sketch-sheet"), "dark");
+		const black = () => document.querySelector('[data-testid="sketch-color-black"] span')!.getAttribute("style") ?? "";
+		assert.match(black(), /f5f5f4/i, "the black swatch shows the ink as it appears on a dark sheet");
+		await click("sketch-sheet-tone");
+		assert.equal(label(), "Sheet: light");
+		localStorage.removeItem("lh:sketch-sheet");
 	});
 
 	it("applyOp / revertOp handle a clear", () => {

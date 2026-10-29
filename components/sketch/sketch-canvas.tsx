@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { SKETCH_INK, sketchStrokeCut, sketchStrokeHit, sketchStrokePath, type SketchStroke } from "@/src/core";
 import { DEFAULT_ERASER, DEFAULT_PEN, penStroke, type EraserSettings, type PenSettings } from "@/components/sketch/pen-settings";
-import { BACKGROUND_COLOR, backgroundLines, type SketchBackground } from "@/components/sketch/sketch-background";
+import { backgroundColor, backgroundLines, type SketchBackground } from "@/components/sketch/sketch-background";
+import { displayInk, SHEET_COLOR, type SheetTone } from "@/components/sketch/sketch-sheet";
 import { ZoomControls } from "@/components/sketch/zoom-controls";
 import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, penWorldSize, pinchOf, pinchStep, thinPath, toWorld, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
 
@@ -72,6 +73,7 @@ export function SketchCanvas({
 	brush = DEFAULT_PEN,
 	eraser = DEFAULT_ERASER,
 	background = "none",
+	tone = "light",
 	onStroke,
 	onErase,
 	onCut,
@@ -87,6 +89,8 @@ export function SketchCanvas({
 	eraser?: EraserSettings;
 	/** The paper under the ink (a drawing aid; never sent). */
 	background?: SketchBackground;
+	/** The sheet's tone: a dark sheet shows ink in lighter variants (display only). */
+	tone?: SheetTone;
 	/** A finished stroke (pointer up), its width already in world units. */
 	onStroke: (stroke: SketchStroke) => void;
 	/** One eraser gesture finished: indices into `strokes` it touched. */
@@ -126,6 +130,8 @@ export function SketchCanvas({
 	toolRef.current = tool;
 	const backgroundRef = useRef(background);
 	backgroundRef.current = background;
+	const toneRef = useRef(tone);
+	toneRef.current = tone;
 
 	const pathOf = (s: SketchStroke): Path2D => {
 		let p = paths.current.get(s);
@@ -144,14 +150,15 @@ export function SketchCanvas({
 		const v = view.current;
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.globalAlpha = 1;
-		ctx.fillStyle = "#ffffff";
+		const tone = toneRef.current;
+		ctx.fillStyle = SHEET_COLOR[tone];
 		ctx.fillRect(0, 0, canvas.width / dpr, canvas.height / dpr);
 		const paper = backgroundRef.current;
 		if (paper !== "none") {
 			// the paper is drawn in screen space (crisp at any zoom) and follows the view
 			const { xs, ys } = backgroundLines(paper, v, canvas.width / dpr, canvas.height / dpr);
-			ctx.strokeStyle = BACKGROUND_COLOR;
-			ctx.fillStyle = BACKGROUND_COLOR;
+			ctx.strokeStyle = backgroundColor(tone);
+			ctx.fillStyle = backgroundColor(tone);
 			ctx.lineWidth = 1;
 			if (paper === "dots") {
 				for (const x of xs) for (const y of ys) ctx.fillRect(x - 1, y - 1, 2, 2);
@@ -165,7 +172,7 @@ export function SketchCanvas({
 		ctx.setTransform(dpr * v.zoom, 0, 0, dpr * v.zoom, -v.x * v.zoom * dpr, -v.y * v.zoom * dpr);
 		ctx.globalAlpha = KEPT_ALPHA;
 		for (const s of keptRef.current) {
-			ctx.fillStyle = s.color ?? SKETCH_INK;
+			ctx.fillStyle = displayInk(s.color, tone);
 			ctx.fill(pathOf(s));
 		}
 		const hits = live.current?.erase;
@@ -177,14 +184,14 @@ export function SketchCanvas({
 			// sent ink being edited (thawed, marked `fresh: false`) stays dimmed like the kept page; a stroke the
 			// stroke eraser is over fades until the gesture ends
 			ctx.globalAlpha = s.fresh === false ? KEPT_ALPHA : hits?.has(i) && !cutPath ? 0.2 : 1;
-			ctx.fillStyle = s.color ?? SKETCH_INK;
+			ctx.fillStyle = displayInk(s.color, tone);
 			if (pieces) for (const piece of pieces) ctx.fill(new Path2D(sketchStrokePath(piece)));
 			else ctx.fill(pathOf(s));
 		});
 		ctx.globalAlpha = 1;
 		if (live.current && !live.current.erase && live.current.points.length >= 3) {
 			const l = penStroke({ color: brushRef.current.color, size: live.current.size }, live.current.points);
-			ctx.fillStyle = l.color ?? SKETCH_INK;
+			ctx.fillStyle = displayInk(l.color, tone);
 			ctx.fill(new Path2D(sketchStrokePath(l)));
 		}
 		// the hover preview, in screen space: the eraser's reach, or the pen's own width in its colour
@@ -194,7 +201,7 @@ export function SketchCanvas({
 			ctx.beginPath();
 			ctx.arc(hover.current.x, hover.current.y, erasing ? eraserRef.current.radius : Math.max(1.5, brushRef.current.size / 2), 0, Math.PI * 2);
 			ctx.lineWidth = 1;
-			ctx.strokeStyle = erasing ? "#64748b" : brushRef.current.color;
+			ctx.strokeStyle = erasing ? "#64748b" : displayInk(brushRef.current.color, tone);
 			ctx.stroke();
 		}
 	};
@@ -238,7 +245,7 @@ export function SketchCanvas({
 		return () => observer.disconnect();
 	}, []); // draw reads refs only
 
-	useEffect(draw, [strokes, kept, background]);
+	useEffect(draw, [strokes, kept, background, tone]);
 	useEffect(() => () => {
 		if (frame.current !== null) cancelAnimationFrame(frame.current);
 	}, []);

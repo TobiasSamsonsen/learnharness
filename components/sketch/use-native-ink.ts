@@ -64,6 +64,8 @@ export interface NativeInkOptions {
 	tool: NativeInkTool;
 	/** The pen's colour and width: the shell draws and reports the next strokes with it. */
 	pen?: { color: string; size: number };
+	/** The sheet's tone: the shell draws its paper and ink in the tone's colours. */
+	tone?: "light" | "dark";
 	/** The eraser's mode and radius, on screen (the shell only reports the gesture's points). */
 	eraser?: { mode: "pixel" | "stroke"; radius: number };
 	onStroke: (stroke: SketchStroke) => void;
@@ -168,6 +170,7 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 		}
 		send({ op: "view", ...view.current });
 		if (latest.current.pen) send({ op: "brush", ...latest.current.pen });
+		if (latest.current.tone) send({ op: "sheet", tone: latest.current.tone });
 
 		const resize = typeof ResizeObserver !== "undefined" ? new ResizeObserver(reportAll) : null;
 		resize?.observe(wrapper);
@@ -239,6 +242,10 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 	useEffect(() => {
 		if (active) sendRef.current({ op: "tool", tool });
 	}, [active, tool]);
+	const sheetTone = options.tone;
+	useEffect(() => {
+		if (active && sheetTone) sendRef.current({ op: "sheet", tone: sheetTone });
+	}, [active, sheetTone]);
 	const penColor = options.pen?.color;
 	const penSize = options.pen?.size;
 	useEffect(() => {

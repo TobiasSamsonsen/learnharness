@@ -11,6 +11,7 @@
  *   open <inkKey> <x> <y> <w> <h>     the canvas rectangle in CSS px of the viewport; the native layer sits there
  *   holes <x,y,w,h> …                 web UI over the canvas (the floating box): touches there stay with the page
  *   tool pen|eraser                   the toolbar's tool
+ *   sheet light|dark                 the sheet's tone (M13): a dark sheet shows ink in lighter variants (display only)
  *   brush <#rrggbb> <size>            the pen's colour and base width in CSS px (M13): the next strokes use it
  *   strokes <json>                    the finished strokes of the page being written (replaces what the shell has)
  *   kept <json>                       strokes already sent to the tutor (drawn faint)
@@ -46,6 +47,7 @@ export type NativeInkOp =
 	| { op: "holes"; rects: NativeInkRect[] }
 	| { op: "tool"; tool: NativeInkTool }
 	| { op: "brush"; color: string; size: number }
+	| { op: "sheet"; tone: "light" | "dark" }
 	| { op: "strokes" | "kept"; strokes: readonly SketchStroke[] }
 	| { op: "view"; zoom: number; x: number; y: number }
 	| { op: "ack" | "close" };
@@ -66,6 +68,8 @@ export function encodeInkOp(op: NativeInkOp): string {
 			return ["holes", ...op.rects.map(rectText)].join(" ");
 		case "tool":
 			return `tool ${op.tool}`;
+		case "sheet":
+			return `sheet ${op.tone === "dark" ? "dark" : "light"}`;
 		case "brush":
 			if (!BRUSH_COLOR_RE.test(op.color) || !(op.size >= 0.5 && op.size <= 64)) throw new Error("brush must be #rrggbb and a size of 0.5-64");
 			return `brush ${op.color} ${num(op.size)}`;

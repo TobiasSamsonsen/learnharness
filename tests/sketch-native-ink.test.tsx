@@ -253,6 +253,17 @@ describe("native ink is on", () => {
 		assert.equal(readInk("k-reach").strokes.length, 1, "not reached at 2x");
 	});
 
+	it("the sheet's tone follows to the shell (dark shows ink in lighter colours there)", async () => {
+		store.delete("lh:sketch-sheet");
+		const shell = fakeShell();
+		await mount("k-sheet");
+		assert.ok(shell.posted.includes("sheet light"), shell.posted.join(" | "));
+		await click("sketch-sheet-tone");
+		assert.equal(shell.posted.filter((l) => l.startsWith("sheet ")).at(-1), "sheet dark");
+		await click("sketch-sheet-tone");
+		assert.equal(shell.posted.filter((l) => l.startsWith("sheet ")).at(-1), "sheet light");
+	});
+
 	it("the toolbar's tool follows to the shell", async () => {
 		const shell = fakeShell();
 		await mount("k-tool");

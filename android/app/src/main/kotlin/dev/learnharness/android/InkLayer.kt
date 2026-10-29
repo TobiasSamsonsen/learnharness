@@ -32,6 +32,11 @@ class FinishedStrokesView(context: Context) : View(context) {
 	private var strokes: List<Stroke> = emptyList()
 	private var kept: List<Stroke> = emptyList()
 	private var pending: List<Stroke> = emptyList()
+	// the wire strokes behind the ink above: a change of sheet tone rebuilds the ink in the new colours
+	private var strokesRaw: List<InkWire.Stroke> = emptyList()
+	private var keptRaw: List<InkWire.Stroke> = emptyList()
+	private var pendingRaw: List<InkWire.Stroke> = emptyList()
+	private var dark = false
 	private val matrix = Matrix()
 	private val identity = Matrix()
 	private var density = 1f
@@ -52,22 +57,29 @@ class FinishedStrokesView(context: Context) : View(context) {
 		strokes = emptyList()
 		kept = emptyList()
 		pending = emptyList()
+		strokesRaw = emptyList()
+		keptRaw = emptyList()
+		pendingRaw = emptyList()
 		invalidate()
 	}
 
 	fun setStrokes(list: List<InkWire.Stroke>) {
+		strokesRaw = list
 		strokes = list.mapNotNull { toInk(it) }
+		pendingRaw = emptyList()
 		pending = emptyList() // the web's set now holds what we had drawn ahead of it
 		invalidate()
 	}
 
 	fun setKept(list: List<InkWire.Stroke>) {
+		keptRaw = list
 		kept = list.mapNotNull { toInk(it) }
 		invalidate()
 	}
 
 	/** A stroke just finished here, drawn until the web either acknowledges it or pushes a full set. */
 	fun addPending(stroke: InkWire.Stroke) {
+		pendingRaw = pendingRaw + stroke
 		toInk(stroke)?.let { pending = pending + it }
 		invalidate()
 	}
@@ -75,12 +87,25 @@ class FinishedStrokesView(context: Context) : View(context) {
 	/** The web has the pending strokes in its store: they are part of the page now. */
 	fun ackPending() {
 		strokes = strokes + pending
+		strokesRaw = strokesRaw + pendingRaw
+		pendingRaw = emptyList()
 		pending = emptyList()
 		invalidate()
 	}
 
 	fun setView(v: InkView) {
 		view = v
+		invalidate()
+	}
+
+	/** The sheet's tone: the paper and every stroke are shown in the tone's colours (see [InkSheet]). */
+	fun setDark(on: Boolean) {
+		if (dark == on) return
+		dark = on
+		paper = if (on) InkSheet.DARK_PAPER else InkSheet.LIGHT_PAPER
+		strokes = strokesRaw.mapNotNull { toInk(it) }
+		kept = keptRaw.mapNotNull { toInk(it) }
+		pending = pendingRaw.mapNotNull { toInk(it) }
 		invalidate()
 	}
 
@@ -104,7 +129,7 @@ class FinishedStrokesView(context: Context) : View(context) {
 	}
 
 	private fun toInk(s: InkWire.Stroke): Stroke? = try {
-		val color = s.color?.let { Color.parseColor(it) } ?: INK_COLOR
+		val color = InkSheet.displayColor(s.color, dark)
 		val brush = Brush.createWithColorIntArgb(StockBrushes.pressurePen(), color, s.size, 0.1f)
 		val batch = MutableStrokeInputBatch()
 		var t = 0L
@@ -159,8 +184,16 @@ class InkLayer(context: Context) : FrameLayout(context) {
 		penSize = size
 	}
 
+	private var dark = false
+
+	/** The sheet's tone: the paper, the strokes and the live brush use the tone's colours. */
+	fun setDark(on: Boolean) {
+		dark = on
+		finished.setDark(on)
+	}
+
 	private fun brush(): Brush {
-		val argb = penColor?.let { Color.parseColor(it) } ?: FinishedStrokesView.INK_COLOR
+		val argb = InkSheet.displayColor(penColor, dark)
 		return Brush.createWithColorIntArgb(StockBrushes.pressurePen(), argb, penSize * density, 0.1f)
 	}
 

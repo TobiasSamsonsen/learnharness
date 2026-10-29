@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { EraserIcon, Grid3x3Icon, MicIcon, PenLineIcon, Redo2Icon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
+import { EraserIcon, Grid3x3Icon, MicIcon, MoonIcon, SunIcon, PenLineIcon, Redo2Icon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfidenceButtons } from "@/components/confidence-buttons";
 import { isDictationActive } from "@/components/dictation";
 import { FloatingProblem } from "@/components/sketch/floating-problem";
 import { SketchCanvas, type SketchTool } from "@/components/sketch/sketch-canvas";
 import { ZoomControls } from "@/components/sketch/zoom-controls";
+import { displayInk, loadTone, saveTone, type SheetTone } from "@/components/sketch/sketch-sheet";
 import { backgroundCss, loadBackground, nextBackground, saveBackground, type SketchBackground } from "@/components/sketch/sketch-background";
 import { useNativeInk } from "@/components/sketch/use-native-ink";
 import { loadEraser, loadPen, saveEraser, savePen, SKETCH_COLORS, SKETCH_ERASER_SIZES, SKETCH_WIDTHS, type EraserSettings, type PenSettings } from "@/components/sketch/pen-settings";
@@ -121,6 +122,14 @@ export function SketchView({
 		savePen(next);
 		setTool("pen");
 	};
+	const [tone, setToneState] = useState<SheetTone>(loadTone);
+	const toggleTone = () => {
+		const next = tone === "dark" ? "light" : "dark";
+		setToneState(next);
+		saveTone(next);
+	};
+	// Clear asks first (owner, M13): it is one tap from the toolbar and removes everything drawn since the last submit
+	const [confirmClear, setConfirmClear] = useState(false);
 	const [background, setBackgroundState] = useState<SketchBackground>(loadBackground);
 	const cycleBackground = () => {
 		const next = nextBackground(background);
@@ -189,7 +198,7 @@ export function SketchView({
 		record(state, applyOp(state.strokes, { kind: "erase", removed }), { kind: "erase", removed });
 	};
 	// The Android shell's native ink layer, when the setting is on (owner, M10): it draws under the transparent page
-	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: ink.strokes, kept: ink.thawed === undefined ? kept?.strokes : undefined, tool, pen, eraser, onStroke: addStroke, onErase: erase, onCut: cut });
+	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: ink.strokes, kept: ink.thawed === undefined ? kept?.strokes : undefined, tool, pen, tone, eraser, onStroke: addStroke, onErase: erase, onCut: cut });
 	// Submit has been pressed on a quiz answer: the confidence buttons stand in for it until one is pressed
 	const [asking, setAsking] = useState(false);
 	const submit = (confidenceIndex?: number) => {
@@ -222,8 +231,8 @@ export function SketchView({
 		const c = SKETCH_COLORS[i];
 		if (c) setPen({ ...pen, color: c.value });
 	};
-	const handlers = useRef({ undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, cycleBackground });
-	handlers.current = { undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, cycleBackground };
+	const handlers = useRef({ undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, cycleBackground, confirmOpen: confirmClear, cancelConfirm: () => setConfirmClear(false) });
+	handlers.current = { undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, cycleBackground, confirmOpen: confirmClear, cancelConfirm: () => setConfirmClear(false) };
 	// drawing on, or the answer changing under the page, puts Submit back
 	const strokeCount = ink.strokes.length;
 	useEffect(() => setAsking(false), [strokeCount, blocked, disabled, confidenceLevels]);
@@ -232,7 +241,8 @@ export function SketchView({
 			const mod = e.metaKey || e.ctrlKey;
 			const h = handlers.current;
 			if (e.key === "Escape") {
-				if (isDictationActive() && h.onCancelDictation) h.onCancelDictation();
+				if (h.confirmOpen) h.cancelConfirm();
+				else if (isDictationActive() && h.onCancelDictation) h.onCancelDictation();
 				else h.onClose();
 			} else if (e.key === "Enter") {
 				// A KEYBOARD-focused button activates natively (a pointer-clicked
@@ -257,6 +267,7 @@ export function SketchView({
 		window.addEventListener("keydown", onKey, true);
 		return () => window.removeEventListener("keydown", onKey, true);
 	}, []);
+	useBackLayer(confirmClear, () => setConfirmClear(false));
 	useBackLayer(true, () => {
 		const h = handlers.current;
 		if (isDictationActive() && h.onCancelDictation) h.onCancelDictation();
@@ -290,16 +301,43 @@ export function SketchView({
 			<div ref={canvasRef} className={cn("relative min-h-0 flex-1", !native.active && "bg-white")}>
 				{native.active ? (
 					<>
-						<div aria-hidden data-testid="sketch-native-paper" style={backgroundCss(background, native.view)} className="pointer-events-none absolute inset-0" />
+						<div aria-hidden data-testid="sketch-native-paper" style={backgroundCss(background, native.view, tone)} className="pointer-events-none absolute inset-0" />
 						<div ref={native.surfaceRef} data-testid="sketch-native-surface" style={{ touchAction: "none" }} className="absolute inset-0" />
 						<ZoomControls zoomPct={native.zoomPct} onZoom={native.zoomBy} onReset={native.resetView} />
 					</>
 				) : (
-					<SketchCanvas strokes={ink.strokes} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={tool} brush={pen} eraser={eraser} background={background} onStroke={addStroke} onErase={erase} onCut={cut} />
+					<SketchCanvas strokes={ink.strokes} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={tool} brush={pen} eraser={eraser} background={background} tone={tone} onStroke={addStroke} onErase={erase} onCut={cut} />
 				)}
 				<FloatingProblem label={label} statement={statement}>
 					{choices}
 				</FloatingProblem>
+				{confirmClear && (
+					// a touch hole (data-ink-hole): the native layer must not draw under it
+					<div data-ink-hole="" data-testid="sketch-clear-dialog" role="alertdialog" aria-modal="true" aria-labelledby="sketch-clear-title" className="absolute inset-0 z-20 grid place-items-center bg-black/40 p-4">
+						<div className="w-full max-w-sm rounded-xl border bg-background p-4 text-foreground shadow-lg">
+							<h2 id="sketch-clear-title" className="text-sm font-semibold">
+								Delete the whole sketch?
+							</h2>
+							<p className="mt-1 text-sm text-muted-foreground">Everything you have drawn since your last submit is removed. Ink you already sent stays. You can undo this.</p>
+							<div className="mt-4 flex justify-end gap-2">
+								<Button type="button" variant="ghost" data-testid="sketch-clear-cancel" autoFocus onClick={() => setConfirmClear(false)}>
+									Cancel
+								</Button>
+								<Button
+									type="button"
+									variant="destructive"
+									data-testid="sketch-clear-confirm"
+									onClick={() => {
+										setConfirmClear(false);
+										clear();
+									}}
+								>
+									Delete
+								</Button>
+							</div>
+						</div>
+					</div>
+				)}
 			</div>
 			<div data-testid="sketch-pen-strip" className="flex items-center gap-1 overflow-x-auto border-t bg-background px-3 py-1">
 				{tool === "eraser" ? (
@@ -346,7 +384,7 @@ export function SketchView({
 					>
 						<span
 							aria-hidden
-							style={{ backgroundColor: c.value }}
+							style={{ backgroundColor: displayInk(c.value, tone) }}
 							className={cn("size-5 rounded-full border border-black/10", tool === "pen" && pen.color === c.value && "ring-2 ring-ring ring-offset-2 ring-offset-background")}
 						/>
 					</button>
@@ -367,6 +405,18 @@ export function SketchView({
 				))}
 					</>
 				)}
+				<span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border" />
+				<button
+					type="button"
+					data-testid="sketch-sheet-tone"
+					aria-label={`Sheet: ${tone}`}
+					title={tone === "dark" ? "Switch to a light sheet" : "Switch to a dark sheet"}
+					aria-pressed={tone === "dark"}
+					onClick={toggleTone}
+					className={cn("lh-touch grid size-8 shrink-0 place-items-center rounded-md", tone === "dark" && "bg-accent")}
+				>
+					{tone === "dark" ? <MoonIcon className="size-4" /> : <SunIcon className="size-4" />}
+				</button>
 			</div>
 			<div className="flex items-center gap-1 border-t bg-background px-3 py-2">
 				<Button type="button" variant="ghost" size="icon" data-testid="sketch-close" aria-label="Close sketch" onClick={onClose}>
@@ -385,7 +435,7 @@ export function SketchView({
 					data-testid="sketch-clear"
 					aria-label="Clear"
 					disabled={empty}
-					onClick={clear}
+					onClick={() => setConfirmClear(true)}
 				>
 					<Trash2Icon className="size-4" />
 				</Button>

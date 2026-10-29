@@ -1,6 +1,6 @@
 # M13 plan (DRAFT): sketch mode v2, tablet readiness (Galaxy Tab S10+), PC polish
 
-Status: **approved by the owner 2026-10-29; M13a to M13d built, M13e partly (see STATUS.md), M13f not started.** Written by Claude on 2026-10-29 from three read-only audits (Android state, sketch mode, responsive layout) and one measured experiment (below). Per AGENTS.md "No guessing", every design choice here is either an owner decision (table) or listed under "Proposed defaults to confirm".
+Status: **approved by the owner 2026-10-29; M13a to M13d and M13f built, M13e partly (see STATUS.md for what is verified and what is not); the later owner decisions are listed under "Deviations" in STATUS.md.** Written by Claude on 2026-10-29 from three read-only audits (Android state, sketch mode, responsive layout) and one measured experiment (below). Per AGENTS.md "No guessing", every design choice here is either an owner decision (table) or listed under "Proposed defaults to confirm".
 
 Goal (owner): improve the app on Android and PC, prepare it for the Samsung Galaxy Tab S10+, improve sketch mode.
 

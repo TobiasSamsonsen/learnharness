@@ -16,6 +16,12 @@ const BASE_STEP: Record<Exclude<SketchBackground, "none">, number> = { grid: 32,
 /** Lines closer than this on screen are not drawn: the spacing doubles until they are. */
 const MIN_SCREEN_STEP = 10;
 export const BACKGROUND_COLOR = "rgba(100, 116, 139, 0.28)";
+/** The paper lines on a dark sheet. */
+const BACKGROUND_COLOR_DARK = "rgba(214, 211, 209, 0.22)";
+
+export function backgroundColor(tone: "light" | "dark"): string {
+	return tone === "dark" ? BACKGROUND_COLOR_DARK : BACKGROUND_COLOR;
+}
 
 /** The world spacing at this zoom. */
 export function backgroundStep(kind: Exclude<SketchBackground, "none">, zoom: number): number {
@@ -38,15 +44,16 @@ export function backgroundLines(kind: SketchBackground, view: SketchView, w: num
 }
 
 /** The same paper as a CSS background for the native-ink surface (the shell draws under a transparent page). */
-export function backgroundCss(kind: SketchBackground, view: SketchView): CSSProperties {
+export function backgroundCss(kind: SketchBackground, view: SketchView, tone: "light" | "dark" = "light"): CSSProperties {
 	if (kind === "none") return {};
+	const color = backgroundColor(tone);
 	const step = backgroundStep(kind, view.zoom) * view.zoom;
 	// the first line sits where the world's first multiple of the step falls
 	const ox = -(((view.x % (step / view.zoom)) + step / view.zoom) % (step / view.zoom)) * view.zoom;
 	const oy = -(((view.y % (step / view.zoom)) + step / view.zoom) % (step / view.zoom)) * view.zoom;
-	const lineX = `linear-gradient(to right, ${BACKGROUND_COLOR} 1px, transparent 1px)`;
-	const lineY = `linear-gradient(to bottom, ${BACKGROUND_COLOR} 1px, transparent 1px)`;
-	const dot = `radial-gradient(circle, ${BACKGROUND_COLOR} 1.2px, transparent 1.6px)`;
+	const lineX = `linear-gradient(to right, ${color} 1px, transparent 1px)`;
+	const lineY = `linear-gradient(to bottom, ${color} 1px, transparent 1px)`;
+	const dot = `radial-gradient(circle, ${color} 1.2px, transparent 1.6px)`;
 	const size = `${step}px ${step}px`;
 	if (kind === "grid") return { backgroundImage: `${lineX}, ${lineY}`, backgroundSize: `${size}, ${size}`, backgroundPosition: `${ox}px ${oy}px, ${ox}px ${oy}px` };
 	if (kind === "ruled") return { backgroundImage: lineY, backgroundSize: size, backgroundPosition: `0px ${oy}px` };
