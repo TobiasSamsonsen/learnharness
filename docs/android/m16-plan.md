@@ -1,0 +1,48 @@
+# M16: sketch quality on par with popular note-taking apps
+
+Status: **DRAFT, awaiting owner approval. Nothing is built yet.** Branch `feat/m16-sketch-notes` (from `merge/upstream-v0.4.0`). Goal (owner, 2026-10-29): "improve the sketch feature and ui/ux so that it matches the quality of popular note taking apps". Source: a read-only gap analysis of `components/sketch/*`, `src/core/sketch.ts` and the Kotlin `Ink*.kt` against GoodNotes, Notability, OneNote and Samsung Notes (code reading only, no device).
+
+## Owner decisions (2026-10-29)
+
+| Question | Answer |
+| --- | --- |
+| Scope | All four bundles: UX polish, toolbar and gestures, drawing aids, Android stylus and stroke look |
+| Straight lines | **Hold to straighten, plus a ruler tool** |
+| Highlighter | **No** |
+| Stroke look on Android | **Android draws like the model's image** (the same perfect-freehand outline the server renders) |
+| Toolbars | **Manual collapse, remembered, plus an "auto-hide while drawing" switch** (off by default) |
+
+## Milestones
+
+**M16a, UX polish (web).** Each item is a rough edge found in the code.
+- The size and refusal state is visible while drawing: a live counter against the limits (3000 strokes, 250k points, 4 MB) that warns at 80 percent, and the refusal text in a readable, announced place (today it is an `aria-hidden`, truncated footer span).
+- 44 px touch targets on touch screens for the action bar buttons, Submit and the problem pill's collapse button (`.lh-touch`).
+- The "⌘↵ submits · esc closes" hint is hidden on touch-only devices, as in the question dock.
+- The paper button shows the current paper in its icon, not only in a hover title.
+- A blank canvas shows a faint hint; a disabled Submit says why ("Draw something first").
+- One wording for the destructive button: the button and the dialog both say "Clear" (the dialog still says that sent ink stays).
+- Keyboard parity: `[` and `]` change the pen width; holding Space pans (promised in M13c, never built).
+- A failed send after the view closed must be visible to the learner (to be confirmed in the code: it is fire-and-forget today).
+- Fix the stale comment in `sketch-canvas.tsx` about the native page scrolling.
+
+**M16b, toolbars and gestures (web, native where the finger path allows).**
+- Each bar has a handle that collapses it to a thin tab; the choice is remembered per device. A switch "Auto-hide while drawing" in the pen strip fades both bars while the pen is down and brings them back on lift (off by default).
+- Two-finger tap undoes (web; on Android the finger path in `InkRouter.kt` if it fits, otherwise web only and noted).
+- Undo history of the **unsent** ink survives a reload (stored with the strokes in `ink-memory`). After a submit the history ends: sent ink stays protected, and is edited only through the eraser's existing "thaw".
+
+**M16c, drawing aids.**
+- *Hold to straighten:* at the end of a stroke, holding the pen still for about 0.5 s (less than 4 px of movement) replaces the stroke by a straight line from its start to its end. A line within 5 degrees of horizontal, vertical or 45 degrees snaps to it. One undo step; a short flash confirms. The native live preview shows the freehand stroke until the pen lifts and the web then swaps in the straight line (the web owns the strokes).
+- *Ruler tool:* a toolbar tool that shows a ruler on the canvas, dragged with one finger or the pen, rotated with two fingers or the handle, with an angle readout. It is drawn in the UI only and never sent (like the paper). A stroke that starts within about 24 px of its edge and runs mostly along it becomes a straight segment on the edge when the pen lifts (the same post-lift swap as straighten, so it behaves the same on the web and the native path).
+
+**M16d, Android stylus and stroke look (Kotlin).**
+- Palm rejection also honours `FLAG_CANCELED`; the barrel button and a double press of the S Pen button toggle the eraser; a hover preview on the native layer.
+- The native layer draws strokes with the same perfect-freehand outline as the server (parameters shared in one place), so the live stroke equals the model's image. Speed is checked on the Pixel.
+- **Not verifiable here:** the stylus parts (barrel, double press, hover, `FLAG_CANCELED`) need a tablet and S Pen; only finger input on the Pixel 7 Pro is available. They are built defensively and listed as unverified in STATUS.
+
+## Order and checks
+
+M16a, M16b, M16c, M16d, each committed on its own with tests (pure logic in `src/core` or `components/sketch/*.ts` with unit tests; Kotlin unit tests for the wire and the geometry; whole suite at the end). Web behaviour is checked in the browser, Android on the Pixel over the dev loop with finger input.
+
+## Decided by default (owner may change)
+
+The wording "Clear"; that undo history ends at submit; the thresholds above (hold 0.5 s, 4 px, 5 degrees, 24 px, 80 percent); auto-hide off by default; the order.
