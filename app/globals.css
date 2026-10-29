@@ -147,8 +147,6 @@
 	   toggle write a runtime --font-title no consumer ever read (owner, fix
 	   wave: toggle looked dead). Non-inline emits :root { --font-title: … }
 	   and the utility reads var(--font-title) — appearance overrides win. */
-	--text-xs: 11px;
-	--text-xs--line-height: 1.4;
 	--text-sm: 12.5px;
 	--text-sm--line-height: 1.4;
 	--text-base: 14px;
@@ -687,6 +685,21 @@ html.lh-native-ink body > *:not([data-testid="sketch-view"]) {
    .font-title utility must read it through var(), not carry a baked copy. */
 @theme {
 	--font-title: "lh-cmu", serif;
+	/* The smallest text rung lives here, NOT in the inline block above, so a touch screen can raise it (owner, 2026-10-29:
+	   12px on touch only; the 11px floor stays on desktop). Inline tokens are baked into the utilities and cannot be overridden. */
+	--text-xs: 11px;
+	--text-xs--line-height: 1.4;
+}
+
+@media (pointer: coarse) {
+	:root {
+		--text-xs: 12px;
+	}
+	/* the arbitrary 11px and 10px sizes (about 57 uses) follow the same floor */
+	.text-\[11px\],
+	.text-\[10px\] {
+		font-size: 12px;
+	}
 }
 
 /* Card enter (owner round, 2026-10-05): the transcript cards' one-shot
