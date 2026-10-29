@@ -212,7 +212,7 @@ export function MinimalHome({
 								className="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50"
 							>
 								<UploadIcon className="size-3" />
-								{importing ? "Importing…" : "Import notes…"}
+								{importing ? "Importing…" : "Import to knowledge graph"}
 							</button>
 						</Hint>
 					</div>
