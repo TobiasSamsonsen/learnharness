@@ -318,6 +318,7 @@ describe("pen and clear (M13b)", () => {
 		localStorage.removeItem("lh:sketch-pen");
 		await mount({ inkKey: "k-pen", onSubmit: async () => true });
 		const pressed = (id: string) => document.querySelector(`[data-testid="${id}"]`)!.getAttribute("aria-pressed");
+		await click("sketch-tool-pen"); // the active tool again opens its options
 		assert.equal(pressed("sketch-color-black"), "true");
 		await click("sketch-color-red");
 		await click("sketch-width-thick");
@@ -331,6 +332,7 @@ describe("pen and clear (M13b)", () => {
 	it("Clear is undoable (and redoable), and still leaves nothing to submit", async () => {
 		writeInk("k-clear", inkFromStrokes([STROKE, { ...STROKE }]));
 		await mount({ inkKey: "k-clear", onSubmit: async () => true });
+		await click("sketch-more");
 		await click("sketch-clear");
 		assert.equal(readInk("k-clear").strokes.length, 2, "Clear asks first: nothing is deleted yet");
 		await click("sketch-clear-confirm");
@@ -393,7 +395,8 @@ describe("pen and clear (M13b)", () => {
 		localStorage.removeItem("lh:sketch-background");
 		await mount({ inkKey: "k-keys2", onSubmit: async () => true });
 		const pressed = (id: string) => document.querySelector(`[data-testid="${id}"]`)!.getAttribute("aria-pressed");
-		const bg = () => document.querySelector('[data-testid="sketch-background"]')!.getAttribute("aria-label");
+		const paper = (name: string) => document.querySelector(`[data-testid="sketch-paper-${name}"]`)?.getAttribute("aria-pressed");
+		await click("sketch-tool-pen");
 		await key({ key: "2" });
 		assert.equal(pressed("sketch-color-red"), "true");
 		await key({ key: "5" });
@@ -403,59 +406,68 @@ describe("pen and clear (M13b)", () => {
 		await key({ key: "e" });
 		assert.equal(document.querySelector('[data-testid="sketch-eraser"]')!.getAttribute("aria-pressed"), "false");
 		await key({ key: "g" });
-		assert.equal(bg(), "Paper: grid");
+		await click("sketch-more");
+		assert.equal(paper("grid"), "true");
 		await key({ key: "g", ctrlKey: true });
-		assert.equal(bg(), "Paper: grid", "Ctrl+G is not ours");
+		assert.equal(paper("grid"), "true", "Ctrl+G is not ours");
+		await click("sketch-tool-pen");
 		await key({ key: "6" });
 		assert.equal(pressed("sketch-color-blue"), "true", "only 1-5");
+		await key({ key: "]" });
+		await key({ key: "[" });
+		await key({ key: "[" });
+		assert.equal(pressed("sketch-width-thin"), "true", "[ and ] step the pen width");
 		localStorage.removeItem("lh:sketch-pen");
 		localStorage.removeItem("lh:sketch-background");
 	});
 
-	it("the paper button cycles none, grid, ruled, dots, and is remembered", async () => {
+	it("the paper options (none, grid, ruled, dots) are remembered", async () => {
 		localStorage.removeItem("lh:sketch-background");
 		await mount({ inkKey: "k-paper", onSubmit: async () => true });
-		const label = () => document.querySelector('[data-testid="sketch-background"]')!.getAttribute("aria-label");
-		assert.equal(label(), "Paper: none");
-		const seen: (string | null)[] = [];
-		for (let i = 0; i < 4; i++) {
-			await click("sketch-background");
-			seen.push(label());
+		await click("sketch-more");
+		const paper = (name: string) => document.querySelector(`[data-testid="sketch-paper-${name}"]`)!.getAttribute("aria-pressed");
+		assert.equal(paper("none"), "true");
+		for (const name of ["grid", "ruled", "dots", "none"]) {
+			await click(`sketch-paper-${name}`);
+			assert.equal(paper(name), "true");
 		}
-		assert.deepEqual(seen, ["Paper: grid", "Paper: ruled", "Paper: dots", "Paper: none"]);
-		await click("sketch-background");
+		await click("sketch-paper-grid");
 		assert.equal(localStorage.getItem("lh:sketch-background"), "grid");
 		localStorage.removeItem("lh:sketch-background");
 	});
 
-	it("Clear asks for confirmation: Cancel and Esc keep the ink and leave the view open; Delete removes it", async () => {
+	it("Clear asks for confirmation: Cancel and Esc keep the ink and leave the view open; Clear removes it", async () => {
 		writeInk("k-confirm", inkFromStrokes([STROKE, { ...STROKE }]));
 		let closed = 0;
 		await mount({ inkKey: "k-confirm", onSubmit: async () => true, onClose: () => closed++ });
 		const dialog = () => document.querySelector('[data-testid="sketch-clear-dialog"]');
 		assert.equal(dialog(), null);
-		await click("sketch-clear");
+		const clear = async () => {
+			await click("sketch-more");
+			await click("sketch-clear");
+		};
+		await clear();
 		assert.ok(dialog(), "the dialog opens");
 		assert.equal(dialog()!.getAttribute("role"), "alertdialog");
 		assert.ok(dialog()!.hasAttribute("data-ink-hole"), "a touch hole: the native layer must not draw under it");
-		assert.match(dialog()!.textContent ?? "", /Delete the whole sketch\?/);
+		assert.match(dialog()!.textContent ?? "", /Clear the whole sketch\?/);
 		await click("sketch-clear-cancel");
 		assert.equal(dialog(), null);
 		assert.equal(readInk("k-confirm").strokes.length, 2, "Cancel keeps the ink");
-		await click("sketch-clear");
+		await clear();
 		await key({ key: "Escape" });
 		assert.equal(dialog(), null, "Esc closes the dialog");
 		assert.equal(closed, 0, "...and only the dialog, not the sketch view");
 		assert.equal(readInk("k-confirm").strokes.length, 2);
-		await click("sketch-clear");
+		await clear();
 		await act(async () => {
 			assert.equal(handleBack(), true);
 		});
 		assert.equal(dialog(), null, "the Android back button closes the dialog first");
 		assert.equal(closed, 0);
-		await click("sketch-clear");
+		await clear();
 		await click("sketch-clear-confirm");
-		assert.equal(readInk("k-confirm").strokes.length, 0, "Delete removes the ink");
+		assert.equal(readInk("k-confirm").strokes.length, 0, "Clear removes the ink");
 		assert.equal(dialog(), null);
 	});
 
@@ -463,12 +475,15 @@ describe("pen and clear (M13b)", () => {
 		localStorage.removeItem("lh:sketch-sheet");
 		await mount({ inkKey: "k-tone", onSubmit: async () => true });
 		const label = () => document.querySelector('[data-testid="sketch-sheet-tone"]')!.getAttribute("aria-label");
+		await click("sketch-more");
 		assert.equal(label(), "Sheet: light");
 		await click("sketch-sheet-tone");
 		assert.equal(label(), "Sheet: dark");
 		assert.equal(localStorage.getItem("lh:sketch-sheet"), "dark");
+		await click("sketch-tool-pen"); // the pen options replace the menu
 		const black = () => document.querySelector('[data-testid="sketch-color-black"] span')!.getAttribute("style") ?? "";
 		assert.match(black(), /f5f5f4/i, "the black swatch shows the ink as it appears on a dark sheet");
+		await click("sketch-more");
 		await click("sketch-sheet-tone");
 		assert.equal(label(), "Sheet: light");
 		localStorage.removeItem("lh:sketch-sheet");
@@ -478,5 +493,171 @@ describe("pen and clear (M13b)", () => {
 		const op = { kind: "clear" as const, removed: [STROKE, { ...STROKE }] };
 		assert.deepEqual(applyOp([STROKE, op.removed[1]!], op), []);
 		assert.equal(revertOp([], op).length, 2);
+	});
+});
+
+describe("the top bar (M16)", () => {
+	const click = (testid: string) =>
+		act(async () => {
+			document.querySelector(`[data-testid="${testid}"]`)!.dispatchEvent(new dom.window.Event("click", { bubbles: true, cancelable: true }));
+		});
+	const has = (testid: string) => document.querySelector(`[data-testid="${testid}"]`) !== null;
+	const toolbarStore = () => (globalThis as unknown as { localStorage: { store: Map<string, string> } }).localStorage.store;
+
+	it("every control lives in the one top bar, ahead of the canvas, and nothing sits below it", async () => {
+		await mount({ inkKey: "k-top", onSubmit: async () => true });
+		const view = document.querySelector('[data-testid="sketch-view"]')!;
+		const toolbar = document.querySelector('[data-testid="sketch-toolbar"]')!;
+		assert.equal(view.firstElementChild?.getAttribute("data-testid") ?? view.querySelector("[data-testid]")?.getAttribute("data-testid"), "sketch-toolbar");
+		for (const id of ["sketch-close", "sketch-undo", "sketch-redo", "sketch-tool-pen", "sketch-eraser", "sketch-more", "sketch-submit"]) {
+			assert.ok(toolbar.querySelector(`[data-testid="${id}"]`), `${id} is in the bar`);
+		}
+		const canvasWrap = document.querySelector('[data-testid="sketch-canvas"]')!.parentElement!;
+		assert.equal(toolbar.compareDocumentPosition(canvasWrap) & 4, 4, "the canvas follows the bar in the document");
+		assert.equal(view.lastElementChild === toolbar, false, "the bar is not the last child: no bottom bar");
+	});
+
+	it("the options open from the active tool, one panel at a time, and Esc closes the panel before the view", async () => {
+		let closed = 0;
+		await mount({ inkKey: "k-panel", onSubmit: async () => true, onClose: () => closed++ });
+		assert.ok(!has("sketch-panel-pen"));
+		await click("sketch-tool-pen");
+		assert.ok(has("sketch-panel-pen"));
+		await click("sketch-more");
+		assert.ok(has("sketch-panel-more") && !has("sketch-panel-pen"), "one panel at a time");
+		assert.ok(document.querySelector('[data-testid="sketch-panel-more"]')!.hasAttribute("data-ink-hole"), "a touch hole for the native layer");
+		await key({ key: "Escape" });
+		assert.ok(!has("sketch-panel-more"));
+		assert.equal(closed, 0, "Esc closed the panel only");
+		await click("sketch-eraser"); // another tool: switches, no panel
+		assert.ok(!has("sketch-panel-eraser"));
+		await click("sketch-eraser"); // the active tool again: its options
+		assert.ok(has("sketch-panel-eraser"));
+		await key({ key: "e" }); // the key switches back to the pen and takes the eraser's panel away
+		assert.ok(!has("sketch-panel-eraser"));
+	});
+
+	it("the bar folds to a thin tab and comes back; the choice is remembered", async () => {
+		toolbarStore().clear();
+		await mount({ inkKey: "k-fold", onSubmit: async () => true });
+		await click("sketch-more");
+		await click("sketch-toolbar-collapse");
+		assert.ok(!has("sketch-submit") && has("sketch-toolbar-expand"), "only the tab is left");
+		assert.equal((JSON.parse(toolbarStore().get("lh:sketch-toolbar")!) as { collapsed: boolean }).collapsed, true);
+		await act(async () => root!.unmount());
+		await mount({ inkKey: "k-fold", onSubmit: async () => true });
+		assert.ok(has("sketch-toolbar-expand"), "remembered folded");
+		await click("sketch-toolbar-expand");
+		assert.ok(has("sketch-submit") && !has("sketch-toolbar-expand"));
+		toolbarStore().clear();
+	});
+
+	it("auto-hide is a switch in the menu, off by default and remembered", async () => {
+		toolbarStore().clear();
+		await mount({ inkKey: "k-auto", onSubmit: async () => true });
+		await click("sketch-more");
+		const sw = () => document.querySelector('[data-testid="sketch-autohide"]')!;
+		assert.equal(sw().getAttribute("aria-checked"), "false");
+		await click("sketch-autohide");
+		assert.equal(sw().getAttribute("aria-checked"), "true");
+		assert.equal((JSON.parse(toolbarStore().get("lh:sketch-toolbar")!) as { autoHide: boolean }).autoHide, true);
+		toolbarStore().clear();
+	});
+
+	it("a waiting Submit says why instead of doing nothing, and the message goes when the reason does", async () => {
+		await mount({ inkKey: "k-why", onSubmit: async () => true });
+		const submit = () => document.querySelector('[data-testid="sketch-submit"]')!;
+		assert.equal(submit().getAttribute("aria-disabled"), "true");
+		assert.equal(submit().getAttribute("title"), "Draw something first.");
+		assert.ok(!has("sketch-status"));
+		await click("sketch-submit");
+		assert.match(document.querySelector('[data-testid="sketch-status"]')!.textContent ?? "", /Draw something first/);
+		assert.equal(document.querySelector('[data-testid="sketch-status"]')!.getAttribute("role"), "status", "announced, not hidden");
+	});
+
+	it("a blank page shows a hint; a page with ink does not", async () => {
+		await mount({ inkKey: "k-hint", onSubmit: async () => true });
+		assert.ok(has("sketch-empty-hint"));
+		await act(async () => root!.unmount());
+		writeInk("k-hint2", inkFromStrokes([STROKE]));
+		await mount({ inkKey: "k-hint2", onSubmit: async () => true });
+		assert.ok(!has("sketch-empty-hint"));
+	});
+
+	it("a palm next to the pen presses nothing in the bar; the pen itself does", async () => {
+		writeInk("k-palm", inkFromStrokes([STROKE]));
+		let closed = 0;
+		await mount({ inkKey: "k-palm", onSubmit: async () => true, onClose: () => closed++ });
+		const { notePenNear, resetPalmGuard } = await import("../components/sketch/palm-guard.ts");
+		resetPalmGuard();
+		const close = document.querySelector('[data-testid="sketch-close"]')!;
+		const press = (pointerType: string, width = 10) =>
+			act(async () => {
+				close.dispatchEvent(Object.assign(new dom.window.Event("pointerdown", { bubbles: true, cancelable: true }), { pointerType, width, height: width }));
+				close.dispatchEvent(new dom.window.Event("click", { bubbles: true, cancelable: true }));
+			});
+		await press("touch");
+		assert.equal(closed, 1, "a finger with no pen about works");
+		notePenNear();
+		await press("touch");
+		assert.equal(closed, 1, "a touch right after the pen is a palm");
+		await press("pen");
+		assert.equal(closed, 2, "the pen is never blocked");
+		resetPalmGuard();
+	});
+});
+
+describe("two-finger tap and Space pan (M16)", () => {
+	it("two fingers tapping together undo the newest stroke; a pinch does not", async () => {
+		const proto = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>;
+		proto.setPointerCapture = () => {};
+		proto.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 600, width: 400, height: 600, x: 0, y: 0 });
+		writeInk("k-tap", inkFromStrokes([STROKE, { ...STROKE }]));
+		await mount({ inkKey: "k-tap", onSubmit: async () => true });
+		const canvas = document.querySelector('[data-testid="sketch-canvas"]')!;
+		const touch = (type: string, pointerId: number, x: number, y: number) =>
+			act(async () => {
+				canvas.dispatchEvent(Object.assign(new dom.window.Event(type, { bubbles: true, cancelable: true }), { pointerId, pointerType: "touch", clientX: x, clientY: y, button: 0, buttons: 1, pressure: 0.5 }));
+			});
+		await touch("pointerdown", 1, 100, 100);
+		await touch("pointerdown", 2, 200, 100);
+		await touch("pointerup", 1, 100, 100);
+		await touch("pointerup", 2, 200, 100);
+		assert.equal(readInk("k-tap").strokes.length, 1, "a quick two-finger tap is undo");
+		// a pinch: the fingers spread, so it is a zoom, not an undo
+		await touch("pointerdown", 1, 100, 100);
+		await touch("pointerdown", 2, 200, 100);
+		await touch("pointermove", 2, 300, 100);
+		await touch("pointerup", 1, 100, 100);
+		await touch("pointerup", 2, 300, 100);
+		assert.equal(readInk("k-tap").strokes.length, 1, "a pinch changes nothing");
+	});
+
+	it("holding Space pans a mouse drag; without Space a mouse drag draws", async () => {
+		const proto = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>;
+		proto.setPointerCapture = () => {};
+		proto.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 600, width: 400, height: 600, x: 0, y: 0 });
+		await mount({ inkKey: "k-space", onSubmit: async () => true });
+		const canvas = document.querySelector('[data-testid="sketch-canvas"]')!;
+		const mouse = (type: string, x: number, y: number) =>
+			act(async () => {
+				canvas.dispatchEvent(Object.assign(new dom.window.Event(type, { bubbles: true, cancelable: true }), { pointerId: 9, pointerType: "mouse", clientX: x, clientY: y, button: 0, buttons: 1, pressure: 0.5 }));
+			});
+		const keyEvent = (type: string, code: string) =>
+			act(async () => {
+				window.dispatchEvent(Object.assign(new dom.window.Event(type, { bubbles: true, cancelable: true }), { code, key: " ", ctrlKey: false, metaKey: false, altKey: false }));
+			});
+		const before = document.querySelector('[data-testid="sketch-zoom-reset"]')!.textContent;
+		await keyEvent("keydown", "Space");
+		await mouse("pointerdown", 100, 100);
+		await mouse("pointermove", 160, 140);
+		await mouse("pointerup", 160, 140);
+		await keyEvent("keyup", "Space");
+		assert.equal(readInk("k-space").strokes.length, 0, "Space held: the drag panned, it drew nothing");
+		assert.equal(document.querySelector('[data-testid="sketch-zoom-reset"]')!.textContent, before, "a pan does not zoom");
+		await mouse("pointerdown", 100, 100);
+		await mouse("pointermove", 160, 140);
+		await mouse("pointerup", 160, 140);
+		assert.equal(readInk("k-space").strokes.length, 1, "no Space: the drag draws");
 	});
 });

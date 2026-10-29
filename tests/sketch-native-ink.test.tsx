@@ -258,6 +258,7 @@ describe("native ink is on", () => {
 		const shell = fakeShell();
 		await mount("k-sheet");
 		assert.ok(shell.posted.includes("sheet light"), shell.posted.join(" | "));
+		await click("sketch-more");
 		await click("sketch-sheet-tone");
 		assert.equal(shell.posted.filter((l) => l.startsWith("sheet ")).at(-1), "sheet dark");
 		await click("sketch-sheet-tone");
@@ -280,7 +281,7 @@ describe("native ink is on", () => {
 		assert.equal(byId("sketch-native-surface"), null);
 		assert.equal(shell.posted.at(-1), "close", "the shell is told to close the layer");
 		assert.ok(!document.documentElement.classList.contains("lh-native-ink"));
-		assert.match(document.body.textContent ?? "", /native ink unavailable \(no surface\)/);
+		assert.match(document.body.textContent ?? "", /native ink unavailable \(no surface\)/i);
 		assert.deepEqual(readInk("k-fallback").strokes, [STROKE], "the ink is untouched");
 	});
 

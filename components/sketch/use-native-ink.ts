@@ -155,7 +155,9 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 			size.current = { w: rect.w, h: rect.h };
 			send({ op: "open", inkKey, rect });
 		};
-		const reportHoles = () => send({ op: "holes", rects: [...wrapper.querySelectorAll("[data-ink-hole]")].map(rectOf) });
+		// holes anywhere in the view: the floating box and the zoom buttons sit inside the wrapper, the top bar's option panels over it
+		const scope = wrapper.parentElement ?? wrapper;
+		const reportHoles = () => send({ op: "holes", rects: [...scope.querySelectorAll("[data-ink-hole]")].map(rectOf) });
 		const reportAll = () => {
 			reportRect();
 			reportHoles();
@@ -178,7 +180,7 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 		window.visualViewport?.addEventListener("resize", reportAll);
 		// the floating box moves and collapses through style/class changes under the wrapper
 		const mutations = typeof MutationObserver !== "undefined" ? new MutationObserver(reportHoles) : null;
-		mutations?.observe(wrapper, { subtree: true, childList: true, attributes: true, attributeFilter: ["style", "class"] });
+		mutations?.observe(scope, { subtree: true, childList: true, attributes: true, attributeFilter: ["style", "class"] });
 
 		const onMessage = (event: { data: unknown }) => {
 			const shell = decodeShellLine(String(event.data));

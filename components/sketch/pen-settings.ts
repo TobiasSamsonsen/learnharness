@@ -108,3 +108,35 @@ export function saveEraser(eraser: EraserSettings): void {
 		// a blocked store: the choice lasts for this view only
 	}
 }
+
+// ─── the top bar's own settings (M16b) ───────────────────────────────────────
+
+export interface ToolbarPrefs {
+	/** The bar is folded to a thin tab. */
+	collapsed: boolean;
+	/** The bar fades while the pen is down and returns when it lifts. */
+	autoHide: boolean;
+}
+
+export const DEFAULT_TOOLBAR: ToolbarPrefs = { collapsed: false, autoHide: false };
+
+const TOOLBAR_KEY = "lh:sketch-toolbar";
+
+export function loadToolbar(): ToolbarPrefs {
+	try {
+		const raw = storage()?.getItem(TOOLBAR_KEY);
+		if (!raw) return DEFAULT_TOOLBAR;
+		const v = JSON.parse(raw) as Partial<ToolbarPrefs> | null;
+		return { collapsed: v?.collapsed === true, autoHide: v?.autoHide === true };
+	} catch {
+		return DEFAULT_TOOLBAR;
+	}
+}
+
+export function saveToolbar(prefs: ToolbarPrefs): void {
+	try {
+		storage()?.setItem(TOOLBAR_KEY, JSON.stringify(prefs));
+	} catch {
+		// a blocked store: the choice lasts for this view only
+	}
+}

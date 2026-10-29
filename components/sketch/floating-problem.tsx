@@ -157,7 +157,7 @@ export function FloatingProblem({
 						}
 						toggle(false);
 					}}
-					className="flex cursor-grab touch-none items-center gap-1.5 rounded-full border bg-card py-1.5 pr-3 pl-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase shadow-lg transition-colors hover:text-foreground active:cursor-grabbing"
+					className="lh-touch flex cursor-grab touch-none items-center gap-1.5 rounded-full border bg-card py-1.5 pr-3 pl-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase shadow-lg transition-colors hover:text-foreground active:cursor-grabbing"
 				>
 					<PenLineIcon className="size-3.5" />
 					{label}
@@ -190,7 +190,7 @@ export function FloatingProblem({
 					aria-label={`Collapse the ${label.toLowerCase()}`}
 					title="Collapse"
 					onClick={() => toggle(true)}
-					className="flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+					className="lh-touch flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 				>
 					<MinusIcon className="size-4" />
 				</button>

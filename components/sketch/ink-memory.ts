@@ -13,8 +13,9 @@ import { newSketchId, parseSketchPayload, type SketchPayload, type SketchStroke 
  * reload from the server (the dock fetches its strokes).
  *
  * History is a list of operations, so undo also restores an erased stroke.
- * Ink restored from a reload has no history: undo then removes the newest
- * stroke.
+ * The last HISTORY_OPS operations of each stack ride along in localStorage (M16b), so undo works after a reload too; a
+ * history that no longer matches the restored strokes, is damaged, or is too big is dropped, and undo then removes the
+ * newest stroke.
  */
 
 export type InkOp =
@@ -45,6 +46,10 @@ export interface KeptPage {
 
 const EMPTY_INK: InkState = { strokes: [], undo: [], redo: [] };
 const LS_PREFIX = "lh:ink:";
+const HIST_PREFIX = "lh:ink-hist:";
+/** Operations kept per stack across a reload, and the most characters the history may take in storage. */
+export const HISTORY_OPS = 30;
+const HISTORY_MAX_CHARS = 1_000_000;
 
 const ink = new Map<string, InkState>();
 const kept = new Map<string, KeptPage>();
@@ -82,9 +87,9 @@ function storage(): Storage | null {
 	}
 }
 
-function restoreInk(key: string): InkState | null {
-	try {
-		const raw = storage()?.getItem(LS_PREFIX + key);
+function restoreStrokes(key: string): InkState | null {
+try {
+const raw = storage()?.getItem(LS_PREFIX + key);
 		if (!raw) return null;
 		const parsed: unknown = JSON.parse(raw);
 		if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -104,15 +109,79 @@ function restoreInk(key: string): InkState | null {
 	}
 }
 
+function validStroke(s: unknown): boolean {
+	const v = s as { size?: unknown; points?: unknown } | null;
+	return typeof v === "object" && v !== null && typeof v.size === "number" && Array.isArray(v.points) && v.points.length % 3 === 0 && v.points.every((n) => typeof n === "number");
+}
+
+/** A stored operation of a known shape (the history is only trusted when every operation is). */
+export function validOp(op: unknown): op is InkOp {
+	const v = op as Record<string, unknown> | null;
+	if (typeof v !== "object" || v === null) return false;
+	const strokes = (xs: unknown) => Array.isArray(xs) && xs.every(validStroke);
+	switch (v.kind) {
+		case "add":
+			return validStroke(v.stroke);
+		case "erase":
+			return Array.isArray(v.removed) && v.removed.every((r: { index?: unknown; stroke?: unknown }) => typeof r?.index === "number" && validStroke(r.stroke));
+		case "clear":
+			return strokes(v.removed);
+		case "cut":
+			return Array.isArray(v.changes) && v.changes.every((c: { index?: unknown; stroke?: unknown; pieces?: unknown }) => typeof c?.index === "number" && validStroke(c.stroke) && strokes(c.pieces));
+		default:
+			return false;
+	}
+}
+
+/** The stored history for these strokes, or null when there is none, it is damaged, or it belongs to other strokes. */
+function restoreHistory(key: string, signature: number): Pick<InkState, "undo" | "redo"> | null {
+	try {
+		const raw = storage()?.getItem(HIST_PREFIX + key);
+		if (!raw) return null;
+		const v = JSON.parse(raw) as { sig?: unknown; undo?: unknown; redo?: unknown } | null;
+		if (!v || v.sig !== signature || !Array.isArray(v.undo) || !Array.isArray(v.redo)) return null;
+		if (!v.undo.every(validOp) || !v.redo.every(validOp)) return null;
+		return { undo: v.undo as InkOp[], redo: v.redo as InkOp[] };
+	} catch {
+		return null;
+	}
+}
+
+function restoreInk(key: string): InkState | null {
+	const state = restoreStrokes(key);
+	if (!state) return null;
+	const raw = storage()?.getItem(LS_PREFIX + key);
+	const history = raw ? restoreHistory(key, raw.length) : null;
+	return history ? { ...state, ...history } : state;
+}
+
+function persistHistory(ls: Storage, key: string, state: InkState, signature: number): void {
+	if (state.undo.length === 0 && state.redo.length === 0) {
+		ls.removeItem(HIST_PREFIX + key);
+		return;
+	}
+	const text = JSON.stringify({ sig: signature, undo: state.undo.slice(-HISTORY_OPS), redo: state.redo.slice(-HISTORY_OPS) });
+	if (text.length > HISTORY_MAX_CHARS) ls.removeItem(HIST_PREFIX + key);
+	else ls.setItem(HIST_PREFIX + key, text);
+}
+
 function persistInk(key: string, state: InkState): void {
 	try {
 		const ls = storage();
 		if (!ls) return;
 		if (state.thawed !== undefined) {
-			const sent = state.strokes.flatMap((s, i) => (s.fresh === false ? [i] : []));
-			ls.setItem(LS_PREFIX + key, JSON.stringify({ thawed: state.thawed, strokes: state.strokes, sent }));
-		} else if (state.strokes.length === 0) ls.removeItem(LS_PREFIX + key);
-		else ls.setItem(LS_PREFIX + key, JSON.stringify(state.strokes));
+		const sent = state.strokes.flatMap((s, i) => (s.fresh === false ? [i] : []));
+		const text = JSON.stringify({ thawed: state.thawed, strokes: state.strokes, sent });
+		ls.setItem(LS_PREFIX + key, text);
+		persistHistory(ls, key, state, text.length);
+		} else if (state.strokes.length === 0) {
+		ls.removeItem(LS_PREFIX + key);
+		ls.removeItem(HIST_PREFIX + key);
+		} else {
+		const text = JSON.stringify(state.strokes);
+		ls.setItem(LS_PREFIX + key, text);
+		persistHistory(ls, key, state, text.length);
+		}
 	} catch {
 		// quota or a blocked store: the in-memory ink still works
 	}
@@ -131,6 +200,12 @@ export function writeInk(key: string, state: InkState): void {
 	else ink.set(key, state);
 	persistInk(key, state);
 	notify();
+}
+
+/** Test seam: a page reload (the memory is gone, localStorage stays). */
+export function forgetInkMemory(): void {
+ink.clear();
+kept.clear();
 }
 
 export function clearInk(key: string): void {

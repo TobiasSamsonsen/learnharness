@@ -2,17 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { EraserIcon, Grid3x3Icon, MicIcon, MoonIcon, SunIcon, PenLineIcon, Redo2Icon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfidenceButtons } from "@/components/confidence-buttons";
 import { isDictationActive } from "@/components/dictation";
 import { FloatingProblem } from "@/components/sketch/floating-problem";
 import { SketchCanvas, type SketchTool } from "@/components/sketch/sketch-canvas";
 import { ZoomControls } from "@/components/sketch/zoom-controls";
-import { displayInk, loadTone, saveTone, type SheetTone } from "@/components/sketch/sketch-sheet";
+import { loadTone, saveTone, type SheetTone } from "@/components/sketch/sketch-sheet";
 import { backgroundCss, loadBackground, nextBackground, saveBackground, type SketchBackground } from "@/components/sketch/sketch-background";
+import { SketchToolbar, usePenDown, type SketchPanel } from "@/components/sketch/sketch-toolbar";
+import { limitShare, sketchStatus, submitBlockReason } from "@/components/sketch/sketch-status";
 import { useNativeInk } from "@/components/sketch/use-native-ink";
-import { loadEraser, loadPen, saveEraser, savePen, SKETCH_COLORS, SKETCH_ERASER_SIZES, SKETCH_WIDTHS, type EraserSettings, type PenSettings } from "@/components/sketch/pen-settings";
+import { loadEraser, loadPen, loadToolbar, saveEraser, savePen, saveToolbar, SKETCH_COLORS, SKETCH_WIDTHS, type EraserSettings, type PenSettings, type ToolbarPrefs } from "@/components/sketch/pen-settings";
 import { applyOp, hasNewInk, pagePayload, readInk, revertOp, sendPage, thawInk, useInk, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
 import { cn } from "@/lib/utils";
 import { SketchPayloadError, sketchStrokeCut, type SketchPayload } from "@/src/core";
@@ -28,9 +28,11 @@ import { useBackLayer } from "../back-layers.ts";
  *
  * Keys (owner, M1): Ctrl/⌘+Enter submits, Esc closes (cancels dictation
  * first), Ctrl/⌘+Z undoes, Ctrl/⌘+Shift+Z redoes, plain Enter does
- * nothing; M13f adds E (eraser), 1-5 (ink colour) and G (paper). The listener sits at the window's CAPTURE phase and claims
+ * nothing; M13f adds E (eraser), 1-5 (ink colour) and G (paper); M16 adds [ and ] (pen width). The listener sits at the window's CAPTURE phase and claims
  * those keys, so the dock's Enter-submits-anywhere and the page's Esc
  * chain (problem dismissal) never see them while the view is open.
+ *
+ * One top bar holds every control (M16, owner: a resting palm hits nothing at the bottom edge): sketch-toolbar.tsx.
  */
 
 export interface SketchViewProps {
@@ -76,30 +78,6 @@ function focusVisible(el: HTMLElement): boolean {
 	}
 }
 
-/** The toolbar's mic (M3): the app's own dictation toggle (⌘D) — no new
- *  claim; text lands in the dock's field exactly as with the key. */
-function SketchMic() {
-	const [live, setLive] = useState(isDictationActive());
-	useEffect(() => {
-		const t = window.setInterval(() => setLive(isDictationActive()), 250);
-		return () => window.clearInterval(t);
-	}, []);
-	return (
-		<Button
-			type="button"
-			variant="ghost"
-			size="icon"
-			data-testid="sketch-mic"
-			aria-label={live ? "Stop dictation" : "Start dictation"}
-			aria-pressed={live}
-			onClick={() => window.dispatchEvent(new CustomEvent("lh:kbd-toggle-dictation"))}
-			className={cn(live && "bg-destructive/10 text-destructive hover:bg-destructive/20")}
-		>
-			<MicIcon className="size-4" />
-		</Button>
-	);
-}
-
 export function SketchView({
 	label,
 	statement,
@@ -143,10 +121,23 @@ export function SketchView({
 		setTool("eraser");
 	};
 	const [error, setError] = useState<string | null>(null);
+	/** The reason a press on a waiting Submit was ignored, shown while it still holds. */
+	const [noted, setNoted] = useState<string | null>(null);
+	const [prefs, setPrefsState] = useState<ToolbarPrefs>(loadToolbar);
+	const setPrefs = (next: ToolbarPrefs) => {
+		setPrefsState(next);
+		saveToolbar(next);
+	};
+	const [panel, setPanel] = useState<SketchPanel>(null);
+	const drawing = usePenDown();
+	// the options panel belongs to its tool: another tool (the E key, say) takes it away
+	useEffect(() => setPanel((p) => ((p === "pen" || p === "eraser") && p !== tool ? null : p)), [tool]);
 	const canvasRef = useRef<HTMLDivElement | null>(null);
 	const setInk = (next: InkState) => {
-		writeInk(inkKey, next);
+	setPanel(null);
+	writeInk(inkKey, next);
 		setError(null);
+		setNoted(null);
 	};
 
 	/** Record an operation: it joins the history and clears redo. */
@@ -227,12 +218,17 @@ export function SketchView({
 
 	// PC shortcuts (M13f): E toggles the eraser, 1-5 pick the ink, G changes the paper
 	const toggleEraser = () => setTool(tool === "eraser" ? "pen" : "eraser");
+	const stepWidth = (dir: 1 | -1) => {
+		const i = SKETCH_WIDTHS.findIndex((w) => w.value === pen.size);
+		const next = SKETCH_WIDTHS[Math.min(SKETCH_WIDTHS.length - 1, Math.max(0, i + dir))];
+		if (next) setPen({ ...pen, size: next.value });
+	};
 	const pickColor = (i: number) => {
 		const c = SKETCH_COLORS[i];
 		if (c) setPen({ ...pen, color: c.value });
 	};
-	const handlers = useRef({ undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, cycleBackground, confirmOpen: confirmClear, cancelConfirm: () => setConfirmClear(false) });
-	handlers.current = { undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, cycleBackground, confirmOpen: confirmClear, cancelConfirm: () => setConfirmClear(false) };
+	const handlers = useRef({ undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, stepWidth, cycleBackground, confirmOpen: confirmClear, cancelConfirm: () => setConfirmClear(false), panelOpen: panel !== null, closePanel: () => setPanel(null) });
+	handlers.current = { undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, stepWidth, cycleBackground, confirmOpen: confirmClear, cancelConfirm: () => setConfirmClear(false), panelOpen: panel !== null, closePanel: () => setPanel(null) };
 	// drawing on, or the answer changing under the page, puts Submit back
 	const strokeCount = ink.strokes.length;
 	useEffect(() => setAsking(false), [strokeCount, blocked, disabled, confidenceLevels]);
@@ -242,6 +238,7 @@ export function SketchView({
 			const h = handlers.current;
 			if (e.key === "Escape") {
 				if (h.confirmOpen) h.cancelConfirm();
+				else if (h.panelOpen) h.closePanel();
 				else if (isDictationActive() && h.onCancelDictation) h.onCancelDictation();
 				else h.onClose();
 			} else if (e.key === "Enter") {
@@ -253,9 +250,11 @@ export function SketchView({
 			} else if (mod && e.key.toLowerCase() === "z") {
 				if (e.shiftKey) h.redo();
 				else h.undo();
-			} else if (!mod && !e.altKey && !e.shiftKey && /^[egEG1-5]$/.test(e.key) && !isEditable(e.target)) {
+			} else if (!mod && !e.altKey && !e.shiftKey && /^[egEG1-5[\]]$/.test(e.key) && !isEditable(e.target)) {
 				const k = e.key.toLowerCase();
-				if (k === "e") h.toggleEraser();
+				if (k === "[") h.stepWidth(-1);
+				else if (k === "]") h.stepWidth(1);
+				else if (k === "e") h.toggleEraser();
 				else if (k === "g") h.cycleBackground();
 				else h.pickColor(Number(k) - 1);
 			} else {
@@ -268,6 +267,7 @@ export function SketchView({
 		return () => window.removeEventListener("keydown", onKey, true);
 	}, []);
 	useBackLayer(confirmClear, () => setConfirmClear(false));
+	useBackLayer(panel !== null, () => setPanel(null));
 	useBackLayer(true, () => {
 		const h = handlers.current;
 		if (isDictationActive() && h.onCancelDictation) h.onCancelDictation();
@@ -277,6 +277,16 @@ export function SketchView({
 	if (typeof document === "undefined") return null;
 	const empty = !hasNewInk(ink);
 	const canUndo = ink.undo.length > 0 || ink.strokes.some((s) => s.fresh !== false);
+	const submitBlock = submitBlockReason({ empty, disabled, blocked, keptStatus });
+	const status = sketchStatus({
+		error,
+		note: noted !== null && noted === submitBlock ? noted : null,
+		nativeFallback: native.fallback,
+		disabled,
+		keptStatus,
+		blocked,
+		share: limitShare([...(ink.thawed === undefined ? (kept?.strokes ?? []) : []), ...ink.strokes]),
+	});
 	return createPortal(
 		<div
 			data-testid="sketch-view"
@@ -296,6 +306,39 @@ export function SketchView({
 					<div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[var(--lh-safe-bottom)] bg-background" />
 				</>
 			)}
+			<SketchToolbar
+				tool={tool}
+				pen={pen}
+				eraser={eraser}
+				background={background}
+				tone={tone}
+				canUndo={canUndo}
+				canRedo={ink.redo.length > 0}
+				canClear={!empty}
+				submitBlock={submitBlock}
+				asking={asking}
+				status={status}
+				prefs={prefs}
+				panel={panel}
+				drawing={drawing}
+				onPanel={setPanel}
+				onPrefs={setPrefs}
+				onTool={setTool}
+				onPen={setPen}
+				onEraser={setEraser}
+				onBackground={(next) => {
+					setBackgroundState(next);
+					saveBackground(next);
+				}}
+				onToggleTone={toggleTone}
+				onClose={onClose}
+				onUndo={undo}
+				onRedo={redo}
+				onClear={() => setConfirmClear(true)}
+				onSubmit={() => submit()}
+				onSubmitBlocked={setNoted}
+				onConfidence={(index) => submit(index)}
+			/>
 			{/* The whole page is canvas; the problem floats above it (owner,
 			    2026-10-26) — draggable, collapsible to a pill. */}
 			<div ref={canvasRef} className={cn("relative min-h-0 flex-1", !native.active && "bg-white")}>
@@ -306,7 +349,12 @@ export function SketchView({
 						<ZoomControls zoomPct={native.zoomPct} onZoom={native.zoomBy} onReset={native.resetView} />
 					</>
 				) : (
-					<SketchCanvas strokes={ink.strokes} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={tool} brush={pen} eraser={eraser} background={background} tone={tone} onStroke={addStroke} onErase={erase} onCut={cut} />
+					<SketchCanvas strokes={ink.strokes} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={tool} brush={pen} eraser={eraser} background={background} tone={tone} onStroke={addStroke} onErase={erase} onCut={cut} onTwoFingerTap={undo} />
+				)}
+				{empty && ink.strokes.length === 0 && (
+					<p aria-hidden data-testid="sketch-empty-hint" className="pointer-events-none absolute inset-x-0 bottom-[20%] text-center text-sm text-muted-foreground/70">
+						Write or draw here
+					</p>
 				)}
 				<FloatingProblem label={label} statement={statement}>
 					{choices}
@@ -316,7 +364,7 @@ export function SketchView({
 					<div data-ink-hole="" data-testid="sketch-clear-dialog" role="alertdialog" aria-modal="true" aria-labelledby="sketch-clear-title" className="absolute inset-0 z-20 grid place-items-center bg-black/40 p-4">
 						<div className="w-full max-w-sm rounded-xl border bg-background p-4 text-foreground shadow-lg">
 							<h2 id="sketch-clear-title" className="text-sm font-semibold">
-								Delete the whole sketch?
+								Clear the whole sketch?
 							</h2>
 							<p className="mt-1 text-sm text-muted-foreground">Everything you have drawn since your last submit is removed. Ink you already sent stays. You can undo this.</p>
 							<div className="mt-4 flex justify-end gap-2">
@@ -332,163 +380,11 @@ export function SketchView({
 										clear();
 									}}
 								>
-									Delete
+									Clear
 								</Button>
 							</div>
 						</div>
 					</div>
-				)}
-			</div>
-			<div data-testid="sketch-pen-strip" className="flex items-center gap-1 overflow-x-auto border-t bg-background px-3 py-1">
-				{tool === "eraser" ? (
-					<>
-						{(["pixel", "stroke"] as const).map((mode) => (
-							<button
-								key={mode}
-								type="button"
-								data-testid={`sketch-erase-${mode}`}
-								aria-label={mode === "pixel" ? "Erase part of a stroke" : "Erase whole strokes"}
-								aria-pressed={eraser.mode === mode}
-								onClick={() => setEraser({ ...eraser, mode })}
-								className={cn("lh-touch shrink-0 rounded-md px-2.5 text-xs font-medium", eraser.mode === mode ? "bg-accent" : "text-muted-foreground")}
-							>
-								{mode === "pixel" ? "Part" : "Stroke"}
-							</button>
-						))}
-						<span aria-hidden className="mx-1 h-5 w-px bg-border" />
-						{SKETCH_ERASER_SIZES.map((z) => (
-							<button
-								key={z.value}
-								type="button"
-								data-testid={`sketch-erase-size-${z.name.toLowerCase()}`}
-								aria-label={`${z.name} eraser`}
-								aria-pressed={eraser.radius === z.value}
-								onClick={() => setEraser({ ...eraser, radius: z.value })}
-								className={cn("lh-touch grid size-8 shrink-0 place-items-center rounded-md", eraser.radius === z.value && "bg-accent")}
-							>
-								<span aria-hidden style={{ width: z.value / 2 + 4, height: z.value / 2 + 4 }} className="rounded-full border border-foreground/60" />
-							</button>
-						))}
-					</>
-				) : (
-					<>
-				{SKETCH_COLORS.map((c) => (
-					<button
-						key={c.value}
-						type="button"
-						data-testid={`sketch-color-${c.name.toLowerCase()}`}
-						aria-label={`${c.name} ink`}
-						aria-pressed={tool === "pen" && pen.color === c.value}
-						onClick={() => setPen({ ...pen, color: c.value })}
-						className="lh-touch grid size-8 shrink-0 place-items-center rounded-full"
-					>
-						<span
-							aria-hidden
-							style={{ backgroundColor: displayInk(c.value, tone) }}
-							className={cn("size-5 rounded-full border border-black/10", tool === "pen" && pen.color === c.value && "ring-2 ring-ring ring-offset-2 ring-offset-background")}
-						/>
-					</button>
-				))}
-				<span aria-hidden className="mx-1 h-5 w-px bg-border" />
-				{SKETCH_WIDTHS.map((w) => (
-					<button
-						key={w.value}
-						type="button"
-						data-testid={`sketch-width-${w.name.toLowerCase()}`}
-						aria-label={`${w.name} pen`}
-						aria-pressed={tool === "pen" && pen.size === w.value}
-						onClick={() => setPen({ ...pen, size: w.value })}
-						className={cn("lh-touch grid size-8 shrink-0 place-items-center rounded-md", tool === "pen" && pen.size === w.value && "bg-accent")}
-					>
-						<span aria-hidden style={{ width: w.value + 4, height: w.value + 4 }} className="rounded-full bg-foreground" />
-					</button>
-				))}
-					</>
-				)}
-				<span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border" />
-				<button
-					type="button"
-					data-testid="sketch-sheet-tone"
-					aria-label={`Sheet: ${tone}`}
-					title={tone === "dark" ? "Switch to a light sheet" : "Switch to a dark sheet"}
-					aria-pressed={tone === "dark"}
-					onClick={toggleTone}
-					className={cn("lh-touch grid size-8 shrink-0 place-items-center rounded-md", tone === "dark" && "bg-accent")}
-				>
-					{tone === "dark" ? <MoonIcon className="size-4" /> : <SunIcon className="size-4" />}
-				</button>
-			</div>
-			<div className="flex items-center gap-1 border-t bg-background px-3 py-2">
-				<Button type="button" variant="ghost" size="icon" data-testid="sketch-close" aria-label="Close sketch" onClick={onClose}>
-					<XIcon className="size-4" />
-				</Button>
-				<Button type="button" variant="ghost" size="icon" data-testid="sketch-undo" aria-label="Undo" disabled={!canUndo} onClick={undo}>
-					<Undo2Icon className="size-4" />
-				</Button>
-				<Button type="button" variant="ghost" size="icon" data-testid="sketch-redo" aria-label="Redo" disabled={ink.redo.length === 0} onClick={redo}>
-					<Redo2Icon className="size-4" />
-				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon"
-					data-testid="sketch-clear"
-					aria-label="Clear"
-					disabled={empty}
-					onClick={() => setConfirmClear(true)}
-				>
-					<Trash2Icon className="size-4" />
-				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon"
-					data-testid="sketch-eraser"
-					aria-label={tool === "eraser" ? "Switch to pen" : "Switch to eraser"}
-					aria-pressed={tool === "eraser"}
-					onClick={() => setTool(tool === "eraser" ? "pen" : "eraser")}
-					className={cn(tool === "eraser" && "bg-accent")}
-				>
-					{tool === "eraser" ? <PenLineIcon className="size-4" /> : <EraserIcon className="size-4" />}
-				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon"
-					data-testid="sketch-background"
-					aria-label={`Paper: ${background}`}
-					title={`Paper: ${background} (tap to change)`}
-					onClick={cycleBackground}
-					className={cn(background !== "none" && "bg-accent")}
-				>
-					<Grid3x3Icon className="size-4" />
-				</Button>
-				<SketchMic />
-				<span aria-hidden className={cn("ml-2 min-w-0 flex-1 truncate text-xs text-muted-foreground", asking && "hidden")}>
-					{error ??
-						(native.fallback
-							? `native ink unavailable (${native.fallback}) — using the web canvas`
-							: disabled
-							? "compacting session…"
-							: keptStatus === "loading"
-								? "loading your earlier page…"
-								: blocked ??
-									(keptStatus === "failed"
-										? "couldn't load your earlier page — new ink goes alone"
-										: "⌘↵ submits · esc closes"))}
-				</span>
-				{asking ? (
-					<ConfidenceButtons onPick={(index) => submit(index)} testidPrefix="sketch-confidence" className="ml-2 min-w-0 flex-1" />
-				) : (
-					<Button
-						type="button"
-						data-testid="sketch-submit"
-						disabled={empty || disabled || !!blocked || keptStatus === "loading"}
-						onClick={() => submit()}
-						className="h-9 rounded-[6px] px-3.5 text-sm font-medium"
-					>
-						Submit sketch
-					</Button>
 				)}
 			</div>
 		</div>,

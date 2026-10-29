@@ -1,6 +1,6 @@
 # M16: sketch quality on par with popular note-taking apps
 
-Status: **DRAFT (revised after the owner's top-toolbar answer), awaiting owner approval. Nothing is built yet.** Branch `feat/m16-sketch-notes` (from `merge/upstream-v0.4.0`). Goal (owner, 2026-10-29): "improve the sketch feature and ui/ux so that it matches the quality of popular note taking apps". Source: a read-only gap analysis of `components/sketch/*`, `src/core/sketch.ts` and the Kotlin `Ink*.kt` against GoodNotes, Notability, OneNote and Samsung Notes (code reading only, no device).
+Status: **Approved by the owner 2026-10-29. M16a and M16b built (see STATUS.md); M16c and M16d next.** Branch `feat/m16-sketch-notes` (from `merge/upstream-v0.4.0`). Goal (owner, 2026-10-29): "improve the sketch feature and ui/ux so that it matches the quality of popular note taking apps". Source: a read-only gap analysis of `components/sketch/*`, `src/core/sketch.ts` and the Kotlin `Ink*.kt` against GoodNotes, Notability, OneNote and Samsung Notes (code reading only, no device).
 
 ## Owner decisions (2026-10-29)
 

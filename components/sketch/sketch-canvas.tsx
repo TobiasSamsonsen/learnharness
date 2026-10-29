@@ -6,6 +6,8 @@ import { DEFAULT_ERASER, DEFAULT_PEN, penStroke, type EraserSettings, type PenSe
 import { backgroundColor, backgroundLines, type SketchBackground } from "@/components/sketch/sketch-background";
 import { displayInk, SHEET_COLOR, type SheetTone } from "@/components/sketch/sketch-sheet";
 import { ZoomControls } from "@/components/sketch/zoom-controls";
+import { notePenNear } from "@/components/sketch/palm-guard";
+import { liftTap, moveTap, startTap, type TapTracker } from "@/components/sketch/tap-gesture";
 import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, penWorldSize, pinchOf, pinchStep, thinPath, toWorld, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
 
 /**
@@ -77,7 +79,8 @@ export function SketchCanvas({
 	onStroke,
 	onErase,
 	onCut,
-}: {
+	onTwoFingerTap,
+	}: {
 	/** The unsent ink (editable). */
 	strokes: readonly SketchStroke[];
 	/** The kept page: submitted strokes, dimmed and locked. */
@@ -97,7 +100,9 @@ export function SketchCanvas({
 	onErase?: (indices: number[]) => void;
 	/** One pixel-eraser gesture finished: its path (flat [x, y, …], world) and the eraser's radius in world units. */
 	onCut?: (path: number[], radius: number) => void;
-}) {
+	/** Two fingers tapped together (M16b): undo, as in the note apps. */
+	onTwoFingerTap?: () => void;
+	}) {
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	// The gesture in progress. `erase` collects hit indices; `size` and `radius` are fixed at pointerdown, in
@@ -116,6 +121,11 @@ export function SketchCanvas({
 	const touches = useRef(new Map<number, { x: number; y: number }>());
 	const pinch = useRef<ReturnType<typeof pinchOf> | null>(null);
 	const drag = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+	const tap = useRef<TapTracker | null>(null);
+	// Space held: the next drag pans (a mouse or a pen), as in the note apps
+	const spaceDown = useRef(false);
+	const onTwoFingerTapRef = useRef(onTwoFingerTap);
+	onTwoFingerTapRef.current = onTwoFingerTap;
 	// Path2D per finished stroke — redraws stay cheap on a busy page.
 	const paths = useRef(new WeakMap<SketchStroke, Path2D>());
 	const strokesRef = useRef(strokes);
@@ -245,6 +255,35 @@ export function SketchCanvas({
 		return () => observer.disconnect();
 	}, []); // draw reads refs only
 
+	// Holding Space turns a mouse or pen drag into a pan (M16a); not while a field or button has the key
+	useEffect(() => {
+	const skip = (t: EventTarget | null) => {
+	const el = t as HTMLElement | null;
+	return !!el && (el.isContentEditable === true || ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(el.tagName));
+	};
+	const set = (on: boolean) => {
+	spaceDown.current = on;
+	if (canvasRef.current) canvasRef.current.style.cursor = on ? "grab" : "";
+	};
+	const down = (e: KeyboardEvent) => {
+	if (e.code !== "Space" || e.ctrlKey || e.metaKey || e.altKey || skip(e.target)) return;
+	e.preventDefault();
+	set(true);
+	};
+	const up = (e: KeyboardEvent) => {
+	if (e.code === "Space") set(false);
+	};
+	const blur = () => set(false);
+	window.addEventListener("keydown", down);
+	window.addEventListener("keyup", up);
+	window.addEventListener("blur", blur);
+	return () => {
+	window.removeEventListener("keydown", down);
+	window.removeEventListener("keyup", up);
+	window.removeEventListener("blur", blur);
+	};
+	}, []);
+
 	useEffect(draw, [strokes, kept, background, tone]);
 	useEffect(() => () => {
 		if (frame.current !== null) cancelAnimationFrame(frame.current);
@@ -307,6 +346,7 @@ export function SketchCanvas({
 				onPointerDown={(e) => {
 					if (e.pointerType === "pen") {
 						penNearAt.current = performance.now();
+						notePenNear(); // the toolbar's palm guard shares it
 						penSeen.current = true;
 					}
 					hover.current = null; // drawing now: the live stroke is the preview
@@ -325,14 +365,21 @@ export function SketchCanvas({
 								draw();
 							}
 							pinch.current = firstTwo();
+							tap.current = touches.current.size === 2 ? startTap(performance.now(), touches.current) : tap.current && moveTap(tap.current, touches.current, true);
 							return;
-						}
-						if (penSeen.current) return; // with a pen about, one finger does nothing (no palm drags)
+							}
+							if (penSeen.current) return; // with a pen about, one finger does nothing (no palm drags)
 					} else if (e.pointerType === "mouse" && e.button === 1) {
 						e.preventDefault();
 						e.currentTarget.setPointerCapture(e.pointerId);
 						drag.current = { pointerId: e.pointerId, ...local(e) };
 						return;
+					}
+					if (spaceDown.current && (e.pointerType === "mouse" || e.pointerType === "pen") && e.button === 0) {
+					e.preventDefault();
+					e.currentTarget.setPointerCapture(e.pointerId);
+					drag.current = { pointerId: e.pointerId, ...local(e) };
+					return;
 					}
 					if (e.button !== 0 && e.button !== 5) return;
 					if (live.current || pinch.current) return;
@@ -357,6 +404,7 @@ export function SketchCanvas({
 				onPointerMove={(e) => {
 					if (e.pointerType === "pen") {
 						penNearAt.current = performance.now(); // hovering counts: the palm is near
+						notePenNear();
 						if (!live.current && e.buttons === 0) {
 							hover.current = local(e);
 							drawSoon();
@@ -369,7 +417,8 @@ export function SketchCanvas({
 						return;
 					}
 					if (touches.current.has(e.pointerId)) {
-						touches.current.set(e.pointerId, local(e));
+					touches.current.set(e.pointerId, local(e));
+					if (tap.current) tap.current = moveTap(tap.current, touches.current);
 						if (pinch.current && touches.current.size >= 2) {
 							const next = firstTwo();
 							setView(pinchStep(view.current, pinch.current, next));
@@ -386,8 +435,13 @@ export function SketchCanvas({
 					drawSoon();
 				}}
 				onPointerUp={(e) => {
-					touches.current.delete(e.pointerId);
-					if (touches.current.size < 2) pinch.current = null;
+				if (tap.current && touches.current.has(e.pointerId)) {
+				const lifted = liftTap(tap.current, performance.now());
+				tap.current = lifted.tracker.cancelled || lifted.tapped ? null : lifted.tracker;
+				if (lifted.tapped) onTwoFingerTapRef.current?.();
+				}
+				touches.current.delete(e.pointerId);
+				if (touches.current.size < 2) pinch.current = null;
 					if (drag.current?.pointerId === e.pointerId) drag.current = null;
 					if (!live.current || live.current.pointerId !== e.pointerId) return;
 					const { points, erase, size, radius } = live.current;
@@ -405,8 +459,9 @@ export function SketchCanvas({
 					}
 				}}
 				onPointerCancel={(e) => {
-					// The OS took the pointer (a palm, a gesture): drop the stroke.
-					touches.current.delete(e.pointerId);
+				// The OS took the pointer (a palm, a gesture): drop the stroke.
+				tap.current = null;
+				touches.current.delete(e.pointerId);
 					if (touches.current.size < 2) pinch.current = null;
 					if (drag.current?.pointerId === e.pointerId) drag.current = null;
 					if (!live.current || live.current.pointerId !== e.pointerId) return;
