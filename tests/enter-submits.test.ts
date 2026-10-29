@@ -12,8 +12,8 @@
  */
 import assert from "node:assert/strict";
 import { parseHTML } from "linkedom";
-import { describe, it } from "node:test";
-import { buttonKeepsNativeEnter, enterSends, isCoarsePointer } from "../components/enter-submits.ts";
+import { afterEach, describe, it } from "node:test";
+import { buttonKeepsNativeEnter, enterSends, hasHardwareKeyboard, isCoarsePointer, noteKeydown, resetHardwareKeyboard } from "../components/enter-submits.ts";
 import { blurAfterPointerClick } from "../components/focus-hygiene.ts";
 
 const { document } = parseHTML("<html><body></body></html>");
@@ -126,6 +126,33 @@ describe("enterSends (the shared send chord; coarse pointers type newlines)", ()
 			assert.equal(isCoarsePointer(), false, "a throwing host never breaks typing");
 		} finally {
 			g.window = prev;
+		}
+	});
+});
+
+describe("a physical keyboard on a touch device (M13e)", () => {
+	afterEach(() => resetHardwareKeyboard());
+
+	it("the soft keyboard does not count: no code, Unidentified, Process, composing", () => {
+		for (const e of [{ key: "Enter" }, { key: "a", code: "" }, { key: "Unidentified", code: "KeyA" }, { key: "Process", code: "KeyA" }, { key: "a", code: "KeyA", isComposing: true }]) {
+			noteKeydown(e);
+			assert.equal(hasHardwareKeyboard(), false, JSON.stringify(e));
+		}
+	});
+
+	it("one real key flips it: a coarse device then sends on plain Enter, like a PC", () => {
+		const prior = (globalThis as { window?: unknown }).window;
+		(globalThis as { window?: unknown }).window = { matchMedia: () => ({ matches: true }) };
+		try {
+			assert.equal(isCoarsePointer(), true);
+			assert.equal(enterSends({ key: "Enter", shiftKey: false, metaKey: false, ctrlKey: false }), false, "soft keyboard: Enter is a newline");
+			noteKeydown({ key: "a", code: "KeyA" });
+			assert.equal(hasHardwareKeyboard(), true);
+			assert.equal(isCoarsePointer(), false);
+			assert.equal(enterSends({ key: "Enter", shiftKey: false, metaKey: false, ctrlKey: false }), true, "a keyboard is attached: Enter sends");
+			assert.equal(enterSends({ key: "Enter", shiftKey: true, metaKey: false, ctrlKey: false }), false, "Shift+Enter stays a newline");
+		} finally {
+			(globalThis as { window?: unknown }).window = prior;
 		}
 	});
 });

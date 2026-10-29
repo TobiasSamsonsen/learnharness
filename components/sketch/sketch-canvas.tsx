@@ -102,6 +102,8 @@ export function SketchCanvas({
 	const frame = useRef<number | null>(null);
 	const penSeen = useRef(false);
 	const penNearAt = useRef(0);
+	// a hovering pen (S Pen): where, on screen, so the brush or eraser can be previewed under it
+	const hover = useRef<{ x: number; y: number } | null>(null);
 	const view = useRef<SketchView>(HOME_VIEW);
 	const rect = useRef({ left: 0, top: 0, width: 0, height: 0 });
 	const fitted = useRef(false);
@@ -184,6 +186,16 @@ export function SketchCanvas({
 			const l = penStroke({ color: brushRef.current.color, size: live.current.size }, live.current.points);
 			ctx.fillStyle = l.color ?? SKETCH_INK;
 			ctx.fill(new Path2D(sketchStrokePath(l)));
+		}
+		// the hover preview, in screen space: the eraser's reach, or the pen's own width in its colour
+		if (hover.current && !live.current) {
+			const erasing = toolRef.current === "eraser";
+			ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+			ctx.beginPath();
+			ctx.arc(hover.current.x, hover.current.y, erasing ? eraserRef.current.radius : Math.max(1.5, brushRef.current.size / 2), 0, Math.PI * 2);
+			ctx.lineWidth = 1;
+			ctx.strokeStyle = erasing ? "#64748b" : brushRef.current.color;
+			ctx.stroke();
 		}
 	};
 
@@ -290,6 +302,7 @@ export function SketchCanvas({
 						penNearAt.current = performance.now();
 						penSeen.current = true;
 					}
+					hover.current = null; // drawing now: the live stroke is the preview
 					const box = e.currentTarget.getBoundingClientRect();
 					rect.current = { left: box.left, top: box.top, width: box.width, height: box.height };
 					if (e.pointerType === "touch") {
@@ -333,7 +346,13 @@ export function SketchCanvas({
 					draw();
 				}}
 				onPointerMove={(e) => {
-					if (e.pointerType === "pen") penNearAt.current = performance.now(); // hovering counts: the palm is near
+					if (e.pointerType === "pen") {
+						penNearAt.current = performance.now(); // hovering counts: the palm is near
+						if (!live.current && e.buttons === 0) {
+							hover.current = local(e);
+							drawSoon();
+						}
+					}
 					if (drag.current && drag.current.pointerId === e.pointerId) {
 						const p = local(e);
 						setView(panBy(view.current, p.x - drag.current.x, p.y - drag.current.y));
@@ -369,6 +388,12 @@ export function SketchCanvas({
 						else if (erase.size > 0) onErase?.([...erase]);
 						else draw();
 					} else onStroke(penStroke({ color: brushRef.current.color, size }, points));
+				}}
+				onPointerLeave={() => {
+					if (hover.current) {
+						hover.current = null;
+						drawSoon();
+					}
 				}}
 				onPointerCancel={(e) => {
 					// The OS took the pointer (a palm, a gesture): drop the stroke.

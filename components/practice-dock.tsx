@@ -281,7 +281,7 @@ export function PracticeDock({
 				) : (
 				<div className="flex items-center justify-between gap-2 p-1">
 					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
-						{compactionRunning ? "compacting session…" : (sketchError ?? <span className="[@media(pointer:coarse)]:hidden">↵ submits · ⇧↵ newline</span>)}
+						{compactionRunning ? "compacting session…" : (sketchError ?? <span className="lh-enter-hint [@media(pointer:coarse)]:hidden">↵ submits · ⇧↵ newline</span>)}
 					</span>
 					{sketchAvailable && (
 						<Button

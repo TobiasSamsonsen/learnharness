@@ -37,11 +37,49 @@
 import { useEffect, useRef } from "react";
 import { isTypingSurface } from "@/src/core";
 
+/** A PHYSICAL keyboard has been used (owner, M13e: a tablet with a keyboard attached, like the Tab S10+ with its
+ *  Book Cover Keyboard, behaves like a PC for Enter). The soft keyboard (an IME) reports "Unidentified" or no
+ *  `code`, or composes; a hardware key carries a `code` ("KeyA", "Enter") and a real `key`. Latched for the page:
+ *  one real key press flips it, and `data-lh-keyboard` on <html> lets CSS show the Enter hint again. */
+let hardwareKeyboard = false;
+
+/** Feed it every keydown (the window-level capture listener below does). */
+export function noteKeydown(e: { key: string; code?: string; isComposing?: boolean }): void {
+	if (hardwareKeyboard) return;
+	if (!e.code || e.key === "Unidentified" || e.key === "Process" || e.isComposing === true) return;
+	hardwareKeyboard = true;
+	try {
+		document.documentElement.dataset.lhKeyboard = "hardware";
+	} catch {
+		// no document (SSR, a test host): the flag alone is enough
+	}
+}
+
+export function hasHardwareKeyboard(): boolean {
+	return hardwareKeyboard;
+}
+
+/** For tests: forget the latch. */
+export function resetHardwareKeyboard(): void {
+	hardwareKeyboard = false;
+	try {
+		delete document.documentElement.dataset.lhKeyboard;
+	} catch {
+		// no document
+	}
+}
+
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+	window.addEventListener("keydown", (e) => noteKeydown(e), true);
+}
+
 /** Touch devices (M5, owner): the PRIMARY pointer is coarse. Read at event
  *  time — no hook, no re-render, no hydration question — and guarded for
  *  hosts without matchMedia (linkedom, SSR). A tablet with a keyboard
- *  attached still counts as coarse; ⌘/Ctrl+Enter sends there. */
+ *  attached counts as coarse only until a physical key is pressed (M13e);
+ *  after that plain Enter sends there like on a PC. */
 export function isCoarsePointer(): boolean {
+	if (hardwareKeyboard) return false;
 	try {
 		return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 	} catch {

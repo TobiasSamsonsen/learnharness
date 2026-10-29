@@ -672,3 +672,8 @@ html.lh-native-ink body > *:not([data-testid="sketch-view"]) {
 [data-swipe-y] * {
 	touch-action: pan-x;
 }
+
+/* A physical keyboard has been used (components/enter-submits.ts): Enter sends there, so the hint shows even on a touch device. */
+html[data-lh-keyboard="hardware"] .lh-enter-hint {
+	display: inline !important;
+}

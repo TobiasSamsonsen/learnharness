@@ -40,8 +40,8 @@ const MIN_EDGE = 480;
 const MIN_FIT_SCALE = 0.75;
 /** Handwriting height, in pixels of the image the model finally sees, below
  *  which it is refused, and from which it reads comfortably (owner, M13;
- *  measured 2026-10-29, docs/android/m13-plan.md). */
-const FLOOR_GLYPH = 16;
+ *  measured 2026-10-29, docs/android/m13-plan.md; the floor went 16 -> 18 after coloured ink at 14 px read worse than black). */
+const FLOOR_GLYPH = 18;
 const COMFORT_GLYPH = 20;
 /** The most small writing is enlarged to reach COMFORT_GLYPH (the canvas zooms to 8×). */
 const MAX_GLYPH_UPSCALE = 8;
