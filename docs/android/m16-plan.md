@@ -27,6 +27,11 @@ Status: **DRAFT, awaiting owner approval. Nothing is built yet.** Branch `feat/m
 
 **M16b, toolbars and gestures (web, native where the finger path allows).**
 - Each bar has a handle that collapses it to a thin tab; the choice is remembered per device. A switch "Auto-hide while drawing" in the pen strip fades both bars while the pen is down and brings them back on lift (off by default).
+- **Palm guard on the bars** (owner question, 2026-10-29: how do we stop the palm from hitting the bottom buttons?). Three layers, none needing a stylus to verify the logic:
+  1. While a pen is down or hovering, and for 600 ms after, touch presses on both bars are ignored (the canvas already does this; the bars get the same check). The pen itself and the mouse are never blocked.
+  2. A touch with a large contact area (a palm: `PointerEvent.width/height` of about 30 px or more, where the browser reports it) is ignored on the bars at any time.
+  3. The bars hide while the pen is down when auto-hide is on, and the consequential buttons (Submit, close) keep a larger margin from the bottom edge so a resting hand reaches the safe area first. Clear already asks first.
+  On Android the guard is the web's, using the pen hover and contact the page already receives; the Kotlin layer's rule that ignores a palm only with several pointers is made stricter in M16d (`FLAG_CANCELED`).
 - Two-finger tap undoes (web; on Android the finger path in `InkRouter.kt` if it fits, otherwise web only and noted).
 - Undo history of the **unsent** ink survives a reload (stored with the strokes in `ink-memory`). After a submit the history ends: sent ink stays protected, and is edited only through the eraser's existing "thaw".
 
@@ -45,4 +50,4 @@ M16a, M16b, M16c, M16d, each committed on its own with tests (pure logic in `src
 
 ## Decided by default (owner may change)
 
-The wording "Clear"; that undo history ends at submit; the thresholds above (hold 0.5 s, 4 px, 5 degrees, 24 px, 80 percent); auto-hide off by default; the order.
+The wording "Clear"; that undo history ends at submit; the thresholds above (hold 0.5 s, 4 px, 5 degrees, 24 px, 80 percent, palm contact about 30 px, guard window 600 ms); auto-hide off by default; the order.
