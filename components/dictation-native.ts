@@ -140,6 +140,25 @@ export interface LiveTranscript {
 	settle(): void;
 }
 
+/** A partial this long is a stretch worth keeping, not a short guess that is still being corrected. */
+const RESTART_MIN_CHARS = 30;
+
+/**
+ * The system recognizer commits a stretch on its own (after a pause, or about every 60 s) and starts the next partial
+ * from scratch, with no final and no state line (measured on the Pixel, 2026-10-29: 400 and 717 characters followed by
+ * "Hei" and "jeg"). Ordinary revisions keep their start (at least 60% shared in 401 recorded partials; a case change
+ * only reshapes it), a restart shares none of it. So a long partial followed by one sharing under half of the shorter
+ * one's start, ignoring case, was a finished stretch, and replacing it would delete it.
+ */
+function isRestart(previous: string, next: string): boolean {
+	if (previous.length < RESTART_MIN_CHARS) return false;
+	const a = previous.toLowerCase();
+	const b = next.toLowerCase();
+	let shared = 0;
+	while (shared < a.length && shared < b.length && a[shared] === b[shared]) shared++;
+	return shared < Math.min(a.length, b.length) / 2;
+}
+
 /**
  * Words appear as they are spoken, like a keyboard's voice typing (owner, 2026-10-28): each partial replaces the last in
  * the field it went to, and a final replaces the partial. `resolveTarget` is asked for the field at the first piece of a
@@ -159,6 +178,10 @@ export function createLiveTranscript(resolveTarget: () => Target): LiveTranscrip
 		partial(text) {
 			const t = text.trim();
 			if (!t || current?.text === t) return;
+			if (current && isRestart(current.text, t)) {
+				delivered.push(current); // the recognizer began a new stretch without a final: the old one stays
+				current = null;
+			}
 			const target = clearPartial() ?? resolveTarget();
 			target(t);
 			current = { text: t, target };
