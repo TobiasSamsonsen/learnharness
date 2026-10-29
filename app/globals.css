@@ -170,6 +170,8 @@
 	/* Material 3 Expressive corner steps above the ladder (ShapeTokens: LargeIncreased 20dp, ExtraLarge 28dp). */
 	--radius-lgi: 20px;
 	--radius-xxl: 28px;
+	/* A pill that can MORPH: a finite radius (a control is at most 44px tall), so a transition to a squarer corner starts at once; rounded-full is 1e7px and stays round until the last frame. */
+	--radius-pill: 22px;
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--color-card: var(--card);

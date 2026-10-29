@@ -154,7 +154,7 @@ export function Composer({
 				placeholder={placeholder}
 				autoFocus={autoFocus}
 				className={cn(
-					"field-sizing-content lh-input max-h-48 min-h-10 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground",
+					"field-sizing-content lh-input max-h-48 min-h-10 touch:min-h-12 resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground",
 					edge ? "w-full" : "flex-1",
 				)}
 			/>

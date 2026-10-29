@@ -936,7 +936,7 @@ function QuestionDockForm({
 								variant="secondary"
 								data-testid="question-add-photo"
 								onClick={camera.open}
-								className="lh-press h-9 touch:h-12 gap-1.5 rounded-full px-4 text-sm active:rounded-lg"
+								className="lh-press h-9 touch:h-12 gap-1.5 rounded-pill px-4 text-sm active:rounded-lg"
 							>
 								<CameraIcon className="size-4" />
 								Camera
@@ -948,7 +948,7 @@ function QuestionDockForm({
 								variant="secondary"
 								data-testid="question-open-sketch"
 								onClick={() => setSketching(true)}
-								className="lh-press h-9 touch:h-12 gap-1.5 rounded-full px-4 text-sm active:rounded-lg"
+								className="lh-press h-9 touch:h-12 gap-1.5 rounded-pill px-4 text-sm active:rounded-lg"
 							>
 								<PenLineIcon className="size-4" />
 								Open in sketch

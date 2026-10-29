@@ -368,7 +368,7 @@ export function SessionRow({
 			data-drawer-close
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
 			className={cn(
-				"relative mb-0.5 flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-accent",
+				"relative mb-0.5 flex w-full items-center gap-2 rounded-xl px-3 py-2 touch:py-2.5 text-left transition-colors hover:bg-accent",
 				active && "bg-accent",
 				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
 			)}
@@ -849,9 +849,9 @@ function SessionsSidebar() {
 						data-testid="new-session"
 						data-drawer-close
 						onClick={() => void newSession()}
-						className="lh-touch lh-press flex w-full items-center gap-2 rounded-lgi bg-accent px-3.5 py-2.5 text-xs uppercase tracking-wider text-foreground hover:bg-accent/70 active:rounded-xl"
+						className="lh-touch lh-press flex w-full items-center gap-2 rounded-lgi bg-accent px-2.5 py-1.5 touch:px-3.5 touch:py-2.5 text-xs uppercase tracking-wider text-foreground hover:bg-accent/70 active:rounded-xl"
 					>
-						<PlusIcon className="size-4" />
+						<PlusIcon className="size-3 touch:size-4" />
 						Teaching
 						<span className="sr-only">create a new teaching session</span>
 					</button>
@@ -860,9 +860,9 @@ function SessionsSidebar() {
 						data-testid="new-session-practice"
 						data-drawer-close
 						onClick={() => router.push("/chat/new?mode=practice")}
-						className="lh-touch lh-press flex w-full items-center gap-2 rounded-lgi bg-accent px-3.5 py-2.5 text-xs uppercase tracking-wider text-foreground hover:bg-accent/70 active:rounded-xl"
+						className="lh-touch lh-press flex w-full items-center gap-2 rounded-lgi bg-accent px-2.5 py-1.5 touch:px-3.5 touch:py-2.5 text-xs uppercase tracking-wider text-foreground hover:bg-accent/70 active:rounded-xl"
 					>
-						<DumbbellIcon className="size-4" />
+						<DumbbellIcon className="size-3 touch:size-4" />
 						Practice
 						<span className="sr-only">create a new practice session</span>
 					</button>
@@ -925,9 +925,9 @@ function SessionsSidebar() {
 							}}
 							placeholder="Search sessions…"
 							aria-label="Search sessions"
-							className="lh-touch h-8 rounded-full border-transparent bg-accent/60 pl-8 text-xs placeholder:text-muted-foreground"
+							className="lh-touch h-6 touch:h-8 rounded-full border-transparent bg-accent/60 pl-6 touch:pl-8 text-xs placeholder:text-muted-foreground"
 						/>
-						<SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+						<SearchIcon className="pointer-events-none absolute left-1.5 touch:left-3 top-1/2 size-3 touch:size-3.5 -translate-y-1/2 text-muted-foreground" />
 					</span>
 					</Hint>
 				</div>
@@ -948,9 +948,9 @@ function SessionsSidebar() {
 							onClick={() => setFilter(f)}
 							className={cn(
 								// a connected button group, as on home: the selected segment is a tonal gold pill
-								"lh-touch lh-press flex-1 px-2 py-1.5 text-xs uppercase tracking-wider",
+								"lh-touch lh-press flex-1 px-2 py-1 touch:py-1.5 text-xs uppercase tracking-wider",
 								kindFilter === f
-									? "rounded-full bg-primary/20 text-primary"
+									? "rounded-pill bg-primary/20 text-primary"
 									: "rounded-lg bg-accent/50 text-muted-foreground hover:text-foreground",
 							)}
 						>

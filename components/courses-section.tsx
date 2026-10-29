@@ -127,9 +127,9 @@ export function CoursesSection({ onCourses }: { onCourses?: (courses: CourseSumm
 					type="button"
 					data-testid="new-course"
 					onClick={() => void newCourse()}
-					className="lh-touch lh-press flex items-center gap-1.5 rounded-full bg-primary/20 px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-primary hover:bg-primary/30 active:rounded-lg"
+					className="lh-touch lh-press flex items-center gap-1.5 rounded-pill bg-primary/20 px-2 py-0.5 touch:px-3 touch:py-1.5 text-xs font-medium uppercase tracking-wider text-primary hover:bg-primary/30 active:rounded-lg"
 				>
-					<PlusIcon className="size-3.5" />
+					<PlusIcon className="size-3 touch:size-3.5" />
 					New
 					<span className="sr-only">create a new course</span>
 				</button>

@@ -325,7 +325,7 @@ export function PracticeDock({
 								variant="secondary"
 								data-testid="practice-add-photo"
 								onClick={camera.open}
-								className="lh-press h-9 touch:h-12 gap-1.5 rounded-full px-4 text-sm active:rounded-lg"
+								className="lh-press h-9 touch:h-12 gap-1.5 rounded-pill px-4 text-sm active:rounded-lg"
 							>
 								<CameraIcon className="size-4" />
 								Camera
@@ -340,7 +340,7 @@ export function PracticeDock({
 									setDetached(false);
 									setSketching(true);
 								}}
-								className="lh-press h-9 touch:h-12 gap-1.5 rounded-full px-4 text-sm active:rounded-lg"
+								className="lh-press h-9 touch:h-12 gap-1.5 rounded-pill px-4 text-sm active:rounded-lg"
 							>
 								<PenLineIcon className="size-4" />
 								Open in sketch
