@@ -205,13 +205,14 @@ body {
 	font-family: var(--font-ui);
 }
 
-/* Touch targets (owner goal 2026-10-27: usable on a phone): the controls that were 19-32 px tall get a 40 px floor on
-   touch screens only (Android guideline 48, Apple 44; the row they sit in grows, the look does not). Unlayered, so it
+/* Touch targets (owner goal 2026-10-27: usable on a phone): the controls that were 19-32 px tall get a 44 px floor on
+   touch screens only (Apple 44, Android guideline 48; the row they sit in grows, the look does not). Raised from 40 for
+   the tablet pass (M13e): a stylus or a finger on a 12.4 inch screen is less precise than on a phone. Unlayered, so it
    beats the utilities' own sizes. Add the class to a control; mouse and trackpad layouts are untouched. */
 @media (pointer: coarse) {
 	.lh-touch {
-		min-height: 2.5rem;
-		min-width: 2.5rem;
+		min-height: 2.75rem;
+		min-width: 2.75rem;
 	}
 }
 
