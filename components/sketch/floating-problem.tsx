@@ -1,15 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { GripHorizontalIcon, MinusIcon, PenLineIcon } from "lucide-react";
+import { MinusIcon, PenLineIcon } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { repairMathForDisplay } from "@/src/core";
 
 /**
  * The sketch view's floating problem box (owner, 2026-10-26): the canvas
  * fills the view, and the question floats above it — draggable by its
- * header, collapsible to a small pill (never a long bar) so the learner
- * has the whole page to work on. Position and collapsed state are
+ * pill, collapsible to that same pill (never a long bar) so the learner
+ * has the whole page to work on. The pill is ONE button in the same spot
+ * whether the box is open or folded (owner, 2026-10-29). Position and collapsed state are
  * remembered between openings (localStorage, per browser).
  *
  * It must sit inside a `relative` parent: its coordinates are that
@@ -143,65 +144,43 @@ export function FloatingProblem({
 
 	const toggle = (collapsed: boolean) => update({ ...boxRef.current, collapsed }, true);
 
-	if (box.collapsed) {
-		return (
-			<div ref={rootRef} data-ink-hole className="absolute z-10" style={{ left: box.x, top: box.y }}>
-				<button
-					type="button"
-					data-testid="sketch-problem-pill"
-					aria-label={`Show the ${label.toLowerCase()}`}
-					title={`Show the ${label.toLowerCase()} (drag to move)`}
-					{...dragProps}
-					onClick={() => {
-						// The click that ends a drag is not an expand.
-						if (dragged.current) {
-							dragged.current = false;
-							return;
-						}
-						toggle(false);
-					}}
-					className="lh-touch flex cursor-grab touch-none items-center gap-1.5 rounded-full border bg-card py-1.5 pr-3 pl-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase shadow-lg transition-colors hover:text-foreground active:cursor-grabbing"
-				>
-					<PenLineIcon className="size-3.5" />
-					{label}
-				</button>
-			</div>
-		);
-	}
+	// ONE toggle, always in the same spot (owner, 2026-10-29): the pill that opens the problem is the very button that
+	// folds it again, and the statement hangs below it. Dragging it moves everything.
 	return (
 		<div
 			ref={rootRef}
 			data-ink-hole
-			data-testid="sketch-problem-box"
-			className="absolute z-10 w-[min(34rem,calc(100%-1rem))] rounded-xl border bg-card shadow-lg"
+			className={`absolute z-10 ${box.collapsed ? "" : "w-[min(34rem,calc(100%-1rem))]"}`}
 			style={{ left: box.x, top: box.y }}
 		>
-			<div
+			<button
+				type="button"
+				data-testid={box.collapsed ? "sketch-problem-pill" : "sketch-problem-collapse"}
+				aria-label={box.collapsed ? `Show the ${label.toLowerCase()}` : `Collapse the ${label.toLowerCase()}`}
+				aria-expanded={!box.collapsed}
+				title={box.collapsed ? `Show the ${label.toLowerCase()} (drag to move)` : `Collapse the ${label.toLowerCase()} (drag to move)`}
 				{...dragProps}
-				onPointerUp={(e) => {
-					dragProps.onPointerUp(e);
-					dragged.current = false;
+				onClick={() => {
+					// The click that ends a drag is not a toggle.
+					if (dragged.current) {
+						dragged.current = false;
+						return;
+					}
+					toggle(!box.collapsed);
 				}}
-				className="flex cursor-grab touch-none items-center gap-1.5 px-2.5 pt-2 pb-1 select-none active:cursor-grabbing"
+				className="lh-touch flex cursor-grab touch-none items-center gap-1.5 rounded-full border bg-card py-1.5 pr-3 pl-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase shadow-lg transition-colors hover:text-foreground active:cursor-grabbing"
 			>
-				<GripHorizontalIcon className="size-3.5 text-muted-foreground/60" />
-				<span className="flex-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</span>
-				<button
-					type="button"
-					data-no-drag
-					data-testid="sketch-problem-collapse"
-					aria-label={`Collapse the ${label.toLowerCase()}`}
-					title="Collapse"
-					onClick={() => toggle(true)}
-					className="lh-touch flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-				>
-					<MinusIcon className="size-4" />
-				</button>
-			</div>
-			<div className="lh-prose max-h-[45vh] overflow-y-auto px-3 pb-3 text-[15px]">
-				<MessageResponse>{repairMathForDisplay(statement)}</MessageResponse>
-				{children}
-			</div>
+				{box.collapsed ? <PenLineIcon className="size-3.5" /> : <MinusIcon className="size-3.5" />}
+				{label}
+			</button>
+			{!box.collapsed && (
+				<div data-testid="sketch-problem-box" className="mt-2 rounded-xl border bg-card shadow-lg">
+					<div className="lh-prose max-h-[45vh] overflow-y-auto px-3 py-3 text-[15px]">
+						<MessageResponse>{repairMathForDisplay(statement)}</MessageResponse>
+						{children}
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }

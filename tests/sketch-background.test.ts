@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { backgroundCss, backgroundLines, backgroundStep, nextBackground, SKETCH_BACKGROUNDS } from "../components/sketch/sketch-background.ts";
+import { describe, it, test } from "node:test";
+import { backgroundCss, backgroundLines, backgroundStep, DEFAULT_PAPER_SIZE, loadPaperSize, nextBackground, PAPER_SIZES, paperSpacing, savePaperSize, SKETCH_BACKGROUNDS } from "../components/sketch/sketch-background.ts";
 
 describe("the canvas paper (a drawing aid, never sent to the model)", () => {
 	it("the owner's spacings at zoom 1: grid 32, ruled 40", () => {
@@ -52,4 +52,42 @@ describe("the canvas paper (a drawing aid, never sent to the model)", () => {
 			["grid", "ruled", "dots", "none"],
 		);
 	});
+});
+
+test("the spacing steps scale every paper, and the middle one is today's spacing", () => {
+	assert.deepEqual([...PAPER_SIZES], [0.5, 0.75, 1, 1.25, 1.5, 2]);
+	assert.equal(PAPER_SIZES[DEFAULT_PAPER_SIZE], 1);
+	assert.equal(backgroundStep("grid", 1, 0.5), 16);
+	assert.equal(backgroundStep("ruled", 1, 2), 80);
+	assert.equal(paperSpacing("grid", 0), 16);
+	assert.equal(paperSpacing("ruled", DEFAULT_PAPER_SIZE), 40);
+	assert.equal(paperSpacing("dots", 5), 64);
+	// a small spacing still doubles when zoomed far out, so lines stay apart
+	for (const zoom of [0.1, 0.3, 1, 4]) assert.ok(backgroundStep("grid", zoom, 0.5) * zoom >= 10, `zoom ${zoom}`);
+});
+
+test("lines and CSS follow the chosen spacing", () => {
+	const view = { zoom: 1, x: 0, y: 0 };
+	assert.deepEqual(backgroundLines("grid", view, 40, 40, 0.5).xs, [0, 16, 32]);
+	assert.deepEqual(backgroundLines("grid", view, 40, 40).xs, [0, 32]);
+	assert.equal(backgroundCss("grid", view, "light", 2).backgroundSize, "64px 64px, 64px 64px");
+});
+
+test("the remembered spacing is a valid step, and anything else is the default", () => {
+	const store = new Map<string, string>();
+	(globalThis as unknown as { localStorage: Storage }).localStorage = {
+		getItem: (k: string) => store.get(k) ?? null,
+		setItem: (k: string, v: string) => void store.set(k, v),
+		removeItem: (k: string) => void store.delete(k),
+		clear: () => store.clear(),
+		key: () => null,
+		length: 0,
+	} as Storage;
+	assert.equal(loadPaperSize(), DEFAULT_PAPER_SIZE);
+	savePaperSize(4);
+	assert.equal(loadPaperSize(), 4);
+	for (const bad of ["9", "-1", "1.5", "abc", ""]) {
+		store.set("lh:sketch-paper-size", bad);
+		assert.equal(loadPaperSize(), DEFAULT_PAPER_SIZE, bad);
+	}
 });

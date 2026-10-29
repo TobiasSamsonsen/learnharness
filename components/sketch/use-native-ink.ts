@@ -85,9 +85,7 @@ export interface NativeInk {
 	zoomPct: number;
 	/** The view now (for what the page draws over the shell's ink, like the paper). */
 	view: SketchView;
-	zoomBy: (factor: number) => void;
-	/** Back to the ink: the home view when it fits, else a view that shows all of it. */
-	resetView: () => void;
+/** Back to the ink: the home view when it fits, else a view that shows all of it. */
 }
 
 const rectOf = (el: Element): NativeInkRect => {
@@ -242,8 +240,13 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 		if (active) sendRef.current({ op: "kept", strokes: kept ?? [] });
 	}, [active, kept]);
 	useEffect(() => {
-		if (active) sendRef.current({ op: "tool", tool });
+	if (active) sendRef.current({ op: "tool", tool });
 	}, [active, tool]);
+	const eraserMode = options.eraser?.mode;
+	const eraserRadius = options.eraser?.radius;
+	useEffect(() => {
+	if (active && eraserMode !== undefined && eraserRadius !== undefined) sendRef.current({ op: "eraser", mode: eraserMode, radius: eraserRadius });
+	}, [active, eraserMode, eraserRadius]);
 	const sheetTone = options.tone;
 	useEffect(() => {
 		if (active && sheetTone) sendRef.current({ op: "sheet", tone: sheetTone });
@@ -260,7 +263,5 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 		surfaceRef,
 		zoomPct,
 		view: viewState,
-		zoomBy: (factor) => applyView(zoomAbout(view.current, factor, size.current.w / 2, size.current.h / 2)),
-		resetView: () => applyView(fitAll()),
-	};
+};
 }

@@ -127,3 +127,101 @@ class InkRouterTest {
 		assertEquals(InkRoute.NONE, InkRouter().step(InkAction.MOVE, emptyList(), 0, surface, emptyList()).route)
 	}
 }
+
+/** M16: the ink follows one pointer by id, a stylus after a palm takes over, a cancelled pointer never draws. */
+class InkRouterPalmTest {
+	private val surface = InkRect(0f, 100f, 400f, 600f)
+	private val finger = 1
+	private val stylus = InkRouter.TOOL_TYPE_STYLUS
+	private fun p(id: Int, x: Float, y: Float, tool: Int) = InkPointer(id, x, y, tool)
+	private fun InkRouter.step(action: InkAction, pointers: List<InkPointer>, index: Int, canceled: Boolean = false) =
+		step(action, pointers, index, surface, emptyList(), canceled)
+
+	@Test fun theStylusIsFollowedByItsIdWhileAPalmLandsBesideIt() {
+		val r = InkRouter()
+		val down = r.step(InkAction.DOWN, listOf(p(7, 50f, 500f, stylus)), 0)
+		assertEquals(InkRoute.INK, down.route)
+		assertEquals(7, down.inkPointerId)
+		val palm = listOf(p(7, 50f, 500f, stylus), p(8, 90f, 560f, finger))
+		val both = r.step(InkAction.POINTER_DOWN, palm, 1)
+		assertEquals(InkRoute.INK, both.route)
+		assertEquals("still the stylus", 7, both.inkPointerId)
+		assertFalse(both.cancelInk)
+		assertEquals(7, r.step(InkAction.MOVE, palm, 0).inkPointerId)
+	}
+
+	@Test fun whenTheStylusLiftsFirstTheStrokeEndsAndThePalmIsSwallowed() {
+		val r = InkRouter()
+		r.step(InkAction.DOWN, listOf(p(7, 50f, 500f, stylus)), 0)
+		val both = listOf(p(7, 50f, 500f, stylus), p(8, 90f, 560f, finger))
+		r.step(InkAction.POINTER_DOWN, both, 1)
+		val lift = r.step(InkAction.POINTER_UP, both, 0)
+		assertEquals(InkRoute.INK, lift.route)
+		assertTrue("the stroke ends here", lift.finishInk)
+		assertEquals(7, lift.inkPointerId)
+		// what the palm does from now on goes nowhere
+		assertEquals(InkRoute.NONE, r.step(InkAction.MOVE, listOf(p(8, 95f, 565f, finger)), 0).route)
+		assertEquals(InkRoute.NONE, r.step(InkAction.UP, listOf(p(8, 95f, 565f, finger)), 0).route)
+	}
+
+	@Test fun aPalmLiftingFirstChangesNothing() {
+		val r = InkRouter()
+		r.step(InkAction.DOWN, listOf(p(7, 50f, 500f, stylus)), 0)
+		val both = listOf(p(7, 50f, 500f, stylus), p(8, 90f, 560f, finger))
+		r.step(InkAction.POINTER_DOWN, both, 1)
+		val lift = r.step(InkAction.POINTER_UP, both, 1)
+		assertEquals(InkRoute.INK, lift.route)
+		assertFalse(lift.finishInk)
+		assertEquals(7, lift.inkPointerId)
+	}
+
+	@Test fun aPointerTheSystemCancelledNeverEndsOrStartsAStrokeOfItsOwn() {
+		val r = InkRouter()
+		r.step(InkAction.DOWN, listOf(p(7, 50f, 500f, stylus)), 0)
+		val both = listOf(p(7, 50f, 500f, stylus), p(8, 90f, 560f, finger))
+		r.step(InkAction.POINTER_DOWN, both, 1)
+		// the palm (id 8) is taken back: the stylus carries on
+		val palmCancelled = r.step(InkAction.POINTER_UP, both, 1, canceled = true)
+		assertFalse(palmCancelled.cancelInk)
+		assertFalse(palmCancelled.finishInk)
+		// the stylus itself taken back: its stroke is dropped, not committed
+		val penCancelled = r.step(InkAction.POINTER_UP, both, 0, canceled = true)
+		assertTrue(penCancelled.cancelInk)
+		assertFalse(penCancelled.finishInk)
+	}
+
+	@Test fun aCancelledLastLiftDropsTheStroke() {
+		val r = InkRouter()
+		r.step(InkAction.DOWN, listOf(p(7, 50f, 500f, stylus)), 0)
+		val up = r.step(InkAction.UP, listOf(p(7, 50f, 500f, stylus)), 0, canceled = true)
+		assertTrue(up.cancelInk)
+		assertEquals(7, up.inkPointerId)
+	}
+
+	@Test fun aStylusLandingAfterAPalmTakesTheGestureOver() {
+		val r = InkRouter()
+		// the stylus was seen before, so a palm's DOWN goes to the page
+		r.step(InkAction.DOWN, listOf(p(1, 50f, 500f, stylus)), 0)
+		r.step(InkAction.UP, listOf(p(1, 50f, 500f, stylus)), 0)
+		val palm = r.step(InkAction.DOWN, listOf(p(8, 90f, 560f, finger)), 0)
+		assertEquals(InkRoute.WEB, palm.route)
+		val both = listOf(p(8, 90f, 560f, finger), p(9, 50f, 500f, stylus))
+		val takeover = r.step(InkAction.POINTER_DOWN, both, 1)
+		assertEquals(InkRoute.INK, takeover.route)
+		assertTrue("the stylus' POINTER_DOWN begins the stroke", takeover.startInk)
+		assertTrue("the palm the page was following is cancelled", takeover.cancelWeb)
+		assertEquals(9, takeover.inkPointerId)
+		assertEquals("then it is followed by its id", 9, r.step(InkAction.MOVE, both, 0).inkPointerId)
+	}
+
+	@Test fun aFingerLandingAfterAFingerOnThePageDoesNotTakeOver() {
+		val r = InkRouter()
+		r.step(InkAction.DOWN, listOf(p(1, 50f, 500f, stylus)), 0)
+		r.step(InkAction.UP, listOf(p(1, 50f, 500f, stylus)), 0)
+		r.step(InkAction.DOWN, listOf(p(8, 90f, 560f, finger)), 0)
+		val second = r.step(InkAction.POINTER_DOWN, listOf(p(8, 90f, 560f, finger), p(9, 150f, 560f, finger)), 1)
+		assertEquals(InkRoute.WEB, second.route)
+		assertFalse(second.startInk)
+		assertFalse(second.cancelWeb)
+	}
+}

@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 import { isDictationActive } from "@/components/dictation";
 import { FloatingProblem } from "@/components/sketch/floating-problem";
 import { SketchCanvas, type SketchTool } from "@/components/sketch/sketch-canvas";
-import { ZoomControls } from "@/components/sketch/zoom-controls";
+import { ZoomIndicator } from "@/components/sketch/zoom-indicator";
 import { loadTone, saveTone, type SheetTone } from "@/components/sketch/sketch-sheet";
-import { backgroundCss, loadBackground, nextBackground, saveBackground, type SketchBackground } from "@/components/sketch/sketch-background";
+import { backgroundCss, loadBackground, loadPaperSize, nextBackground, PAPER_SIZES, saveBackground, savePaperSize, type SketchBackground } from "@/components/sketch/sketch-background";
 import { SketchToolbar, usePenDown, type SketchPanel } from "@/components/sketch/sketch-toolbar";
 import { limitShare, sketchStatus, submitBlockReason } from "@/components/sketch/sketch-status";
 import { useNativeInk } from "@/components/sketch/use-native-ink";
@@ -109,6 +109,11 @@ export function SketchView({
 	// Clear asks first (owner, M13): it is one tap from the toolbar and removes everything drawn since the last submit
 	const [confirmClear, setConfirmClear] = useState(false);
 	const [background, setBackgroundState] = useState<SketchBackground>(loadBackground);
+	const [paperSize, setPaperSizeState] = useState(loadPaperSize);
+	const setPaperSize = (next: number) => {
+	setPaperSizeState(next);
+	savePaperSize(next);
+	};
 	const cycleBackground = () => {
 		const next = nextBackground(background);
 		setBackgroundState(next);
@@ -311,6 +316,7 @@ export function SketchView({
 				pen={pen}
 				eraser={eraser}
 				background={background}
+				paperSize={paperSize}
 				tone={tone}
 				canUndo={canUndo}
 				canRedo={ink.redo.length > 0}
@@ -331,6 +337,7 @@ export function SketchView({
 					saveBackground(next);
 				}}
 				onToggleTone={toggleTone}
+				onPaperSize={setPaperSize}
 				onClose={onClose}
 				onUndo={undo}
 				onRedo={redo}
@@ -344,12 +351,12 @@ export function SketchView({
 			<div ref={canvasRef} className={cn("relative min-h-0 flex-1", !native.active && "bg-white")}>
 				{native.active ? (
 					<>
-						<div aria-hidden data-testid="sketch-native-paper" style={backgroundCss(background, native.view, tone)} className="pointer-events-none absolute inset-0" />
+						<div aria-hidden data-testid="sketch-native-paper" style={backgroundCss(background, native.view, tone, PAPER_SIZES[paperSize] ?? 1)} className="pointer-events-none absolute inset-0" />
 						<div ref={native.surfaceRef} data-testid="sketch-native-surface" style={{ touchAction: "none" }} className="absolute inset-0" />
-						<ZoomControls zoomPct={native.zoomPct} onZoom={native.zoomBy} onReset={native.resetView} />
+						<ZoomIndicator zoomPct={native.zoomPct} />
 					</>
 				) : (
-					<SketchCanvas strokes={ink.strokes} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={tool} brush={pen} eraser={eraser} background={background} tone={tone} onStroke={addStroke} onErase={erase} onCut={cut} onTwoFingerTap={undo} />
+					<SketchCanvas strokes={ink.strokes} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={tool} brush={pen} eraser={eraser} background={background} tone={tone} paperSize={paperSize} onStroke={addStroke} onErase={erase} onCut={cut} onTwoFingerTap={undo} />
 				)}
 {empty && ink.strokes.length === 0 && (
 					<p aria-hidden data-testid="sketch-empty-hint" className="pointer-events-none absolute inset-x-0 bottom-[20%] text-center text-sm text-muted-foreground/70">

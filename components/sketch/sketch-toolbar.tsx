@@ -5,7 +5,7 @@ import { ChevronDownIcon, ChevronUpIcon, EllipsisIcon, EraserIcon, MicIcon, Moon
 import { ConfidenceButtons } from "@/components/confidence-buttons";
 import { isDictationActive } from "@/components/dictation";
 import { usePalmGuard } from "@/components/sketch/palm-guard";
-import { SKETCH_BACKGROUNDS, type SketchBackground } from "@/components/sketch/sketch-background";
+import { PAPER_SIZES, paperSpacing, SKETCH_BACKGROUNDS, type SketchBackground } from "@/components/sketch/sketch-background";
 import type { SketchTool } from "@/components/sketch/sketch-canvas";
 import { displayInk, type SheetTone } from "@/components/sketch/sketch-sheet";
 import type { SketchStatus } from "@/components/sketch/sketch-status";
@@ -62,6 +62,8 @@ export interface SketchToolbarProps {
 	pen: PenSettings;
 	eraser: EraserSettings;
 	background: SketchBackground;
+	/** The paper's spacing step (an index into PAPER_SIZES). */
+	paperSize: number;
 	tone: SheetTone;
 canUndo: boolean;
 	canRedo: boolean;
@@ -81,6 +83,7 @@ canUndo: boolean;
 	onPen: (next: PenSettings) => void;
 	onEraser: (next: EraserSettings) => void;
 	onBackground: (next: SketchBackground) => void;
+	onPaperSize: (next: number) => void;
 	onToggleTone: () => void;
 onClose: () => void;
 	onUndo: () => void;
@@ -303,6 +306,25 @@ export function SketchToolbar(p: SketchToolbarProps) {
 										</button>
 									))}
 								</PanelSection>
+								{p.background !== "none" && (
+									<PanelSection title="Spacing">
+										<input
+											type="range"
+											data-testid="sketch-paper-size"
+											aria-label="Paper spacing"
+											aria-valuetext={`${paperSpacing(p.background, p.paperSize)} px`}
+											min={0}
+											max={PAPER_SIZES.length - 1}
+											step={1}
+											value={p.paperSize}
+											onChange={(e) => p.onPaperSize(Number(e.target.value))}
+											className="lh-touch h-8 min-w-0 flex-1 accent-foreground"
+										/>
+										<span data-testid="sketch-paper-size-label" className="w-14 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+											{paperSpacing(p.background, p.paperSize)} px
+										</span>
+									</PanelSection>
+								)}
 								<PanelSection title="Sheet">
 									<button
 										type="button"

@@ -43,6 +43,7 @@ class InkFrame(context: Context, private val webView: WebView, private val close
 				is InkOp.Close -> close()
 				is InkOp.Holes -> holes = op.rects.map { px(it) }
 				is InkOp.Tool -> layer.eraser = op.eraser
+				is InkOp.Eraser -> layer.setEraser(op.strokeMode, op.radius)
 				is InkOp.Brush -> layer.setBrush(op.color, op.size)
 				is InkOp.Sheet -> layer.setDark(op.dark)
 				is InkOp.Strokes -> layer.finished.setStrokes(op.strokes)
@@ -92,13 +93,22 @@ class InkFrame(context: Context, private val webView: WebView, private val close
 			MotionEvent.ACTION_CANCEL -> InkAction.CANCEL
 			else -> return true
 		}
-		val step = router.step(action, pointers, ev.actionIndex, area, holes)
+		// FLAG_CANCELED (API 33): the system took this pointer back, a palm it rejected
+		val canceled = (ev.flags and FLAG_CANCELED) != 0
+		val step = router.step(action, pointers, ev.actionIndex, area, holes, canceled)
 		if (step.penSeenNow) send(InkWire.PEN_SEEN)
+		if (step.cancelWeb) {
+		// the palm the page was following is over: it gets a cancel, so no tap or scroll is left half done
+		val cancel = MotionEvent.obtain(ev)
+		cancel.action = MotionEvent.ACTION_CANCEL
+		webView.dispatchTouchEvent(cancel)
+		cancel.recycle()
+		}
 		if (step.cancelInk) layer.cancel(local(ev))
 		when (step.route) {
 			InkRoute.INK -> {
 				val moved = local(ev)
-				layer.handle(moved)
+				layer.handle(moved, step.inkPointerId.takeIf { it >= 0 } ?: moved.getPointerId(0), start = step.startInk, finish = step.finishInk)
 				moved.recycle()
 			}
 			InkRoute.WEB -> webView.dispatchTouchEvent(ev)
@@ -112,10 +122,33 @@ class InkFrame(context: Context, private val webView: WebView, private val close
 		return true
 	}
 
+	/** A hovering stylus shows the pen's width (or the eraser's reach) as a ring, like the web canvas; over web UI it stays out of the way. */
+	override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
+	val area = surface
+	if (area != null && ev.pointerCount > 0 && InkRouter.isPen(ev.getToolType(0))) {
+	when (ev.actionMasked) {
+	MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
+	val x = ev.getX(0)
+	val y = ev.getY(0)
+	val over = area.contains(x, y) && holes.none { it.contains(x, y) }
+	layer.hover(if (over) x - area.x else null, if (over) y - area.y else null)
+	if (over) return true
+	}
+	MotionEvent.ACTION_HOVER_EXIT -> layer.hover(null, null)
+	}
+	}
+	return super.dispatchGenericMotionEvent(ev)
+	}
+
 	/** A copy of the event in the layer's own coordinates. */
 	private fun local(ev: MotionEvent): MotionEvent {
 		val copy = MotionEvent.obtain(ev)
 		copy.offsetLocation(-layer.left.toFloat(), -layer.top.toFloat())
 		return copy
+	}
+
+	private companion object {
+		/** MotionEvent.FLAG_CANCELED (API 33; a constant, so older systems simply never set it). */
+		const val FLAG_CANCELED = 0x20
 	}
 }

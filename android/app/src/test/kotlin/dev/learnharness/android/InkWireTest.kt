@@ -94,3 +94,33 @@ class InkWireTest {
 		assertTrue(InkRect(0f, 0f, 10f, 10f).contains(10f, 10f))
 	}
 }
+
+class InkWireEraserTest {
+	private fun stroke(vararg xy: Float, size: Float = 4f) = InkWire.Stroke(size, null, FloatArray(xy.size / 2 * 3) { k -> if (k % 3 == 2) 0.5f else xy[(k / 3) * 2 + k % 3] })
+
+	@org.junit.Test fun theEraserLineCarriesModeAndReach() {
+		org.junit.Assert.assertEquals(InkOp.Eraser(true, 20f), InkWire.parse("eraser stroke 20"))
+		org.junit.Assert.assertEquals(InkOp.Eraser(false, 10.5f), InkWire.parse("eraser pixel 10.5"))
+		for (bad in listOf("eraser", "eraser stroke", "eraser big 20", "eraser stroke 0", "eraser stroke 500", "eraser stroke x", "eraser stroke 20 3")) {
+			org.junit.Assert.assertNull(bad, InkWire.parse(bad))
+		}
+	}
+
+	@org.junit.Test fun aStrokeIsHitWithinTheReachPlusHalfItsWidth() {
+		val s = stroke(0f, 0f, 100f, 0f) // size 4: reach r + 2
+		org.junit.Assert.assertTrue(InkWire.strokeHit(s, 50f, 10f, 8f)) // 10 px away, reach 10
+		org.junit.Assert.assertFalse(InkWire.strokeHit(s, 50f, 11f, 8f))
+		org.junit.Assert.assertTrue("past the end, near the end point", InkWire.strokeHit(s, 105f, 0f, 4f))
+		org.junit.Assert.assertFalse(InkWire.strokeHit(s, 110f, 0f, 4f))
+		org.junit.Assert.assertFalse("a stroke with no points is never hit", InkWire.strokeHit(InkWire.Stroke(4f, null, FloatArray(0)), 0f, 0f, 50f))
+	}
+
+	@org.junit.Test fun theHitsAreTheStrokesAnyPathPointTouched_andOnlyFromTheGivenPointOn() {
+		val a = stroke(0f, 0f, 100f, 0f)
+		val b = stroke(0f, 200f, 100f, 200f)
+		val path = floatArrayOf(50f, 2f, 50f, 100f, 50f, 198f) // touches a first, then b
+		org.junit.Assert.assertEquals(setOf(0, 1), InkWire.eraseHits(listOf(a, b), path, 5f))
+		org.junit.Assert.assertEquals("only the newest point", setOf(1), InkWire.eraseHits(listOf(a, b), path, 5f, fromPair = 2))
+		org.junit.Assert.assertEquals(emptySet<Int>(), InkWire.eraseHits(listOf(a, b), floatArrayOf(50f, 100f), 5f))
+	}
+}

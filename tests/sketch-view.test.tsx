@@ -367,7 +367,7 @@ describe("pen and clear (M13b)", () => {
 			act(async () => {
 				canvas.dispatchEvent(Object.assign(new dom.window.Event(type, { bubbles: true, cancelable: true }), { pointerId, pointerType: "touch", clientX: x, clientY: y, button: 0, buttons: 1, pressure: 0.5 }));
 			});
-		const label = () => document.querySelector('[data-testid="sketch-zoom-reset"]')!.textContent;
+		const label = () => document.querySelector('[data-testid="sketch-zoom-level"]')!.textContent;
 		await touch("pointerdown", 1, 100, 100); // the first finger starts a stroke
 		await touch("pointerdown", 2, 200, 100); // the second finger: a pinch
 		await touch("pointermove", 2, 300, 100); // spread from 100 to 200 apart
@@ -377,17 +377,13 @@ describe("pen and clear (M13b)", () => {
 		assert.equal(readInk("k-pinch").strokes.length, 0, "the stroke the first finger began was dropped");
 	});
 
-	it("the canvas has zoom buttons: in, out and reset, with the zoom shown", async () => {
+	it("the zoom is a number at the bottom with nothing to press (owner: pinch to zoom is enough)", async () => {
 		await mount({ inkKey: "k-zoom", onSubmit: async () => true });
-		const label = () => document.querySelector('[data-testid="sketch-zoom-reset"]')!.textContent;
-		assert.equal(label(), "100%");
-		await click("sketch-zoom-in");
-		assert.equal(label(), "125%");
-		await click("sketch-zoom-out");
-		await click("sketch-zoom-out");
-		assert.equal(label(), "80%");
-		await click("sketch-zoom-reset");
-		assert.equal(label(), "100%", "reset goes home (no ink to fit)");
+		const level = () => document.querySelector('[data-testid="sketch-zoom-level"]')!;
+		assert.equal(level().textContent, "100%");
+		for (const id of ["sketch-zoom-in", "sketch-zoom-out", "sketch-zoom-reset"]) assert.ok(!document.querySelector(`[data-testid="${id}"]`), `${id} is gone`);
+		assert.ok(level().className.includes("pointer-events-none"), "it takes no touches");
+		assert.equal(level().querySelector("button"), null);
 	});
 
 	it("PC shortcuts: E toggles the eraser, 1-5 pick the ink, G changes the paper; modified keys and text fields are left alone", async () => {
@@ -647,14 +643,14 @@ describe("two-finger tap and Space pan (M16)", () => {
 			act(async () => {
 				window.dispatchEvent(Object.assign(new dom.window.Event(type, { bubbles: true, cancelable: true }), { code, key: " ", ctrlKey: false, metaKey: false, altKey: false }));
 			});
-		const before = document.querySelector('[data-testid="sketch-zoom-reset"]')!.textContent;
+		const before = document.querySelector('[data-testid="sketch-zoom-level"]')!.textContent;
 		await keyEvent("keydown", "Space");
 		await mouse("pointerdown", 100, 100);
 		await mouse("pointermove", 160, 140);
 		await mouse("pointerup", 160, 140);
 		await keyEvent("keyup", "Space");
 		assert.equal(readInk("k-space").strokes.length, 0, "Space held: the drag panned, it drew nothing");
-		assert.equal(document.querySelector('[data-testid="sketch-zoom-reset"]')!.textContent, before, "a pan does not zoom");
+		assert.equal(document.querySelector('[data-testid="sketch-zoom-level"]')!.textContent, before, "a pan does not zoom");
 		await mouse("pointerdown", 100, 100);
 		await mouse("pointermove", 160, 140);
 		await mouse("pointerup", 160, 140);
@@ -713,5 +709,31 @@ describe("hold to straighten (M16c)", () => {
 		const last = { x: p[p.length - 3]!, y: p[p.length - 2]! };
 		assert.ok(Math.abs(last.x - 200) < 1e-6 && Math.abs(last.y - 200) < 1e-6, `ends at the pen (${last.x}, ${last.y})`);
 		for (let i = 0; i < p.length; i += 3) assert.ok(Math.abs(p[i]! - 100 - (p[i + 1]! - 100)) < 1e-6, "on the 45 degree line from the start");
+	});
+});
+
+describe("the paper spacing slider", () => {
+	const click = (id: string) =>
+		act(async () => {
+			document.querySelector(`[data-testid="${id}"]`)!.dispatchEvent(new dom.window.Event("click", { bubbles: true, cancelable: true }));
+		});
+
+	it("shows only with a paper, snaps to six steps and labels the spacing of the paper in use", async () => {
+		localStorage.removeItem("lh:sketch-background");
+		localStorage.removeItem("lh:sketch-paper-size");
+		await mount({ inkKey: "k-paper-size", onSubmit: async () => true });
+		await click("sketch-more");
+		assert.ok(!document.querySelector('[data-testid="sketch-paper-size"]'), "no paper, no spacing");
+		await click("sketch-paper-ruled");
+		const slider = () => document.querySelector('[data-testid="sketch-paper-size"]')!;
+		assert.equal(slider().getAttribute("max"), "5");
+		assert.equal(slider().getAttribute("step"), "1", "it snaps");
+		assert.equal(document.querySelector('[data-testid="sketch-paper-size-label"]')!.textContent, "40 px");
+		// the label follows the paper: a grid is 32 px at the middle step
+		await click("sketch-paper-grid");
+		assert.equal(document.querySelector('[data-testid="sketch-paper-size-label"]')!.textContent, "32 px");
+		assert.equal(slider().getAttribute("aria-valuetext"), "32 px");
+		localStorage.removeItem("lh:sketch-background");
+		localStorage.removeItem("lh:sketch-paper-size");
 	});
 });

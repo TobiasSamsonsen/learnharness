@@ -8,7 +8,7 @@ import org.json.JSONException
  * The native-ink bridge, pure parts (Android plan M10, docs/android/m10-plan.md). The web store owns the strokes
  * (owner decision B, 2026-10-27): the shell draws, reports each finished stroke and eraser gesture, and the web pushes
  * the finished set back. Lines the web sends (`src/core/ink-bridge.ts` writes them): `open`, `holes`, `tool`,
- * `brush`, `sheet`, `strokes`, `kept`, `view`, `ack`, `close`. Lines the shell sends back: `stroke`, `erase`, `gesture`, `penseen`, `fallback`.
+ * `eraser`, `brush`, `sheet`, `strokes`, `kept`, `view`, `ack`, `close`. Lines the shell sends back: `stroke`, `erase`, `gesture`, `penseen`, `fallback`.
  * No Android types except org.json, so `./gradlew test` covers it.
  */
 
@@ -22,6 +22,8 @@ sealed interface InkOp {
 	/** Web UI over the canvas (the floating question box, its collapsed pill): touches there stay with the page. */
 	data class Holes(val rects: List<InkRect>) : InkOp
 	data class Tool(val eraser: Boolean) : InkOp
+	/** The eraser's mode and reach (M16): in stroke mode the shell fades the strokes the eraser is over while it runs; [radius] is CSS px on screen. */
+	data class Eraser(val strokeMode: Boolean, val radius: Float) : InkOp
 	/** The sheet's tone (M13): a dark sheet shows ink in lighter variants. A display choice; the strokes are unchanged. */
 	data class Sheet(val dark: Boolean) : InkOp
 	/** The pen's colour (#rrggbb) and base size in CSS px: the strokes drawn from now on use it. */
@@ -58,8 +60,19 @@ object InkWire {
 				"eraser" -> InkOp.Tool(eraser = true)
 				else -> null
 			}
+			"eraser" -> {
+			val parts = rest.split(Regex("\\s+"))
+			if (parts.size != 2) return null
+			val strokeMode = when (parts[0]) {
+			"stroke" -> true
+			"pixel" -> false
+			else -> return null
+			}
+			val radius = finite(parts[1])?.takeIf { it in 1f..200f } ?: return null
+			InkOp.Eraser(strokeMode, radius)
+			}
 			"brush" -> {
-				val parts = rest.split(Regex("\\s+"))
+			val parts = rest.split(Regex("\\s+"))
 				if (parts.size != 2 || !Regex("#[0-9a-fA-F]{6}").matches(parts[0])) return null
 				val size = finite(parts[1])?.takeIf { it in 0.5f..64f } ?: return null
 				InkOp.Brush(parts[0], size)
@@ -135,7 +148,50 @@ object InkWire {
 		return FloatArray(count * 2) { k -> triples[(k / 2) * 3 + k % 2] }
 	}
 
-	/** An eraser gesture: flat [x, y, …] in the canvas' page CSS px. The web decides which strokes it hit. */
+	/** Does the eraser point (x, y) with reach r touch this stroke? Mirrors src/core/sketch.ts sketchStrokeHit. */
+		fun strokeHit(s: Stroke, x: Float, y: Float, r: Float): Boolean {
+			val p = s.points
+			if (p.size < 3) return false
+			val reach = r + s.size / 2f
+			var px = p[0]
+			var py = p[1]
+			if (kotlin.math.hypot((x - px).toDouble(), (y - py).toDouble()) <= reach) return true
+			var k = 3
+			while (k + 1 < p.size) {
+				val qx = p[k]
+				val qy = p[k + 1]
+				val dx = qx - px
+				val dy = qy - py
+				val len2 = dx * dx + dy * dy
+				val t = if (len2 == 0f) 0f else (((x - px) * dx + (y - py) * dy) / len2).coerceIn(0f, 1f)
+				if (kotlin.math.hypot((x - (px + t * dx)).toDouble(), (y - (py + t * dy)).toDouble()) <= reach) return true
+				px = qx
+				py = qy
+				k += 3
+			}
+			return false
+		}
+
+		/**
+		 * The indexes of the strokes the eraser path ([xy]: flat [x, y, …], from point [fromPair] on) touched, by the same rule the
+		 * web applies when the gesture ends (src/core/ink-bridge.ts eraseHits). The layer uses it to fade them while the gesture runs.
+		 */
+		fun eraseHits(strokes: List<Stroke>, xy: FloatArray, radius: Float, fromPair: Int = 0): Set<Int> {
+			val hits = LinkedHashSet<Int>()
+			strokes.forEachIndexed { index, stroke ->
+				var k = fromPair * 2
+				while (k + 1 < xy.size) {
+					if (strokeHit(stroke, xy[k], xy[k + 1], radius)) {
+						hits += index
+						break
+					}
+					k += 2
+				}
+			}
+			return hits
+		}
+
+		/** An eraser gesture: flat [x, y, …] in the canvas' page CSS px. The web decides which strokes it hit. */
 	fun eraseLine(points: FloatArray) = "erase ${points.joinToString(",") { n(if (it.isFinite()) it else 0f) }}"
 
 	/**

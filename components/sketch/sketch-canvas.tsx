@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { SKETCH_INK, sketchStrokeCut, sketchStrokeHit, sketchStrokePath, type SketchStroke } from "@/src/core";
 import { DEFAULT_ERASER, DEFAULT_PEN, penStroke, type EraserSettings, type PenSettings } from "@/components/sketch/pen-settings";
-import { backgroundColor, backgroundLines, type SketchBackground } from "@/components/sketch/sketch-background";
+import { backgroundColor, backgroundLines, PAPER_SIZES, DEFAULT_PAPER_SIZE, type SketchBackground } from "@/components/sketch/sketch-background";
 import { displayInk, SHEET_COLOR, type SheetTone } from "@/components/sketch/sketch-sheet";
-import { ZoomControls } from "@/components/sketch/zoom-controls";
+import { ZoomIndicator } from "@/components/sketch/zoom-indicator";
 import { notePenNear } from "@/components/sketch/palm-guard";
 import { liftTap, moveTap, startTap, type TapTracker } from "@/components/sketch/tap-gesture";
 import { dist, HOLD_MS, isHeld, linePoints, MIN_LINE_PX, snapAngle } from "@/components/sketch/straight-line";
@@ -77,6 +77,7 @@ export function SketchCanvas({
 	eraser = DEFAULT_ERASER,
 	background = "none",
 	tone = "light",
+	paperSize = DEFAULT_PAPER_SIZE,
 	onStroke,
 	onErase,
 	onCut,
@@ -95,6 +96,8 @@ export function SketchCanvas({
 	background?: SketchBackground;
 	/** The sheet's tone: a dark sheet shows ink in lighter variants (display only). */
 	tone?: SheetTone;
+	/** The paper's spacing step (an index into PAPER_SIZES). */
+	paperSize?: number;
 	/** A finished stroke (pointer up), its width already in world units. */
 	onStroke: (stroke: SketchStroke) => void;
 	/** One eraser gesture finished: indices into `strokes` it touched. */
@@ -146,6 +149,8 @@ export function SketchCanvas({
 	backgroundRef.current = background;
 	const toneRef = useRef(tone);
 	toneRef.current = tone;
+	const paperSizeRef = useRef(paperSize);
+	paperSizeRef.current = paperSize;
 
 	const pathOf = (s: SketchStroke): Path2D => {
 		let p = paths.current.get(s);
@@ -170,7 +175,7 @@ export function SketchCanvas({
 		const paper = backgroundRef.current;
 		if (paper !== "none") {
 			// the paper is drawn in screen space (crisp at any zoom) and follows the view
-			const { xs, ys } = backgroundLines(paper, v, canvas.width / dpr, canvas.height / dpr);
+			const { xs, ys } = backgroundLines(paper, v, canvas.width / dpr, canvas.height / dpr, PAPER_SIZES[paperSizeRef.current] ?? 1);
 			ctx.strokeStyle = backgroundColor(tone);
 			ctx.fillStyle = backgroundColor(tone);
 			ctx.lineWidth = 1;
@@ -288,7 +293,7 @@ export function SketchCanvas({
 	};
 	}, []);
 
-	useEffect(draw, [strokes, kept, background, tone]);
+	useEffect(draw, [strokes, kept, background, tone, paperSize]);
 	useEffect(() => () => {
 		if (frame.current !== null) cancelAnimationFrame(frame.current);
 	}, []);
@@ -358,7 +363,6 @@ export function SketchCanvas({
 		const [a, b] = [...touches.current.values()];
 		return pinchOf(a!, b!);
 	};
-	const zoomBy = (factor: number) => setView(zoomAbout(view.current, factor, rect.current.width / 2, rect.current.height / 2));
 
 	return (
 		<div ref={wrapRef} data-testid="sketch-viewport" className="absolute inset-0 overflow-hidden overscroll-contain">
@@ -513,11 +517,7 @@ export function SketchCanvas({
 					draw();
 					}}
 			/>
-			<ZoomControls
-				zoomPct={zoomPct}
-				onZoom={zoomBy}
-				onReset={() => setView(fitInk([...keptRef.current, ...strokesRef.current].map((s) => s.points), rect.current.width, rect.current.height))}
-			/>
+			<ZoomIndicator zoomPct={zoomPct} />
 		</div>
 	);
 }

@@ -222,7 +222,7 @@ describe("native ink is on", () => {
 		assert.ok(readKept("k-thaw2")!.strokes.every((s) => s.fresh === undefined), "the kept page carries no flags");
 	});
 
-	it("the shell's two-finger gestures become the view and go back to the shell; the zoom buttons do the same", async () => {
+	it("the shell's two-finger gestures become the view and go back to the shell", async () => {
 		const shell = fakeShell();
 		await mount("k-gesture");
 		const views = () => shell.posted.filter((l) => l.startsWith("view "));
@@ -231,10 +231,11 @@ describe("native ink is on", () => {
 		assert.equal(views().at(-1), "view 2.0000 50 50", "the point under the fingers stays under them");
 		await shell.say("gesture 20 10 1 120 110"); // the fingers move (20, 10) without pinching
 		assert.equal(views().at(-1), "view 2.0000 40 45", "the content follows the fingers");
-		assert.equal(byId("sketch-zoom-reset")!.textContent, "200%");
-		await click("sketch-zoom-out");
+		assert.equal(byId("sketch-zoom-level")!.textContent, "200%");
+		assert.equal(byId("sketch-zoom-in"), null, "no zoom buttons: the number is only shown");
+		await shell.say("gesture 0 0 0.8 100 100"); // a pinch back to 1.6x
 		assert.ok(views().at(-1)!.startsWith("view 1.6000 "), views().at(-1));
-		assert.equal(byId("sketch-zoom-reset")!.textContent, "160%");
+		assert.equal(byId("sketch-zoom-level")!.textContent, "160%");
 		await shell.say("gesture 0 0 1000 5 5");
 		assert.ok(views().at(-1)!.startsWith("view 8.0000 "), "the zoom stops at 8x");
 	});

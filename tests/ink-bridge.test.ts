@@ -8,6 +8,9 @@ test("encodeInkOp: one short line per operation, numbers rounded to 2 decimals",
 	assert.equal(encodeInkOp({ op: "holes", rects: [{ x: 8, y: 8, w: 300, h: 200 }, { x: 10.5, y: 250, w: 100, h: 40 }] }), "holes 8,8,300,200 10.5,250,100,40");
 	assert.equal(encodeInkOp({ op: "holes", rects: [] }), "holes");
 	assert.equal(encodeInkOp({ op: "tool", tool: "eraser" }), "tool eraser");
+	assert.equal(encodeInkOp({ op: "eraser", mode: "stroke", radius: 20 }), "eraser stroke 20");
+	assert.equal(encodeInkOp({ op: "eraser", mode: "pixel", radius: 10.456 }), "eraser pixel 10.46");
+	for (const radius of [0, 0.5, 201, Number.NaN]) assert.throws(() => encodeInkOp({ op: "eraser", mode: "stroke", radius }), String(radius));
 	assert.equal(encodeInkOp({ op: "brush", color: "#dc2626", size: 8 }), "brush #dc2626 8");
 	assert.throws(() => encodeInkOp({ op: "brush", color: "red", size: 4 }));
 	assert.throws(() => encodeInkOp({ op: "brush", color: "#dc2626", size: 0 }));

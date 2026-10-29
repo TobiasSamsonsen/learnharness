@@ -11,6 +11,8 @@
  *   open <inkKey> <x> <y> <w> <h>     the canvas rectangle in CSS px of the viewport; the native layer sits there
  *   holes <x,y,w,h> …                 web UI over the canvas (the floating box): touches there stay with the page
  *   tool pen|eraser                   the toolbar's tool
+ *   eraser pixel|stroke <radius>      the eraser's mode and reach (CSS px on screen): the shell fades the strokes the
+ *                                     stroke eraser is over while the gesture runs (M16)
  *   sheet light|dark                 the sheet's tone (M13): a dark sheet shows ink in lighter variants (display only)
  *   brush <#rrggbb> <size>            the pen's colour and base width in CSS px (M13): the next strokes use it
  *   strokes <json>                    the finished strokes of the page being written (replaces what the shell has)
@@ -46,6 +48,7 @@ export type NativeInkOp =
 	| { op: "open"; inkKey: string; rect: NativeInkRect }
 	| { op: "holes"; rects: NativeInkRect[] }
 	| { op: "tool"; tool: NativeInkTool }
+	| { op: "eraser"; mode: "pixel" | "stroke"; radius: number }
 	| { op: "brush"; color: string; size: number }
 	| { op: "sheet"; tone: "light" | "dark" }
 	| { op: "strokes" | "kept"; strokes: readonly SketchStroke[] }
@@ -67,7 +70,10 @@ export function encodeInkOp(op: NativeInkOp): string {
 		case "holes":
 			return ["holes", ...op.rects.map(rectText)].join(" ");
 		case "tool":
-			return `tool ${op.tool}`;
+		return `tool ${op.tool}`;
+		case "eraser":
+		if (!(op.radius >= 1 && op.radius <= 200)) throw new Error("eraser radius must be 1-200");
+		return `eraser ${op.mode === "stroke" ? "stroke" : "pixel"} ${num(op.radius)}`;
 		case "sheet":
 			return `sheet ${op.tone === "dark" ? "dark" : "light"}`;
 		case "brush":
