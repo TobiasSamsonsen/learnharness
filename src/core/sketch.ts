@@ -35,14 +35,25 @@ export const SKETCH_MAX_REQUEST_PAGES = 20;
 const MAX_UPSCALE = 2;
 /** A tiny sketch is enlarged until its long edge reaches this (≤ 2×). */
 const MIN_EDGE = 480;
-/** A page too tall by a little shrinks to fit (down to this share of its
- *  scale) instead of splitting into bands. */
+/** A page too big by a little shrinks to fit (down to this share of its
+ *  scale) instead of splitting into tiles. */
 const MIN_FIT_SCALE = 0.75;
+/** Handwriting height, in pixels of the image the model finally sees, below
+ *  which it is refused, and from which it reads comfortably (owner, M13;
+ *  measured 2026-10-29, docs/android/m13-plan.md). */
+const FLOOR_GLYPH = 16;
+const COMFORT_GLYPH = 20;
+/** Tiles a sketch spreads over before it shrinks further (one tile ≈ 5k
+ *  visual tokens; the hard cap is SKETCH_MAX_PAGES). */
+const PREFERRED_PAGES = 3;
+/** Each smaller candidate scale of the tiling search. */
+const SCALE_STEP = 0.85;
 /** Padding around the strokes' bounding box, in canvas pixels. */
 const PAD = 24;
 const SKETCH_ID_RE = /^sk_[A-Za-z0-9_-]{8,40}$/;
-/** The new-ink bracket (kept page): drawn in the left padding. */
-const BRACKET_COLOR = "#2563eb";
+/** The new-or-edited-ink bracket (kept page): drawn in the left padding.
+ *  Magenta, outside the pen palette (owner, M13), so ink never mimics it. */
+const BRACKET_COLOR = "#d946ef";
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const PRODUCERS: readonly SketchProducer[] = ["web-canvas", "android-ink"];
 /** The default ink. */
@@ -134,9 +145,13 @@ export function parseSketchPayload(value: unknown): SketchPayload {
 			if (!ok) throw new SketchPayloadError(`stroke ${i} has an invalid point value`);
 		}
 		points += p.length / 3;
-		return s.color === undefined
-			? { size: s.size, points: p as number[] }
-			: { size: s.size, color: s.color, points: p as number[] };
+		if (s.fresh !== undefined && typeof s.fresh !== "boolean") {
+			throw new SketchPayloadError(`stroke ${i} fresh must be a boolean`);
+		}
+		const stroke: SketchStroke = { size: s.size, points: p as number[] };
+		if (s.color !== undefined) stroke.color = s.color;
+		if (s.fresh === true) stroke.fresh = true;
+		return stroke;
 	});
 	if (points > SKETCH_MAX_POINTS) throw new SketchPayloadError(`sketch has more than ${SKETCH_MAX_POINTS} points`);
 	if (JSON.stringify(strokes).length > SKETCH_MAX_BYTES) {
@@ -165,11 +180,17 @@ interface Outlined {
 	index: number;
 	path: string;
 	color: string;
+	/** New or edited since the last submit (the margin bracket marks it). */
+	fresh: boolean;
 	minX: number;
 	minY: number;
 	maxX: number;
 	maxY: number;
 }
+
+type Axis = "x" | "y";
+const lo = (s: Outlined, axis: Axis) => (axis === "x" ? s.minX : s.minY);
+const hi = (s: Outlined, axis: Axis) => (axis === "x" ? s.maxX : s.maxY);
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -199,9 +220,17 @@ export function sketchStrokePath(s: SketchStroke): string {
 	return outlinePath(strokeOutline(s));
 }
 
-function outlineStrokes(strokes: readonly SketchStroke[]): Outlined[] {
+/** Is stroke `i` new or edited ink? The per-stroke flag wins; payloads that
+ *  only carry the older `newFrom` index rule are read through it. */
+function isFresh(payload: SketchPayload, i: number): boolean {
+	const flag = payload.strokes[i]?.fresh;
+	if (flag !== undefined) return flag;
+	return payload.newFrom !== undefined && i >= payload.newFrom;
+}
+
+function outlineStrokes(payload: SketchPayload): Outlined[] {
 	const out: Outlined[] = [];
-	for (const [index, s] of strokes.entries()) {
+	for (const [index, s] of payload.strokes.entries()) {
 		const outline = strokeOutline(s);
 		if (outline.length === 0) continue;
 		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -211,39 +240,91 @@ function outlineStrokes(strokes: readonly SketchStroke[]): Outlined[] {
 			if (y! < minY) minY = y!;
 			if (y! > maxY) maxY = y!;
 		}
-		out.push({ index, path: outlinePath(outline), color: s.color ?? SKETCH_INK, minX, minY, maxX, maxY });
+		out.push({ index, path: outlinePath(outline), color: s.color ?? SKETCH_INK, fresh: isFresh(payload, index), minX, minY, maxX, maxY });
 	}
 	return out;
 }
 
-/** Where to cut a band that would end at `limit`: the middle of the blank
- *  row nearest the limit within the band's lower half, else the limit. */
-function bandCut(strokes: readonly Outlined[], top: number, limit: number): number {
-	const floor = top + (limit - top) / 2;
+/** The writing size of a sketch: the 75th percentile of its strokes' long
+ *  side. Strokes of single letters sit near it; the odd long underline or
+ *  axis stays above it and little dashes below it. It reads a little SMALL
+ *  for multi-stroke letters, which only makes the scale floor safer. */
+function glyphSize(strokes: readonly Outlined[]): number {
+	const sizes = strokes.map((s) => Math.max(s.maxX - s.minX, s.maxY - s.minY)).sort((a, b) => a - b);
+	return Math.max(1, sizes[Math.floor((sizes.length - 1) * 0.75)] ?? 1);
+}
+
+/** Where to cut a tile that would end at `limit` on `axis`: the middle of
+ *  the blank gap nearest the limit within the tile's far half, else the
+ *  limit. */
+function bandCut(strokes: readonly Outlined[], start: number, limit: number, axis: Axis): number {
+	const floor = start + (limit - start) / 2;
 	const spans = strokes
-		.filter((s) => s.maxY > floor && s.minY < limit)
-		.map((s) => [s.minY, s.maxY] as const)
+		.filter((s) => hi(s, axis) > floor && lo(s, axis) < limit)
+		.map((s) => [lo(s, axis), hi(s, axis)] as const)
 		.sort((a, b) => a[0] - b[0]);
 	let best: number | null = null;
 	let reach = floor;
 	for (const [a, b] of spans) {
-		if (a > reach) best = (reach + a) / 2; // a blank row between reach and a
+		if (a > reach) best = (reach + a) / 2; // a blank gap between reach and a
 		if (b > reach) reach = b;
 	}
 	if (reach < limit) best = (reach + limit) / 2;
 	return best !== null && best > floor ? best : limit;
 }
 
-/** A "[" in the left margin spanning the new ink's rows within one band
- *  (kept page): tells the model which part of the page was just added. */
-function newInkBracket(strokes: readonly Outlined[], newFrom: number | undefined, minX: number, top: number, bottom: number): string {
-	if (!newFrom) return "";
-	const fresh = strokes.filter((s) => s.index >= newFrom);
+/** [start, end] ranges along `axis` covering [from, to], each at most `max`
+ *  long, cut at blank gaps where there is one. Stops growing past the page
+ *  limit (the caller refuses such a plan). */
+function splitAxis(strokes: readonly Outlined[], from: number, to: number, max: number, axis: Axis): [number, number][] {
+	const out: [number, number][] = [];
+	let start = from;
+	while (to - start > max && out.length <= SKETCH_MAX_PAGES) {
+		const cut = bandCut(strokes, start, start + max, axis);
+		out.push([start, cut]);
+		start = cut;
+	}
+	out.push([start, to]);
+	return out;
+}
+
+interface Tile {
+	x0: number;
+	x1: number;
+	y0: number;
+	y1: number;
+}
+
+/** The tiles of the ink at scale `s`: rows cut at blank rows, then each
+ *  row cut at blank columns (reading order: rows top to bottom, each left
+ *  to right). A row's columns span that row's own ink. */
+function tilesAt(strokes: readonly Outlined[], box: Tile, s: number): Tile[] {
+	const max = SKETCH_MAX_EDGE / s;
+	const tiles: Tile[] = [];
+	for (const [y0, y1] of splitAxis(strokes, box.y0, box.y1, max, "y")) {
+		const inRow = strokes.filter((st) => st.maxY >= y0 && st.minY <= y1);
+		if (inRow.length === 0) continue;
+		const x0 = Math.max(box.x0, Math.min(...inRow.map((st) => st.minX)) - PAD);
+		const x1 = Math.min(box.x1, Math.max(...inRow.map((st) => st.maxX)) + PAD);
+		for (const [a, b] of splitAxis(inRow, x0, x1, max, "x")) {
+			// A wide blank gap leaves tiles with no ink: they are not pages.
+			if (inRow.some((st) => st.maxX >= a && st.minX <= b)) tiles.push({ x0: a, x1: b, y0, y1 });
+		}
+		if (tiles.length > SKETCH_MAX_PAGES) break;
+	}
+	return tiles;
+}
+
+/** A "[" in the left margin of one tile spanning the fresh (new or edited)
+ *  ink's rows within it: tells the model which part of the page was just
+ *  added or changed. */
+function freshBracket(strokes: readonly Outlined[], tile: Tile): string {
+	const fresh = strokes.filter((s) => s.fresh && s.maxX >= tile.x0 && s.minX <= tile.x1 && s.maxY >= tile.y0 && s.minY <= tile.y1);
 	if (fresh.length === 0) return "";
-	const y0 = Math.max(top, Math.min(...fresh.map((s) => s.minY)) - 4);
-	const y1 = Math.min(bottom, Math.max(...fresh.map((s) => s.maxY)) + 4);
+	const y0 = Math.max(tile.y0, Math.min(...fresh.map((s) => s.minY)) - 4);
+	const y1 = Math.min(tile.y1, Math.max(...fresh.map((s) => s.maxY)) + 4);
 	if (y1 <= y0) return "";
-	const x = minX + 8;
+	const x = tile.x0 + 8;
 	const d = `M ${r2(x + 8)} ${r2(y0)} L ${r2(x)} ${r2(y0)} L ${r2(x)} ${r2(y1)} L ${r2(x + 8)} ${r2(y1)}`;
 	return `<path d="${d}" fill="none" stroke="${BRACKET_COLOR}" stroke-width="3" stroke-linecap="square"/>`;
 }
@@ -251,57 +332,75 @@ function newInkBracket(strokes: readonly Outlined[], newFrom: number | undefined
 const planCache = new WeakMap<SketchPayload, SketchPagePlan[]>();
 
 /** The deterministic page plan of a payload (memoized per payload object).
- *  Throws SketchPayloadError when it would need more than SKETCH_MAX_PAGES. */
+ *
+ *  Scale (owner, M13; measured 2026-10-29): handwriting stays readable down
+ *  to ~16 px of glyph height in the image the model finally sees (comfortable
+ *  from ~20 px), whatever the tile size. So the sketch renders at 1:1 (a tiny
+ *  one enlarged), shrinks to one page while the writing stays comfortable,
+ *  otherwise tiles in 2D at the largest scale that needs at most
+ *  PREFERRED_PAGES tiles (else at most SKETCH_MAX_PAGES), never below the
+ *  floor. Throws SketchPayloadError when even the floor does not fit. */
 export function planSketch(payload: SketchPayload): SketchPagePlan[] {
 	const cached = planCache.get(payload);
 	if (cached) return cached;
-	const strokes = outlineStrokes(payload.strokes);
+	const strokes = outlineStrokes(payload);
 	if (strokes.length === 0) throw new SketchPayloadError("sketch has no visible ink");
-	const minX = Math.min(...strokes.map((s) => s.minX)) - PAD;
-	const maxX = Math.max(...strokes.map((s) => s.maxX)) + PAD;
-	const minY = Math.min(...strokes.map((s) => s.minY)) - PAD;
-	const maxY = Math.max(...strokes.map((s) => s.maxY)) + PAD;
-	const width = maxX - minX;
-	const height = maxY - minY;
+	const box: Tile = {
+		x0: Math.min(...strokes.map((s) => s.minX)) - PAD,
+		x1: Math.max(...strokes.map((s) => s.maxX)) + PAD,
+		y0: Math.min(...strokes.map((s) => s.minY)) - PAD,
+		y1: Math.max(...strokes.map((s) => s.maxY)) + PAD,
+	};
+	const width = box.x1 - box.x0;
+	const height = box.y1 - box.y0;
 	// 1:1 canvas pixels read well; a tiny sketch is enlarged (≤ 2×) so its
-	// long edge reaches ~MIN_EDGE; never wider than the cap.
+	// long edge reaches ~MIN_EDGE.
 	const long = Math.max(width, height);
 	const base = long < MIN_EDGE ? Math.min(MAX_UPSCALE, MIN_EDGE / long) : 1;
-	let s = Math.min(base, SKETCH_MAX_EDGE / width);
-	const bands: [number, number][] = [];
-	if (height * s <= SKETCH_MAX_EDGE) {
-		bands.push([minY, maxY]);
-	} else if (SKETCH_MAX_EDGE / height >= MIN_FIT_SCALE * s) {
-		// Slightly too tall: shrink to one page (one image costs far less
-		// than two bands at full scale).
-		s = SKETCH_MAX_EDGE / height;
-		bands.push([minY, maxY]);
+	const glyph = glyphSize(strokes);
+	const floor = Math.min(base, FLOOR_GLYPH / glyph);
+	const comfort = Math.min(base, COMFORT_GLYPH / glyph);
+	let scale = Math.min(base, SKETCH_MAX_EDGE / width, SKETCH_MAX_EDGE / height);
+	let tiles: Tile[];
+	if (scale >= MIN_FIT_SCALE * base || scale >= comfort) {
+		// One image costs far less than two at full scale.
+		tiles = [box];
 	} else {
-		const bandMax = SKETCH_MAX_EDGE / s;
-		let top = minY;
-		while (maxY - top > bandMax && bands.length <= SKETCH_MAX_PAGES) {
-			const cut = bandCut(strokes, top, top + bandMax);
-			bands.push([top, cut]);
-			top = cut;
+		let chosen: { scale: number; tiles: Tile[] } | null = null;
+		let fallback: { scale: number; tiles: Tile[] } | null = null;
+		const scales: number[] = [];
+		for (let s = base; s > floor * 1.001; s *= SCALE_STEP) scales.push(s);
+		scales.push(floor);
+		for (const s of scales) {
+			const t = tilesAt(strokes, box, s);
+			if (t.length <= SKETCH_MAX_PAGES && !fallback) fallback = { scale: s, tiles: t };
+			if (t.length <= PREFERRED_PAGES) {
+				chosen = { scale: s, tiles: t };
+				break;
+			}
 		}
-		bands.push([top, maxY]);
+		const pick = chosen ?? fallback;
+		if (!pick) {
+			throw new SketchPayloadError(
+				`sketch is too large to read: it would need more than ${SKETCH_MAX_PAGES} pages even at the smallest readable scale`,
+			);
+		}
+		scale = pick.scale;
+		tiles = pick.tiles;
 	}
-	if (bands.length > SKETCH_MAX_PAGES) {
-		throw new SketchPayloadError(`sketch is too tall: more than ${SKETCH_MAX_PAGES} pages`);
-	}
-	const plan = bands.map(([top, bottom]) => {
-		const h = bottom - top;
-		const pw = Math.max(1, Math.round(width * s));
-		const ph = Math.max(1, Math.round(h * s));
-		const inBand = strokes.filter((st) => st.maxY >= top && st.minY <= bottom);
-		const paths = inBand.map((st) => `<path d="${st.path}" fill="${st.color}"/>`).join("");
-		const bracket = newInkBracket(strokes, payload.newFrom, minX, top, bottom);
+	const plan = tiles.map((tile) => {
+		const w = tile.x1 - tile.x0;
+		const h = tile.y1 - tile.y0;
+		const pw = Math.max(1, Math.round(w * scale));
+		const ph = Math.max(1, Math.round(h * scale));
+		const inTile = strokes.filter((st) => st.maxX >= tile.x0 && st.minX <= tile.x1 && st.maxY >= tile.y0 && st.minY <= tile.y1);
+		const paths = inTile.map((st) => `<path d="${st.path}" fill="${st.color}"/>`).join("");
 		const svg =
 			`<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}" ` +
-			`viewBox="${r2(minX)} ${r2(top)} ${r2(width)} ${r2(h)}">` +
-			`<rect x="${r2(minX)}" y="${r2(top)}" width="${r2(width)}" height="${r2(h)}" fill="#ffffff"/>` +
+			`viewBox="${r2(tile.x0)} ${r2(tile.y0)} ${r2(w)} ${r2(h)}">` +
+			`<rect x="${r2(tile.x0)}" y="${r2(tile.y0)}" width="${r2(w)}" height="${r2(h)}" fill="#ffffff"/>` +
 			paths +
-			bracket +
+			freshBracket(strokes, tile) +
 			`</svg>`;
 		return { width: pw, height: ph, svg };
 	});

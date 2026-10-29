@@ -17,6 +17,10 @@ export interface SketchStroke {
 	size: number;
 	/** "#rrggbb"; absent = the default ink. */
 	color?: string;
+	/** New or edited since the last submit (kept page): the render brackets
+	 *  these strokes' rows in the margin. Only ever sent as `true`; never
+	 *  stored — a stored stroke is kept ink. */
+	fresh?: boolean;
 	points: number[];
 }
 
@@ -26,9 +30,10 @@ export interface SketchPayload {
 	id: string;
 	producer: SketchProducer;
 	strokes: SketchStroke[];
-	/** Kept page (M3): the whole page is resubmitted, and strokes from this
-	 *  index on are the NEW ink since the last submit — the render brackets
-	 *  them in the margin. Absent (or 0) = nothing to bracket. */
+	/** Kept page (M3), the older rule: strokes from this index on are the NEW
+	 *  ink since the last submit. Superseded by the per-stroke `fresh` flag
+	 *  (M13, which also covers edited ink); still accepted, and ignored for a
+	 *  stroke that carries `fresh`. Absent (or 0) = nothing to bracket. */
 	newFrom?: number;
 }
 

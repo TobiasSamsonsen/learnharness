@@ -50,7 +50,9 @@ export async function persistInputSketch(chatId: string, input: TurnInput): Prom
 			providerSafePng(new Resvg(page.svg, { fitTo: { mode: "width", value: page.width }, background: "#ffffff" }).render().asPng()),
 		),
 	}));
-	stores.sketchStore.save(chatId, { id: sketch.id, strokesJson: JSON.stringify(sketch.strokes), pages });
+	// Stored ink is kept ink: the new-or-edited flag was for this render only.
+	const kept = sketch.strokes.map(({ fresh: _fresh, ...stroke }) => stroke);
+	stores.sketchStore.save(chatId, { id: sketch.id, strokesJson: JSON.stringify(kept), pages });
 }
 
 /** The model-facing page loader for one chat's turn (memoized: a turn

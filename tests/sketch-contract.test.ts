@@ -52,6 +52,16 @@ function line(x0: number, y0: number, x1: number, y1: number, n = 12, size = 4):
 	return { size, points };
 }
 
+/** A row of handwriting: `n` short strokes (~30 px glyphs) from (x, y). */
+function writing(x: number, y: number, n = 20): SketchStroke[] {
+	return Array.from({ length: n }, (_, i) => line(x + i * 30, y, x + i * 30 + 20, y + 25));
+}
+
+/** The viewBox of a planned page: [x, y, w, h]. */
+function viewBox(svg: string): number[] {
+	return /viewBox="([^"]+)"/.exec(svg)![1]!.split(" ").map(Number);
+}
+
 const ID = "sk_abcdefgh12345678";
 const payload = (strokes: SketchStroke[], id = ID): SketchPayload => ({ id, producer: "web-canvas", strokes });
 
@@ -105,17 +115,55 @@ describe("planSketch", () => {
 		assert.ok(page!.width > 40 && page!.width <= 2 * (40 + 60), `width ${page!.width}`);
 	});
 
-	it("cuts a tall page into bands at blank rows", () => {
+	it("cuts a tall page into tiles at blank rows", () => {
 		// Rows of writing 300 px apart down a 5000 px page.
-		const strokes = Array.from({ length: 17 }, (_, i) => line(0, i * 300, 800, i * 300 + 40));
+		const strokes = Array.from({ length: 17 }, (_, i) => writing(0, i * 300)).flat();
 		const plan = planSketch(payload(strokes));
 		assert.ok(plan.length > 1 && plan.length <= SKETCH_MAX_PAGES, `${plan.length} pages`);
 		for (const page of plan) assert.ok(page.height <= SKETCH_MAX_EDGE, `page height ${page.height}`);
 	});
 
-	it("refuses a sketch that needs more than the page limit", () => {
-		const strokes = Array.from({ length: 60 }, (_, i) => line(0, i * 300, 800, i * 300 + 40));
-		assert.throws(() => planSketch(payload(strokes)), /too tall/);
+	it("cuts a wide page into tiles too (one row of writing 6000 px long)", () => {
+		const plan = planSketch(payload(writing(0, 0, 200)));
+		assert.ok(plan.length > 1 && plan.length <= SKETCH_MAX_PAGES, `${plan.length} pages`);
+		for (const page of plan) assert.ok(page.width <= SKETCH_MAX_EDGE, `page width ${page.width}`);
+		const boxes = plan.map((p) => viewBox(p.svg));
+		for (let i = 1; i < boxes.length; i++) assert.ok(boxes[i]![0]! >= boxes[i - 1]![0]!, "columns run left to right");
+	});
+
+	it("tiles a sketch spread in both directions, rows first and each row left to right", () => {
+		const strokes = [
+			...writing(0, 0),
+			...writing(5400, 0),
+			...writing(0, 5400),
+			...writing(5400, 5400),
+		];
+		const plan = planSketch(payload(strokes));
+		assert.equal(plan.length, 4);
+		const [a, b, c, d] = plan.map((p) => viewBox(p.svg)) as [number[], number[], number[], number[]];
+		assert.equal(a[1], b[1], "first row");
+		assert.equal(c[1], d[1], "second row");
+		assert.ok(a[1]! < c[1]! && a[0]! < b[0]! && c[0]! < d[0]!);
+		for (const page of plan) assert.ok(page.width <= SKETCH_MAX_EDGE && page.height <= SKETCH_MAX_EDGE);
+	});
+
+	it("shrinks big writing to one page: large glyphs stay readable at a low scale", () => {
+		const big = [line(0, 0, 200, 200), line(2800, 0, 3000, 200), line(1400, 0, 1600, 200)];
+		const plan = planSketch(payload(big));
+		assert.equal(plan.length, 1);
+		assert.ok(plan[0]!.width <= SKETCH_MAX_EDGE);
+	});
+
+	it("handles ink around a negative origin", () => {
+		const plan = planSketch(payload(writing(-5000, -3000, 10)));
+		assert.equal(plan.length, 1);
+		const [x, y] = viewBox(plan[0]!.svg);
+		assert.ok(x! < -4900 && y! < -2900, `viewBox origin ${x},${y}`);
+	});
+
+	it("refuses a sketch that would need more than the page limit even at the smallest readable scale", () => {
+		const strokes = Array.from({ length: 150 }, (_, i) => writing(0, i * 300, 15)).flat();
+		assert.throws(() => planSketch(payload(strokes)), /too large to read/);
 		assert.throws(() => parseSketchPayload(payload(strokes)), SketchPayloadError, "validation runs the plan");
 	});
 });
@@ -302,10 +350,33 @@ describe("the kept page", () => {
 	it("newFrom brackets the new ink in the margin and changes no page size", () => {
 		const plain = planSketch(payload([old, fresh]));
 		const marked = planSketch({ ...payload([old, fresh], "sk_bracket00000001"), newFrom: 1 });
-		assert.match(marked[0]!.svg, /stroke="#2563eb"/, "a blue bracket");
-		assert.doesNotMatch(plain[0]!.svg, /#2563eb/);
+		assert.match(marked[0]!.svg, /stroke="#d946ef"/, "a magenta bracket, outside the pen palette");
+		assert.doesNotMatch(plain[0]!.svg, /#d946ef/);
 		assert.equal(marked[0]!.width, plain[0]!.width);
 		assert.equal(marked[0]!.height, plain[0]!.height);
+	});
+
+	it("a fresh stroke is bracketed wherever it sits in the page (an edit of old ink)", () => {
+		// The FIRST stroke is the edited one: the index rule could not say so.
+		const edited = { ...old, fresh: true };
+		const marked = planSketch(payload([edited, fresh], "sk_bracket00000002"));
+		const bracket = /<path d="M \S+ \S+ L \S+ (\S+) L \S+ (\S+) L \S+ \S+" fill="none" stroke="#d946ef"/.exec(marked[0]!.svg);
+		assert.ok(bracket, "a bracket is drawn");
+		const [top, bottom] = [Number(bracket![1]), Number(bracket![2])];
+		const [, boxY, , boxH] = viewBox(marked[0]!.svg);
+		assert.ok(top >= boxY! && bottom <= boxY! + boxH! && bottom - top < 120, `bracket ${top}..${bottom} spans the edited row only`);
+	});
+
+	it("fresh wins over newFrom; a fresh:false stroke is not bracketed", () => {
+		const p = { ...payload([old, { ...fresh, fresh: false }], "sk_bracket00000003"), newFrom: 1 };
+		assert.doesNotMatch(planSketch(p)[0]!.svg, /#d946ef/);
+	});
+
+	it("validates fresh and keeps only fresh:true", () => {
+		assert.throws(() => parseSketchPayload(payload([{ ...old, fresh: "yes" as unknown as boolean }])), SketchPayloadError);
+		const parsed = parseSketchPayload(payload([{ ...old, fresh: false }, { ...fresh, fresh: true }]));
+		assert.equal(parsed.strokes[0]!.fresh, undefined);
+		assert.equal(parsed.strokes[1]!.fresh, true);
 	});
 
 	it("newFrom is validated; 0 means no bracket", () => {

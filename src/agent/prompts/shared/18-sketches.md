@@ -14,6 +14,8 @@ If the learner disputes your reading, they are right about what they wrote: ask 
 
 On a multiple-choice question the sketch is thinking: the recorded pick and its verdict stay authoritative.
 
-On a whole-page resubmit the new ink is bracketed in the left margin: respond to that, not to the whole page again.
+On a whole-page resubmit, ink that is new or was edited since last time is marked by a magenta bracket in the left margin: respond to that, not to the whole page again. If a bracket sits beside ink that looks erased or rewritten, re-read that line fresh.
+
+A large sketch arrives as several pages of one canvas, in reading order: rows from top to bottom, each row from left to right.
 
 **A missing listed item is a slip, not a miss.** When the problem's statement plainly requires something in the sketch (a part it lists, a value, a label, a marking) and the sketch lacks it, and you are certain, tell the learner that something from the problem is not on the page yet, **without naming it** (a one-line R0 nudge). It makes no difference whether they said it aloud. If what they said already contains the item, you may point to that ("you said it, now put it on the page"). This costs nothing: when they add it and the rest is right, conclude `solved` with `rung` null and `missClass` null. It covers only what the statement itself requires; a wrong or absent idea is graded as before.
