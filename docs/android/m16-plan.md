@@ -1,6 +1,6 @@
 # M16: sketch quality on par with popular note-taking apps
 
-Status: **DRAFT, awaiting owner approval. Nothing is built yet.** Branch `feat/m16-sketch-notes` (from `merge/upstream-v0.4.0`). Goal (owner, 2026-10-29): "improve the sketch feature and ui/ux so that it matches the quality of popular note taking apps". Source: a read-only gap analysis of `components/sketch/*`, `src/core/sketch.ts` and the Kotlin `Ink*.kt` against GoodNotes, Notability, OneNote and Samsung Notes (code reading only, no device).
+Status: **DRAFT (revised after the owner's top-toolbar answer), awaiting owner approval. Nothing is built yet.** Branch `feat/m16-sketch-notes` (from `merge/upstream-v0.4.0`). Goal (owner, 2026-10-29): "improve the sketch feature and ui/ux so that it matches the quality of popular note taking apps". Source: a read-only gap analysis of `components/sketch/*`, `src/core/sketch.ts` and the Kotlin `Ink*.kt` against GoodNotes, Notability, OneNote and Samsung Notes (code reading only, no device).
 
 ## Owner decisions (2026-10-29)
 
@@ -11,6 +11,7 @@ Status: **DRAFT, awaiting owner approval. Nothing is built yet.** Branch `feat/m
 | Highlighter | **No** |
 | Stroke look on Android | **Android draws like the model's image** (the same perfect-freehand outline the server renders) |
 | Toolbars | **Manual collapse, remembered, plus an "auto-hide while drawing" switch** (off by default) |
+| Where the buttons live (owner, palm question) | **Everything at the top, one bar, nothing at the bottom.** Close, undo, redo, pen/eraser, paper, clear, mic and Submit in one row; tapping the active tool again opens a popover with the five colours, three widths and the eraser mode and size |
 
 ## Milestones
 
@@ -26,11 +27,11 @@ Status: **DRAFT, awaiting owner approval. Nothing is built yet.** Branch `feat/m
 - Fix the stale comment in `sketch-canvas.tsx` about the native page scrolling.
 
 **M16b, toolbars and gestures (web, native where the finger path allows).**
-- Each bar has a handle that collapses it to a thin tab; the choice is remembered per device. A switch "Auto-hide while drawing" in the pen strip fades both bars while the pen is down and brings them back on lift (off by default).
-- **Palm guard on the bars** (owner question, 2026-10-29: how do we stop the palm from hitting the bottom buttons?). Three layers, none needing a stylus to verify the logic:
+- **One top bar** replaces the pen strip and the bottom action bar (a resting palm sits below the pen, so the bottom edge is left empty). The pen options (colours, widths, eraser mode and size, and the auto-hide switch) open in a popover from the active tool; every control keeps its 44 px touch target. A handle collapses the bar to a thin tab; the choice is remembered per device. "Auto-hide while drawing" fades the bar while the pen is down and brings it back on lift (off by default).
+- **Palm guard on the bars** (owner question, 2026-10-29: how do we stop the palm from hitting the bottom buttons? Answer: move them all to the top, and keep these cheap layers for the top bar too). Three layers, none needing a stylus to verify the logic:
   1. While a pen is down or hovering, and for 600 ms after, touch presses on both bars are ignored (the canvas already does this; the bars get the same check). The pen itself and the mouse are never blocked.
   2. A touch with a large contact area (a palm: `PointerEvent.width/height` of about 30 px or more, where the browser reports it) is ignored on the bars at any time.
-  3. The bars hide while the pen is down when auto-hide is on, and the consequential buttons (Submit, close) keep a larger margin from the bottom edge so a resting hand reaches the safe area first. Clear already asks first.
+  3. Nothing is at the bottom edge any more, and the bar hides while the pen is down when auto-hide is on. Clear already asks first.
   On Android the guard is the web's, using the pen hover and contact the page already receives; the Kotlin layer's rule that ignores a palm only with several pointers is made stricter in M16d (`FLAG_CANCELED`).
 - Two-finger tap undoes (web; on Android the finger path in `InkRouter.kt` if it fits, otherwise web only and noted).
 - Undo history of the **unsent** ink survives a reload (stored with the strokes in `ink-memory`). After a submit the history ends: sent ink stays protected, and is edited only through the eraser's existing "thaw".
@@ -50,4 +51,4 @@ M16a, M16b, M16c, M16d, each committed on its own with tests (pure logic in `src
 
 ## Decided by default (owner may change)
 
-The wording "Clear"; that undo history ends at submit; the thresholds above (hold 0.5 s, 4 px, 5 degrees, 24 px, 80 percent, palm contact about 30 px, guard window 600 ms); auto-hide off by default; the order.
+The popover opens by tapping the active tool again; the wording "Clear"; that undo history ends at submit; the thresholds above (hold 0.5 s, 4 px, 5 degrees, 24 px, 80 percent, palm contact about 30 px, guard window 600 ms); auto-hide off by default; the order.
