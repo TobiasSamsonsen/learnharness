@@ -75,6 +75,10 @@ class InkWireTest {
 	@Test fun whatTheShellSaysBack() {
 		assertEquals("stroke [{\"size\":4,\"points\":[1,2,0.5]}]", InkWire.strokeLine(InkWire.Stroke(4f, null, floatArrayOf(1f, 2f, 0.5f))))
 		assertEquals("erase 1,2,3.5,4", InkWire.eraseLine(floatArrayOf(1f, 2f, 3.5f, 4f)))
+		// the layer records [x, y, pressure] triples; the line carries only the pairs (reading triples as pairs cut the wrong places)
+		assertArrayEquals(floatArrayOf(1f, 2f, 4f, 5f), InkWire.xyOf(floatArrayOf(1f, 2f, 0.5f, 4f, 5f, 0.6f)), 0f)
+		assertEquals("erase 1,2,4,5", InkWire.eraseLine(InkWire.xyOf(floatArrayOf(1f, 2f, 0.5f, 4f, 5f, 0.6f))))
+		assertEquals(0, InkWire.xyOf(floatArrayOf()).size)
 		assertEquals("pan -12.5", InkWire.panLine(-12.5f))
 		assertEquals("penseen", InkWire.PEN_SEEN)
 		assertEquals("fallback no surface available", InkWire.fallbackLine("no\nsurface   available"))

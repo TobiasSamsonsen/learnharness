@@ -217,7 +217,7 @@ class InkLayer(context: Context) : FrameLayout(context) {
 				val current = id
 				if (erasing) {
 					record(event, historical = false)
-					listener?.onErase(points.toFloatArray())
+					listener?.onErase(InkWire.xyOf(points.toFloatArray()))
 				} else if (current != null) {
 					inProgress.finishStroke(event, event.getPointerId(0), current)
 					record(event, historical = false)

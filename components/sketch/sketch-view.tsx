@@ -340,7 +340,7 @@ export function SketchView({
 						onClick={() => setPen({ ...pen, size: w.value })}
 						className={cn("lh-touch grid size-8 shrink-0 place-items-center rounded-md", tool === "pen" && pen.size === w.value && "bg-accent")}
 					>
-						<span aria-hidden style={{ width: w.value + 4, height: w.value + 4, backgroundColor: pen.color }} className="rounded-full" />
+						<span aria-hidden style={{ width: w.value + 4, height: w.value + 4 }} className="rounded-full bg-foreground" />
 					</button>
 				))}
 					</>

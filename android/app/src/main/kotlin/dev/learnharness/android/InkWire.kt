@@ -118,6 +118,12 @@ object InkWire {
 	/** One finished stroke. */
 	fun strokeLine(s: Stroke) = "stroke ${strokesJson(listOf(s))}"
 
+	/** The x, y of flat [x, y, pressure, …] triples, as flat [x, y, …] (the layer records triples; the erase line is pairs). */
+	fun xyOf(triples: FloatArray): FloatArray {
+		val count = triples.size / 3
+		return FloatArray(count * 2) { k -> triples[(k / 2) * 3 + k % 2] }
+	}
+
 	/** An eraser gesture: flat [x, y, …] in the canvas' page CSS px. The web decides which strokes it hit. */
 	fun eraseLine(points: FloatArray) = "erase ${points.joinToString(",") { n(if (it.isFinite()) it else 0f) }}"
 
