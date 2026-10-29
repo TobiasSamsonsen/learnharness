@@ -50,15 +50,16 @@ function check(cond, message) {
 	console.log(`[smoke-headless] ok: ${message}`);
 }
 
-/** A `claude` on PATH for the provider to find: a shim that runs the fake CLI with this Node. */
+/** A `claude` on PATH for the provider to find: a shim that runs the fake CLI with this Node. The provider checks
+ *  `claude --version` first (installation.ts), so the shim answers that itself. */
 function fakeClaudeBin(dir) {
 	if (process.platform === "win32") {
 		const file = path.join(dir, "claude.cmd");
-		fs.writeFileSync(file, `@"${process.execPath}" "${FAKE}" %*\r\n`);
+		fs.writeFileSync(file, `@if "%~1"=="--version" (echo 2.1.312 ^(Claude Code^)& exit /b 0)\r\n@"${process.execPath}" "${FAKE}" %*\r\n`);
 		return file;
 	}
 	const file = path.join(dir, "claude");
-	fs.writeFileSync(file, `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
+	fs.writeFileSync(file, `#!/bin/sh\n[ "$1" = "--version" ] && { echo "2.1.312 (Claude Code)"; exit 0; }\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
 	return file;
 }
 
