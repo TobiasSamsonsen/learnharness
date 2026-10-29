@@ -266,6 +266,19 @@ body {
 	}
 }
 
+/* A small control that keeps its look but gets a 44 px touch target (a 10 px halo around it, touch screens only). Opt in
+   per control, only where its neighbours are more than 20 px away: the halo takes taps from whatever it overlaps. */
+@media (pointer: coarse) {
+	.lh-hit {
+		position: relative;
+	}
+	.lh-hit::before {
+		content: "";
+		position: absolute;
+		inset: -0.625rem;
+	}
+}
+
 /* A long-press on a control must not select its label (Android's selection handles) or open a callout: on touch
    screens a press-and-hold is how the tooltip chip is shown (components/ui/hint.tsx). */
 @media (pointer: coarse) {

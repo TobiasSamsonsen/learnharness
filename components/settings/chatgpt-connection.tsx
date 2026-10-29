@@ -276,7 +276,7 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 							<option value="">Add another account or workspace</option>
 							{status.accounts.map((a) => <option key={a.id} value={a.id}>{a.email || "ChatGPT account"}</option>)}
 						</select>
-						{registration && <Button variant="ghost" size="xs" disabled={busy} onClick={() => context.manage(registration)}>Manage…</Button>}
+						{registration && <Button variant="ghost" size="xs" className="lh-hit" disabled={busy} onClick={() => context.manage(registration)}>Manage…</Button>}
 					</div>}
 					<p className="mt-3 text-xs leading-relaxed text-muted-foreground" data-testid="chatgpt-privacy-notice">{chatGPTNotice(web)}</p>
 				</> : null}
