@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SKETCH_INK, sketchStrokeCut, sketchStrokeHit, sketchStrokePath, type SketchStroke } from "@/src/core";
 import { DEFAULT_ERASER, DEFAULT_PEN, penStroke, type EraserSettings, type PenSettings } from "@/components/sketch/pen-settings";
+import { BACKGROUND_COLOR, backgroundLines, type SketchBackground } from "@/components/sketch/sketch-background";
 import { ZoomControls } from "@/components/sketch/zoom-controls";
 import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, penWorldSize, pinchOf, pinchStep, thinPath, toWorld, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
 
@@ -70,6 +71,7 @@ export function SketchCanvas({
 	tool = "pen",
 	brush = DEFAULT_PEN,
 	eraser = DEFAULT_ERASER,
+	background = "none",
 	onStroke,
 	onErase,
 	onCut,
@@ -83,6 +85,8 @@ export function SketchCanvas({
 	brush?: PenSettings;
 	/** The eraser's mode and radius (on screen). */
 	eraser?: EraserSettings;
+	/** The paper under the ink (a drawing aid; never sent). */
+	background?: SketchBackground;
 	/** A finished stroke (pointer up), its width already in world units. */
 	onStroke: (stroke: SketchStroke) => void;
 	/** One eraser gesture finished: indices into `strokes` it touched. */
@@ -118,6 +122,8 @@ export function SketchCanvas({
 	eraserRef.current = eraser;
 	const toolRef = useRef(tool);
 	toolRef.current = tool;
+	const backgroundRef = useRef(background);
+	backgroundRef.current = background;
 
 	const pathOf = (s: SketchStroke): Path2D => {
 		let p = paths.current.get(s);
@@ -138,6 +144,22 @@ export function SketchCanvas({
 		ctx.globalAlpha = 1;
 		ctx.fillStyle = "#ffffff";
 		ctx.fillRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+		const paper = backgroundRef.current;
+		if (paper !== "none") {
+			// the paper is drawn in screen space (crisp at any zoom) and follows the view
+			const { xs, ys } = backgroundLines(paper, v, canvas.width / dpr, canvas.height / dpr);
+			ctx.strokeStyle = BACKGROUND_COLOR;
+			ctx.fillStyle = BACKGROUND_COLOR;
+			ctx.lineWidth = 1;
+			if (paper === "dots") {
+				for (const x of xs) for (const y of ys) ctx.fillRect(x - 1, y - 1, 2, 2);
+			} else {
+				ctx.beginPath();
+				for (const x of xs) (ctx.moveTo(x + 0.5, 0), ctx.lineTo(x + 0.5, canvas.height / dpr));
+				for (const y of ys) (ctx.moveTo(0, y + 0.5), ctx.lineTo(canvas.width / dpr, y + 0.5));
+				ctx.stroke();
+			}
+		}
 		ctx.setTransform(dpr * v.zoom, 0, 0, dpr * v.zoom, -v.x * v.zoom * dpr, -v.y * v.zoom * dpr);
 		ctx.globalAlpha = KEPT_ALPHA;
 		for (const s of keptRef.current) {
@@ -204,7 +226,7 @@ export function SketchCanvas({
 		return () => observer.disconnect();
 	}, []); // draw reads refs only
 
-	useEffect(draw, [strokes, kept]);
+	useEffect(draw, [strokes, kept, background]);
 	useEffect(() => () => {
 		if (frame.current !== null) cancelAnimationFrame(frame.current);
 	}, []);

@@ -366,6 +366,22 @@ describe("pen and clear (M13b)", () => {
 		assert.equal(label(), "100%", "reset goes home (no ink to fit)");
 	});
 
+	it("the paper button cycles none, grid, ruled, dots, and is remembered", async () => {
+		localStorage.removeItem("lh:sketch-background");
+		await mount({ inkKey: "k-paper", onSubmit: async () => true });
+		const label = () => document.querySelector('[data-testid="sketch-background"]')!.getAttribute("aria-label");
+		assert.equal(label(), "Paper: none");
+		const seen: (string | null)[] = [];
+		for (let i = 0; i < 4; i++) {
+			await click("sketch-background");
+			seen.push(label());
+		}
+		assert.deepEqual(seen, ["Paper: grid", "Paper: ruled", "Paper: dots", "Paper: none"]);
+		await click("sketch-background");
+		assert.equal(localStorage.getItem("lh:sketch-background"), "grid");
+		localStorage.removeItem("lh:sketch-background");
+	});
+
 	it("applyOp / revertOp handle a clear", () => {
 		const op = { kind: "clear" as const, removed: [STROKE, { ...STROKE }] };
 		assert.deepEqual(applyOp([STROKE, op.removed[1]!], op), []);

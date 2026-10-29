@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { EraserIcon, MicIcon, PenLineIcon, Redo2Icon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
+import { EraserIcon, Grid3x3Icon, MicIcon, PenLineIcon, Redo2Icon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfidenceButtons } from "@/components/confidence-buttons";
 import { isDictationActive } from "@/components/dictation";
 import { FloatingProblem } from "@/components/sketch/floating-problem";
 import { SketchCanvas, type SketchTool } from "@/components/sketch/sketch-canvas";
 import { ZoomControls } from "@/components/sketch/zoom-controls";
+import { backgroundCss, loadBackground, nextBackground, saveBackground, type SketchBackground } from "@/components/sketch/sketch-background";
 import { useNativeInk } from "@/components/sketch/use-native-ink";
 import { loadEraser, loadPen, saveEraser, savePen, SKETCH_COLORS, SKETCH_ERASER_SIZES, SKETCH_WIDTHS, type EraserSettings, type PenSettings } from "@/components/sketch/pen-settings";
 import { applyOp, hasNewInk, pagePayload, readInk, revertOp, sendPage, thawInk, useInk, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
@@ -113,6 +114,12 @@ export function SketchView({
 		setPenState(next);
 		savePen(next);
 		setTool("pen");
+	};
+	const [background, setBackgroundState] = useState<SketchBackground>(loadBackground);
+	const cycleBackground = () => {
+		const next = nextBackground(background);
+		setBackgroundState(next);
+		saveBackground(next);
 	};
 	const [eraser, setEraserState] = useState<EraserSettings>(loadEraser);
 	const setEraser = (next: EraserSettings) => {
@@ -266,11 +273,12 @@ export function SketchView({
 			<div ref={canvasRef} className={cn("relative min-h-0 flex-1", !native.active && "bg-white")}>
 				{native.active ? (
 					<>
+						<div aria-hidden data-testid="sketch-native-paper" style={backgroundCss(background, native.view)} className="pointer-events-none absolute inset-0" />
 						<div ref={native.surfaceRef} data-testid="sketch-native-surface" style={{ touchAction: "none" }} className="absolute inset-0" />
 						<ZoomControls zoomPct={native.zoomPct} onZoom={native.zoomBy} onReset={native.resetView} />
 					</>
 				) : (
-					<SketchCanvas strokes={ink.strokes} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={tool} brush={pen} eraser={eraser} onStroke={addStroke} onErase={erase} onCut={cut} />
+					<SketchCanvas strokes={ink.strokes} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={tool} brush={pen} eraser={eraser} background={background} onStroke={addStroke} onErase={erase} onCut={cut} />
 				)}
 				<FloatingProblem label={label} statement={statement}>
 					{choices}
@@ -375,6 +383,18 @@ export function SketchView({
 					className={cn(tool === "eraser" && "bg-accent")}
 				>
 					{tool === "eraser" ? <PenLineIcon className="size-4" /> : <EraserIcon className="size-4" />}
+				</Button>
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon"
+					data-testid="sketch-background"
+					aria-label={`Paper: ${background}`}
+					title={`Paper: ${background} (tap to change)`}
+					onClick={cycleBackground}
+					className={cn(background !== "none" && "bg-accent")}
+				>
+					<Grid3x3Icon className="size-4" />
 				</Button>
 				<SketchMic />
 				<span aria-hidden className={cn("ml-2 min-w-0 flex-1 truncate text-xs text-muted-foreground", asking && "hidden")}>
