@@ -16,7 +16,7 @@
 import { getStroke } from "perfect-freehand";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
-import type { SketchPageInfo, SketchPayload, SketchProducer, SketchRef, SketchStroke } from "./contracts/sketch.ts";
+import type { SketchPageInfo, SketchPayload, SketchPhoto, SketchProducer, SketchRef, SketchStroke } from "./contracts/sketch.ts";
 import type { LhMarkerMessage } from "./native-messages.ts";
 
 // ─── limits (owner, 2026-10-26) ──────────────────────────────────────────────
@@ -25,6 +25,11 @@ export const SKETCH_MAX_STROKES = 3000;
 export const SKETCH_MAX_POINTS = 250_000;
 /** The strokes' JSON size cap — also bounds the request's memory. */
 export const SKETCH_MAX_BYTES = 4_000_000;
+/** A photo page's image, base64 (M17): the server normalises a photo to under 4 MB of bytes, so this is the ceiling of what
+ *  a payload may carry (and of what a client may send before the server shrinks it). */
+export const SKETCH_PHOTO_MAX_DATA = 8_000_000;
+/** The smallest long edge a photo is accepted at: below this the handwriting cannot be read. */
+export const SKETCH_PHOTO_MIN_EDGE = 600;
 /** Long edge of a rendered page, in pixels. */
 export const SKETCH_MAX_EDGE = 2000;
 /** Pages (bands) one sketch may render to. */
@@ -57,7 +62,7 @@ const SKETCH_ID_RE = /^sk_[A-Za-z0-9_-]{8,40}$/;
  *  Magenta, outside the pen palette (owner, M13), so ink never mimics it. */
 const BRACKET_COLOR = "#d946ef";
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-const PRODUCERS: readonly SketchProducer[] = ["web-canvas", "android-ink"];
+const PRODUCERS: readonly SketchProducer[] = ["web-canvas", "android-ink", "photo"];
 /** The default ink. */
 export const SKETCH_INK = "#111111";
 
@@ -120,6 +125,7 @@ export function parseSketchPayload(value: unknown): SketchPayload {
 	const v = value as Record<string, unknown>;
 	if (typeof v.id !== "string" || !SKETCH_ID_RE.test(v.id)) throw new SketchPayloadError("sketch id is invalid");
 	if (!PRODUCERS.includes(v.producer as SketchProducer)) throw new SketchPayloadError("sketch producer is unknown");
+	if (v.producer === "photo") return parsePhotoPayload(v);
 	if (!Array.isArray(v.strokes) || v.strokes.length === 0) throw new SketchPayloadError("sketch has no strokes");
 	if (v.strokes.length > SKETCH_MAX_STROKES) {
 		throw new SketchPayloadError(`sketch has more than ${SKETCH_MAX_STROKES} strokes`);
@@ -170,7 +176,42 @@ export function parseSketchPayload(value: unknown): SketchPayload {
 	return payload;
 }
 
+/** The bytes of a base64 string's start: enough to read an image's magic number without decoding the whole photo. */
+function photoMagic(data: string): "image/png" | "image/jpeg" | null {
+	const head = Buffer.from(data.slice(0, 16), "base64");
+	if (head.length >= 8 && head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47) return "image/png";
+	if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return "image/jpeg";
+	return null;
+}
+
+/** A photo payload (M17): no strokes, one raster page. The server has normalised it already (upright, capped), so what is
+ *  checked here is that the facts agree: the type is an image the page store knows, the bytes really are that type, the
+ *  size is within the page limit, and nothing stroke-like came with it. */
+function parsePhotoPayload(v: Record<string, unknown>): SketchPayload {
+	if (v.strokes !== undefined && (!Array.isArray(v.strokes) || v.strokes.length > 0)) throw new SketchPayloadError("a photo carries no strokes");
+	if (v.newFrom !== undefined) throw new SketchPayloadError("a photo has no kept page");
+	const p = v.photo as Record<string, unknown> | undefined;
+	if (typeof p !== "object" || p === null) throw new SketchPayloadError("photo is missing");
+	if (p.mimeType !== "image/png" && p.mimeType !== "image/jpeg") throw new SketchPayloadError("photo must be a png or a jpeg");
+	const { width, height } = p;
+	if (!Number.isInteger(width) || !Number.isInteger(height) || (width as number) < 1 || (height as number) < 1 || (width as number) > SKETCH_MAX_EDGE || (height as number) > SKETCH_MAX_EDGE) {
+		throw new SketchPayloadError(`photo must be at most ${SKETCH_MAX_EDGE} px on a side`);
+	}
+	if (Math.max(width as number, height as number) < SKETCH_PHOTO_MIN_EDGE) throw new SketchPayloadError("photo is too small to read handwriting in");
+	if (typeof p.data !== "string" || p.data.length === 0 || p.data.length > SKETCH_PHOTO_MAX_DATA || !/^[A-Za-z0-9+/]+={0,2}$/.test(p.data)) {
+		throw new SketchPayloadError("photo data is invalid or larger than 8 MB");
+	}
+	if (photoMagic(p.data) !== p.mimeType) throw new SketchPayloadError("photo bytes do not match its type");
+	const photo: SketchPhoto = { mimeType: p.mimeType as SketchPhoto["mimeType"], width: width as number, height: height as number, data: p.data };
+	return { id: v.id as string, producer: "photo", strokes: [], photo };
+}
+
 // ─── the render plan ─────────────────────────────────────────────────────────
+
+/** The SVG the UI shows for a photo page: the image, in a box of its own size. */
+export function photoPageSvg(photo: SketchPhoto): string {
+	return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${photo.width}" height="${photo.height}" viewBox="0 0 ${photo.width} ${photo.height}"><image width="${photo.width}" height="${photo.height}" xlink:href="data:${photo.mimeType};base64,${photo.data}"/></svg>`;
+}
 
 /** One planned page: its pixel size and the SVG that draws it. */
 export interface SketchPagePlan extends SketchPageInfo {
@@ -343,8 +384,16 @@ const planCache = new WeakMap<SketchPayload, SketchPagePlan[]>();
  *  PREFERRED_PAGES tiles (else at most SKETCH_MAX_PAGES), never below the
  *  floor. Throws SketchPayloadError when even the floor does not fit. */
 export function planSketch(payload: SketchPayload): SketchPagePlan[] {
-	const cached = planCache.get(payload);
-	if (cached) return cached;
+const cached = planCache.get(payload);
+if (cached) return cached;
+if (payload.producer === "photo") {
+// one page, the photo itself: no glyph floor, no upscale, no tiles, no new-ink bracket (those are for strokes)
+const { photo } = payload;
+if (!photo) throw new SketchPayloadError("photo is missing");
+const plan: SketchPagePlan[] = [{ width: photo.width, height: photo.height, svg: photoPageSvg(photo) }];
+planCache.set(payload, plan);
+return plan;
+}
 	const strokes = outlineStrokes(payload);
 	if (strokes.length === 0) throw new SketchPayloadError("sketch has no visible ink");
 	const box: Tile = {
@@ -518,7 +567,8 @@ export function keptSketchOf(messages: readonly AgentMessage[], problemCallId: s
 		}
 		if (!inProblem) continue;
 		const ref = sketchOfMessage(m);
-		if (ref) kept = ref;
+		// a photo is its own answer, never a page the learner draws on (M17)
+		if (ref && ref.producer !== "photo") kept = ref;
 	}
 	return kept;
 }

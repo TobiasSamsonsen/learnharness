@@ -8,7 +8,8 @@
  */
 
 /** Who drew it (the producer seam — every producer emits the same shape). */
-export type SketchProducer = "web-canvas" | "android-ink";
+/** "photo" (M17): a camera photo of handwritten work, sent as a raster page instead of strokes (SketchPhoto). */
+export type SketchProducer = "web-canvas" | "android-ink" | "photo";
 
 /** One pen stroke. `points` is flat [x, y, pressure, x, y, pressure, …]:
  *  x/y in canvas CSS pixels (any origin), pressure 0..1 (0.5 when the
@@ -24,12 +25,25 @@ export interface SketchStroke {
 	points: number[];
 }
 
+/** A photo page (producer "photo", M17): the image itself, upright and capped at SKETCH_MAX_EDGE (the server normalises it
+ *  before the payload is parsed, so these are the stored facts). */
+export interface SketchPhoto {
+	mimeType: "image/png" | "image/jpeg";
+	width: number;
+	height: number;
+	/** The image bytes, base64. */
+	data: string;
+}
+
 /** The wire shape: the `sketch` field of an answer or thinking input. */
 export interface SketchPayload {
 	/** Producer-minted ("sk_…"), so a retried POST is idempotent. */
 	id: string;
 	producer: SketchProducer;
+	/** Empty for a photo (its page is `photo`). */
 	strokes: SketchStroke[];
+	/** The page of a photo sketch (producer "photo"); absent otherwise. */
+	photo?: SketchPhoto;
 	/** Kept page (M3), the older rule: strokes from this index on are the NEW
 	 *  ink since the last submit. Superseded by the per-stroke `fresh` flag
 	 *  (M13, which also covers edited ink); still accepted, and ignored for a

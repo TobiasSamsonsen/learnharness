@@ -5,8 +5,7 @@ import { CameraIcon, FileTextIcon, ImageIcon, LinkIcon, Loader2Icon, PaperclipIc
 import { useBackLayer } from "./back-layers.ts";
 import { MATERIAL_ACCEPT, isMaterialUrl, type LessonMaterial } from "@/src/core";
 import { MenuShell } from "@/components/menu-shell";
-import { cameraRoute, detectCameraEnv, type CameraRoute } from "@/components/camera-capture";
-import { CameraDialog } from "@/components/camera-dialog";
+import { useCamera } from "@/components/use-camera";
 import { Hint } from "@/components/ui/hint";
 import { CONTROL_CLASS, type ControlVariant } from "@/components/control-variant";
 import {
@@ -80,14 +79,6 @@ export function MaterialsControl({
 	const [error, setError] = useState<string | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const fileRef = useRef<HTMLInputElement>(null);
-	// the camera (M17): the phone's camera app through a capture input, a webcam dialog on desktop; known on the client only
-	const cameraRef = useRef<HTMLInputElement>(null);
-	const [cameraOpen, setCameraOpen] = useState(false);
-	const [route, setRoute] = useState<CameraRoute>("none");
-	useEffect(() => {
-	const env = detectCameraEnv();
-	if (env) setRoute(cameraRoute(env));
-	}, []);
 
 	const read = useCallback(() => {
 		if (chatId)
@@ -144,6 +135,8 @@ export function MaterialsControl({
 		read();
 	};
 
+	const camera = useCamera(addFiles);
+
 	const submitLink = async () => {
 		const value = url.trim();
 		if (!isMaterialUrl(value)) {
@@ -191,22 +184,9 @@ export function MaterialsControl({
 					<span className="text-card-foreground">{sourcesLabel(count, chatId ? reading : 0)}</span>
 				</button>
 			</Hint>
+			{camera.node}
 			<input
-			ref={cameraRef}
-			type="file"
-			accept="image/*"
-			capture="environment"
-			className="hidden"
-			data-testid="materials-camera-input"
-			onChange={(e) => {
-			const files = Array.from(e.currentTarget.files ?? []);
-			e.currentTarget.value = ""; // the same photo name can come again
-			void addFiles(files);
-			}}
-			/>
-			{cameraOpen && <CameraDialog onPhoto={(file) => void addFiles([file])} onClose={() => setCameraOpen(false)} />}
-			<input
-			ref={fileRef}
+				ref={fileRef}
 			type="file"
 			multiple
 				accept={MATERIAL_ACCEPT}
@@ -267,17 +247,17 @@ export function MaterialsControl({
 						>
 							Add files…
 							</button>
-							{route !== "none" && (
-							<button
-							type="button"
-							disabled={busy}
-							data-testid="materials-camera"
-							onClick={() => (route === "input" ? cameraRef.current?.click() : setCameraOpen(true))}
-							className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-muted disabled:opacity-50"
-							>
-							<CameraIcon className="size-3.5" />
-							Camera
-							</button>
+							{camera.available && (
+								<button
+									type="button"
+									disabled={busy}
+									data-testid="materials-camera"
+									onClick={camera.open}
+									className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-muted disabled:opacity-50"
+								>
+									<CameraIcon className="size-3.5" />
+									Camera
+								</button>
 							)}
 							<input
 							value={url}

@@ -49,7 +49,7 @@ export { claudePlanUsage } from "../agent/claude-code/plan-usage.ts";
 export { localSttStatuses, prepareLocalStt, sttPieceLimits, transcribeLocal } from "./stt-local.ts";
 export { vocabularyForChat } from "./stt-vocabulary.ts";
 export { dismissUpstreamVersion, launchClaudeUpdate, upstreamStatus } from "./upstream.ts";
-export { readSketchPage, readSketchStrokes } from "./sketches.ts";
+export { readSketchPage, readSketchStrokes, sniffImageMime } from "./sketches.ts";
 export { addLinkMaterial, addUploadedMaterial, listMaterials, removeMaterial } from "./materials.ts";
 // Courses (fork addition — docs/courses.md).
 export {

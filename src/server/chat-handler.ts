@@ -53,7 +53,7 @@ import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.
 import { emit } from "../core/events.ts";
 import { resolveLessonLanguage } from "../core/language.ts";
 import { materialsForTurn } from "./materials.ts";
-import { persistInputSketch, resolveSketchRef, sketchImagesFor } from "./sketches.ts";
+import { normalizePhotoSketch, persistInputSketch, resolveSketchRef, sketchImagesFor } from "./sketches.ts";
 import { courseForTurn } from "./courses.ts";
 import { finishLessonTool, finishSessionTool } from "../agent/tools/course.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
@@ -196,9 +196,11 @@ export async function handleChatRequest(
 	}
 	const chatId = typeof body.chatId === "string" ? body.chatId : "";
 	if (!chatId) return Response.json({ error: "Unknown chat" }, { status: 404 });
+	const photo = await normalizePhotoSketch(body.input);
+	if (!photo.ok) return Response.json({ error: photo.error }, { status: 400 });
 	let input: TurnInput;
 	try {
-		input = parseChatInput(body.input);
+		input = parseChatInput(photo.input);
 	} catch (err) {
 		if (err instanceof ChatInputError) {
 			return Response.json({ error: err.message }, { status: 400 });

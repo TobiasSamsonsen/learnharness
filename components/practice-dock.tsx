@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRightIcon, PenLineIcon, XIcon } from "lucide-react";
+import { CameraIcon, ChevronRightIcon, PenLineIcon, XIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
+import { PhotoError, preparePhoto, releasePhoto, type PreparedPhoto } from "@/components/photo-answer";
+import { useCamera } from "@/components/use-camera";
 import { ConfidenceButtons } from "@/components/confidence-buttons";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { enterSends, useEnterSubmits } from "@/components/enter-submits";
@@ -90,6 +92,15 @@ export function PracticeDock({
 	const ink = useInk(problemCallId);
 	const [detached, setDetached] = useState(false);
 	const [sketchError, setSketchError] = useState<string | null>(null);
+	// A photo of the work (M17): taken with the camera, sent as its own sketch page; it wins over unsent ink (the ink stays)
+	const [photo, setPhoto] = useState<PreparedPhoto | null>(null);
+	useEffect(() => () => releasePhoto(photo), [photo]);
+	const camera = useCamera((files) => {
+		const file = files[0];
+		if (!file) return;
+		setSketchError(null);
+		preparePhoto(file).then(setPhoto, (err: unknown) => setSketchError(err instanceof PhotoError ? err.message : "The photo could not be used."));
+	});
 	const attach = sketchAvailable && !detached && (ink.strokes.length > 0 || keptSketch !== null);
 	// A switch to a text-only model closes an open sketch (its ink stays).
 	useEffect(() => {
@@ -115,7 +126,7 @@ export function PracticeDock({
 	/** Submit (the button, or Enter): the text must exist, then the confidence buttons take its place. */
 	const submit = () => {
 		if (compactionRunning) return;
-		if (thinkingRef.current.trim().length === 0) return;
+		if (thinkingRef.current.trim().length === 0 && !photo) return;
 		setAsking(true);
 	};
 
@@ -123,8 +134,17 @@ export function PracticeDock({
 	const send = (mark: ThinkingMark) => {
 		if (compactionRunning) return;
 		const text = thinkingRef.current.trim();
-		if (text.length === 0) return;
+		if (text.length === 0 && !photo) return;
 		setAsking(false);
+		if (photo) {
+			// a photo answer: no ink to fold into a kept page, nothing to retry client-side
+			setSketchError(null);
+			thinkingRef.current = "";
+			setThinking("");
+			setPhoto(null);
+			void onSubmit(text, photo.payload, undefined, mark);
+			return;
+		}
 		let payload: SketchPayload | undefined;
 		if (attach && ink.strokes.length > 0) {
 			if (keptStatus === "loading") return; // the earlier page is still on its way
@@ -234,7 +254,26 @@ export function PracticeDock({
 						"field-sizing-content lh-input max-h-64 min-h-16 w-full resize-none bg-transparent px-2.5 pb-2 outline-none placeholder:text-muted-foreground",
 					)}
 				/>
-				{attach && (
+				{photo && (
+					<div className="px-2.5 pb-1.5">
+						<span data-testid="practice-photo-chip" className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 py-0.5 pr-1 pl-1 text-xs text-muted-foreground">
+							{/* eslint-disable-next-line @next/next/no-img-element -- a blob: URL of the photo just taken */}
+							<img src={photo.previewUrl} alt="" className="size-5 rounded-full object-cover" />
+							Photo attached
+							<button
+								type="button"
+								data-testid="practice-photo-chip-remove"
+								aria-label="Don't attach the photo"
+								title="Remove the photo"
+								onClick={() => setPhoto(null)}
+								className="flex size-4 items-center justify-center rounded-full transition-colors hover:bg-muted hover:text-foreground"
+							>
+								<XIcon className="size-3" />
+							</button>
+						</span>
+					</div>
+				)}
+				{attach && !photo && (
 					<div className="px-2.5 pb-1.5">
 						<span
 							data-testid="practice-sketch-chip"
@@ -279,37 +318,50 @@ export function PracticeDock({
 						/>
 					</div>
 				) : (
-				<div className="flex items-center justify-between gap-2 p-1">
-					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
-						{compactionRunning ? "compacting session…" : (sketchError ?? <span className="lh-enter-hint [@media(pointer:coarse)]:hidden">↵ submits · ⇧↵ newline</span>)}
-					</span>
-					{sketchAvailable && (
+					<div className="flex items-center gap-2 p-1">
+						{sketchAvailable && camera.available && (
+							<Button
+								type="button"
+								variant="ghost"
+								data-testid="practice-add-photo"
+								onClick={camera.open}
+								className="h-9 gap-1.5 rounded-[6px] px-3 text-sm"
+							>
+								<CameraIcon className="size-4" />
+								Camera
+							</Button>
+						)}
+						{sketchAvailable && (
+							<Button
+								type="button"
+								variant="ghost"
+								data-testid="practice-open-sketch"
+								onClick={() => {
+									setDetached(false);
+									setSketching(true);
+								}}
+								className="h-9 gap-1.5 rounded-[6px] px-3 text-sm"
+							>
+								<PenLineIcon className="size-4" />
+								Open in sketch
+							</Button>
+						)}
+						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
+							{compactionRunning ? "compacting session…" : (sketchError ?? <span className="lh-enter-hint [@media(pointer:coarse)]:hidden">↵ submits · ⇧↵ newline</span>)}
+						</span>
 						<Button
 							type="button"
-							variant="ghost"
-							data-testid="practice-open-sketch"
-							onClick={() => {
-								setDetached(false);
-								setSketching(true);
-							}}
-							className="ml-auto h-9 gap-1.5 rounded-[6px] px-3 text-sm"
+							data-testid="practice-send"
+							disabled={(thinking.trim().length === 0 && !photo) || compactionRunning}
+							onClick={() => submit()}
+							className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 						>
-							<PenLineIcon className="size-4" />
-							Open in sketch
+							Submit thinking
 						</Button>
-					)}
-					<Button
-						type="button"
-						data-testid="practice-send"
-						disabled={thinking.trim().length === 0 || compactionRunning}
-						onClick={() => submit()}
-						className={cn("h-9 rounded-[6px] px-3.5 text-sm font-medium", !sketchAvailable && "ml-auto")}
-					>
-						Submit thinking
-					</Button>
-				</div>
+					</div>
 				)}
 			</div>
+			{camera.node}
 			{sketching && sketchAvailable && (
 				<SketchView
 					label="Problem"

@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownIcon, ChevronRightIcon, PenLineIcon, PlayIcon } from "lucide-react";
+import { ArrowDownIcon, CameraIcon, ChevronRightIcon, PenLineIcon, PlayIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PhotoError, preparePhoto, releasePhoto, type PreparedPhoto } from "@/components/photo-answer";
+import { useCamera } from "@/components/use-camera";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { enterSends, useEnterSubmits } from "@/components/enter-submits";
 import { PathInput } from "@/components/path-input";
@@ -355,6 +357,16 @@ function QuestionDockForm({
 	// unconfirmed submission restores what was chosen).
 	const [confIdx, setConfIdx] = useState<number | null>(initialDraft?.confidenceIndex ?? null);
 	const [sketching, setSketching] = useState(false);
+	// A photo of the work (M17): the same read-first sketch answer, as one raster page; sent through the sketch path below
+	const [photo, setPhoto] = useState<PreparedPhoto | null>(null);
+	const [photoError, setPhotoError] = useState<string | null>(null);
+	useEffect(() => () => releasePhoto(photo), [photo]);
+	const camera = useCamera((files) => {
+		const file = files[0];
+		if (!file) return;
+		setPhotoError(null);
+		preparePhoto(file).then(setPhoto, (err: unknown) => setPhotoError(err instanceof PhotoError ? err.message : "The photo could not be used."));
+	});
 	// A switch to a text-only model closes an open sketch (its ink stays).
 	useEffect(() => {
 		if (!sketchAvailable) setSketching(false);
@@ -404,7 +416,8 @@ function QuestionDockForm({
 			other,
 			text,
 			confidenceSet: ov?.confIdx !== undefined || confIdx !== null,
-		});
+							hasSketch: photo !== null,
+						});
 	const { canSubmit } = gateFor();
 	// An answer is picked (the confidence buttons wait for this and nothing else).
 	const answerPicked = dockSubmitGate({ kind, mode: qd.mode, sel, other, text, confidenceSet: true }).canSubmit;
@@ -445,6 +458,13 @@ function QuestionDockForm({
 	};
 	const doSubmit = (ov?: SubmitOverride) => {
 		if (!gateFor(ov).canSubmit) return;
+		if (photo) {
+			// a photo answer rides the sketch path (the answer carries its SketchRef); the photo is dropped once it is sent
+			void submitSketch(photo.payload, ov?.confIdx).then((sent) => {
+				if (sent) setPhoto(null);
+			});
+			return;
+		}
 		// Snapshot before optimistic submission unmounts the form. Ref values
 		// include the dictation finals that just landed, unlike stale closures.
 		onSaveDraft?.({
@@ -883,27 +903,65 @@ function QuestionDockForm({
 							)}
 						/>
 					)}
-					<div className="flex items-center justify-between gap-2 p-1">
-						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
-								{compactionRunning ? "compacting session…" : <span className="lh-enter-hint [@media(pointer:coarse)]:hidden">↵ submits · ⇧↵ newline</span>}
-						</span>
+					{(photo || photoError) && (
+						<div className="px-2.5 pb-1.5">
+							{photo && (
+								<span data-testid="question-photo-chip" className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 py-0.5 pr-1 pl-1 text-xs text-muted-foreground">
+									{/* eslint-disable-next-line @next/next/no-img-element -- a blob: URL of the photo just taken */}
+									<img src={photo.previewUrl} alt="" className="size-5 rounded-full object-cover" />
+									Photo attached
+									<button
+										type="button"
+										data-testid="question-photo-chip-remove"
+										aria-label="Don't attach the photo"
+										title="Remove the photo"
+										onClick={() => setPhoto(null)}
+										className="flex size-4 items-center justify-center rounded-full transition-colors hover:bg-muted hover:text-foreground"
+									>
+										<XIcon className="size-3" />
+									</button>
+								</span>
+							)}
+							{!photo && photoError && (
+								<span role="alert" data-testid="question-photo-error" className="text-xs text-destructive">
+									{photoError}
+								</span>
+							)}
+						</div>
+					)}
+					<div className="flex items-center gap-2 p-1">
+						{sketchAvailable && camera.available && (
+							<Button
+								type="button"
+								variant="ghost"
+								data-testid="question-add-photo"
+								onClick={camera.open}
+								className="h-9 gap-1.5 rounded-[6px] px-3 text-sm"
+							>
+								<CameraIcon className="size-4" />
+								Camera
+							</Button>
+						)}
 						{sketchAvailable && (
 							<Button
 								type="button"
 								variant="ghost"
 								data-testid="question-open-sketch"
 								onClick={() => setSketching(true)}
-								className="ml-auto h-9 gap-1.5 rounded-[6px] px-3 text-sm"
+								className="h-9 gap-1.5 rounded-[6px] px-3 text-sm"
 							>
 								<PenLineIcon className="size-4" />
 								Open in sketch
 							</Button>
 						)}
+						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
+							{compactionRunning ? "compacting session…" : <span className="lh-enter-hint [@media(pointer:coarse)]:hidden">↵ submits · ⇧↵ newline</span>}
+						</span>
 						{kind !== "quiz" && (
 							<Button
 								type="submit"
 								disabled={!canSubmit || compactionRunning}
-								className={cn("h-9 rounded-[6px] px-3.5 text-sm font-medium", !sketchAvailable && "ml-auto")}
+								className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 							>
 								Submit answer
 							</Button>
@@ -911,6 +969,7 @@ function QuestionDockForm({
 					</div>
 				</div>
 			</form>
+			{camera.node}
 			{sketching && sketchAvailable && (
 				<SketchView
 					label="Question"
