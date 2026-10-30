@@ -38,10 +38,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v5
         with:
           gradle-home-cache-cleanup: true
-      - name: Android SDK platform 37
+      - name: Android SDK platform 37 and build-tools 37
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"
       - name: Fetch proot
         run: python3 scripts/fetch-proot.py
       - name: Unit tests and debug APK
