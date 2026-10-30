@@ -11,7 +11,7 @@
  * `next build` + `node scripts/build-server.mjs`; the linux-arm64 workflow
  * does exactly that. The child is ALWAYS killed before exit.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as net from "node:net";
@@ -72,7 +72,15 @@ async function main() {
 	fs.writeFileSync(authFile, "{}\n", "utf-8");
 	const bin = path.join(home, "bin");
 	fs.mkdirSync(bin);
-	fakeClaudeBin(bin);
+	const shim = fakeClaudeBin(bin);
+	// The provider's own `claude --version` check gives up after 5 s (installation.ts). A cold first exec of the
+	// freshly written shim on a loaded runner once took that long (run 40877979364): run it here, with a roomy limit,
+	// so the server's check is a warm one, and a broken shim fails with its own message instead.
+	const warm = spawnSync(shim, ["--version"], { encoding: "utf-8", timeout: 60_000, shell: process.platform === "win32" });
+	if (!/^2\.1\.312 \(Claude Code\)/.test(warm.stdout ?? "")) {
+		console.error(`[smoke-headless] FAIL: the fake claude shim does not answer --version (status ${warm.status}, ${warm.stdout} ${warm.stderr})`);
+		process.exit(1);
+	}
 
 	const tail = [];
 	const keep = (buf) => {
