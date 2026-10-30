@@ -51,7 +51,7 @@ jobs:
       - name: Verify the signature
         run: |
           apk=build/outputs/apk/debug/learnharness-android-debug.apk
-          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs.txt"
+          "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs.txt"
           grep -q "CN=Android Debug" "$RUNNER_TEMP/certs.txt"
       - uses: actions/upload-artifact@v7
         with:

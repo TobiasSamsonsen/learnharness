@@ -212,7 +212,8 @@ test("lh start: wires the guest, keeps the token off command lines and scripts, 
 			assert.ok(startSh.includes(need), `start.sh sets ${need}`);
 		}
 		assert.ok(!startSh.includes(token));
-		const log = fs.readFileSync(path.join(b.root, "stub.log"), "utf8");
+		assert.ok(eventually(() => /proot-distro login ubuntu -- \/opt\/lh\/start\.sh/.test(stubLog(b))), "the guest server was launched");
+		const log = stubLog(b);
 		assert.ok(!log.includes(token), "the token is on no command line");
 		assert.match(log, /proot-distro login ubuntu -- \/opt\/lh\/start\.sh/);
 		assert.match(log, /wake-lock/);
@@ -282,6 +283,7 @@ test("lh start: the CPU whisper-server gets -nf -ac 640, and the guest is told t
 	const started = b.run(["start"]);
 	assert.equal(started.code, 0, started.out + started.err);
 	try {
+		assert.ok(eventually(() => /--port 8179/.test(stubLog(b))), "both CPU servers were launched");
 		const log = stubLog(b);
 		assert.match(log, /whisper-cpu -m \S*nb\.bin --host 127\.0\.0\.1 --port 8178 -t 4 -nf -ac 640/);
 		assert.match(log, /whisper-cpu -m \S*en\.bin --host 127\.0\.0\.1 --port 8179 -t 4 -nf -ac 640/);
@@ -303,6 +305,7 @@ test("lh start: a working GPU build is used (with the same flags), and status sa
 	const started = b.run(["start"]);
 	assert.equal(started.code, 0, started.out + started.err);
 	try {
+		assert.ok(eventually(() => /whisper-gpu .*--port 8178/.test(stubLog(b))), "the GPU server was launched");
 		const log = stubLog(b);
 		assert.match(log, /whisper-gpu -m \S*nb\.bin --host 127\.0\.0\.1 --port 8178 -t 4 -nf -ac 640/);
 		assert.ok(!log.includes("whisper-cpu"), "the CPU build was not started");
@@ -322,6 +325,7 @@ test("lh start: a GPU build that dies at start-up falls back to the CPU", opts, 
 	assert.equal(started.code, 0, started.out + started.err);
 	try {
 		assert.match(started.out, /GPU backend failed; using the CPU/);
+		assert.ok(eventually(() => stubLog(b).includes("whisper-gpu") && stubLog(b).includes("whisper-cpu")), "both builds were tried");
 		const log = stubLog(b);
 		assert.ok(log.includes("whisper-gpu") && log.includes("whisper-cpu"));
 		assert.match(b.run(["status"]).out, /whisper-nb: running \(pid \d+, [\d-]+ MB, cpu\)/);
