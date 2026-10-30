@@ -8,9 +8,11 @@
 
 const SETTLE_MS = 200; // the drawer's own `duration-200`
 
-/** The inline translate for a drag. `from`: where the drawer was when the finger went down. */
+/** The inline translate for a drag, kept between fully closed (-100%) and fully open (0): the finger's offset is not
+ *  bounded by the swipe recognizer, the drawer must not follow it past either end. `from`: where the drawer was when the
+ *  finger went down. */
 export function drawerTranslate(from: "open" | "closed", offset: number): string {
-	return from === "open" ? `${offset}px 0` : `calc(-100% + ${offset}px) 0`;
+	return from === "open" ? `max(${offset}px, -100%) 0` : `min(calc(-100% + ${offset}px), 0px) 0`;
 }
 
 /** Follow the finger: no transition, the translate set directly. */
