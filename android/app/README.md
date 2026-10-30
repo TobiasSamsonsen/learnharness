@@ -33,7 +33,7 @@ python scripts/fetch-proot.py         # once: proot, its loader, libtalloc, liba
 adb install -r build/outputs/apk/debug/learnharness-android-debug.apk
 ```
 
-`adb` over Wi-Fi works too (Developer options → Wireless debugging → `adb pair`, `adb connect`). Debug-signed APK only; there is no release signing yet (it needs the owner's keystore). The GPL source offer for proot is in [../NOTICE.md](../NOTICE.md) and still needs the owner's wording.
+`adb` over Wi-Fi works too (Developer options → Wireless debugging → `adb pair`, `adb connect`). Debug-signed APK only; there is no release signing yet (it needs the owner's keystore). The app version is the repo's `package.json` version (`versionName`; `versionCode` = major*10000 + minor*100 + patch), so a release bump updates it. The `Android APK` workflow builds the APK after the `Android server` workflow and attaches it to the rolling `android-latest` release, signed with the committed throwaway key `ci-debug.keystore` (CI only, via `LH_CI_SIGNING`), so CI builds install over each other but not over a locally built one. The GPL source offer for proot is in [../NOTICE.md](../NOTICE.md) and still needs the owner's wording.
 
 ## Testing a build without the releases
 

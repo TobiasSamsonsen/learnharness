@@ -8,3 +8,4 @@ local.properties
 *.keystore
 *.jks
 src/main/jniLibs/
+!ci-debug.keystore

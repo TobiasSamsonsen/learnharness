@@ -1,0 +1,79 @@
+name: Android APK (debug-signed)
+
+# Builds the Android app and attaches it to the rolling android-latest release. Runs after "Android server (linux-arm64)"
+# succeeds, because that workflow deletes and recreates the release (the APK would be wiped otherwise). Signed with the
+# committed throwaway key android/app/ci-debug.keystore, so builds install over each other.
+
+on:
+  workflow_run:
+    workflows: ["Android server (linux-arm64)"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write # upload to the android-latest release
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    name: Debug APK
+    # a manual run needs an existing android-latest release; a chained run needs the server workflow to have succeeded
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: android/app
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v5
+        with:
+          gradle-home-cache-cleanup: true
+      - name: Android SDK platform 37
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37"
+      - name: Fetch proot
+        run: python3 scripts/fetch-proot.py
+      - name: Unit tests and debug APK
+        env:
+          LH_CI_SIGNING: "1"
+        run: bash gradlew test assembleDebug --no-daemon
+      - name: Verify the signature
+        run: |
+          apk=build/outputs/apk/debug/learnharness-android-debug.apk
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs.txt"
+          grep -q "CN=Android Debug" "$RUNNER_TEMP/certs.txt"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: learnharness-android-debug.apk
+          path: android/app/build/outputs/apk/debug/learnharness-android-debug.apk
+          retention-days: 7
+          if-no-files-found: error
+      - name: Attach to the android-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view android-latest > /dev/null
+          out="$RUNNER_TEMP/apk"
+          mkdir -p "$out"
+          cp build/outputs/apk/debug/learnharness-android-debug.apk "$out/"
+          (cd "$out" && sha256sum learnharness-android-debug.apk > learnharness-android-debug.apk.sha256)
+          gh release upload android-latest "$out/learnharness-android-debug.apk" "$out/learnharness-android-debug.apk.sha256" --clobber
+          # the GPL notice, once per release (the server workflow recreates the release, and with it the notes)
+          notes=$(gh release view android-latest --json body --jq .body)
+          marker="learnharness-android-debug.apk bundles"
+          if ! grep -qF "$marker" <<< "$notes"; then
+            printf '%s\n\n%s\n' "$notes" "learnharness-android-debug.apk bundles GPL-2.0 software (proot). Sources and licenses: android/NOTICE.md in the repository. Debug-signed, for sideloading." > "$RUNNER_TEMP/notes.md"
+            gh release edit android-latest --notes-file "$RUNNER_TEMP/notes.md"
+          fi
