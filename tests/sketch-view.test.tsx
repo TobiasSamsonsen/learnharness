@@ -76,6 +76,9 @@ const key = async (init: { key: string; ctrlKey?: boolean; shiftKey?: boolean })
 	});
 const settle = () => act(async () => await new Promise((r) => setTimeout(r, 0)));
 
+/** The pinch gate waits for the touches to settle (components/sketch/pinch-gate.ts PINCH_SETTLE_MS). */
+const settleTouches = () => new Promise<void>((resolve) => setTimeout(resolve, 150));
+
 describe("SketchView", () => {
 	it("a refused send keeps the ink; an accepted one clears it", async () => {
 		writeInk("k-refused", inkFromStrokes([STROKE]));
@@ -363,18 +366,55 @@ describe("pen and clear (M13b)", () => {
 		proto.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 600, width: 400, height: 600, x: 0, y: 0 });
 		await mount({ inkKey: "k-pinch", onSubmit: async () => true });
 		const canvas = document.querySelector('[data-testid="sketch-canvas"]')!;
-		const touch = (type: string, pointerId: number, x: number, y: number) =>
+		const touch = (type: string, pointerId: number, x: number, y: number, size = [4, 4]) =>
 			act(async () => {
-				canvas.dispatchEvent(Object.assign(new dom.window.Event(type, { bubbles: true, cancelable: true }), { pointerId, pointerType: "touch", clientX: x, clientY: y, button: 0, buttons: 1, pressure: 0.5 }));
+				canvas.dispatchEvent(Object.assign(new dom.window.Event(type, { bubbles: true, cancelable: true }), { pointerId, pointerType: "touch", clientX: x, clientY: y, button: 0, buttons: 1, pressure: 0.5, width: size[0], height: size[1] }));
 			});
 		const label = () => document.querySelector('[data-testid="sketch-zoom-level"]')!.textContent;
 		await touch("pointerdown", 1, 100, 100); // the first finger starts a stroke
 		await touch("pointerdown", 2, 200, 100); // the second finger: a pinch
-		await touch("pointermove", 2, 300, 100); // spread from 100 to 200 apart
-		assert.equal(label(), "200%");
-		await touch("pointerup", 2, 300, 100);
+		await touch("pointermove", 2, 300, 100); // too soon: the palm gate waits for both touches to settle
+		assert.equal(label(), "100%", "no zoom before the touches settle");
+		await settleTouches();
+		await touch("pointermove", 2, 300, 100); // the first move once settled only sets the baseline
+		await touch("pointermove", 2, 400, 100); // spread from 200 to 300 apart
+		assert.equal(label(), "150%");
+		await touch("pointerup", 2, 400, 100);
 		await touch("pointerup", 1, 100, 100);
 		assert.equal(readInk("k-pinch").strokes.length, 0, "the stroke the first finger began was dropped");
+	});
+
+	it("a resting palm does not zoom the canvas: a palm-shaped touch, or a third touch, ends the pinch (owner, 2026-10-31)", async () => {
+		const proto = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>;
+		proto.setPointerCapture = () => {};
+		proto.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 600, width: 400, height: 600, x: 0, y: 0 });
+		await mount({ inkKey: "k-palm", onSubmit: async () => true });
+		const canvas = document.querySelector('[data-testid="sketch-canvas"]')!;
+		const touch = (type: string, pointerId: number, x: number, y: number, size = [4, 4]) =>
+			act(async () => {
+				canvas.dispatchEvent(Object.assign(new dom.window.Event(type, { bubbles: true, cancelable: true }), { pointerId, pointerType: "touch", clientX: x, clientY: y, button: 0, buttons: 1, pressure: 0.5, width: size[0], height: size[1] }));
+			});
+		const label = () => document.querySelector('[data-testid="sketch-zoom-level"]')!.textContent;
+		// a fingertip and a palm edge (6 x 15): never a pinch, however long they rest
+		await touch("pointerdown", 1, 100, 100);
+		await touch("pointerdown", 2, 150, 100, [6, 15]);
+		await settleTouches();
+		await touch("pointermove", 2, 160, 100, [6, 15]);
+		await touch("pointermove", 2, 400, 100, [6, 15]);
+		assert.equal(label(), "100%", "a palm-shaped touch cannot pinch");
+		await touch("pointerup", 2, 400, 100);
+		await touch("pointerup", 1, 100, 100);
+		// two fingertips, then a third touch: the pinch stops, and a lift of the third does not zoom by itself
+		await touch("pointerdown", 3, 100, 100);
+		await touch("pointerdown", 4, 200, 100);
+		await settleTouches();
+		await touch("pointermove", 4, 200, 100); // baseline
+		await touch("pointerdown", 5, 300, 300); // a third touch
+		await touch("pointermove", 4, 400, 100);
+		assert.equal(label(), "100%", "three touches are not a pinch");
+		await touch("pointerup", 5, 300, 300);
+		await touch("pointerup", 4, 400, 100);
+		await touch("pointerup", 3, 100, 100);
 	});
 
 	it("the zoom is a number at the bottom with nothing to press (owner: pinch to zoom is enough)", async () => {

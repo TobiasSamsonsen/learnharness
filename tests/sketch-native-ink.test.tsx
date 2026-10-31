@@ -240,6 +240,51 @@ describe("native ink is on", () => {
 		assert.ok(views().at(-1)!.startsWith("view 8.0000 "), "the zoom stops at 8x");
 	});
 
+	it("touches that reach the page pinch the view only as two settled fingertips: a resting palm does not zoom it (owner, 2026-10-31)", async () => {
+		const proto = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>;
+		proto.setPointerCapture = () => {};
+		fakeShell();
+		await mount("k-palm");
+		const surface = byId("sketch-native-surface")!;
+		const touch = (type: string, pointerId: number, x: number, y: number, size = [4, 4]) =>
+			act(async () => {
+				surface.dispatchEvent(Object.assign(new dom.window.Event(type, { bubbles: true, cancelable: true }), { pointerId, pointerType: "touch", clientX: x, clientY: y, width: size[0], height: size[1] }));
+			});
+		const settled = () => new Promise<void>((resolve) => setTimeout(resolve, 150));
+		const zoom = () => byId("sketch-zoom-level")!.textContent;
+		// a palm edge (6 x 15) beside a fingertip, however long it rests and however far it drifts
+		await touch("pointerdown", 1, 100, 200);
+		await touch("pointerdown", 2, 150, 200, [6, 15]);
+		await settled();
+		await touch("pointermove", 2, 160, 200, [6, 15]);
+		await touch("pointermove", 2, 350, 200, [6, 15]);
+		assert.equal(zoom(), "100%", "a palm-shaped touch cannot pinch");
+		await touch("pointerup", 2, 350, 200);
+		await touch("pointerup", 1, 100, 200);
+		// a third touch ends a pinch, and lifting it does not zoom by itself
+		await touch("pointerdown", 3, 100, 200);
+		await touch("pointerdown", 4, 200, 200);
+		await settled();
+		await touch("pointermove", 4, 200, 200); // the baseline
+		await touch("pointerdown", 5, 300, 400);
+		await touch("pointermove", 4, 350, 200);
+		assert.equal(zoom(), "100%", "three touches are not a pinch");
+		await touch("pointerup", 5, 300, 400);
+		await touch("pointerup", 4, 350, 200);
+		await touch("pointerup", 3, 100, 200);
+		// two settled fingertips pinch as before
+		await touch("pointerdown", 6, 100, 200);
+		await touch("pointerdown", 7, 200, 200);
+		await touch("pointermove", 7, 300, 200);
+		assert.equal(zoom(), "100%", "not before the touches settle");
+		await settled();
+		await touch("pointermove", 7, 300, 200); // the baseline
+		await touch("pointermove", 7, 400, 200); // 200 apart to 300 apart
+		assert.equal(zoom(), "150%");
+		await touch("pointerup", 7, 400, 200);
+		await touch("pointerup", 6, 100, 200);
+	});
+
 	it("the eraser's reach is on screen: zoomed in, the same gesture reaches less of the page", async () => {
 		store.set("lh:sketch-eraser", JSON.stringify({ mode: "stroke", radius: 20 }));
 		const line: SketchStroke = { size: 4, points: [0, 100, 0.5, 200, 100, 0.5] };

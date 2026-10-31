@@ -7,6 +7,7 @@ import { backgroundColor, backgroundLines, PAPER_SIZES, DEFAULT_PAPER_SIZE, type
 import { displayInk, SHEET_COLOR, type SheetTone } from "@/components/sketch/sketch-sheet";
 import { ZoomIndicator } from "@/components/sketch/zoom-indicator";
 import { notePenNear } from "@/components/sketch/palm-guard";
+import { isPalmShaped, pinchReady } from "@/components/sketch/pinch-gate";
 import { liftTap, moveTap, startTap, type TapTracker } from "@/components/sketch/tap-gesture";
 import { dist, HOLD_MS, isHeld, linePoints, MIN_LINE_PX, snapAngle } from "@/components/sketch/straight-line";
 import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, penWorldSize, pinchOf, pinchStep, thinPath, toWorld, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
@@ -125,7 +126,7 @@ export function SketchCanvas({
 	const fitted = useRef(false);
 	const [zoomPct, setZoomPct] = useState(100);
 	// Touch: the fingers down (canvas-relative), and the pinch they make.
-	const touches = useRef(new Map<number, { x: number; y: number }>());
+	const touches = useRef(new Map<number, { x: number; y: number; downAt: number; palm: boolean }>());
 	const pinch = useRef<ReturnType<typeof pinchOf> | null>(null);
 	const drag = useRef<{ pointerId: number; x: number; y: number } | null>(null);
 	const tap = useRef<TapTracker | null>(null);
@@ -387,14 +388,14 @@ export function SketchCanvas({
 						// (a live FINGER stroke does not block a second finger: that one turns the gesture into a pan/zoom)
 						if ((live.current && live.current.pointerType !== "touch") || performance.now() - penNearAt.current < PALM_MS) return;
 						e.currentTarget.setPointerCapture(e.pointerId);
-						touches.current.set(e.pointerId, local(e));
+						touches.current.set(e.pointerId, { ...local(e), downAt: performance.now(), palm: isPalmShaped(e.width, e.height) });
 						if (touches.current.size >= 2) {
 							// a second finger: the stroke the first began was a pan/zoom after all
 							if (live.current) {
 								live.current = null;
 								draw();
 							}
-							pinch.current = firstTwo();
+							pinch.current = null; // the pinch begins on a later move, once the touches pass the palm gate (pinch-gate.ts)
 							tap.current = touches.current.size === 2 ? startTap(performance.now(), touches.current) : tap.current && moveTap(tap.current, touches.current, true);
 							return;
 							}
@@ -452,14 +453,16 @@ export function SketchCanvas({
 						return;
 					}
 					if (touches.current.has(e.pointerId)) {
-					touches.current.set(e.pointerId, local(e));
+					const touch = touches.current.get(e.pointerId)!;
+					touches.current.set(e.pointerId, { ...touch, ...local(e), palm: touch.palm || isPalmShaped(e.width, e.height) });
 					if (tap.current) tap.current = moveTap(tap.current, touches.current);
-						if (pinch.current && touches.current.size >= 2) {
+						if (pinchReady(touches.current.values(), performance.now())) {
 							const next = firstTwo();
-							setView(pinchStep(view.current, pinch.current, next));
-							pinch.current = next;
+							if (pinch.current) setView(pinchStep(view.current, pinch.current, next));
+							pinch.current = next; // the first ready move only sets the baseline: no jump
 							return;
 						}
+						pinch.current = null;
 					}
 					if (!live.current || live.current.pointerId !== e.pointerId) return;
 					const native = e.nativeEvent;
@@ -487,7 +490,7 @@ export function SketchCanvas({
 				if (lifted.tapped) onTwoFingerTapRef.current?.();
 				}
 				touches.current.delete(e.pointerId);
-				if (touches.current.size < 2) pinch.current = null;
+				pinch.current = null; // whatever is left starts a fresh baseline
 					if (drag.current?.pointerId === e.pointerId) drag.current = null;
 					if (!live.current || live.current.pointerId !== e.pointerId) return;
 					const { points, erase, size, radius } = live.current;
@@ -509,7 +512,7 @@ export function SketchCanvas({
 				// The OS took the pointer (a palm, a gesture): drop the stroke.
 				tap.current = null;
 				touches.current.delete(e.pointerId);
-					if (touches.current.size < 2) pinch.current = null;
+					pinch.current = null;
 					if (drag.current?.pointerId === e.pointerId) drag.current = null;
 					if (!live.current || live.current.pointerId !== e.pointerId) return;
 					live.current = null;
