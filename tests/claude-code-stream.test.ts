@@ -881,6 +881,21 @@ test("sequential identical calls split one response and correlate results by id,
 	assert.equal(calls.length, 1);
 });
 
+test("a failed attempt that is in the history now but was left out of the turn that started the process still continues it (fork)", async (t) => {
+	// Retry omits the failed message from its own temporary history (core/input-events retryDrops), but the learner's
+	// answer arrives in a later request whose history has it back. The process never saw that message, so it can continue.
+	const readA: ToolUse = { id: "toolu_failed_attempt", name: "read", arguments: { path: "a" } };
+	const { runClaude, calls } = createFakeRun(t, [...toToolUseMessage([readA]), callTool(readA), REPLY]);
+	const streamFunction = createClaudeCodeStreamFunction(runClaude);
+	const toolMessage = await runTurn(streamFunction, [HI]);
+	const failed = { ...toolMessage, content: [], stopReason: "error" as const, errorMessage: "claude CLI moved on while harness tool calls were waiting for results" };
+
+	const reply = await runTurn(streamFunction, [HI, failed, toolMessage, toToolResult(readA, "contents of a")]);
+
+	assert.equal(getText(reply), "contents of a");
+	assert.equal(calls.length, 1, "no fresh process, so no full replay and cache rewrite");
+});
+
 test("mismatched result id starts fresh and kills the old process", async (t) => {
 	const readA: ToolUse = { id: "toolu_partial_a", name: "read", arguments: { path: "a" } };
 	const readB: ToolUse = { id: "toolu_partial_b", name: "read", arguments: { path: "b" } };
@@ -1087,7 +1102,7 @@ test("a parallel identity failure after an admitted slice is reported on continu
 	await assertCleanedUp(getOnlyCall(calls));
 });
 
-test("output after MCP admission fails continuation instead of silently replaying", async (t) => {
+test("output after MCP admission drops the held process, and the answer replays in a fresh one (fork)", async (t) => {
 	const call: ToolUse = { id: "toolu_moved_on", name: "read", arguments: { path: "a" } };
 	const { runClaude, calls } = createFakeRun(t, [...toToolUseMessage([call]),
 		JSON.stringify({ fake: "start-call", id: call.id, name: call.name, arguments: call.arguments }),
@@ -1097,9 +1112,11 @@ test("output after MCP admission fails continuation instead of silently replayin
 	getOnlyCall(calls).child.send("continue");
 	await waitForExit(getOnlyCall(calls).child);
 	const events = await collectEvents(stream(getModel(), normalizeContext({ systemPrompt: "You are a tutor.", messages: [HI, message, toToolResult(call, "A")], tools: [READ_TOOL] }), { sessionId: SESSION_ID }));
-	assert.match(getErrorMessage(events) ?? "", /moved on while.*waiting for results/);
-	assert.equal(calls.length, 1);
-	await assertCleanedUp(getOnlyCall(calls));
+	assert.equal(getLastEvent(events).type, "done", "no error message is saved for the learner's turn");
+	assert.equal(calls.length, 2, "the answer started a fresh process");
+	const [oldCall] = calls;
+	assert.ok(oldCall);
+	await assertCleanedUp(oldCall);
 });
 
 test("normal completion escalates termination when the child ignores SIGTERM", async (t) => {

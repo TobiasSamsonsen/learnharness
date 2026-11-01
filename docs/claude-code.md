@@ -102,11 +102,11 @@ session ID can run, but never retains a reusable child.
 If there is no eligible held child—for example after timeout/restart, a changed
 configuration, or history replacement—the next call starts fresh and replays the
 active LearnHarness history. [Replay](../src/agent/claude-code/transcript.ts) is
-labelled user/assistant/tool-call/tool-result text in a new user input, preserving
+labelled user/assistant/tool-call/tool-result text in a new user input (fork: one content block per part, so a longer history keeps its earlier blocks byte-identical and the prompt cache still hits them), preserving
 user/tool-result images; it is **not** CLI `--resume` or exact native-role/thinking
 history restoration. The current system prompt and tool schemas are supplied
 separately. A compatibility failure after admission is reported on continuation,
-not silently hidden by replay. Recovery is not a guarantee that arbitrary CLI
+not silently hidden by replay (fork exception, 2026-11-01: a CLI that emits output while its calls are held is dropped, with a `claude CLI moved on after Ns held` log line, and the answer replays in a fresh process instead of recording an error). Recovery is not a guarantee that arbitrary CLI
 failures will retry automatically.
 
 ### Waiting, cancellation, and cleanup

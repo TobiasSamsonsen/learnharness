@@ -9,7 +9,10 @@ export function conversationForReuse(messages: Message[]): unknown[] {
 		switch (message.role) {
 			case "system": return [];
 			case "user": return [{ role: message.role, content: normalizeSketchContent(message.content) }]; // fork: P2
-			case "assistant": return [{ role: message.role, content: message.content }];
+			// fork: a failed attempt is not part of what a live process holds. Retry leaves it out of the retry's own history
+		// (core/input-events retryDrops) but the learner's answer arrives in a later request whose history has it back;
+		// counting it made every continuation after a retry look like a different conversation and replay in full.
+		case "assistant": return message.stopReason === "error" || message.stopReason === "aborted" ? [] : [{ role: message.role, content: message.content }];
 			case "toolResult": return [{
 				role: message.role,
 				toolCallId: message.toolCallId,

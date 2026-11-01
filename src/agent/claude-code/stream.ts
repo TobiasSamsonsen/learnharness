@@ -419,6 +419,8 @@ class ClaudeProcess implements LiveProcess {
 	private admitted: PendingToolCall[] = [];
 	private readonly cancelledIds = new Set<string>();
 	private pendingError: string | undefined;
+	/** When the admitted calls were handed to Pi (diagnostics: how long the CLI sat held before it moved on). */
+	private heldSince = 0;
 	/** Fork (idle reuse): the process finished a plain answer and waits, registered, for the next user message. */
 	private idle = false;
 	private contextWindow: number | undefined;
@@ -579,7 +581,8 @@ class ClaudeProcess implements LiveProcess {
 		this.sourceCalls = this.sourceCalls.filter((call) => !pending.some((admitted) => admitted.id === call.id));
 		this.admitted = pending;
 		this.toolCallIds = pending.map((call) => call.id);
-		this.turn.admit(calls);
+		this.heldSince = Date.now();
+			this.turn.admit(calls);
 		this.conversation.push(...structuredClone(conversationForReuse([this.turn.getMessage()])));
 		if (this.sessionId) addLiveProcess(this);
 		else this.kill(); // No trusted scope: return the batch, then use fresh replay.
@@ -612,7 +615,13 @@ class ClaudeProcess implements LiveProcess {
 		// Moving on before held calls were answered means the CLI did not
 		// honor this tool wait. Never execute further stdout-only intentions.
 		if (this.turn.finished) {
-			this.fail("claude CLI moved on while harness tool calls were waiting for results");
+			// Diagnostics (fork): real sessions on the phone hit this after learner waits of 5+ minutes, but 7- and 9-minute
+			// waits on the PC never did. Log the held time and the line's type fields only, never its content.
+			const raw = JSON.parse(line) as { type?: unknown; subtype?: unknown; error?: unknown; event?: { type?: unknown } };
+			console.warn(`claude CLI moved on after ${Math.round((Date.now() - this.heldSince) / 1000)}s held: line type=${String(raw.type)} subtype=${String(raw.subtype)} event=${String(raw.event?.type)} error=${String(raw.error)} parsed=${event.type}`);
+			// Fork (owner, 2026-11-01): upstream records this as an error on the learner's next turn, which cost an empty error
+			// message and a failed step. Drop the process instead: the answer then replays the history in a fresh one.
+			this.kill();
 			return;
 		}
 		if (event.type === "messageStart" && this.sourceComplete && this.sourceCalls.length > 0) {

@@ -53,23 +53,22 @@ function getReplayParts(message: Message): ReplayPart[] {
 
 function toContentBlocks(parts: ReplayPart[]): ClaudeContentBlock[] {
 	const blocks: ClaudeContentBlock[] = [];
-	let pendingText: string[] = [];
-
-	const flushText = () => {
-		if (pendingText.length > 0) blocks.push({ type: "text", text: pendingText.join("\n\n") });
-		pendingText = [];
-	};
+	// Fork: every text part is its own block. Replay used to join them all into ONE block, so when the history grew by a turn that
+	// block changed and the API's prefix cache missed everything after the system prompt (measured: 959 tokens read of 19k, the
+	// rest rewritten on every fresh replay). With one block per part the earlier blocks stay byte-identical and the cache hits at
+	// a block boundary. The separator that used to be joined between text parts now leads the later block, so the text is
+	// unchanged and an earlier block never changes when a later one is added.
+	let previousWasText = false;
 
 	for (const part of parts) {
 		if (typeof part === "string") {
-			pendingText.push(part);
+			blocks.push({ type: "text", text: (previousWasText ? "\n\n" : "") + part });
+			previousWasText = true;
 		} else {
-			flushText();
 			blocks.push(toImageBlock(part));
+			previousWasText = false;
 		}
 	}
-
-	flushText();
 
 	return blocks;
 }

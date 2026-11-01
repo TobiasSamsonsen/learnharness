@@ -46,6 +46,11 @@ function toolResult(toolName: string, content: ToolResultMessage["content"], isE
 	return { role: "toolResult", toolCallId: `${toolName}-1`, toolName, content, isError, timestamp: 0 };
 }
 
+/** The text the model reads: the text blocks laid end to end (the separators ride inside the blocks). */
+function readText(blocks: ReturnType<typeof toClaudeInput>["userContent"]): string {
+	return blocks.map((block) => (block.type === "text" ? block.text : "")).join("");
+}
+
 test("system prompt joins all system content, then the live sections", () => {
 	const messages: Message[] = [
 		system({ content: "You are a tutor.", sections: { goals: "Teach TCP.", style: "Be brief." } }),
@@ -93,7 +98,7 @@ test("history renders user, assistant text, tool call name+JSON args and tool re
 		"[assistant]\nIt has a heading.",
 		"[user]\nsummarise it",
 	].join("\n\n");
-	assert.deepEqual(toClaudeInput(messages).userContent, [{ type: "text", text: expected }]);
+	assert.equal(readText(toClaudeInput(messages).userContent), expected);
 });
 
 test("error tool results are marked as errors in the replay", () => {
@@ -109,7 +114,7 @@ test("error tool results are marked as errors in the replay", () => {
 		"[tool result read error]\nENOENT",
 		"[user]\nwhy?",
 	].join("\n\n");
-	assert.deepEqual(toClaudeInput(messages).userContent, [{ type: "text", text: expected }]);
+	assert.equal(readText(toClaudeInput(messages).userContent), expected);
 });
 
 test("images in user and tool-result content become base64 image blocks", () => {
@@ -125,7 +130,8 @@ test("images in user and tool-result content become base64 image blocks", () => 
 	assert.deepEqual(toClaudeInput(messages).userContent, [
 		{ type: "text", text: "[user]\nlook" },
 		{ type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
-		{ type: "text", text: "[tool call screenshot] {}\n\n[tool result screenshot]" },
+		{ type: "text", text: "[tool call screenshot] {}" },
+		{ type: "text", text: "\n\n[tool result screenshot]" },
 		{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: "BBBB" } },
 		{ type: "text", text: "[user]\ncompare" },
 	]);
@@ -138,7 +144,7 @@ test("transcript ending on a tool result renders as history with no trailing use
 		toolResult("read", [{ type: "text", text: "# Notes" }]),
 	];
 	const expected = ["[user]\nopen notes.md", '[tool call read] {"path":"notes.md"}', "[tool result read]\n# Notes"].join("\n\n");
-	assert.deepEqual(toClaudeInput(messages).userContent, [{ type: "text", text: expected }]);
+	assert.equal(readText(toClaudeInput(messages).userContent), expected);
 });
 
 test("thinking blocks are omitted from replay", () => {
@@ -150,7 +156,24 @@ test("thinking blocks are omitted from replay", () => {
 		]),
 		user("bye"),
 	];
-	assert.deepEqual(toClaudeInput(messages).userContent, [{ type: "text", text: "[user]\nhi\n\n[assistant]\nHello.\n\n[user]\nbye" }]);
+	assert.equal(readText(toClaudeInput(messages).userContent), "[user]\nhi\n\n[assistant]\nHello.\n\n[user]\nbye");
+});
+
+test("a longer history keeps every earlier block byte-identical, so the prompt cache can hit (fork)", () => {
+	// Replay once joined all text into ONE block: a grown history changed it and the cache missed all but the system prompt
+	// (measured with the real CLI: 959 of 19k tokens read, the rest rewritten). One block per part keeps the earlier ones stable.
+	const first: Message[] = [
+		user("open notes.md"),
+		assistant([{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "notes.md" } }]),
+		toolResult("read", [{ type: "text", text: "# Notes" }]),
+		user("summarise it"),
+	];
+	const longer: Message[] = [...first, assistant([{ type: "text", text: "It has a heading." }]), user("and the second one?")];
+	const before = toClaudeInput(first).userContent;
+	const after = toClaudeInput(longer).userContent;
+	assert.ok(before.length > 1, "history is more than one block");
+	assert.deepEqual(after.slice(0, before.length), before);
+	assert.equal(readText(after).startsWith(readText(before)), true, "and the text the model reads only grows at the end");
 });
 
 test('toStreamJsonLine emits {"type":"user","message":{"role":"user","content":[...]}}', () => {
