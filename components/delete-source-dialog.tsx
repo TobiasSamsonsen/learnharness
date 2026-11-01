@@ -28,8 +28,8 @@ export function DeleteSourceBody({ sources, folders, deleteSessions, onDeleteSes
 		</label>}
 		{failure && <p role="alert" data-testid="source-delete-failure" className="mt-3 text-xs text-foreground">{failure}</p>}
 		<div className="mt-4 flex justify-end gap-2">
-			<button type="button" data-testid="source-delete-cancel" disabled={busy} onClick={onClose} className="rounded-sm px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40">Cancel</button>
-			<button type="button" data-testid="source-delete-confirm" disabled={busy} onClick={onRun} className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40">{busy ? "Deleting…" : failure ? "Try again" : "Delete"}</button>
+			<button type="button" data-testid="source-delete-cancel" disabled={busy} onClick={onClose} className="lh-touch rounded-sm px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40">Cancel</button>
+			<button type="button" data-testid="source-delete-confirm" disabled={busy} onClick={onRun} className="lh-touch rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40">{busy ? "Deleting…" : failure ? "Try again" : "Delete"}</button>
 		</div>
 	</div>;
 }

@@ -42,7 +42,7 @@ const { DictationBar } = await import("../components/dictation.tsx");
 const { LEDGER_FILES, PATHS } = await import("../config.ts");
 
 import type { ChatCourseLink, CourseDraft, GraphNode, Skill, SkillLine } from "../src/core/contracts.ts";
-import type { LhMessage } from "../src/core/native-messages.ts";
+import { toLlmMessages, type LhMessage } from "../src/core/native-messages.ts";
 import type { CoursePayload } from "../components/course-page.tsx";
 
 after(() => fs.rmSync(TMP_DATA, { recursive: true, force: true }));
@@ -737,6 +737,12 @@ describe("the course service (src/server/courses.ts)", () => {
 		assert.ok(learn.ok);
 		const open = [...chatStore.getChat(learn.value.id)!.messages, assistant([{ id: "oq", name: "quiz", args: { type: "check", lead: "Next.", nodeId: "n", question: "Which is even?", options: [{ label: "2", value: "a" }, { label: "3", value: "b" }], correctAnswer: "a", explanation: "E" } }], Date.now())];
 		assert.throws(() => inputAppends({ messages: open, course: { mode: "learn" } }, { type: "finish" }), /no open question/);
+		// Upstream v0.4.1: a malformed (unvalidated) quiz is not an open question. Finish
+		// goes through, and the model-bound history still pairs the dangling call.
+		const malformed = [...chatStore.getChat(learn.value.id)!.messages, assistant([{ id: "mq", name: "quiz", args: {} }], Date.now())];
+		const closing = inputAppends({ messages: malformed, course: { mode: "learn" } }, { type: "finish" });
+		const wire = toLlmMessages([...malformed, ...closing]);
+		assert.ok(wire.some((m) => m.role === "toolResult" && m.toolCallId === "mq"), "the malformed call gets a result before the finish marker");
 	});
 
 	it("propositions extracted from a Learn session rest on its skill (derived)", () => {
