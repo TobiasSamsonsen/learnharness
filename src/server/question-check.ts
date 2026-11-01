@@ -29,7 +29,7 @@ const CHECKER_TIMEOUT_MS = 120_000;
 /** Questions the checker already refused once (fingerprints, newest last). */
 const refusedOnce: string[] = [];
 
-const fingerprint = (q: ResolvedQuiz) => JSON.stringify([q.question, q.details ?? "", q.keyed, q.correct, q.multiSelect === true]);
+const fingerprint = (q: ResolvedQuiz) => JSON.stringify([q.question, q.details ?? "", q.lead ?? "", q.keyed, q.correct, q.multiSelect === true]);
 
 export async function checkQuizKey(q: ResolvedQuiz, signal?: AbortSignal): Promise<string[]> {
 	if (process.env.LH_ANSWER_CHECK === "0" || q.correct.length === 0) return [];
@@ -71,7 +71,7 @@ export async function checkQuizKey(q: ResolvedQuiz, signal?: AbortSignal): Promi
 	if (!spec || signal?.aborted) return [];
 	try {
 		const verdict = await checkQuestion(
-			{ question: q.question, details: q.details, options: q.keyed, multiSelect: multi, facts },
+			{ question: q.question, details: q.details, lead: q.lead, options: q.keyed, multiSelect: multi, facts },
 			{ engine: piEngineForSpec(spec), signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(CHECKER_TIMEOUT_MS)]) },
 		);
 		const problems = judgeChecker(q.keyed, q.correct, verdict);

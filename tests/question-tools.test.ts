@@ -476,3 +476,23 @@ describe("tool descriptions carry mechanics only, no question-craft", () => {
 		assert.ok(shared.includes("TRANSCRIBED SPEECH"), "the dictation-leniency note lives here");
 	});
 });
+
+describe("a teach question with no `question` field", () => {
+	const sent = { type: "predict", nodeId: "n1", lead: "A long lead that ends with what should have been the question." };
+
+	it("is refused with a message that says `lead` is not the question", () => {
+		for (const tool of [teachQuizToolFor({ chatId: "none", chatStore }), teachExplainToolFor({ chatId: "none", chatStore })]) {
+			assert.throws(() => tool.prepareArguments!(sent), /no `question`.*`lead` is only the text/s, tool.name);
+		}
+	});
+
+	it("passes a call that has `question` through unchanged", () => {
+		const tool = teachQuizToolFor({ chatId: "none", chatStore });
+		const full = { ...sent, question: "Which one?" };
+		assert.deepEqual(tool.prepareArguments!(full), full);
+	});
+
+	it("leaves the prober's probe on pi's own validation", () => {
+		assert.doesNotThrow(() => probeQuizTool.prepareArguments!({ explanation: "x" }));
+	});
+});

@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { invalidInputResult, questionResult, serverExecute } from "./tool-execute.ts";
 import {
+	MISSING_QUESTION_MESSAGE,
 	askInputSchema,
 	askOptionProblems,
 	explainInputBase,
@@ -77,6 +78,18 @@ function prepareQuestionArguments<T extends object>(args: unknown): T {
 		return o as T;
 	}
 	return args as T;
+}
+
+/** The teach tools (quiz, explain): the same unwrap, plus a pointed refusal when `question` is missing. In real
+ *  sessions the model, after a long `lead`, three times in 49 turns sent the call with no `question` at all, and
+ *  pi's generic "must have required properties question" did not say that `lead` is not the question. A throw here
+ *  is caught by pi and returned to the model as the tool error, like a validation failure. */
+function prepareTeachQuestionArguments<T extends object>(args: unknown): T {
+	const prepared = prepareQuestionArguments<T>(args);
+	if (prepared && typeof prepared === "object" && !Array.isArray(prepared) && !("question" in prepared)) {
+		throw new Error(MISSING_QUESTION_MESSAGE);
+	}
+	return prepared;
 }
 
 export const askUserQuestionTool: AgentTool<typeof askInputSchema> = {
@@ -245,7 +258,7 @@ export function teachExplainToolFor(
 		label: "explain",
 		description: explainDescription("explain", true),
 		parameters: explainInputObject,
-		prepareArguments: prepareQuestionArguments,
+		prepareArguments: prepareTeachQuestionArguments,
 		executionMode: "sequential",
 		execute: async (_toolCallId, input) => {
 			const problems = [...explainInputProblems(input), ...figureInputProblems(input)];
@@ -399,7 +412,7 @@ export function teachQuizToolFor(ctx: Pick<PlanToolContext, "chatId" | "chatStor
 		label: "quiz",
 		description: quizDescription({ name: "quiz", nodeId: true, types: true }),
 		parameters: quizInputObject,
-		prepareArguments: prepareQuestionArguments,
+		prepareArguments: prepareTeachQuestionArguments,
 		executionMode: "sequential",
 		execute: async (_toolCallId, input, signal) => {
 			const problems = [...quizInputProblems(input), ...figureInputProblems(input)];

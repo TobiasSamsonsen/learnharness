@@ -18,6 +18,7 @@ import {
 	unsafePythonReason,
 } from "../src/core/answer-check.ts";
 import { installQuestionVerifier, resolveQuiz } from "../src/agent/question-verify.ts";
+import { checkerPrompt } from "../src/agent/subagents/answer-checker.ts";
 import { probeQuizTool } from "../src/agent/tools.ts";
 import { findPython, runPython } from "../src/server/python-run.ts";
 
@@ -156,5 +157,20 @@ describe("the Python runner (the machine's own interpreter)", async () => {
 	it("starts in an empty temp directory", { skip: !python && "no Python on this machine" }, async () => {
 		const run = (await runPython("import os\nprint(len(os.listdir('.')))"))!;
 		assert.equal(run.stdout.trim(), "1", "only the snippet itself");
+	});
+});
+
+describe("the answer checker sees the lead", () => {
+	const base = { question: "Which substitution fits this triangle?", options: opts("x = 3 sin θ", "x = 3 cos θ"), multiSelect: false, facts: [] as string[] };
+
+	it("puts the lead above the question when there is one", () => {
+		const prompt = checkerPrompt({ ...base, lead: "Triangle: hypotenuse 3, side x opposite θ." });
+		assert.ok(prompt.includes("Triangle: hypotenuse 3"), "the lead is in the prompt");
+		assert.ok(prompt.indexOf("hypotenuse 3") < prompt.indexOf("QUESTION (single-select)"), "and it comes before the question");
+	});
+
+	it("leaves the prompt unchanged without a lead", () => {
+		assert.equal(checkerPrompt(base), checkerPrompt({ ...base, lead: "" }));
+		assert.ok(!checkerPrompt(base).includes("ABOVE THE QUESTION"));
 	});
 });

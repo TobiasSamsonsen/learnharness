@@ -286,12 +286,18 @@ const predictCheckType = Type.Union([Type.Literal("predict"), Type.Literal("chec
  *  The tutor drafted its reply in thinking and fired the next question with no
  *  visible text, so the reply now rides INSIDE the call: it cannot call without
  *  writing it. Teach tools only (probe/recall share the bases, not this). */
+/** Returned to the model when a teach question arrives with no `question` field (agent/tools.ts). */
+export const MISSING_QUESTION_MESSAGE =
+	"The call has no `question`. `question` is a required field of its own: send the question itself there. " +
+	"`lead` is only the text the learner reads before the question, so the question does not belong at the end of `lead` instead.";
+
 const leadField = Type.String({
 	minLength: 1,
 	description:
 		"The text he reads before the question: respond to his last answer (what it shows; if it was wrong, diagnose " +
 		"and repair), then teach the next step. Markdown. The question itself goes in `question`. A one-line filler is " +
-		"not a lead.",
+		"not a lead. `lead` is never the question: `question` is a REQUIRED field of its own, so never end `lead` with " +
+		"the question and leave `question` out.",
 });
 
 /** The TEACH-side quiz object. The required pair leads the property

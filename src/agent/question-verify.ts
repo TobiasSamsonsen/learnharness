@@ -16,6 +16,8 @@ import type { FigureCheck } from "../core/figures/index.ts";
 export interface QuizKeyInput {
 	question: string;
 	details?: string;
+	/** Teach questions only: the text the learner reads right above the question. The checker sees it as context. */
+	lead?: string;
 	options: ReadonlyArray<{ label: string; value?: string }>;
 	correctAnswer: string | string[];
 	multiSelect?: boolean;

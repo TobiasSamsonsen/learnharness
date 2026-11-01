@@ -34,6 +34,8 @@ export type CheckVerdict = Static<typeof checkSchema>;
 export interface CheckInput {
 	question: string;
 	details?: string;
+	/** The text the learner reads right above the question (teach questions only). Context, never the key. */
+	lead?: string;
 	options: ReadonlyArray<{ label: string; value: string }>;
 	multiSelect: boolean;
 	/** Python ground truth (core/answer-check.ts facts). */
@@ -42,6 +44,7 @@ export interface CheckInput {
 
 export function checkerPrompt(input: CheckInput): string {
 	return [
+		...(input.lead ? ["TEXT THE LEARNER READS ABOVE THE QUESTION (context for it, not part of the question):", input.lead, ""] : []),
 		`QUESTION (${input.multiSelect ? "multi-select: every correct option must be chosen" : "single-select"}):`,
 		input.question,
 		...(input.details ? ["", "Shown under the question:", input.details] : []),
