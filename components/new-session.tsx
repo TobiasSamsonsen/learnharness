@@ -16,6 +16,9 @@ import { ComposerActions, NodePickerControl } from "@/components/composer-action
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
 import type { ChatSettings, GraphSnapshot } from "@/src/core";
+import { DEFAULT_PACE, isPace, type Pace } from "@/src/core";
+import { SessionSetup } from "@/components/session-setup";
+import { notifySettingsSaved } from "@/components/settings-signal";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
  *  bar lifts — resolved nodes as the learner SAW them at pick time. */
@@ -48,6 +51,7 @@ export async function startDraftSession(
 	picks?: readonly DraftPick[],
 	starter = new SessionStarter(),
 	settingsIdentity?: string,
+	setup?: { pace: Pace; paceNote?: string },
 ): Promise<string | null> {
 	const t = text.trim();
 	if (!t) return null;
@@ -58,7 +62,7 @@ export async function startDraftSession(
 	const target = await starter.start(
 		mode === "practice"
 			? { title: t, kind: "practice", ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
-			: { title: t },
+			: { title: t, ...(setup ? { pace: setup.pace, ...(setup.paceNote ? { paceNote: setup.paceNote } : {}) } : {}) },
 		fetchLike,
 		settingsIdentity,
 	);
@@ -85,6 +89,7 @@ export function DraftShell({
 	onOpenPicker,
 	onClearPicks,
 	overlay,
+	setup,
 }: {
 	busy: boolean;
 	text: string;
@@ -112,6 +117,8 @@ export function DraftShell({
 	 *  the graph view (the overlay fills its column, never the sidebar).
 	 *  Passed as a node so the pick state stays in NewSession. */
 	overlay?: ReactNode;
+	/** The centered setup panel (fork addition, 2026-11-01): pace + time note, under the empty-state title. */
+	setup?: ReactNode;
 }) {
 	// Voice dictation (STT wave, 2026-09-17): finals append at the end of the
 	// draft text (via the parent's onChange — the truth lives there); the
@@ -138,7 +145,12 @@ export function DraftShell({
 	// buffer — Enter must reach the finish-first send, not be gated out by
 	// an empty textarea. Nothing said → the send no-ops.
 	const canSend = text.trim().length > 0 || dictation.active;
-	/* FINISH DICTATION FIRST (owner, 2026-10-01): stop the run, let the
+	const emptyTitle = mode === "practice" ? "New practice session" : "New session";
+	const emptyDescription =
+		mode === "practice"
+			? "Pick nodes from your knowledge graph, describe what you want to practice, or bring your own problem."
+			: "The teacher will open by probing what you already know.";
+/* FINISH DICTATION FIRST (owner, 2026-10-01): stop the run, let the
 	 * last finals land through onChange, THEN call the parent's send —
 	 * which reads its REF mirror, so the post-await timing of React's
 	 * re-render cannot eat the dictated tail. */
@@ -182,14 +194,17 @@ export function DraftShell({
 					<div className="pointer-events-none sticky bottom-0 mt-auto w-full">
 						<Conversation className="h-full min-w-0 flex-1" initial="instant">
 							<ConversationContent className="min-h-full gap-0 p-0">
-								<ConversationEmptyState
-									title={mode === "practice" ? "New practice session" : "New session"}
-									description={
-										mode === "practice"
-											? "Pick nodes from your knowledge graph, describe what you want to practice, or bring your own problem."
-											: "The teacher will open by probing what you already know."
-									}
-								/>
+								<ConversationEmptyState title={emptyTitle} description={emptyDescription}>
+									{setup ? (
+										<>
+											<div className="space-y-1">
+												<h3 className="font-medium text-sm">{emptyTitle}</h3>
+												<p className="text-muted-foreground text-sm">{emptyDescription}</p>
+											</div>
+											<div className="pointer-events-auto mt-2 flex w-full justify-center">{setup}</div>
+										</>
+									) : undefined}
+								</ConversationEmptyState>
 							</ConversationContent>
 						</Conversation>
 						<div className="h-24 bg-gradient-to-t from-background via-background/85 to-transparent" />
@@ -255,7 +270,42 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 	const [busy, setBusy] = useState(false);
 	const startingRef = useRef(false);
 	const starterRef = useRef(new SessionStarter());
-	const [startError, setStartError] = useState(false);
+	// The setup panel (fork addition, 2026-11-01): pace + time note. The pace starts at the default (general.pace) and a pick
+	// here is saved as that default, like the draft's language pill; the note is this session's only. Both ride the creation.
+	const [pace, setPace] = useState<Pace>(DEFAULT_PACE);
+	const [paceNote, setPaceNote] = useState("");
+	const paceRef = useRef<Pace>(DEFAULT_PACE);
+	const paceNoteRef = useRef("");
+	const generalRef = useRef<Record<string, unknown>>({});
+	useEffect(() => {
+		fetch("/api/settings")
+			.then((r) => r.json() as Promise<{ settings: { general?: Record<string, unknown> } | null }>)
+			.then((b) => {
+				const general = b.settings?.general ?? {};
+				generalRef.current = general;
+				if (isPace(general.pace)) {
+					paceRef.current = general.pace;
+					setPace(general.pace);
+				}
+			})
+			.catch(() => {});
+	}, []);
+	const pickPace = (next: Pace) => {
+		paceRef.current = next;
+		setPace(next);
+		void fetch("/api/settings/general", {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ ...generalRef.current, pace: next }),
+		})
+			.then((res) => {
+				if (!res.ok) return;
+				generalRef.current = { ...generalRef.current, pace: next };
+				notifySettingsSaved("general");
+			})
+			.catch(() => {});
+	};
+const [startError, setStartError] = useState(false);
 	// THE PICK BAR (owner round 10): the draft's lifted pick set + the
 	// snapshot the standalone chain-table picker reads. Lazy — the graph
 	// is fetched on FIRST open only, then reused.
@@ -317,7 +367,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		setBusy(true);
 		setStartError(false);
 		void startDraftSession(draft, fetch, mode === "practice" ? "practice" : undefined, mode === "practice" ? picksRef.current : undefined,
-			starterRef.current, JSON.stringify(catalog?.slots.strong))
+			starterRef.current, JSON.stringify(catalog?.slots.strong),
+							mode === "practice" ? undefined : { pace: paceRef.current, ...(paceNoteRef.current.trim() ? { paceNote: paceNoteRef.current.trim() } : {}) })
 			.then((target) => {
 				if (target) router.push(target);
 				else { startingRef.current = false; setBusy(false); }
@@ -341,7 +392,20 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}
-				overlay={
+				setup={
+					mode === "practice" ? undefined : (
+						<SessionSetup
+							pace={pace}
+							note={paceNote}
+							onPace={pickPace}
+							onNote={(v) => {
+								paceNoteRef.current = v;
+								setPaceNote(v);
+							}}
+						/>
+					)
+				}
+overlay={
 					// THE PICKER (owner round 10b): hosted INSIDE the content
 					// column — absolute inset-0 resolves to the column's relative
 					// container, the same confinement the graph view gives it;

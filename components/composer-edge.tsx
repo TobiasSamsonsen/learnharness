@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { MaterialsControl } from "@/components/materials-control";
 import { LanguageControl } from "@/components/language-control";
+import { PaceControl } from "@/components/pace-control";
 
 /**
  * The composer shell's bottom edge (owner, 2026-10-25 — the bottom-bar
@@ -21,6 +22,8 @@ export function ComposerEdgeTools({ chatId }: { chatId?: string }) {
 		<>
 			<MaterialsControl chatId={chatId} variant="edge" />
 			<LanguageControl chatId={chatId} variant="edge" />
+			{/* Pace (fork addition, 2026-11-01): a running session only; the new-session screen has its setup panel. */}
+			{chatId && <PaceControl chatId={chatId} variant="edge" />}
 		</>
 	);
 }

@@ -50,6 +50,28 @@ describe("startDraftSession — the create-on-send contract", () => {
 		assert.deepEqual(calls[0]!.body, { title: "teach me orbital mechanics" });
 	});
 
+	it("the setup panel's pace and time note ride the create request (fork addition, 2026-11-01)", async () => {
+		const { f, calls } = fakeFetch("c_pace");
+		await startDraftSession("derivasjon", f, undefined, undefined, undefined, undefined, { pace: "crash", paceNote: "exam Thursday, 4 concepts" });
+		assert.equal(calls.length, 1);
+		assert.deepEqual(calls[0]!.body, { title: "derivasjon", pace: "crash", paceNote: "exam Thursday, 4 concepts" });
+	});
+
+	it("a pace without a note sends no note, and no setup sends neither (the server then uses the default)", async () => {
+		const withPace = fakeFetch("c_p");
+		await startDraftSession("hello", withPace.f, undefined, undefined, undefined, undefined, { pace: "efficient" });
+		assert.deepEqual(withPace.calls[0]!.body, { title: "hello", pace: "efficient" });
+		const none = fakeFetch("c_n");
+		await startDraftSession("hello", none.f);
+		assert.deepEqual(none.calls[0]!.body, { title: "hello" });
+	});
+
+	it("a practice draft never sends a pace (practice sessions are not paced)", async () => {
+		const { f, calls } = fakeFetch("c_prac");
+		await startDraftSession("limits", f, "practice");
+		assert.deepEqual(calls[0]!.body, { title: "limits", kind: "practice" });
+	});
+
 	it("no settings PUT on create — the server stamps the newborn (per-session models, owner 2026-09-28)", async () => {
 		const { f, calls } = fakeFetch("c_3");
 		await startDraftSession("hello", f);

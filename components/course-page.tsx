@@ -17,6 +17,7 @@ import {
 	type PlanNodeStatus,
 } from "@/src/core";
 import { MaterialsControl } from "@/components/materials-control";
+import { CourseTimeNote } from "@/components/course-time-note";
 import { SkillMap } from "@/components/skill-map";
 import { SidebarToggle } from "@/components/sidebar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
@@ -655,8 +656,9 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 				)}
 			</header>
 			<div className="mx-auto max-w-3xl px-6 pb-16 pt-4">
+				<CourseTimeNote courseId={courseId} note={data.course.note} onSaved={() => void refresh()} />
 				<CourseBody
-					data={data}
+data={data}
 					busy={busy}
 					error={error}
 					onDraft={onDraft}
