@@ -31,6 +31,7 @@ import { PROSE_GATED_TOOLS, PROSE_GATE_REASON, proseGateBlocks, proseGateRefused
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } from "../core/language.ts";
+import { paceSection, type Pace } from "../core/pace.ts";
 
 /**
  * The two teaching-side agents (docs/probe-teach-split.md): the PROBER and
@@ -134,6 +135,9 @@ export interface AgentBuildOptions {
 	/** The lesson's language (fork addition): its core/language.ts
 	 *  conversation directive is appended to the prompt. Absent = English. */
 	language?: LessonLanguage;
+	/** The session's pace and the learner's time note (fork addition, 2026-11-01 — core/pace.ts). Only the prober and the
+	 *  teacher are paced; Thorough with no note adds nothing to the prompt. */
+	pace?: { level: Pace; note?: string };
 	/** The lesson's source material (fork addition): its system-prompt
 	 *  section (core/materials.ts materialsPromptSection) and the lookup
 	 *  tools (tools/materials.ts), added to every conversation agent. */
@@ -214,6 +218,13 @@ const FORCE_TEXT_OFF_PROVIDERS: readonly string[] = ["claude-code"];
 const hasGatedTool = (list: ReadonlyArray<{ name: string }> | undefined): boolean =>
 	(list ?? []).some((t) => PROSE_GATED_TOOLS.includes(t.name));
 
+/** The pace section for this agent: only the prober and the teacher are paced (practice and the course
+ *  placement test have their own prompts); "" when there is nothing to add. */
+function paceFor(kind: AgentKind, pace: AgentBuildOptions["pace"]): string {
+	if (!pace || (kind !== "prober" && kind !== "teacher")) return "";
+	return paceSection(kind, pace.level, pace.note);
+}
+
 function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: AgentTool<any, any>[]) {
 	// Practice never reaches the role fallback (the handler ALWAYS injects
 	// the session's conversation engine — practice rides the same
@@ -224,7 +235,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const forceText = kind === "teacher" && !FORCE_TEXT_OFF_PROVIDERS.includes(engine.model.provider);
 	const composed = opts.promptSwitches ? composeInstructions(kind, opts.promptSwitches) : composedInstructions[kind]!;
 	const systemPrompt = withLanguageDirective(
-		[composed, opts.materials?.section, opts.course?.section].filter(Boolean).join("\n\n"),
+		[composed, opts.materials?.section, opts.course?.section, paceFor(kind, opts.pace)].filter(Boolean).join("\n\n"),
 		opts.language ?? DEFAULT_LESSON_LANGUAGE,
 		"conversation",
 	);

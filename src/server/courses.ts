@@ -37,6 +37,7 @@ import {
 	type SkillPartition,
 } from "../core/mastery.ts";
 import { materialBlock } from "../core/materials.ts";
+import { normalizePaceNote } from "../core/pace.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { mergeSkillLines } from "../core/skills.ts";
 import { piEngineForSpec } from "../agent/models.ts";
@@ -280,6 +281,11 @@ export function renameCourse(courseId: string, title: string): CourseRecord | nu
 	return stores.courseStore.updateCourse(courseId, { title: title.trim() || "Untitled course" });
 }
 
+/** Set or clear a course's time note (fork addition, 2026-11-01 — core/pace.ts). Blank clears it. */
+export function setCourseNote(courseId: string, note: string | undefined): CourseRecord | null {
+	return stores.courseStore.updateCourse(courseId, { note: normalizePaceNote(note) });
+}
+
 /** Delete a course: its record and its material. Its skills stay in the
  *  graph (shared, with their history); its sessions stay, unlabelled. */
 export function deleteCourse(courseId: string): boolean {
@@ -495,14 +501,16 @@ export function createCourseSession(
  *  tool may tag. Undefined for other sessions, or when the course is gone. */
 export function courseForTurn(
 	chatId: string,
-): { section: string; mode: CourseMode; skills?: () => ReadonlyArray<{ id: string; name: string }> } | undefined {
+): { section: string; mode: CourseMode; note?: string; skills?: () => ReadonlyArray<{ id: string; name: string }> } | undefined {
 	const link = stores.chatStore.getChat(chatId)?.course;
 	if (!link) return undefined;
 	const course = stores.courseStore.getCourse(link.courseId);
 	const ctx = readContext();
 	const skills = link.skillIds.filter((id) => ctx.skills.has(id)).map((id) => sessionSkill(id, ctx));
 	const section = coursePromptSection(link.mode, course?.title ?? "(deleted course)", skills);
-	if (link.mode === "learn") return { section, mode: link.mode };
+	// The course's time note is read fresh every turn, so editing it reaches the sessions already running.
+	const note = course?.note;
+	if (link.mode === "learn") return { section, mode: link.mode, ...(note ? { note } : {}) };
 	const tags = skills.map((s) => ({ id: s.id, name: s.name }));
-	return { section, mode: link.mode, skills: () => tags };
+	return { section, mode: link.mode, ...(note ? { note } : {}), skills: () => tags };
 }

@@ -29,6 +29,7 @@ import type {
 import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { LESSON_LANGUAGES, isDictationEngine, isLessonLanguage } from "../core/language.ts";
+import { PACES, PACE_NOTE_MAX, isPace, normalizePaceNote, type Pace } from "../core/pace.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
@@ -44,6 +45,8 @@ export function parseSettingsBody(body: unknown): SettingsBodyResult<ChatSetting
 		model?: { provider?: unknown; id?: unknown };
 		thinkingLevel?: unknown;
 		language?: unknown;
+			pace?: unknown;
+			paceNote?: unknown;
 	};
 	const settings: ChatSettings = {};
 	if (raw.model !== undefined) {
@@ -69,6 +72,16 @@ export function parseSettingsBody(body: unknown): SettingsBodyResult<ChatSetting
 		}
 		settings.language = raw.language;
 	}
+	if (raw.pace !== undefined) {
+		const pace = parsePaceField(raw.pace);
+		if (!pace.ok) return { ok: false, error: pace.error };
+		settings.pace = pace.pace;
+	}
+	if (raw.paceNote !== undefined) {
+		const note = parsePaceNoteField(raw.paceNote);
+		if (!note.ok) return { ok: false, error: note.error };
+		if (note.note !== undefined) settings.paceNote = note.note;
+	}
 	// Wave 7 killed the graph-context injection (owner: zero configuration
 	// beyond chat models — the prober reads its map through tools now); its
 	// budget dial is gone with it. A stale client sending the old key has
@@ -81,6 +94,23 @@ export function parseSettingsBody(body: unknown): SettingsBodyResult<ChatSetting
 // its parser via SETTINGS_SECTIONS below. Same discipline as
 // parseSettingsBody: strict on every known field (a bad type/shape is a
 // 400, never a silent clamp/drop), unknown keys dropped.
+
+/** A pace (core/pace.ts) from a request body: strict, a bad value is a 400. */
+export function parsePaceField(value: unknown): { ok: true; pace: Pace } | { ok: false; error: string } {
+	if (!isPace(value)) return { ok: false, error: `pace must be one of: ${PACES.map((p) => p.id).join(", ")}` };
+	return { ok: true, pace: value };
+}
+
+/** A time note from a request body: a string up to PACE_NOTE_MAX characters; blank means no note
+ *  (`note` comes back undefined). Strict on the type and the length: never a silent cut. */
+export function parsePaceNoteField(value: unknown): { ok: true; note: string | undefined } | { ok: false; error: string } {
+	if (typeof value !== "string") return { ok: false, error: "the time note must be a string" };
+	const note = normalizePaceNote(value);
+	if (note !== undefined && note.length > PACE_NOTE_MAX) {
+		return { ok: false, error: `the time note must be at most ${PACE_NOTE_MAX} characters` };
+	}
+	return { ok: true, note };
+}
 
 function asRecord(body: unknown): Record<string, unknown> | null {
 	if (!body || typeof body !== "object" || Array.isArray(body)) return null;
@@ -103,6 +133,11 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 			return { ok: false, error: `language must be one of: ${LESSON_LANGUAGES.map((l) => l.id).join(", ")}` };
 		}
 		settings.language = raw.language;
+	}
+	if (raw.pace !== undefined) {
+		const pace = parsePaceField(raw.pace);
+		if (!pace.ok) return { ok: false, error: pace.error };
+		settings.pace = pace.pace;
 	}
 	if (raw.dictationEngine !== undefined) {
 		if (!isDictationEngine(raw.dictationEngine)) {

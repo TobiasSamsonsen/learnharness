@@ -7,6 +7,7 @@
  */
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { LessonLanguage } from "../language.ts";
+import type { Pace } from "../pace.ts";
 import type { LhMessage } from "../native-messages.ts";
 import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
@@ -87,6 +88,12 @@ export interface ChatSettings {
 	 *  write and dictation transcribes. Stamped at birth from the default
 	 *  (GeneralSettings.language); absent = English (core/language.ts). */
 	language?: LessonLanguage;
+	/** The session's pace (fork addition, 2026-11-01 — core/pace.ts): stamped at birth
+	 *  from the default (GeneralSettings.pace); absent = Thorough. */
+	pace?: Pace;
+	/** The learner's time note for a session with no course ("exam Thursday, 4
+	 *  concepts"); a course session reads the course's note instead. */
+	paceNote?: string;
 }
 
 

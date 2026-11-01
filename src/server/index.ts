@@ -65,6 +65,7 @@ export {
 	deleteCourse,
 	listCourseSummaries,
 	renameCourse,
+	setCourseNote,
 	graphSkillLayer,
 	startCourseDraft,
 } from "./courses.ts";

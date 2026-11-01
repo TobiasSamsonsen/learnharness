@@ -43,6 +43,7 @@ import {
 	type LessonLanguage,
 } from "./language.ts";
 import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
+import { DEFAULT_PACE, isPace, type Pace } from "./pace.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
  *  changes (a field renamed/meaning changed); pure additions never bump. */
@@ -364,6 +365,8 @@ export interface GeneralSettings {
 	language?: LessonLanguage;
 	/** Where dictation runs (default local). */
 	dictationEngine?: DictationEngine;
+	/** The default pace (fork addition, 2026-11-01 - core/pace.ts): stamped onto every new session. */
+	pace?: Pace;
 }
 
 /** One app-wide dictation preference, shared by every composer. */
@@ -546,7 +549,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true, language: DEFAULT_LESSON_LANGUAGE, dictationEngine: DEFAULT_DICTATION_ENGINE },
+	general: { autoUpdate: true, language: DEFAULT_LESSON_LANGUAGE, dictationEngine: DEFAULT_DICTATION_ENGINE, pace: DEFAULT_PACE },
 	dictation: { language: "en" },
 	appearance: {
 		mode: "dark",
@@ -594,6 +597,7 @@ function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
 	if (autoUpdate !== undefined) out.autoUpdate = autoUpdate;
 	if (isLessonLanguage(raw.language)) out.language = raw.language;
 	if (isDictationEngine(raw.dictationEngine)) out.dictationEngine = raw.dictationEngine;
+	if (isPace(raw.pace)) out.pace = raw.pace;
 	return out;
 }
 

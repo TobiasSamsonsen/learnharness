@@ -1,7 +1,7 @@
 import { chainsForSelection, formatChainLine } from "@/src/core";
 import { newGraphContextMessage, type GraphContextPick } from "@/src/core";
-import { compactionInFlight, createChat, isTurnRunning, listChats, stampNewSession, stores, titleFromPrompt } from "@/src/server";
-import type { ChatListItem } from "@/src/core";
+import { compactionInFlight, createChat, isTurnRunning, listChats, parsePaceField, parsePaceNoteField, stampNewSession, stores, titleFromPrompt } from "@/src/server";
+import type { ChatListItem, Pace } from "@/src/core";
 
 /** The session picker's list: record-derived summaries (phase, pending
  *  question) + live liveness — a running turn marks the session busy
@@ -20,7 +20,20 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; graphContext?: unknown };
+	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; graphContext?: unknown; pace?: unknown; paceNote?: unknown };
+	// The new-session setup panel's pace and time note (fork addition, 2026-11-01): strict, before anything is created.
+	let pace: Pace | undefined;
+	if (body.pace !== undefined) {
+		const parsed = parsePaceField(body.pace);
+		if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
+		pace = parsed.pace;
+	}
+	let paceNote: string | undefined;
+	if (body.paceNote !== undefined) {
+		const parsed = parsePaceNoteField(body.paceNote);
+		if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
+		paceNote = parsed.note;
+	}
 	const title = typeof body.title === "string" ? body.title : "";
 	// Practice sessions (owner, 2026-10-04): kind "practice" marks the
 	// record — the practice agent + its tools from turn 1, no extraction.
@@ -28,7 +41,7 @@ export async function POST(req: Request) {
 	const chat = createChat(titleFromPrompt(title || "Untitled session"), kind);
 	// The birth stamp — the session's model, thinking level and language
 	// (server/chats.ts stampNewSession).
-	stampNewSession(chat.id);
+	stampNewSession(chat.id, { ...(pace ? { pace } : {}), ...(paceNote ? { paceNote } : {}) });
 	// The session's map context (owner, 2026-10-04): the picked
 	// propositions ride the CREATION — message[0] is a graph-context
 	// marker (a separate custom message BEFORE the learner's first user

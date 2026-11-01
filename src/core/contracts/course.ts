@@ -87,6 +87,9 @@ export interface CourseRecord {
 	skills: string[];
 	/** The pending planner output (cleared on approval). */
 	draft?: CourseDraft;
+	/** The learner's time note for this course ("exam Thursday, 4 concepts", fork addition 2026-11-01).
+	 *  Read every turn by the course's sessions as data about the learner (core/pace.ts). */
+	note?: string;
 	/** Why the last drafting run failed. */
 	error?: string;
 	/** Append-only planner usage log. */
