@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { joinDictation, useDictationTarget } from "@/components/dictation";
 import { enterSends } from "@/components/enter-submits";
 import { PathInput } from "@/components/path-input";
@@ -22,12 +22,14 @@ import { PathInput } from "@/components/path-input";
  */
 export function ReadingThinkingField({
 	value,
+	revision,
 	onChange,
 	onEscape,
 	onOpen,
 	claim,
 }: {
 	value: string;
+	revision: number;
 	onChange: (v: string) => void;
 	/** Esc in the field stops dictation (threaded from the page's hook). */
 	onEscape?: () => void;
@@ -39,18 +41,19 @@ export function ReadingThinkingField({
 	/** Primary dictation claim — true while the check is behind its reveal. */
 	claim: boolean;
 }) {
-	// Ref-first (see new-session.tsx): a withdraw followed by an append in one tick must compose
-	const valueRef = useRef(value);
-	valueRef.current = value;
+	const [draft, setDraft] = useState(value);
+	// Appends may arrive back-to-back before React commits. Like Chat's
+	// submit mirror, this ref includes every edit synchronously.
+	const draftRef = useRef(value);
+	useLayoutEffect(() => { draftRef.current = value; setDraft(value); }, [revision, value]);
+	const applyDraft = useCallback((next: string) => {
+		draftRef.current = next;
+		setDraft(next);
+		onChange(next);
+	}, [onChange]);
 	useDictationTarget(
-		useCallback(
-			(t: string, withdraw?: boolean) => {
-				const v = joinDictation(valueRef.current, t, withdraw);
-				valueRef.current = v;
-				onChange(v);
-			},
-			[onChange],
-		),
+		// withdraw: the fork's dictation retraction (see joinDictation)
+		useCallback((text: string, withdraw?: boolean) => applyDraft(joinDictation(draftRef.current, text, withdraw)), [applyDraft]),
 		claim,
 	);
 	return (
@@ -62,8 +65,8 @@ export function ReadingThinkingField({
 				Thinking while reading
 			</div>
 			<PathInput
-				value={value}
-				onValueChange={onChange}
+				value={draft}
+				onValueChange={applyDraft}
 				/* py-0.5 (owner round, 2026-10-07): the scrollbar fix. Source
 				   Sans 3's font box is 22px at 16px; lh-input's 1.25 leading
 				   gives a 20px line box — the content area sticks 1px below the

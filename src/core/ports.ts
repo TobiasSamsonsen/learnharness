@@ -103,6 +103,8 @@ export interface GraphStore {
 	upsertSource(source: NotesSource): void;
 	/** Every notes source record, by id order-insensitive. */
 	readSources(): NotesSource[];
+	/** Remove imported-source bookkeeping only; the service removes graph traces first. */
+	deleteSources(ids: ReadonlySet<string>): number;
 	/** Append one run's usage to a source record — idempotent per
 	 *  startedAt, mirroring ChatRecord.extractions. */
 	appendSourceUsage(id: string, entry: ExtractionRunUsage): void;
@@ -156,6 +158,12 @@ export interface CourseStore {
 	 *  updatedAt. Null when unknown. */
 	updateCourse(id: string, patch: Partial<Omit<CourseRecord, "id" | "createdAt">>): CourseRecord | null;
 	deleteCourse(id: string): boolean;
+}
+
+/** Separate from graph ledgers and source identity, for future shared views. */
+export interface SourceOrganizationStore {
+	read(): import("./source-organization.ts").SourceOrganization;
+	write(state: import("./source-organization.ts").SourceOrganization): void;
 }
 
 // ─── JobStore — background sub-agent jobs (data/jobs) ─────────────────────────

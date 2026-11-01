@@ -334,7 +334,7 @@ describe("the dispute input", () => {
 		// An unread sketch cannot be disputed.
 		assert.throws(() => inputAppends({ messages: [...posed(), thinking("call_p1")], kind: "practice" }, input), /has not been read/);
 		// A question waiting owns the moment.
-		const dangling = [...readRecord, call("q1", "quiz", { question: "?" })];
+		const dangling = [...readRecord, call("q1", "quiz", { type: "check", lead: "Next.", nodeId: "n", question: "Which is even?", options: [{ label: "2", value: "a" }, { label: "3", value: "b" }], correctAnswer: "a", explanation: "E" })];
 		assert.throws(() => inputAppends({ messages: dangling, kind: "practice" }, input), /no open question/);
 	});
 

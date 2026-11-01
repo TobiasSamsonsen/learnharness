@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useLayoutEffect, useState } from "react";
 import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Hint } from "@/components/ui/hint";
@@ -37,6 +38,72 @@ export function enterAction(state: {
 	if (state.canSend) return "send";
 	if (state.nextProblem) return "next";
 	return "none";
+}
+
+/**
+ * Session composer with local keystroke state. The owning Chat keeps the
+ * current draft in a ref for send/dictation, so typing doesn't rerender the
+ * transcript; revision signals explicit parent-driven draft resets.
+ */
+export function ChatSessionComposer({
+	busy,
+	value,
+	revision,
+	onChange,
+	onSend,
+	onStop,
+	sendAllowed,
+	dictationActive,
+	autoFocus,
+	inputRef,
+	onEscape,
+	placeholder,
+	nextProblem,
+	onNext,
+	edge,
+}: {
+	busy: boolean;
+	value: string;
+	revision: number;
+	onChange: (value: string) => void;
+	onSend: () => void;
+	onStop: () => void;
+	sendAllowed: boolean;
+	dictationActive: boolean;
+	autoFocus?: boolean;
+	inputRef?: React.RefObject<HTMLDivElement | null>;
+	onEscape?: () => void;
+	placeholder?: string;
+	nextProblem?: boolean;
+	onNext?: () => void;
+	/** The fork's composer edge (see Composer). */
+	edge?: { chatId?: string; mic?: React.ReactNode };
+}) {
+	const [draft, setDraft] = useState(value);
+	useLayoutEffect(() => { setDraft(value); }, [revision, value]);
+	const canSend = sendAllowed && (draft.trim().length > 0 || dictationActive);
+	const applyDraft = useCallback((next: string) => {
+		setDraft(next);
+		onChange(next);
+	}, [onChange]);
+
+	return (
+		<Composer
+			busy={busy}
+			value={draft}
+			onChange={applyDraft}
+			onSend={onSend}
+			onStop={onStop}
+			canSend={canSend}
+			autoFocus={autoFocus}
+			inputRef={inputRef}
+			onEscape={onEscape}
+			placeholder={placeholder}
+			nextProblem={nextProblem}
+			onNext={onNext}
+			edge={edge}
+		/>
+	);
 }
 
 export function Composer({

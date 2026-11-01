@@ -735,7 +735,7 @@ describe("the course service (src/server/courses.ts)", () => {
 		assert.equal(courses.courseView(courseId)!.learning.length, 0, "finishing a practice session credits no skill");
 		const learn = courses.createCourseSession(courseId, "learn", a);
 		assert.ok(learn.ok);
-		const open = [...chatStore.getChat(learn.value.id)!.messages, assistant([{ id: "oq", name: "quiz", args: {} }], Date.now())];
+		const open = [...chatStore.getChat(learn.value.id)!.messages, assistant([{ id: "oq", name: "quiz", args: { type: "check", lead: "Next.", nodeId: "n", question: "Which is even?", options: [{ label: "2", value: "a" }, { label: "3", value: "b" }], correctAnswer: "a", explanation: "E" } }], Date.now())];
 		assert.throws(() => inputAppends({ messages: open, course: { mode: "learn" } }, { type: "finish" }), /no open question/);
 	});
 

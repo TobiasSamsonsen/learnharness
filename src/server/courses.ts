@@ -44,7 +44,7 @@ import { draftCourse } from "../agent/subagents/course-planner.ts";
 import { callUsage } from "../agent/subagents/extraction.ts";
 import { withBgLlmSlot } from "../agent/subagents/bg-llm-semaphore.ts";
 import { materialTools } from "../agent/tools/materials.ts";
-import { auditorGraphTools } from "../agent/tools/graph.ts";
+import { plannerGraphTools } from "../agent/tools/planner-graph.ts";
 import { stampNewSession } from "./chats.ts";
 import { listMaterials, removeMaterial, waitForMaterials } from "./materials.ts";
 import { stores } from "./stores.ts";
@@ -352,7 +352,7 @@ async function runDraft(courseId: string, feedback: string | undefined, controll
 			.map((s) => ({ id: s.id, name: s.name, statement: s.statement }));
 		const tools: Record<string, AgentTool<any>> = {
 			...materialTools({ chatId: courseId, store: stores.materialStore }),
-			...auditorGraphTools({ chatStore: stores.chatStore, graphStore: stores.graphStore }),
+			...plannerGraphTools({ chatStore: stores.chatStore, graphStore: stores.graphStore }),
 		};
 		const result = await withBgLlmSlot(controller.signal, () =>
 			draftCourse(

@@ -21,7 +21,9 @@ import { graphSkillLayer } from "./courses.ts";
  * reflects whatever the pipeline has merged so far.
  */
 export function graphView(): GraphSnapshot {
-	const snapshot = graphSnapshot(stores);
+	const organization = stores.sourceOrganizationStore.read();
+	const names = Object.fromEntries(Object.entries(organization.placements).flatMap(([id, p]) => p.name === undefined ? [] : [[id, p.name]]));
+	const snapshot = graphSnapshot(stores, names);
 	// The skills layer (owner, 2026-10-25): the held skills ride the same
 	// payload — the canvas draws them beside the propositions.
 	const skills = graphSkillLayer();

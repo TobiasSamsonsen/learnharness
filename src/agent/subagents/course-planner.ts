@@ -6,7 +6,8 @@
  * reviews the draft; approval (src/server/courses.ts) writes it.
  *
  * A small agentic loop (runSubmitAgent): the material lookup tools, the
- * auditor's graph exploration (find / list_sessions / list_propositions),
+ * planner's graph exploration (find_candidates / list_sessions / list_propositions,
+ * src/agent/tools/planner-graph.ts),
  * list_skills, and ONE submit_draft call. The submit seam runs the same
  * validator approval runs (core/course-draft.ts), so an invalid draft is
  * retried here and never reaches the owner.
@@ -36,7 +37,7 @@ PREREQUISITES (requires)
 
 REUSE — the learner's graph already holds skills (from other courses) and propositions (facts from past lessons)
 - Call list_skills first. When a skill you need IS an existing skill — the same ability, however worded — set "reuse" to its id (keep its name and statement in your entry). A duplicate is better than a wrong merge: reuse only the same ability.
-- restsOn: the ids of EXISTING propositions (find / list_sessions / list_propositions) that are genuinely the facts this skill uses. This connects the course to what the learner has already learned. Leave it empty when nothing in the graph fits — never guess an id.
+- restsOn: the ids of EXISTING propositions (find_candidates / list_sessions / list_propositions) that are genuinely the facts this skill uses. This connects the course to what the learner has already learned. Leave it empty when nothing in the graph fits — never guess an id.
 
 THE MATERIAL
 - The profiles below summarize each material. Check exact targets, definitions and exercises with material_search / material_read when the profile is not enough.

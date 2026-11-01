@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { NextConfig } from "next";
 import { MATERIAL_MAX_BYTES } from "./src/core/materials.ts";
+import { MAX_IMPORT_BODY_BYTES } from "./lib/notes-import-limits.ts";
 
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string; homepage: string };
 
@@ -11,9 +12,12 @@ const nextConfig: NextConfig = {
 	// bytes of a request body (default 10 MB) — a 13.9 MB PDF arrived
 	// truncated and formData() failed. One material per request (the
 	// client's uploadFiles), so the limit is the per-file ceiling plus
-	// headroom for the multipart framing.
+	// headroom for the multipart framing. Upstream's notes import needs
+	// MAX_IMPORT_BODY_BYTES (25 MiB file + framing); the material ceiling is
+	// larger, so the max covers both. This is a proxy buffer, not a rejection
+	// gate: the routes bound reads and validate the actual bytes themselves.
 	experimental: {
-		proxyClientMaxBodySize: MATERIAL_MAX_BYTES + 1024 * 1024,
+		proxyClientMaxBodySize: Math.max(MATERIAL_MAX_BYTES + 1024 * 1024, MAX_IMPORT_BODY_BYTES),
 	},
 	// Public build metadata only; no new runtime Electron version API.
 	env: { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage },
