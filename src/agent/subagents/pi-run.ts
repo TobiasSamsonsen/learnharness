@@ -1,5 +1,5 @@
 import { Agent, type AgentEvent, type AgentMessage, type AgentTool } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, ToolResultMessage, Usage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message, ToolResultMessage, Usage } from "@earendil-works/pi-ai";
 import { randomUUID } from "node:crypto";
 import { APP_IDENTITY, piEngineFor, type PiEngine } from "../models.ts";
 import { usageWasAdmitted } from "../subscription-request-cycle.ts";
@@ -41,6 +41,10 @@ export interface SubagentRunOptions {
 	onAssistantMessage?: (message: AssistantMessage, step: number) => void;
 	/** Extra stop rule (extractor: stop after a clean submit). */
 	shouldStop?: (message: AssistantMessage, toolResults: ToolResultMessage[]) => boolean;
+	/** The model-facing conversion of `messages` (the record's native history needs
+	 *  toLlmMessages: markers flatten, a dangling call gets its placeholder result).
+	 *  Absent = pi's default. */
+	convertToLlm?: (messages: AgentMessage[]) => Message[];
 	/** Debug: when set AND LH_PROVIDER_EVENTS=1, raw provider stream
 	 *  events append to data/debug/provider-events/<chatId>.jsonl (context
 	 *  "job:<role>"). Absent or env-off → no observer.
@@ -81,6 +85,7 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 			messages: opts.messages ?? [],
 		},
 		streamFn: backgroundCaptureStream(engine.streamFn, capture),
+		...(opts.convertToLlm ? { convertToLlm: opts.convertToLlm } : {}),
 		...(providerEvents ? { onProviderStreamEvent: providerEvents } : {}),
 		// 0.87.1: shouldStopAfterTurn → finishTurn (same call point; "end"
 		// exits before the steering poll, exactly the old boolean-true).

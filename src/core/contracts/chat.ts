@@ -58,6 +58,11 @@ export interface ChatRecord {
 	extractions?: ExtractionRunUsage[];
 	/** Per-chat model/thinking overrides for the conversation agents. */
 	settings?: ChatSettings;
+	/** The learner's clarification questions (owner design, 2026-11-01), keyed by the
+	 *  pending question's key (PendingQuestion.key). A side thread beside the
+	 *  transcript: never part of `messages`, so the tutor's turns do not see it. An
+	 *  absent field reads as no clarifications (an optional field — no schema bump). */
+	clarifications?: Record<string, Clarification[]>;
 	/** SCHEMA STAMP (schema-versioning wave, owner 2026-10-10): LAZY v1 —
 	 *  existing records stay unstamped (absence reads as v1); every write
 	 *  stamps the current version. A record stamped NEWER than this build
@@ -65,6 +70,22 @@ export interface ChatRecord {
 	 *  store must never rewrite what it doesn't understand. */
 	version?: number;
 }
+
+/** One clarification: the learner marked a passage of the learning text and
+ *  asked about it while a quiz question was pending; the tutor's reply. */
+export interface Clarification {
+	id: string;
+	/** The marked text, verbatim as selected. */
+	quote: string;
+	question: string;
+	/** The tutor's answer. */
+	reply: string;
+	at: string;
+}
+
+/** The longest marked text and question the clarify route accepts. */
+export const CLARIFY_QUOTE_MAX = 2_000;
+export const CLARIFY_QUESTION_MAX = 2_000;
 
 /** The chat record format this build writes and understands. */
 export const CURRENT_CHAT_VERSION = 1;

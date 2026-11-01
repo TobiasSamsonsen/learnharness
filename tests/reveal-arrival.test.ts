@@ -52,11 +52,15 @@ describe("revealArrival — how a teach question lands", () => {
  * painted one stale-open frame first).
  */
 describe("probeArrivalExpanded — how a probe question lands", () => {
-	it("at the bottom following along: open", () => {
-		assert.equal(probeArrivalExpanded(true), true);
+	it("fresh arrival after the composer, at the bottom: collapsed (no pop-up over the reading)", () => {
+		assert.equal(probeArrivalExpanded(true, false), false);
 	});
 
-	it("scrolled up in history: arrive already-collapsed (owner ruling)", () => {
-		assert.equal(probeArrivalExpanded(false), false);
+	it("queued behind another question, at the bottom: open", () => {
+		assert.equal(probeArrivalExpanded(true, true), true);
+	});
+
+	it("queued behind another question, scrolled up in history: collapsed (owner ruling)", () => {
+		assert.equal(probeArrivalExpanded(false, true), false);
 	});
 });

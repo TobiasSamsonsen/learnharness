@@ -146,8 +146,8 @@ Goal: a learning session must look and feel structurally different from a ChatGP
 
 - **Probe** and **teach** are the two real phases; planning is not a phase, just a moment (maybe a small indicator).
 - The agent signals the probe→teach transition with a structured marker → **visible divider in the transcript**.
-- **Probe-phase questions auto-open** (as now — they are the substance of probing).
-- **Teaching-phase check questions start collapsed** behind a "Check your understanding" reveal button. Rationale: a question popping up mid-lesson pressures the learner to answer immediately; the learner should read the teaching first and open the check when ready.
+- **No question pops open over the text being read** (owner ruling, 2026-11-01). A question arriving after the composer lands collapsed — teach checks behind the "Check your understanding" reveal button, probe and predict questions as the collapsed bar. A question queued directly behind an answered one still opens when the learner is at the bottom (the reading already happened), and scrolling back to the bottom re-opens a collapsed probe/predict dock. Rationale: a question popping up mid-lesson pressures the learner to answer immediately; the learner should read the teaching first and open the check when ready.
+- **Ask before answering** (owner design, 2026-11-01). While a question is pending, the learner can mark text in the learning text, press the floating *Ask about this* button and put a clarifying question in the dock's Ask area. One text-only call on the chat's own model answers it — same system prompt and history, no tools — and the tutor is told never to state or hint at the answer to the pending question. The pairs live in the record's `clarifications` (keyed by the question), not in the message history, so the tutor's next turn does not see them. Not yet driven on a real touch device (Android WebView text selection with the floating button).
 
 ### Interactive demos — teacher-authored artifacts (DECIDED direction)
 

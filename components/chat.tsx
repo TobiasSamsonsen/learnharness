@@ -57,6 +57,9 @@ import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog"
 import { ArrowRightIcon, ClipboardCheckIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
+import { AskSelection } from "@/components/ask-selection";
+import type { ClarifyPanelProps } from "@/components/clarify-panel";
+import { useClarifications } from "@/components/use-clarifications";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
 import { PracticeDock, type ThinkingMark } from "@/components/practice-dock";
@@ -593,6 +596,20 @@ export function Chat({
 		setReadingThinkingSeed((previous) => ({ ...previous, value: "", revision: previous.revision + 1 }));
 	}, []);
 	const pendingQuestionId = pending?.key ?? null;
+	/* The ASK channel (owner design 2026-11-01): text marked in the learning text,
+	 * asked about in the dock before the quiz is answered. The marked text is
+	 * dropped with the question; the thread rides the record (clarifications). */
+	const clarifications = useClarifications(chatId, pendingQuestionId);
+	const [askQuote, setAskQuote] = useState<string | null>(null);
+	useEffect(() => setAskQuote(null), [pendingQuestionId]);
+	const clarify: ClarifyPanelProps = {
+		thread: clarifications.thread,
+		busy: clarifications.busy,
+		error: clarifications.error,
+		quote: askQuote,
+		onClearQuote: () => setAskQuote(null),
+		onAsk: clarifications.ask,
+	};
 	useLayoutEffect(() => {
 		// Different calls never share a draft; a failed submission of THIS
 		// call restores the reading channel alongside the form's snapshot.
@@ -1810,6 +1827,7 @@ export function Chat({
 				    anchored to the dock block's top edge, so it rides every
 				    height morph (typing, a question growing the band, the
 				    fold) and NEVER overlaps the composer. */}
+				<AskSelection enabled={pending !== null} onAsk={setAskQuote} />
 				<DockOverlay
 					pending={pending}
 					initialQuestionDraft={pending ? questionDraft(pending.key)?.form : undefined}
@@ -1827,6 +1845,7 @@ export function Chat({
 					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
 					onOpenPlan={() => setPlanOpen(true)}
 					requiresReveal={requiresReveal}
+					clarify={clarify}
 					readingThinking={readingThinkingSeed.value}
 					readingThinkingRevision={readingThinkingSeed.revision}
 					onReadingThinking={applyReadingThinking}
@@ -2026,15 +2045,17 @@ export function revealArrival(wasQuestion: boolean): { expanded: boolean; reveal
 }
 
 /**
- * A PROBE question's arrival state (flicker round, 2026-09-26): open iff
- * the learner is at the bottom following along; scrolled up in history →
- * arrive as the collapsed bar (owner ruling: "it should just remain
- * closed"). Decided DURING RENDER like the teach seam above — the old
- * after-paint effect painted one stale-open frame first (the box "opened
- * and immediately closed" when scrolled up). Pure for tests.
+ * A PROBE / predict question's arrival state. Owner ruling 2026-11-01: a
+ * question must not pop up over the text the learner is reading, so a FRESH
+ * arrival (after the composer) lands as the collapsed bar like a teach check.
+ * A question queued behind another question stays open when the learner is
+ * at the bottom (the reading already happened). Scrolling back to the bottom
+ * still re-opens the dock (the fold machine). Decided DURING RENDER like the
+ * teach seam above — the old after-paint effect painted one stale-open frame
+ * first. Pure for tests.
  */
-export function probeArrivalExpanded(isAtBottom: boolean): boolean {
-	return isAtBottom;
+export function probeArrivalExpanded(isAtBottom: boolean, wasQuestion: boolean): boolean {
+	return wasQuestion && isAtBottom;
 }
 
 /**
@@ -2063,6 +2084,7 @@ function DockOverlay({
 	sketchAvailable,
 	onModelChange,
 	requiresReveal,
+	clarify,
 	readingThinking,
 	readingThinkingRevision,
 	onReadingThinking,
@@ -2103,6 +2125,9 @@ function DockOverlay({
 	onModelChange: (model: string | undefined) => void;
 	/** Teach-phase pending question: arrives collapsed behind the reveal button (W5). */
 	requiresReveal: boolean;
+	/** The Ask area's state (owner design 2026-11-01) — owned by ChatView with the
+	 *  floating Ask button; marking text also opens the dock so the field shows. */
+	clarify: ClarifyPanelProps;
 	/** The reading-thinking draft (owner 2026-10-03) — owned by ChatView so
 	 *  the submit + dismissal seams (outside this overlay) can merge it. */
 	readingThinking: string;
@@ -2183,9 +2208,10 @@ function DockOverlay({
 			setExpanded(arrival.expanded);
 			setRevealed(arrival.revealed);
 		} else if (pendingId) {
-			// Probe arrival (flicker round): open iff following at the bottom.
-			// Painted in THIS render — no stale-open frame, no after-paint flip.
-			setExpanded(probeArrivalExpanded(atBottomRef.current));
+			// Probe arrival: collapsed after the composer, open when queued
+			// behind a question and following at the bottom. Painted in THIS
+			// render — no stale-open frame, no after-paint flip.
+			setExpanded(probeArrivalExpanded(atBottomRef.current, wasQuestion));
 		}
 	}
 
@@ -2199,7 +2225,7 @@ function DockOverlay({
 	// starts in its initial state — no scroll, no morph.
 	useEffect(() => {
 		if (!pendingId || pendingId === initialPendingRef.current) return;
-		if (!requiresReveal && atBottomRef.current) void suppressFoldDuringReveal();
+		if (!requiresReveal && atBottomRef.current && expandedRef.current) void suppressFoldDuringReveal();
 		// fire only when a NEW question lands
 	}, [pendingId]);
 
@@ -2374,6 +2400,10 @@ function DockOverlay({
 	};
 	const expandAndRevealRef = useRef(expandAndReveal);
 	expandAndRevealRef.current = expandAndReveal;
+	// Marking text to ask about it opens the dock — the Ask field lives in it.
+	useEffect(() => {
+		if (clarify.quote) expandAndRevealRef.current();
+	}, [clarify.quote]);
 	// ENTER OPENS THE WAITING CHECK (owner, keyboard round 2026-10-06):
 	// while a question waits with the dock CLOSED — behind its reveal
 	// invitation or collapsed by scroll — Enter is never dead. Any live
@@ -2559,6 +2589,7 @@ function DockOverlay({
 									onSaveDraft={onSaveQuestionDraft}
 									onEscape={dictationCancel}
 									dictationClaim={!revealPending}
+									clarify={clarify}
 									compactionRunning={compactionRunning}
 									sketchAvailable={sketchAvailable}
 								/>

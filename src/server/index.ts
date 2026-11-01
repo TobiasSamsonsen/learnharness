@@ -44,6 +44,7 @@ export * from "./settings-body.ts";
 export * from "./turn-liveness.ts";
 export * from "./turn-runs.ts";
 export * from "./dismissal-park.ts";
+export * from "./clarify.ts";
 export * from "./compaction.ts";
 export { runPiTurn, piTurnResponse, type PiTurnHandle, type PiTurnSpec } from "./pi/ui-stream.ts";
 export * from "./observability.ts";

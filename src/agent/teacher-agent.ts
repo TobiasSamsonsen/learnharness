@@ -225,6 +225,21 @@ function paceFor(kind: AgentKind, pace: AgentBuildOptions["pace"]): string {
 	return paceSection(kind, pace.level, pace.note);
 }
 
+/** The conversation agent's composed system prompt for one turn — the single
+ *  source for the agent itself and for a side call that must read the same
+ *  prompt (the clarification call, server/clarify.ts). */
+export function agentSystemPrompt(
+	kind: AgentKind,
+	opts: Pick<AgentBuildOptions, "promptSwitches" | "language" | "materials" | "course" | "pace">,
+): string {
+	const composed = opts.promptSwitches ? composeInstructions(kind, opts.promptSwitches) : composedInstructions[kind]!;
+	return withLanguageDirective(
+		[composed, opts.materials?.section, opts.course?.section, paceFor(kind, opts.pace)].filter(Boolean).join("\n\n"),
+		opts.language ?? DEFAULT_LESSON_LANGUAGE,
+		"conversation",
+	);
+}
+
 function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: AgentTool<any, any>[]) {
 	// Practice never reaches the role fallback (the handler ALWAYS injects
 	// the session's conversation engine — practice rides the same
@@ -233,12 +248,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const engine = opts.engine ?? piEngineFor(kind as "prober" | "teacher");
 	const stopper = makeQuestionStopper(kind);
 	const forceText = kind === "teacher" && !FORCE_TEXT_OFF_PROVIDERS.includes(engine.model.provider);
-	const composed = opts.promptSwitches ? composeInstructions(kind, opts.promptSwitches) : composedInstructions[kind]!;
-	const systemPrompt = withLanguageDirective(
-		[composed, opts.materials?.section, opts.course?.section, paceFor(kind, opts.pace)].filter(Boolean).join("\n\n"),
-		opts.language ?? DEFAULT_LESSON_LANGUAGE,
-		"conversation",
-	);
+	const systemPrompt = agentSystemPrompt(kind, opts);
 	// read_sketch (Android plan M2) rides EVERY agent, always — practice
 	// builds its own (it shares the conclude gate). A caller-owned registry
 	// (opts.tools — the tests') is never touched.

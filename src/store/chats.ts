@@ -12,7 +12,7 @@ import * as path from "node:path";
 import { PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
-import type { ChatCourseLink, ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
+import type { ChatCourseLink, ChatRecord, Clarification, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
 import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
@@ -82,7 +82,7 @@ function getChat(id: string): ChatRecord | null {
 }
 
 /** The list projection of one record (null when the projection fails). */
-function summarize({ messages, tree, turns, extractions, ...summary }: ChatRecord): ChatSummary | null {
+function summarize({ messages, tree, turns, extractions, clarifications: _clarifications, ...summary }: ChatRecord): ChatSummary | null {
 	// Per-record isolation (Wave B): a record whose messages fail the
 	// projection (e.g. pre-Wave-B UIMessage-format scratch — the
 	// zero-back-compat wipe makes these "corrupt") must not blank the
@@ -193,6 +193,19 @@ function appendExtractionUsage(id: string, entry: ExtractionRunUsage): void {
 	writeChat(record);
 }
 
+/** Append one clarification to the pending question's side thread —
+ * idempotent per clarification id. Silent and updatedAt-preserving, like the
+ * usage logs: a side thread is not conversation activity. */
+function appendClarification(id: string, key: string, entry: Clarification): void {
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	const all = record.clarifications ?? {};
+	const thread = all[key] ?? [];
+	if (thread.some((c) => c.id === entry.id)) return;
+	record.clarifications = { ...all, [key]: [...thread, entry] };
+	writeChat(record);
+}
+
 /** Persist the per-chat model/thinking settings — replace-whole (the
  * picker sends the complete object; absent = config defaults). */
 function saveSettings(id: string, settings: ChatSettings): void {
@@ -254,4 +267,5 @@ export const chatStore: ChatStore = {
 	deleteChat,
 	appendTurnUsage,
 	appendExtractionUsage,
+	appendClarification,
 };

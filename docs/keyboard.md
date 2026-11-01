@@ -103,6 +103,16 @@ While a select question is expanded and active:
 Text-only questions have no answer-row machine; their answer field uses the
 submission conventions above.
 
+### Ask area
+
+Marking text while a question is pending offers an **Ask about this** button
+beside the selection; it opens the dock and focuses the Ask field with the
+marked text quoted.
+
+- **Enter** sends the question (Shift+Enter is a newline; on touch devices Enter
+  is always a newline, ⌘/Ctrl+Enter sends). **Esc** clears the marked text.
+- Keys typed in the Ask field do not reach the dock's answer-row machine.
+
 ## Chains view
 
 - **Mod+F** focuses the chains search while the view is open, rather than the
