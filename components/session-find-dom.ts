@@ -141,6 +141,46 @@ export function sessionFindRanges(scope: HTMLElement, query: string): Range[] {
 	return ranges;
 }
 
+function rangeFor(doc: Document, start: TextPoint, end: TextPoint): Range {
+	const native = doc.createRange?.();
+	const range = typeof native?.setStart === "function" ? native : (new StaticRangeLike() as unknown as Range);
+	range.setStart(start.node, start.offset);
+	range.setEnd(end.node, end.offset);
+	return range;
+}
+
+/** The matches of `query` inside ONE element's displayed text (a lesson passage), as fresh Ranges. Same display model as Find
+ *  (collapsed whitespace, KaTeX's visible glyphs only, no match across blocks), but the element need not be a find root. */
+export function sessionPassageRanges(passage: HTMLElement, query: string): Range[] {
+	if (!query || !displayedRoot(passage)) return [];
+	const ranges: Range[] = [];
+	for (const run of displayRuns(passage)) {
+		for (const match of findSessionTextMatches(run.text, query)) {
+			ranges.push(rangeFor(passage.ownerDocument, run.characters[match.start]!.start, run.characters[match.end - 1]!.end));
+		}
+	}
+	return ranges;
+}
+
+/** The displayed text of a selection inside one passage: the same model as Find, so the hidden MathML copy that
+ *  `Selection.toString()` includes for math is left out, and a block boundary reads as a newline. Needs a live Range
+ *  (`comparePoint`); without one the range's own text stands. */
+export function sessionDisplayText(passage: HTMLElement, range: Range): string {
+	if (typeof range.comparePoint !== "function") return range.toString();
+	// comparePoint is inclusive at both ends: a character belongs to the selection when its start AND its end are inside
+	// (the character that begins exactly where the selection ends has its end outside)
+	const inside = (point: TextPoint): boolean => range.comparePoint(point.node, point.offset) === 0;
+	const lines: string[] = [];
+	for (const run of displayRuns(passage)) {
+		let line = "";
+		run.characters.forEach((character, i) => {
+			if (inside(character.start) && inside(character.end)) line += run.text[i]!;
+		});
+		if (line.trim()) lines.push(line.trim());
+	}
+	return lines.join("\n");
+}
+
 /** Frozen boundary identity, rather than a mutable live Range, survives text
  * appends while Find is open. A re-render may replace nodes; then the caller
  * clamps the old index without pulling the reader to a different passage. */

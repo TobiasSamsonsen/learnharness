@@ -58,11 +58,13 @@ export interface ChatRecord {
 	extractions?: ExtractionRunUsage[];
 	/** Per-chat model/thinking overrides for the conversation agents. */
 	settings?: ChatSettings;
-	/** The learner's clarification questions (owner design, 2026-11-01), keyed by the
-	 *  pending question's key (PendingQuestion.key). A side thread beside the
-	 *  transcript: never part of `messages`, so the tutor's turns do not see it. An
-	 *  absent field reads as no clarifications (an optional field — no schema bump). */
-	clarifications?: Record<string, Clarification[]>;
+	/** The learner's margin threads (owner design, 2026-11-02): a bubble on a line of the learning text, with the
+	 *  questions asked about it and the tutor's answers. A side channel beside the transcript: never part of
+	 *  `messages`, so the tutor's turns do not see it. Absent = none (an optional field — no schema bump). */
+	clarifyThreads?: ClarifyThread[];
+	/** LEGACY (2026-11-01 panel in the quiz dock, keyed by the pending question): no longer written or shown. Kept so
+	 *  an old record round-trips untouched. */
+	clarifications?: Record<string, LegacyClarification[]>;
 	/** SCHEMA STAMP (schema-versioning wave, owner 2026-10-10): LAZY v1 —
 	 *  existing records stay unstamped (absence reads as v1); every write
 	 *  stamps the current version. A record stamped NEWER than this build
@@ -71,21 +73,45 @@ export interface ChatRecord {
 	version?: number;
 }
 
-/** One clarification: the learner marked a passage of the learning text and
- *  asked about it while a quiz question was pending; the tutor's reply. */
-export interface Clarification {
+/** Where a thread hangs on the learning text: the native message, the first line of the marked text as displayed (what the
+ *  page re-finds after a reload) and which occurrence of that text within the message it is. */
+export interface ClarifyAnchor {
+	messageId: string;
+	text: string;
+	occurrence: number;
+}
+
+/** One question to the tutor about the marked text, and its answer. */
+export interface ClarifyEntry {
 	id: string;
-	/** The marked text, verbatim as selected. */
-	quote: string;
 	question: string;
-	/** The tutor's answer. */
 	reply: string;
 	at: string;
 }
 
-/** The longest marked text and question the clarify route accepts. */
+/** A margin bubble: the marked passage and the conversation about it (follow-ups extend `entries`). */
+export interface ClarifyThread {
+	id: string;
+	anchor: ClarifyAnchor;
+	/** The whole marked text as displayed (the tutor reads this, not just the anchor line). */
+	quote: string;
+	startedAt: string;
+	entries: ClarifyEntry[];
+}
+
+/** The pair shape of the first (dock panel) version, keyed by question; see ChatRecord.clarifications. */
+export interface LegacyClarification {
+	id: string;
+	quote: string;
+	question: string;
+	reply: string;
+	at: string;
+}
+
+/** The longest marked text, anchor line and question the clarify route accepts. */
 export const CLARIFY_QUOTE_MAX = 2_000;
 export const CLARIFY_QUESTION_MAX = 2_000;
+export const CLARIFY_ANCHOR_MAX = 300;
 
 /** The chat record format this build writes and understands. */
 export const CURRENT_CHAT_VERSION = 1;

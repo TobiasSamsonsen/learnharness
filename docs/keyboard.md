@@ -103,15 +103,14 @@ While a select question is expanded and active:
 Text-only questions have no answer-row machine; their answer field uses the
 submission conventions above.
 
-### Ask area
+### Margin questions
 
-Marking text while a question is pending offers an **Ask about this** button
-beside the selection; it opens the dock and focuses the Ask field with the
-marked text quoted.
+Marking text in the learning text offers an **Ask about this** button beside the selection; it puts a bubble in the right margin and opens its card with the field focused.
 
-- **Enter** sends the question (Shift+Enter is a newline; on touch devices Enter
-  is always a newline, ⌘/Ctrl+Enter sends). **Esc** clears the marked text.
-- Keys typed in the Ask field do not reach the dock's answer-row machine.
+- **Enter** sends the question (Shift+Enter is a newline; on touch devices Enter is always a newline, ⌘/Ctrl+Enter sends). Follow-ups use the same field.
+- **Esc** closes the card (a thread that has no question yet is dropped). A tap outside the card closes it too.
+- Keys typed in the field do not reach the chat's own shortcuts. The card is not a dialog, so find-in-page keeps working.
+
 
 ## Chains view
 

@@ -57,9 +57,9 @@ import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog"
 import { ArrowRightIcon, ClipboardCheckIcon, DumbbellIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
-import { AskSelection } from "@/components/ask-selection";
-import type { ClarifyPanelProps } from "@/components/clarify-panel";
-import { useClarifications } from "@/components/use-clarifications";
+import { AskSelection, type AskMark } from "@/components/ask-selection";
+import { ClarifyLayer } from "@/components/clarify-layer";
+import { useClarifyThreads } from "@/components/use-clarify-threads";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
 import { PracticeDock, type ThinkingMark } from "@/components/practice-dock";
@@ -108,6 +108,8 @@ import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/th
  * same place — width polish only.
  */
 const COLUMN = "mx-auto w-full max-w-none px-6";
+/** The transcript's column: the right side is wider (48px) for the margin bubbles of the learner's questions (clarify-layer.tsx). */
+const TRANSCRIPT_COLUMN = "mx-auto w-full max-w-none pl-6 pr-12";
 const DOCK = "mx-auto w-full max-w-[46rem] px-4";
 // The DOCK container's fixed width (46rem) and the plan marginalia's
 // geometry (owner, plan-placement round): the bare diagram sits in the
@@ -596,20 +598,13 @@ export function Chat({
 		setReadingThinkingSeed((previous) => ({ ...previous, value: "", revision: previous.revision + 1 }));
 	}, []);
 	const pendingQuestionId = pending?.key ?? null;
-	/* The ASK channel (owner design 2026-11-01): text marked in the learning text,
-	 * asked about in the dock before the quiz is answered. The marked text is
-	 * dropped with the question; the thread rides the record (clarifications). */
-	const clarifications = useClarifications(chatId, pendingQuestionId);
-	const [askQuote, setAskQuote] = useState<string | null>(null);
-	useEffect(() => setAskQuote(null), [pendingQuestionId]);
-	const clarify: ClarifyPanelProps = {
-		thread: clarifications.thread,
-		busy: clarifications.busy,
-		error: clarifications.error,
-		quote: askQuote,
-		onClearQuote: () => setAskQuote(null),
-		onAsk: clarifications.ask,
-	};
+	/* The ASK channel (owner design 2026-11-02): text marked in the learning text gets a
+	 * bubble in the margin beside its line, with a floating card for the questions and
+	 * follow-ups; the threads ride the record (clarifyThreads) and stay for good. The
+	 * marked text waits here, unsent, as a draft until its first question is asked. */
+	const clarifyThreads = useClarifyThreads(chatId);
+	const [askDraft, setAskDraft] = useState<AskMark | null>(null);
+	useEffect(() => setAskDraft(null), [chatId]);
 	useLayoutEffect(() => {
 		// Different calls never share a draft; a failed submission of THIS
 		// call restores the reading channel alongside the form's snapshot.
@@ -1533,7 +1528,7 @@ export function Chat({
 				<Conversation className="h-full min-w-0 flex-1" initial="instant" contextRef={scrollContextRef}>
 					<SessionMessageNavigation />
 					<ConversationContent className="min-h-full gap-0 p-0">
-						<div data-session-find-root="" className={`${COLUMN} flex flex-1 flex-col gap-4 pt-4`}>
+						<div data-session-find-root="" className={`${TRANSCRIPT_COLUMN} relative flex flex-1 flex-col gap-4 pt-4`}>
 							{messages.length === 0 && !busy && (
 								<ConversationEmptyState
 									title="New session"
@@ -1801,6 +1796,15 @@ export function Chat({
 									</Shimmer>
 								</span>
 							)}
+							{/* The margin bubbles of the learner's questions about the text (owner design, 2026-11-02). */}
+							<ClarifyLayer
+								threads={clarifyThreads.threads}
+								busyKey={clarifyThreads.busyKey}
+								error={clarifyThreads.error}
+								ask={clarifyThreads.ask}
+								draft={askDraft}
+								onDraftDone={() => setAskDraft(null)}
+							/>
 							{openingError && <p role="alert" className="text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 							{error && (
 								<div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
@@ -1827,7 +1831,7 @@ export function Chat({
 				    anchored to the dock block's top edge, so it rides every
 				    height morph (typing, a question growing the band, the
 				    fold) and NEVER overlaps the composer. */}
-				<AskSelection enabled={pending !== null} onAsk={setAskQuote} />
+				<AskSelection enabled onAsk={setAskDraft} />
 				<DockOverlay
 					pending={pending}
 					initialQuestionDraft={pending ? questionDraft(pending.key)?.form : undefined}
@@ -1845,7 +1849,6 @@ export function Chat({
 					plan={hasPlan ? <PlanMarginalia messages={messages} /> : undefined}
 					onOpenPlan={() => setPlanOpen(true)}
 					requiresReveal={requiresReveal}
-					clarify={clarify}
 					readingThinking={readingThinkingSeed.value}
 					readingThinkingRevision={readingThinkingSeed.revision}
 					onReadingThinking={applyReadingThinking}
@@ -2084,7 +2087,6 @@ function DockOverlay({
 	sketchAvailable,
 	onModelChange,
 	requiresReveal,
-	clarify,
 	readingThinking,
 	readingThinkingRevision,
 	onReadingThinking,
@@ -2125,9 +2127,6 @@ function DockOverlay({
 	onModelChange: (model: string | undefined) => void;
 	/** Teach-phase pending question: arrives collapsed behind the reveal button (W5). */
 	requiresReveal: boolean;
-	/** The Ask area's state (owner design 2026-11-01) — owned by ChatView with the
-	 *  floating Ask button; marking text also opens the dock so the field shows. */
-	clarify: ClarifyPanelProps;
 	/** The reading-thinking draft (owner 2026-10-03) — owned by ChatView so
 	 *  the submit + dismissal seams (outside this overlay) can merge it. */
 	readingThinking: string;
@@ -2400,10 +2399,6 @@ function DockOverlay({
 	};
 	const expandAndRevealRef = useRef(expandAndReveal);
 	expandAndRevealRef.current = expandAndReveal;
-	// Marking text to ask about it opens the dock — the Ask field lives in it.
-	useEffect(() => {
-		if (clarify.quote) expandAndRevealRef.current();
-	}, [clarify.quote]);
 	// ENTER OPENS THE WAITING CHECK (owner, keyboard round 2026-10-06):
 	// while a question waits with the dock CLOSED — behind its reveal
 	// invitation or collapsed by scroll — Enter is never dead. Any live
@@ -2534,7 +2529,7 @@ function DockOverlay({
 	return (
 		<div className="pointer-events-none absolute inset-x-0 bottom-0" style={{ right: sbInset }}>
 			<div className="h-24 bg-gradient-to-t from-background via-background/85 to-transparent" />
-			<div ref={blockRef} className="relative bg-background pb-[calc(1.25rem+var(--lh-safe-bottom))]">
+			<div ref={blockRef} data-dock-block="" className="relative bg-background pb-[calc(1.25rem+var(--lh-safe-bottom))]">
 				<div className={DOCK}>
 					<div ref={viewportRef} data-dock-viewport="" className="pointer-events-auto">
 					<div ref={bodyRef}>
@@ -2589,7 +2584,6 @@ function DockOverlay({
 									onSaveDraft={onSaveQuestionDraft}
 									onEscape={dictationCancel}
 									dictationClaim={!revealPending}
-									clarify={clarify}
 									compactionRunning={compactionRunning}
 									sketchAvailable={sketchAvailable}
 								/>

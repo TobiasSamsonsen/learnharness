@@ -13,7 +13,8 @@ import type { LhMessage } from "./native-messages.ts";
 import type { LessonMaterial, MaterialKind } from "./materials.ts";
 import type {
 	ChatRecord,
-	Clarification,
+	ClarifyEntry,
+	ClarifyThread,
 	ChatSettings,
 	ChatSummary,
 	GraphChain,
@@ -54,10 +55,9 @@ export interface ChatStore {
 	appendTurnUsage(id: string, entry: TurnUsage): void;
 	/** Append one extraction-run usage entry — idempotent per startedAt. */
 	appendExtractionUsage(id: string, entry: ExtractionRunUsage): void;
-	/** Append one clarification to a pending question's side thread (keyed by
-	 *  PendingQuestion.key) — idempotent per clarification id. Like usage, NOT
-	 *  conversation activity: updatedAt stays put. */
-	appendClarification(id: string, key: string, entry: Clarification): void;
+	/** Append one question/answer to a margin thread, creating the thread (anchor and quote) when it is new —
+	 *  idempotent per entry id. Like usage, NOT conversation activity: updatedAt stays put. */
+	appendClarifyEntry(id: string, thread: Pick<ClarifyThread, "id" | "anchor" | "quote">, entry: ClarifyEntry): void;
 	/** Persist the per-chat model/thinking settings (the model control).
 	 *  Replace-whole: the picker sends the complete settings object. */
 	saveSettings(id: string, settings: ChatSettings): void;

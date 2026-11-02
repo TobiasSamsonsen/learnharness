@@ -47,7 +47,6 @@ import {
 	type Phase3,
 } from "@/src/core";
 import { ConfidenceButtons } from "@/components/confidence-buttons";
-import { ClarifyPanel, type ClarifyPanelProps } from "@/components/clarify-panel";
 
 /**
  * The question dock — a pending quiz/ask REPLACES the chat composer: the
@@ -111,10 +110,6 @@ export interface QuestionDockProps {
 	 *  and say so in the hint row. The server registry is the real gate;
 	 *  this is the affordance. */
 	compactionRunning?: boolean;
-	/** The Ask area's state (owner design, 2026-11-01): marked text, the question
-	 *  field and the tutor's answers — owned by the chat view, which also owns the
-	 *  floating Ask button. Absent = no Ask area (practice-free callers, tests). */
-	clarify?: ClarifyPanelProps;
 }
 
 export function QuestionDock({
@@ -132,7 +127,6 @@ export function QuestionDock({
 	dictationClaim = true,
 	compactionRunning = false,
 	sketchAvailable = false,
-	clarify,
 }: QuestionDockProps) {
 	// The probe-phase names (owner, 2026-10-09) canonicalize onto their
 	// teach twins for every dock concern — parse dispatch, labels, kinds:
@@ -186,7 +180,6 @@ export function QuestionDock({
 					dictationClaim={dictationClaim}
 					compactionRunning={compactionRunning}
 					sketchAvailable={sketchAvailable}
-					clarify={clarify}
 				/>
 			</div>
 		</>
@@ -285,7 +278,6 @@ function QuestionDockForm({
 	dictationClaim = true,
 	compactionRunning = false,
 	sketchAvailable = false,
-	clarify,
 }: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal">) {
 	const kind = toolQuestionKind(toolName);
 
@@ -807,9 +799,6 @@ function QuestionDockForm({
 					</div>
 				)}
 			</div>
-
-			{/* The Ask area (owner design, 2026-11-01): clarify marked text before answering. */}
-			{clarify && <ClarifyPanel {...clarify} />}
 
 			{/* The confidence BUTTONS (owner, 2026-10-28; Anki style, replacing the slider and the Submit button): pick an answer,
 			    then press how sure you are — the press submits. "I don't know" is the leading button and needs no pick; the five

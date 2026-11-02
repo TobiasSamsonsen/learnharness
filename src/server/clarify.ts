@@ -9,7 +9,15 @@ import { resolveLessonLanguage } from "../core/language.ts";
 import { resolvePace } from "../core/pace.ts";
 import { resolveConversationSpec } from "../core/settings-resolution.ts";
 import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope } from "../core/settings.ts";
-import { CLARIFY_QUESTION_MAX, CLARIFY_QUOTE_MAX, type CallUsage, type Clarification } from "../core/contracts.ts";
+import {
+	CLARIFY_ANCHOR_MAX,
+	CLARIFY_QUESTION_MAX,
+	CLARIFY_QUOTE_MAX,
+	type CallUsage,
+	type ClarifyAnchor,
+	type ClarifyEntry,
+	type ClarifyThread,
+} from "../core/contracts.ts";
 import { awaitCompaction } from "./compaction.ts";
 import { courseForTurn } from "./courses.ts";
 import { refreshConnectionCatalog } from "./model-catalog.ts";
@@ -19,37 +27,42 @@ import { effectiveSettings, stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 
 /**
- * The clarification call (owner design, 2026-11-01): while a quiz question is
- * pending, the learner marks a passage of the learning text and asks about it.
- * ONE text-only model call answers it — on the chat's own conversation engine,
- * with the SAME system prompt and the record's history up to the pending
- * question (the model already has the context; no tools, so it cannot touch the
- * record). The reply is stored in the record's side thread (`clarifications`,
- * keyed by the pending question) and never enters `messages`, so the tutor's
- * next turn does not see it.
+ * The clarification call (owner design, 2026-11-01; margin threads 2026-11-02): the learner marks a passage of the
+ * learning text and asks about it, in a bubble beside the line; follow-ups extend the same thread. ONE text-only model
+ * call answers each question — on the chat's own conversation engine, with the SAME system prompt and the record's
+ * history (the model already has the context; no tools, so it cannot touch the record). The reply is stored in the
+ * record's `clarifyThreads` and never enters `messages`, so the tutor's next turn does not see it.
+ *
+ * While a quiz question is pending the tutor is told never to reveal its answer; with none pending it answers freely.
  */
 
 /** A clarification must never take longer than the learner will wait. */
 export const CLARIFY_TIMEOUT_MS = 120_000;
 
-/** The instruction appended to the history as the call's one user message. It is
- *  the only place the "never reveal the answer" rule lives. */
+/** The instruction appended to the history as the call's one user message. `pending` = a quiz question is waiting for the
+ *  learner's answer: the only place the "never reveal the answer" rule lives. `earlier` = this thread's earlier pairs. */
 export function clarifyPrompt(input: {
 	quote: string;
 	question: string;
-	earlier: readonly Pick<Clarification, "quote" | "question" | "reply">[];
+	earlier: readonly Pick<ClarifyEntry, "question" | "reply">[];
+	pending: boolean;
 }): string {
-	const lines = [
-		"[CLARIFICATION — NOT AN ANSWER] The learner has NOT answered your pending question yet. Before answering it they marked a passage of the learning text and are asking you about it.",
-		"Clarify what they ask: explain the marked passage, the concept or the wording of the question. You may rephrase the pending question.",
-		"Do NOT state, confirm, rule out or hint at the correct answer to the pending question, and do not say which option is right or wrong. If the question can only be answered by giving the answer away, say so briefly and explain the underlying idea instead.",
-		"Reply with plain text only (no tool calls), short and direct.",
-	];
+	const lines = input.pending
+		? [
+				"[CLARIFICATION — NOT AN ANSWER] The learner has NOT answered your pending question yet. Before answering it they marked a passage of the lesson text and are asking you about it.",
+				"Clarify what they ask: explain the marked passage, the concept or the wording of the question. You may rephrase the pending question.",
+				"Do NOT state, confirm, rule out or hint at the correct answer to the pending question, and do not say which option is right or wrong. If the question can only be answered by giving the answer away, say so briefly and explain the underlying idea instead.",
+			]
+		: [
+				"[CLARIFICATION] The learner marked a passage of the lesson text and is asking you about it. No question is waiting for an answer right now.",
+				"Clarify what they ask: explain the marked passage or the concept plainly, with the lesson so far as context.",
+			];
+	lines.push("Reply with plain text only (no tool calls), short and direct.");
 	if (input.earlier.length > 0) {
-		lines.push("", "Earlier clarifications on this question:");
-		for (const c of input.earlier) lines.push(`Marked: “${c.quote}”`, `Learner: ${c.question}`, `You: ${c.reply}`, "");
+		lines.push("", "The conversation about this passage so far:");
+		for (const c of input.earlier) lines.push(`Learner: ${c.question}`, `You: ${c.reply}`, "");
 	}
-	lines.push("", `Marked text: “${input.quote}”`, `Learner's question: ${input.question}`);
+	lines.push("", `Marked text: “${input.quote}”`, `Learner's ${input.earlier.length > 0 ? "follow-up" : "question"}: ${input.question}`);
 	return lines.join("\n");
 }
 
@@ -65,37 +78,58 @@ function bad(error: string, status: number): Response {
 	return Response.json({ error }, { status });
 }
 
-/** GET /api/chats/[id]/clarify?key=… — the side thread of one question. */
-export function handleClarifyRead(chatId: string, key: string): Response {
-	if (!key) return bad("Missing question key", 400);
-	const record = stores.chatStore.getChat(chatId);
-	if (!record) return bad("Unknown chat", 404);
-	return Response.json({ clarifications: record.clarifications?.[key] ?? [] });
+/** The anchor of a new thread, or null when the body's is malformed. */
+export function parseAnchor(raw: unknown): ClarifyAnchor | null {
+	const a = (raw ?? {}) as { messageId?: unknown; text?: unknown; occurrence?: unknown };
+	if (typeof a.messageId !== "string" || !a.messageId) return null;
+	if (typeof a.text !== "string" || !a.text.trim() || a.text.length > CLARIFY_ANCHOR_MAX) return null;
+	if (typeof a.occurrence !== "number" || !Number.isInteger(a.occurrence) || a.occurrence < 0 || a.occurrence > 10_000) return null;
+	return { messageId: a.messageId, text: a.text, occurrence: a.occurrence };
 }
 
-/** POST /api/chats/[id]/clarify — body {key, quote, question}. */
+/** GET /api/chats/[id]/clarify — every margin thread of the chat. */
+export function handleClarifyRead(chatId: string): Response {
+	const record = stores.chatStore.getChat(chatId);
+	if (!record) return bad("Unknown chat", 404);
+	return Response.json({ threads: record.clarifyThreads ?? [] });
+}
+
+/**
+ * POST /api/chats/[id]/clarify — body {question, threadId} for a follow-up, or {question, anchor, quote} for a new
+ * thread. Answers {thread}: the whole thread, with the new pair last.
+ */
 export async function handleClarifyRequest(
 	chatId: string,
 	body: unknown,
 	/** Test seam: a scripted engine replaces the chat's conversation engine. */
 	engineOverride?: PiEngine,
 ): Promise<Response> {
-	const raw = (body ?? {}) as { key?: unknown; quote?: unknown; question?: unknown };
-	const key = typeof raw.key === "string" ? raw.key : "";
-	const quote = typeof raw.quote === "string" ? raw.quote.trim() : "";
+	const raw = (body ?? {}) as { threadId?: unknown; anchor?: unknown; quote?: unknown; question?: unknown };
 	const question = typeof raw.question === "string" ? raw.question.trim() : "";
-	if (!key) return bad("Missing question key", 400);
-	if (!quote) return bad("Mark some text first", 400);
 	if (!question) return bad("Write a question first", 400);
-	if (quote.length > CLARIFY_QUOTE_MAX) return bad("The marked text is too long", 400);
 	if (question.length > CLARIFY_QUESTION_MAX) return bad("The question is too long", 400);
 
 	let record = stores.chatStore.getChat(chatId);
 	if (!record) return bad("Unknown chat", 404);
-	// Only while the quiz question is waiting, and only one turn at a time.
-	if (isTurnRunning(chatId)) return bad("The tutor is busy right now", 409);
-	const pending = pendingQuestionOf(record.messages);
-	if (!pending || pending.key !== key) return bad("That question is no longer waiting for an answer", 409);
+
+	// A follow-up names its thread; a new thread brings its anchor and the marked text.
+	let thread: Pick<ClarifyThread, "id" | "anchor" | "quote" | "entries">;
+	if (typeof raw.threadId === "string" && raw.threadId) {
+		const existing = record.clarifyThreads?.find((t) => t.id === raw.threadId);
+		if (!existing) return bad("That thread no longer exists", 404);
+		thread = existing;
+	} else {
+		const anchor = parseAnchor(raw.anchor);
+		const quote = typeof raw.quote === "string" ? raw.quote.trim() : "";
+		if (!anchor) return bad("Mark some text first", 400);
+		if (!quote) return bad("Mark some text first", 400);
+		if (quote.length > CLARIFY_QUOTE_MAX) return bad("The marked text is too long", 400);
+		if (!record.messages.some((m) => (m as { id?: string }).id === anchor.messageId)) return bad("That text is no longer in the session", 400);
+		thread = { id: crypto.randomUUID(), anchor, quote, entries: [] };
+	}
+
+	// One model call per chat at a time, and never over a running turn (its messages are not saved yet).
+	if (isTurnRunning(chatId)) return bad("The tutor is writing right now. Try again in a moment.", 409);
 
 	const effective = effectiveSettings();
 	const conversation = resolveConversationSpec(record.settings, effective.models.strong);
@@ -111,8 +145,8 @@ export async function handleClarifyRequest(
 	await awaitCompaction(chatId);
 	record = stores.chatStore.getChat(chatId);
 	if (!record) return bad("Unknown chat", 404);
-	const stillPending = pendingQuestionOf(record.messages);
-	if (!stillPending || stillPending.key !== key) return bad("That question is no longer waiting for an answer", 409);
+	// Read AFTER the awaits: the learner may have answered meanwhile.
+	const pending = pendingQuestionOf(record.messages);
 
 	let engine: PiEngine;
 	try {
@@ -143,7 +177,6 @@ export async function handleClarifyRequest(
 			reasoningTokens: usage.reasoning ?? 0,
 		});
 	};
-	const earlier = record.clarifications?.[key] ?? [];
 	let reply: string;
 	try {
 		const result = await runSubagent([], {
@@ -154,7 +187,7 @@ export async function handleClarifyRequest(
 			systemPrompt,
 			messages: asAgentMessages(record.messages),
 			convertToLlm: (messages) => toLlmMessages(messages),
-			prompt: clarifyPrompt({ quote, question, earlier }),
+			prompt: clarifyPrompt({ quote: thread.quote, question, earlier: thread.entries, pending: pending !== null }),
 			maxTurns: 1,
 			abortSignal: AbortSignal.timeout(CLARIFY_TIMEOUT_MS),
 			onUsage: collect,
@@ -167,20 +200,16 @@ export async function handleClarifyRequest(
 	}
 	if (!reply) return bad("The tutor sent an empty answer. Try again.", 502);
 
-	const entry: Clarification = {
-		id: crypto.randomUUID(),
-		quote,
-		question,
-		reply,
-		at: new Date().toISOString(),
-	};
+	const entry: ClarifyEntry = { id: crypto.randomUUID(), question, reply, at: new Date().toISOString() };
 	try {
-		stores.chatStore.appendClarification(chatId, stillPending.key, entry);
-		// The money channel: the call is real spend, filed under the question's message.
-		if (steps.length > 0) {
+		stores.chatStore.appendClarifyEntry(chatId, thread, entry);
+		// The money channel: the call is real spend, filed under the pending question's message (or the newest tutor message).
+		const anchorMessageId =
+			pending?.messageId ?? [...record.messages].reverse().find((m) => (m as { role?: string }).role === "assistant")?.id;
+		if (steps.length > 0 && anchorMessageId) {
 			stores.chatStore.appendTurnUsage(chatId, {
 				id: `clarify_${entry.id}`,
-				messageId: stillPending.messageId,
+				messageId: anchorMessageId,
 				at: entry.at,
 				model: `${engine.model.provider}:${engine.model.id}`,
 				steps,
@@ -191,5 +220,6 @@ export async function handleClarifyRequest(
 		return bad("The answer could not be saved. Try again.", 500);
 	}
 	emit("record-changed", { chatId });
-	return Response.json({ clarification: entry });
+	const saved = stores.chatStore.getChat(chatId)?.clarifyThreads?.find((t) => t.id === thread.id);
+	return Response.json({ thread: saved });
 }

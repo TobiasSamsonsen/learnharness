@@ -12,7 +12,7 @@ import * as path from "node:path";
 import { PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
-import type { ChatCourseLink, ChatRecord, Clarification, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
+import type { ChatCourseLink, ChatRecord, ClarifyEntry, ClarifyThread, ChatSettings, ChatSummary, ExtractionRunUsage, PlanTree, TurnUsage } from "../core/contracts.ts";
 import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
@@ -82,7 +82,7 @@ function getChat(id: string): ChatRecord | null {
 }
 
 /** The list projection of one record (null when the projection fails). */
-function summarize({ messages, tree, turns, extractions, clarifications: _clarifications, ...summary }: ChatRecord): ChatSummary | null {
+function summarize({ messages, tree, turns, extractions, clarifications: _clarifications, clarifyThreads: _clarifyThreads, ...summary }: ChatRecord): ChatSummary | null {
 	// Per-record isolation (Wave B): a record whose messages fail the
 	// projection (e.g. pre-Wave-B UIMessage-format scratch — the
 	// zero-back-compat wipe makes these "corrupt") must not blank the
@@ -193,16 +193,17 @@ function appendExtractionUsage(id: string, entry: ExtractionRunUsage): void {
 	writeChat(record);
 }
 
-/** Append one clarification to the pending question's side thread —
- * idempotent per clarification id. Silent and updatedAt-preserving, like the
- * usage logs: a side thread is not conversation activity. */
-function appendClarification(id: string, key: string, entry: Clarification): void {
+/** Append one question/answer to a margin thread, creating the thread when it is new — idempotent per entry id. Silent
+ * and updatedAt-preserving, like the usage logs: a side thread is not conversation activity. */
+function appendClarifyEntry(id: string, thread: Pick<ClarifyThread, "id" | "anchor" | "quote">, entry: ClarifyEntry): void {
 	const record = getChat(id);
 	if (!record) throw new Error(`Chat not found: ${id}`);
-	const all = record.clarifications ?? {};
-	const thread = all[key] ?? [];
-	if (thread.some((c) => c.id === entry.id)) return;
-	record.clarifications = { ...all, [key]: [...thread, entry] };
+	const threads = record.clarifyThreads ?? [];
+	const existing = threads.find((t) => t.id === thread.id);
+	if (existing?.entries.some((e) => e.id === entry.id)) return;
+	record.clarifyThreads = existing
+		? threads.map((t) => (t.id === thread.id ? { ...t, entries: [...t.entries, entry] } : t))
+		: [...threads, { id: thread.id, anchor: thread.anchor, quote: thread.quote, startedAt: entry.at, entries: [entry] }];
 	writeChat(record);
 }
 
@@ -267,5 +268,5 @@ export const chatStore: ChatStore = {
 	deleteChat,
 	appendTurnUsage,
 	appendExtractionUsage,
-	appendClarification,
+	appendClarifyEntry,
 };
