@@ -782,6 +782,18 @@ describe("the course service (src/server/courses.ts)", () => {
 		assert.ok(!courses.startCourseDraft("course_nope").ok);
 	});
 
+	it("a course left 'drafting' by a dead run settles instead of spinning forever", () => {
+		const orphan = courseStore.createCourse("Orphan");
+		courseStore.updateCourse(orphan.id, { status: "drafting" });
+		assert.equal(courses.listCourseSummaries().find((s) => s.id === orphan.id)!.status, "error");
+		const healed = courses.courseView(orphan.id)!.course;
+		assert.equal(healed.status, "error");
+		assert.match(healed.error ?? "", /interrupted/);
+		const withSkills = approvedCourse().courseId;
+		courseStore.updateCourse(withSkills, { status: "drafting" });
+		assert.equal(courses.courseView(withSkills)!.course.status, "active");
+	});
+
 	it("a course session sees its course's material beside its own", () => {
 		const { courseId, a } = approvedCourse();
 		const cm = materialStore.add(courseId, { kind: "text", name: "curriculum.md", ext: ".md", bytes: new TextEncoder().encode("# Curriculum") });

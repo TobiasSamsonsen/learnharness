@@ -149,7 +149,7 @@ function partitionOf(course: CourseRecord, ctx: ReadContext): SkillPartition {
 }
 
 export function listCourseSummaries(): CourseSummary[] {
-	const courses = stores.courseStore.listCourses();
+	const courses = stores.courseStore.listCourses().map(healOrphanDraft);
 	if (courses.length === 0) return [];
 	const ctx = readContext();
 	return courses.map((course) => {
@@ -209,8 +209,9 @@ export function graphSkillLayer(): GraphSkillLayer | undefined {
 }
 
 export function courseView(courseId: string): CourseView | null {
-	const course = stores.courseStore.getCourse(courseId);
-	if (!course) return null;
+	const found = stores.courseStore.getCourse(courseId);
+	if (!found) return null;
+	const course = healOrphanDraft(found);
 	const ctx = readContext();
 	const p = partitionOf(course, ctx);
 	const learnChats = learnChatsBySkill();
@@ -308,6 +309,20 @@ function draftRuns(): Map<string, AbortController> {
 /** Is a drafting run live for this course? */
 export function courseDrafting(courseId: string): boolean {
 	return draftRuns().has(courseId);
+}
+
+/** A course left "drafting" by a run that no longer exists (the process
+ *  restarted or crashed mid-draft — the status is on disk, the run only in
+ *  memory) would spin forever with its Draft button disabled. Settle it
+ *  the way a failed draft settles, and say what happened. */
+function healOrphanDraft(course: CourseRecord): CourseRecord {
+	if (course.status !== "drafting" || draftRuns().has(course.id)) return course;
+	return (
+		stores.courseStore.updateCourse(course.id, {
+			status: course.skills.length > 0 ? "active" : course.draft ? "draft" : "error",
+			error: "Drafting was interrupted (the app restarted) — draft again.",
+		}) ?? course
+	);
 }
 
 /** Start drafting (or re-drafting with the owner's feedback). Returns at
