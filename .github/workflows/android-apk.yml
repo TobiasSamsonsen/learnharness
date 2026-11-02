@@ -44,6 +44,12 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"
       - name: Fetch proot
         run: python3 scripts/fetch-proot.py
+      - name: Build stamp
+        # the same "<version>+<sha7>" the server workflow writes to version.txt: the app compares it with the release
+        # to know a newer app is published (BuildConfig.BUILD_STAMP)
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: echo "LH_BUILD_STAMP=$(node -p "require('../../package.json').version")+${SHA::7}" >> "$GITHUB_ENV"
       - name: Unit tests and debug APK
         env:
           LH_CI_SIGNING: "1"

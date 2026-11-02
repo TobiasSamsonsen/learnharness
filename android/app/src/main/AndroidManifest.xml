@@ -11,6 +11,8 @@
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 	<uses-permission android:name="android.permission.WAKE_LOCK" />
+	<!-- the update card installs the app's own new APK (a PackageInstaller session; Android asks once to allow it) -->
+	<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
 	<uses-feature android:name="android.hardware.microphone" android:required="false" />
 	<!-- the camera is reached through the phone's own camera app (M17), so no CAMERA permission and no hard requirement -->

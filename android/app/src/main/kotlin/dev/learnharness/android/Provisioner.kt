@@ -37,6 +37,32 @@ class Provisioner(private val guest: Guest, private val stateDir: File, private 
 	fun updateAvailable(remote: Pair<String?, String?>): Boolean =
 		installed() && (!claudeCurrent() || Release.outdated(read(rootfsMarker), remote.first) || Release.outdated(read(serverMarker), remote.second))
 
+	/**
+	 * A newer app is published: this build's stamp differs from the release's (`remoteStamp`, the server's version.txt). The
+	 * APK's checksum file must be there too: the server workflow recreates the release first and the APK workflow attaches
+	 * the APK a minute or two later, so for that window the new stamp is known but the APK is not.
+	 */
+	fun apkUpdateAvailable(remoteStamp: String?, builtStamp: String, timeoutMs: Int = 4_000): Boolean =
+		installed() && Release.apkOutdated(builtStamp, remoteStamp) && fetchText(serverBase, "${Release.APK}.sha256", timeoutMs) != null
+
+	/** Downloads the app's new APK (checksum-verified) and returns the file. Throws [Failure] with a message for the screen. */
+	fun downloadApk(progress: (String, Int?) -> Unit): File {
+		stateDir.mkdirs()
+		val apk = File(stateDir, "app-update.apk")
+		apk.delete()
+		download(serverBase, Release.APK, apk, "Downloading the app", progress)
+		return apk
+	}
+
+	/** The stamp the app update was started for; read after the restart to carry on with the rest ([UpdateResume]). */
+	private val pendingMarker = File(stateDir, "update.pending")
+	fun markPending(stamp: String) = pendingMarker.writeText(stamp + "\n")
+	fun pendingStamp(): String? = read(pendingMarker)
+	fun clearPending() {
+		pendingMarker.delete()
+		File(stateDir, "app-update.apk").delete()
+	}
+
 	/** Blocking; `progress` gets a label and, while a download runs, a percentage. Throws [Failure] with a message for the screen. */
 	fun run(progress: (String, Int?) -> Unit) {
 		val remote = remoteVersions()

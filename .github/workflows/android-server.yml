@@ -8,6 +8,13 @@ name: Android server (linux-arm64)
 on:
   push:
     tags: ["v*"]
+    # every push to main publishes a build (owner decision, 2026-11-02): the app's update card offers it. Docs and tests
+    # cannot change what the app runs, so they do not.
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "tests/**"
+      - "**.md"
   workflow_dispatch:
 
 permissions:

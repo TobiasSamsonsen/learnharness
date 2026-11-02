@@ -119,6 +119,50 @@ object Release {
 
 	/** Out of date when the remote version is known and differs; an unreachable release never forces an update. */
 	fun outdated(installed: String?, remote: String?): Boolean = remote != null && installed != remote
+
+	/** The app's own APK: attached to the server release by android-apk.yml, next to its `.sha256`. */
+	const val APK = "learnharness-android-debug.apk"
+
+	/** BuildConfig.BUILD_STAMP of a local build: not a published build, so it is never offered an app update. */
+	const val DEV_STAMP = "dev"
+
+	/**
+	 * An app update: the release's stamp (version.txt, written by the server workflow; the APK workflow stamps the APK with the
+	 * same `<version>+<sha7>`) differs from the stamp this build was made with. Unknown (offline) never forces one.
+	 */
+	fun apkOutdated(builtStamp: String, remote: String?): Boolean = builtStamp != DEV_STAMP && outdated(builtStamp, remote)
+}
+
+/** What the shell does when it starts after an app update (the update is one tap: the rest carries on by itself). */
+enum class Resume { NONE, CARRY_ON, DROP }
+
+object UpdateResume {
+	/**
+	 * `expected` is the stamp written to `update.pending` before the install started. It matching the running build means the
+	 * install happened: carry on with the server, the Linux environment and claude. A different one means it did not (declined,
+	 * failed, or another build landed meanwhile): forget it; the normal check offers the update again.
+	 */
+	fun decide(expected: String?, builtStamp: String): Resume = when {
+		expected == null -> Resume.NONE
+		expected == builtStamp -> Resume.CARRY_ON
+		else -> Resume.DROP
+	}
+}
+
+/** The system installer's answer for the app update, as a line for the screen (PackageInstaller.STATUS_* by their values). */
+object InstallStatus {
+	fun message(status: Int, system: String?): String {
+		val detail = system?.trim()?.takeIf { it.isNotEmpty() }?.let { " ($it)" } ?: ""
+		return when (status) {
+			2 -> "Android blocked the update$detail. Allow LearnHarness to install apps in Settings, then try again." // FAILURE_BLOCKED
+			3 -> "The update was cancelled." // FAILURE_ABORTED: the confirmation was declined
+			4 -> "Android refused the downloaded app as invalid$detail." // FAILURE_INVALID
+			5 -> "Android could not replace the app because another install is running$detail. Try again in a moment." // FAILURE_CONFLICT
+			6 -> "There is not enough storage on the device to install the update$detail." // FAILURE_STORAGE
+			7 -> "Android refused the update: it is signed with a different key$detail." // FAILURE_INCOMPATIBLE
+			else -> "The app update did not install$detail."
+		}
+	}
 }
 
 /** What `claude auth login` prints on its pty. */

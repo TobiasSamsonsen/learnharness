@@ -13,7 +13,7 @@ describe("the Android update card", () => {
 	it("says what is ready, offers Update and Not now, and links the notes", () => {
 		const html = renderToStaticMarkup(<AndroidUpdateNotice onNotNow={() => {}} onUpdate={() => {}} />);
 		assert.match(html, /A new version of LearnHarness is ready/);
-		assert.match(html, /It downloads over Wi-Fi and the app restarts when it is done\./);
+		assert.match(html, /It downloads over Wi-Fi, in one go\. Android may ask you to confirm installing the app, and the app restarts when it is done\./);
 		assert.match(html, /data-testid="android-update-start"[^>]*>Update</);
 		assert.match(html, /data-testid="android-update-later"[^>]*>Not now</);
 		assert.match(html, new RegExp(`href="${ANDROID_RELEASE_NOTES_URL.replace(/[.*+?^${}()|[\]\/]/g, "\$&")}"`));

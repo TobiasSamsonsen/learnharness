@@ -20,6 +20,9 @@ android {
 		targetSdk = 37
 		versionCode = releaseCode
 		versionName = releaseVersion
+		// "<version>+<sha7>", the same stamp the server workflow writes to the release's version.txt: the app compares it with
+		// the release to know a newer app is published (CI sets LH_BUILD_STAMP; a local build is "dev" and is never offered one)
+		buildConfigField("String", "BUILD_STAMP", "\"${providers.environmentVariable("LH_BUILD_STAMP").orElse("dev").get()}\"")
 		// proot and the Linux guest are arm64 only (M12)
 		ndk { abiFilters += "arm64-v8a" }
 	}

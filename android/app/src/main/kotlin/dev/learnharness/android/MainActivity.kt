@@ -76,6 +76,15 @@ class MainActivity : ComponentActivity() {
 	/** The check runs once per cold start. */
 	private var updateChecked = false
 	private var updateReply: ((String) -> Unit)? = null
+	/** The release's stamp when a newer APK is part of the update the card offers (the app is replaced first), else null. */
+	private var apkStamp: String? = null
+	/** The shell looks for an update left half done by an app update once, on its first start. */
+	private var resumeChecked = false
+	private val apkInstaller by lazy { ApkInstaller(this, ::onInstallResult) }
+	/** Back from the "Install unknown apps" setting: carry on if the learner switched it on. */
+	private val allowInstalls = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { _ ->
+		if (apkInstaller.canInstall()) installAppUpdate() else offerUpdateLater("Updates of the app are not allowed yet. The update was not installed.")
+	}
 	/** The page of this load asked (`update probe`): it has the card. A server older than the card never does. */
 	private var updateProbed = false
 	private var port: Int
@@ -342,6 +351,11 @@ class MainActivity : ComponentActivity() {
 	/** Look at the server and the guest, then do the one next thing (Logic.kt: Flow.decide). */
 	private fun begin(afterStart: Boolean = false) {
 		if (busy) return
+		// the first start after an app update carries on with the rest of the update before anything else
+		if (!resumeChecked) {
+			resumeChecked = true
+			if (resumePendingUpdate()) return
+		}
 		busy = true
 		val my = ++attempt
 		showWorking(if (dev) "Connecting to the dev server…" else "Connecting…")
@@ -397,8 +411,12 @@ class MainActivity : ComponentActivity() {
 		if (dev || updateChecked || skipUpdate) return
 		updateChecked = true
 		thread {
-			val ready = provisioner.updateAvailable(provisioner.remoteVersions(timeoutMs = 4_000))
+			val remote = provisioner.remoteVersions(timeoutMs = 4_000)
+			// the app itself is a third part of the update, replaced first (installAppUpdate); the server's stamp is the release's
+			val app = provisioner.apkUpdateAvailable(remote.second, BuildConfig.BUILD_STAMP)
+			val ready = app || provisioner.updateAvailable(remote)
 			runOnUiThread {
+				apkStamp = if (app) remote.second else null
 				updateReady = ready && !skipUpdate
 				if (updateReady) updateReply?.invoke(UpdateWire.AVAILABLE)
 				// an installed server older than the card never probes, and could not be updated at all: say it on our own screen
@@ -410,7 +428,7 @@ class MainActivity : ComponentActivity() {
 	private fun offerUpdateOnShellScreen() {
 		show(
 			"Update available",
-			"A newer version of the learning environment is ready. It downloads over Wi-Fi.",
+			"A newer version of the app and the learning environment is ready. It downloads over Wi-Fi.",
 			"Update now", ::startUpdate,
 			"Later", { skipUpdate = true; updateReady = false; begin() },
 			controls = false,
@@ -435,13 +453,7 @@ class MainActivity : ComponentActivity() {
 	/** "Update" on the card: nothing is downloaded over a metered connection (owner decision, M12); the server stops first, because the files under it are replaced. */
 	private fun startUpdate() {
 		if (busy) return
-		// if the state cannot be read, assume the worst: a metered connection
-		val metered = try {
-			getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered
-		} catch (_: SecurityException) {
-			true
-		}
-		if (metered) {
+		if (isMetered()) {
 			show(
 				"Connect to Wi-Fi",
 				"The update is only downloaded on Wi-Fi. Connect, then try again.",
@@ -449,8 +461,123 @@ class MainActivity : ComponentActivity() {
 				"Later", { skipUpdate = true; updateReady = false; begin() },
 				controls = false,
 			)
+		} else if (apkStamp != null) {
+			installAppUpdate()
 		} else {
 			stopThenProvision()
+		}
+	}
+
+	/** If the state cannot be read, assume the worst: a metered connection. */
+	private fun isMetered(): Boolean = try {
+		getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered
+	} catch (_: SecurityException) {
+		true
+	}
+
+	/** An update step that did not happen: say why, and leave the learner a way back into the app (the card comes again next start). */
+	private fun offerUpdateLater(why: String) {
+		busy = false
+		window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+		show(
+			"The update did not finish", why,
+			"Try again", ::startUpdate,
+			"Later", { skipUpdate = true; updateReady = false; begin() },
+			controls = false,
+		)
+	}
+
+	/**
+	 * The app's own new APK, the first part of an update that has one (the new APK carries its claude pin and expects its server):
+	 * the server stops, the APK downloads (Wi-Fi only, checksum-verified) and a PackageInstaller session replaces the app. Android
+	 * may ask once to confirm; the app then restarts, and [resumePendingUpdate] carries on with the rest without another tap.
+	 */
+	private fun installAppUpdate() {
+		val stamp = apkStamp ?: return stopThenProvision()
+		if (!apkInstaller.canInstall()) {
+			show(
+				"Allow app updates",
+				"Android needs your permission for LearnHarness to install its own updates. Open the setting, switch it on, then come back.",
+				"Open the setting", { allowInstalls.launch(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))) },
+				"Later", { skipUpdate = true; updateReady = false; begin() },
+				controls = false,
+			)
+			return
+		}
+		busy = true
+		window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+		showWorking("Updating the app…")
+		val wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lh:appupdate").also { it.acquire(30 * 60 * 1000L) }
+		thread {
+			ServerService.stop(this)
+			Thread.sleep(2500) // the service gives node up to 1.5 s to exit
+			var apk: File? = null
+			val failure = try {
+				apk = provisioner.downloadApk { label, pct ->
+					runOnUiThread {
+						title.text = label
+						detail.text = pct?.let { "$it %" } ?: ""
+					}
+				}
+				// written BEFORE the install: the process is replaced mid-install, and the restart reads this to carry on
+				provisioner.markPending(stamp)
+				runOnUiThread {
+					title.text = "Installing the app"
+					detail.text = "Android installs the new version and the app restarts."
+				}
+				apkInstaller.install(apk)
+				null
+			} catch (e: Provisioner.Failure) {
+				e.message ?: "The app update failed."
+			} catch (e: Exception) {
+				"The app update failed (${e.javaClass.simpleName}: ${e.message})."
+			}
+			if (wake.isHeld) wake.release()
+			if (failure != null) {
+				provisioner.clearPending()
+				File(filesDir, "setup.log").appendText(System.currentTimeMillis().toString() + " " + Redact.tokens(failure) + "\n")
+				runOnUiThread { offerUpdateLater(Redact.tokens(failure)) }
+			}
+		}
+	}
+
+	/** The system installer's answer. A success is rarely seen: the process is replaced first. */
+	private fun onInstallResult(result: ApkInstaller.Result) {
+		when (result) {
+			is ApkInstaller.Result.NeedsConfirm -> {
+				title.text = "Confirm the update"
+				detail.text = "Android asks you to confirm installing the new version. The app restarts afterwards."
+				startActivity(result.intent)
+			}
+			is ApkInstaller.Result.Failed -> {
+				apkInstaller.stop()
+				provisioner.clearPending()
+				offerUpdateLater(result.message)
+			}
+			ApkInstaller.Result.Done -> Unit
+		}
+	}
+
+	/**
+	 * First start after an app update: the install left `update.pending`. When this build is the one it names, carry on with the
+	 * server, the Linux environment and claude by themselves (Wi-Fi only); when it is not, the install did not happen: forget it.
+	 * True when the update took over the screen.
+	 */
+	private fun resumePendingUpdate(): Boolean = when (UpdateResume.decide(provisioner.pendingStamp(), BuildConfig.BUILD_STAMP)) {
+		Resume.NONE -> false
+		Resume.DROP -> {
+			provisioner.clearPending()
+			false
+		}
+		Resume.CARRY_ON -> {
+			provisioner.clearPending()
+			if (isMetered()) {
+				false // the card offers the rest, and asks for Wi-Fi when it is tapped
+			} else {
+				updateChecked = true
+				stopThenProvision()
+				true
+			}
 		}
 	}
 
@@ -761,6 +888,7 @@ base64` here; the system picker picks where the
 	}
 
 	override fun onDestroy() {
+		apkInstaller.stop()
 		login.cancel()
 		WebViewCompat.removeWebMessageListener(webView, "lhShell")
 		inkBridge.remove()

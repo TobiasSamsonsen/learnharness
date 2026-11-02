@@ -81,6 +81,36 @@ class LogicTest {
 		assertFalse(Release.outdated(installed = "1", remote = null))
 	}
 
+	@Test fun anAppUpdateIsAStampThatDiffersFromTheReleaseAndAlwaysNeedsAKnownRelease() {
+		assertTrue(Release.apkOutdated(builtStamp = "0.4.1+aaaaaaa", remote = "0.4.1+bbbbbbb"))
+		assertFalse(Release.apkOutdated(builtStamp = "0.4.1+bbbbbbb", remote = "0.4.1+bbbbbbb"))
+		// offline: an unreachable release never forces an update
+		assertFalse(Release.apkOutdated(builtStamp = "0.4.1+aaaaaaa", remote = null))
+		// a local build is not a published build: never offered an app update
+		assertFalse(Release.apkOutdated(builtStamp = Release.DEV_STAMP, remote = "0.4.1+bbbbbbb"))
+		assertEquals("learnharness-android-debug.apk", Release.APK)
+	}
+
+	@Test fun anUpdateLeftHalfDoneByAnAppUpdateCarriesOnOnlyWhenTheNewBuildIsRunning() {
+		assertEquals(Resume.NONE, UpdateResume.decide(expected = null, builtStamp = "0.4.1+bbbbbbb"))
+		assertEquals(Resume.CARRY_ON, UpdateResume.decide(expected = "0.4.1+bbbbbbb", builtStamp = "0.4.1+bbbbbbb"))
+		// the install was declined or failed (still the old build), or another build landed meanwhile: forget it
+		assertEquals(Resume.DROP, UpdateResume.decide(expected = "0.4.1+bbbbbbb", builtStamp = "0.4.1+aaaaaaa"))
+		assertEquals(Resume.DROP, UpdateResume.decide(expected = "0.4.1+bbbbbbb", builtStamp = Release.DEV_STAMP))
+	}
+
+	@Test fun theInstallersAnswersReadAsLinesForTheScreen() {
+		assertEquals("The update was cancelled.", InstallStatus.message(3, "INSTALL_FAILED_ABORTED: User rejected permissions"))
+		assertTrue(InstallStatus.message(7, "INSTALL_FAILED_UPDATE_INCOMPATIBLE").contains("different key"))
+		assertTrue(InstallStatus.message(6, null).contains("storage"))
+		assertTrue(InstallStatus.message(2, null).contains("Allow LearnHarness"))
+		assertTrue(InstallStatus.message(5, null).contains("another install"))
+		assertTrue(InstallStatus.message(4, null).contains("invalid"))
+		// an unknown code still says something, with the system's own words when it gave any
+		assertEquals("The app update did not install (boom).", InstallStatus.message(1, " boom "))
+		assertEquals("The app update did not install.", InstallStatus.message(1, "   "))
+	}
+
 	@Test fun loginLinkIsReadFromTheTerminalOutput() {
 		val link = "https://claude.com/cai/oauth/authorize?code=true&client_id=x&state=y"
 		// what `script` shows: a hyperlink escape (OSC 8) around the link, then the link again, then the prompt

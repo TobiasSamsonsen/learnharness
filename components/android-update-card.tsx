@@ -5,8 +5,9 @@
  * release notice (components/upstream-banner.tsx), bottom-right, in place of the shell's old fullscreen "Update available"
  * screen. The shell checks the release in the background and answers `update probe` with `update available` (UpdateWire.kt).
  *
- *   Update    the shell stops the server, downloads and unpacks the new build (its own progress screen, Wi-Fi only) and
- *             restarts; the page reloads when it is back.
+ *   Update    the shell stops the server and, when a newer app is published, replaces the app first (Android may ask once to
+ *             confirm), then downloads and unpacks the new server build (its own progress screen, Wi-Fi only; after the
+ *             app restarts the rest carries on by itself) and restarts; the page reloads when it is back.
  *   Not now   hidden until the next cold start of the app (the shell remembers, so a page reload does not bring it back).
  *
  * Renders nothing outside the Android shell.
@@ -39,7 +40,9 @@ export function AndroidUpdateNotice({ onNotNow, onUpdate }: { onNotNow: () => vo
 			className="pointer-events-auto w-[22rem] max-w-full rounded-lg border border-border bg-popover px-4 py-3 text-sm shadow-lg"
 		>
 			<span className="font-medium">A new version of LearnHarness is ready</span>
-			<p className="mt-1 text-xs text-muted-foreground">It downloads over Wi-Fi and the app restarts when it is done.</p>
+			<p className="mt-1 text-xs text-muted-foreground">
+					It downloads over Wi-Fi, in one go. Android may ask you to confirm installing the app, and the app restarts when it is done.
+				</p>
 			<div className="mt-2.5 flex flex-wrap items-center gap-2">
 				<button
 					type="button"
