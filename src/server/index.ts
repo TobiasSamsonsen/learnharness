@@ -66,6 +66,7 @@ export {
 	deleteCourse,
 	listCourseSummaries,
 	renameCourse,
+	setCourseLanguage,
 	setCourseNote,
 	graphSkillLayer,
 	startCourseDraft,

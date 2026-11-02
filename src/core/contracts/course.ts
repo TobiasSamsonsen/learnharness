@@ -10,6 +10,7 @@
  * stored. Pure types + tiny pure helpers.
  */
 
+import type { LessonLanguage } from "../language.ts";
 import type { ExtractionStageUsage } from "./chat.ts";
 
 // ─── Skills (the graph's second node kind) ──────────────────────────────────
@@ -30,6 +31,10 @@ export interface SkillLine {
 	/** Proposition ids (n_…) this skill rests on — the planner's links. */
 	restsOn: string[];
 	createdAt: string;
+	/** A re-wording line (fork addition, 2026-11-02): `name`/`statement` replace
+	 *  the earlier wording — the LAST reworded line wins. Set when a course's
+	 *  language differs from the one the skill was written in. */
+	reworded?: boolean;
 }
 
 /** A skill as read: its lines merged by id (core/skills.ts mergeSkillLines). */
@@ -87,6 +92,10 @@ export interface CourseRecord {
 	skills: string[];
 	/** The pending planner output (cleared on approval). */
 	draft?: CourseDraft;
+	/** The course's language (fork addition, 2026-11-02): what the planner writes the skill map in and
+	 *  what its sessions are taught in. Stamped from the default language at creation; absent (a
+	 *  course made before languages) = the current default language. */
+	language?: LessonLanguage;
 	/** The learner's time note for this course ("exam Thursday, 4 concepts", fork addition 2026-11-01).
 	 *  Read every turn by the course's sessions as data about the learner (core/pace.ts). */
 	note?: string;

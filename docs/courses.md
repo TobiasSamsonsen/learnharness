@@ -62,7 +62,8 @@ interface SkillLine {
 Same discipline as `nodes.jsonl`. The **first line for an id defines**
 name/statement/createdAt. Later lines for the same id are **link-appends**:
 their `requires` and `restsOn` union in (a second course reusing a skill can add
-edges). Readers merge by id. References to dead propositions (graph deletion)
+edges). A line with `reworded: true` also replaces name/statement, the last one
+winning — the planner re-words a reused skill in the course language when it is in another. Readers merge by id. References to dead propositions (graph deletion)
 or unknown skills are dropped at read time, never rewritten.
 
 - `GraphStore` port gains `readSkills(): Skill[]` and `appendSkills(lines)`.
@@ -84,6 +85,7 @@ interface CourseRecord {
   status: "new" | "drafting" | "draft" | "active" | "error";
   skills: string[];           // the APPROVED skill set (sk_ ids); [] until first approval
   draft?: CourseDraft;        // the pending planner output (cleared on approve)
+  language?: "en" | "nb";     // the course's language (stamped from the default at creation; absent = the current default)
   error?: string;             // last drafting failure
   drafts?: CourseDraftUsage[];// planner usage log (money channel, like extractions)
 }

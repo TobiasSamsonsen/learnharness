@@ -366,7 +366,7 @@ describe("drafts (core/course-draft.ts)", () => {
 		const draft: CourseDraft = {
 			createdAt: "t",
 			summary: "s",
-			skills: [ds("s1", { reuse: "sk_old", restsOn: ["n1", "n2"] }), ds("s2", { requires: ["s1"] })],
+			skills: [ds("s1", { reuse: "sk_old", name: "sk_old", statement: "Do sk_old", restsOn: ["n1", "n2"] }), ds("s2", { requires: ["s1"] })],
 		};
 		const out = approveDraft(draft, { skills, nodeIds: new Set(["n1", "n2"]) }, () => `sk_new${++n}`, "2026-10-24T00:00:00Z");
 		assert.deepEqual(
@@ -378,8 +378,22 @@ describe("drafts (core/course-draft.ts)", () => {
 		);
 		assert.equal(out.lines[0]!.name, "sk_old", "a reused skill keeps its own name");
 		assert.deepEqual(out.skillIds.sort(), ["sk_base", "sk_new1", "sk_old"], "the reused skill's prerequisite joins the course");
-		const again = approveDraft({ ...draft, skills: [ds("s1", { reuse: "sk_old", restsOn: ["n1"] })] }, { skills, nodeIds: new Set(["n1"]) }, () => "x", "t");
+		const again = approveDraft({ ...draft, skills: [ds("s1", { reuse: "sk_old", name: "sk_old", statement: "Do sk_old", restsOn: ["n1"] })] }, { skills, nodeIds: new Set(["n1"]) }, () => "x", "t");
 		assert.deepEqual(again.lines, [], "nothing new → nothing written");
+	});
+
+	it("a reused skill the planner re-worded gets a reworded line, and the latest wording wins at read", () => {
+		const skills = new Map<string, Skill>([["sk_old", line("sk_old", [], ["n1"])]]);
+		const draft: CourseDraft = {
+			createdAt: "t",
+			summary: "s",
+			skills: [ds("s1", { reuse: "sk_old", name: "Gammel", statement: "Gjør gammel", restsOn: ["n1"] })],
+		};
+		const out = approveDraft(draft, { skills, nodeIds: new Set(["n1"]) }, () => "x", "t");
+		assert.equal(out.lines.length, 1, "a re-wording alone is worth a line");
+		assert.deepEqual([out.lines[0]!.name, out.lines[0]!.statement, out.lines[0]!.reworded], ["Gammel", "Gjør gammel", true]);
+		const merged = mergeSkillLines([line("sk_old", [], ["n1"]), ...out.lines]);
+		assert.deepEqual([merged[0]!.name, merged[0]!.statement], ["Gammel", "Gjør gammel"]);
 	});
 });
 
@@ -782,6 +796,18 @@ describe("the course service (src/server/courses.ts)", () => {
 		assert.ok(!courses.startCourseDraft("course_nope").ok);
 	});
 
+	it("a new course is stamped with the default language, a pick sticks, and its sessions are taught in it", () => {
+		const made = courses.createCourse("Stamped");
+		assert.equal(courseStore.getCourse(made.id)!.language, "en", "the factory default");
+		assert.equal(courses.setCourseLanguage(made.id, "nb")!.language, "nb");
+		assert.equal(courses.setCourseLanguage("course_nope", "nb"), null);
+		const { courseId, a } = approvedCourse();
+		courses.setCourseLanguage(courseId, "nb");
+		const learn = courses.createCourseSession(courseId, "learn", a);
+		assert.ok(learn.ok);
+		assert.equal(chatStore.getChat(learn.value.id)!.settings?.language, "nb");
+	});
+
 	it("a course left 'drafting' by a dead run settles instead of spinning forever", () => {
 		const orphan = courseStore.createCourse("Orphan");
 		courseStore.updateCourse(orphan.id, { status: "drafting" });
@@ -914,7 +940,7 @@ describe("the course planner (scripted model)", () => {
 		const good = { summary: "s", skills: [{ key: "s1", name: "A", statement: "Do a", requires: [], restsOn: [], cite: "Book.pdf, p. 1" }] };
 		let steps = 0;
 		const out = await draftCourse(
-			{ title: "T", materials: [{ id: "mat_1", name: "Book.pdf" }], materialsSection: "<curriculum/>" },
+			{ title: "T", materials: [{ id: "mat_1", name: "Book.pdf" }], materialsSection: "<curriculum/>", language: "en" },
 			{
 				engine: engine([submit(bad, "c1"), submit(good, "c2")]),
 				checkContext: () => ({ skills: new Map(), nodeIds: new Set() }),
@@ -927,11 +953,32 @@ describe("the course planner (scripted model)", () => {
 		assert.equal(steps, 2);
 	});
 
+	it("the planner is told the course's language", async () => {
+		const good = { summary: "s", skills: [{ key: "s1", name: "A", statement: "Do a", requires: [], restsOn: [], cite: "Book.pdf, p. 1" }] };
+		let system = "";
+		await draftCourse(
+			{ title: "T", materials: [{ id: "mat_1", name: "Book.pdf" }], materialsSection: "", language: "nb" },
+			{
+				engine: engine([
+					(ctx) => {
+						system = JSON.stringify(ctx.messages); // the system prompt leads the transcript as a system message
+						return submit(good, "c1")();
+					},
+				]),
+				checkContext: () => ({ skills: new Map(), nodeIds: new Set() }),
+				tools: {},
+				courseId: "course_t",
+				onStep: () => {},
+			},
+		);
+		assert.match(system, /<lesson_language>[\s\S]*This course is in Norwegian Bokmål\./);
+	});
+
 	it("an uncited material is a validation problem", async () => {
 		const uncited = { summary: "s", skills: [{ key: "s1", name: "A", statement: "Do a", requires: [], restsOn: [] }] };
 		await assert.rejects(
 			draftCourse(
-				{ title: "T", materials: [{ id: "mat_1", name: "Book.pdf" }], materialsSection: "" },
+				{ title: "T", materials: [{ id: "mat_1", name: "Book.pdf" }], materialsSection: "", language: "en" },
 				{
 					engine: engine([submit(uncited, "c1"), () => fauxAssistantMessage("I give up")]),
 					checkContext: () => ({ skills: new Map(), nodeIds: new Set() }),

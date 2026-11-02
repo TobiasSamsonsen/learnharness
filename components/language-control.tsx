@@ -28,11 +28,16 @@ import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-sig
  *                       as the draft's model pills edit the strong slot:
  *                       the server stamps a new lesson from it at birth.
  *
+ *   course mode        the COURSE's language (CourseRecord.language, fork
+ *   (courseId)         addition 2026-11-02): read by its next draft, stamped on
+ *                      its sessions. Unstamped = the current default.
+ *
  * Both writes announce themselves ("lesson" / "general") so the model
  * control and the dictation hook re-read.
  */
-export function LanguageControl({ chatId, variant = "pill" }: { chatId?: string; variant?: ControlVariant }) {
+export function LanguageControl({ chatId, courseId, variant = "pill" }: { chatId?: string; courseId?: string; variant?: ControlVariant }) {
 	const [session, setSession] = useState<ChatSettings | undefined>(undefined);
+	const [courseLanguage, setCourseLanguage] = useState<LessonLanguage | undefined>(undefined);
 	const [general, setGeneral] = useState<GeneralSettings | undefined>(undefined);
 	const [open, setOpen] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -45,11 +50,17 @@ export function LanguageControl({ chatId, variant = "pill" }: { chatId?: string;
 				.then((b) => setSession(b.settings ?? {}))
 				.catch(() => {});
 		}
+		if (courseId) {
+			fetch(`/api/courses/${courseId}`)
+				.then((r) => r.json() as Promise<{ course?: { language?: LessonLanguage } }>)
+				.then((b) => setCourseLanguage(b.course?.language))
+				.catch(() => {});
+		}
 		fetch("/api/settings")
 			.then((r) => r.json() as Promise<{ settings: { general?: GeneralSettings } | null }>)
 			.then((b) => setGeneral(b.settings?.general ?? {}))
 			.catch(() => {});
-	}, [chatId]);
+	}, [chatId, courseId]);
 	useEffect(read, [read]);
 	useSettingsSaved((section) => {
 		if (section === "general" || section === "lesson" || section === "models") read();
@@ -57,7 +68,7 @@ export function LanguageControl({ chatId, variant = "pill" }: { chatId?: string;
 
 	const current: LessonLanguage = chatId
 		? resolveLessonLanguage(session)
-		: (general?.language ?? DEFAULT_LESSON_LANGUAGE);
+		: (courseId ? courseLanguage : undefined) ?? general?.language ?? DEFAULT_LESSON_LANGUAGE;
 
 	useBackLayer(open, () => setOpen(false));
 	// Same dismissal contract as the model menu: outside pointerdown or Esc.
@@ -85,7 +96,13 @@ export function LanguageControl({ chatId, variant = "pill" }: { chatId?: string;
 	const pick = async (language: LessonLanguage) => {
 		setError(null);
 		try {
-			const res = chatId
+			const res = courseId
+				? await fetch(`/api/courses/${courseId}`, {
+						method: "PATCH",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ language }),
+					})
+				: chatId
 				? await fetch(`/api/chats/${chatId}/settings`, {
 						method: "PUT",
 						headers: { "Content-Type": "application/json" },
@@ -101,10 +118,11 @@ export function LanguageControl({ chatId, variant = "pill" }: { chatId?: string;
 				setError(body.error ?? `language rejected (${res.status})`);
 				return;
 			}
-			if (chatId) setSession({ ...session, language });
+			if (courseId) setCourseLanguage(language);
+			else if (chatId) setSession({ ...session, language });
 			else setGeneral({ ...general, language });
 			setOpen(false);
-			notifySettingsSaved(chatId ? "lesson" : "general");
+			if (!courseId) notifySettingsSaved(chatId ? "lesson" : "general");
 		} catch {
 			setError("Could not reach the server — try again.");
 		}
@@ -112,11 +130,11 @@ export function LanguageControl({ chatId, variant = "pill" }: { chatId?: string;
 
 	return (
 		<div ref={containerRef} className="relative flex items-center" data-testid="language-control">
-			<Hint label={chatId ? "Lesson language" : "Language for new lessons"} side="bottom">
+			<Hint label={courseId ? "Course language" : chatId ? "Lesson language" : "Language for new lessons"} side="bottom">
 				<button
 					type="button"
 					data-testid="stats-language"
-					aria-label={`Lesson language: ${lessonLanguageInfo(current).label}`}
+					aria-label={`${courseId ? "Course" : "Lesson"} language: ${lessonLanguageInfo(current).label}`}
 					aria-expanded={open}
 					onClick={() => {
 						setOpen((o) => !o);
@@ -151,7 +169,7 @@ export function LanguageControl({ chatId, variant = "pill" }: { chatId?: string;
 						</button>
 					))}
 					<div className="mt-1 border-t px-2 pt-1.5 text-[11px] text-muted-foreground/70">
-						{chatId ? "This lesson's language — teaching and dictation" : "Default for new lessons"}
+						{courseId ? "This course's language — its skill map and sessions" : chatId ? "This lesson's language — teaching and dictation" : "Default for new lessons"}
 					</div>
 				</MenuShell>
 			)}

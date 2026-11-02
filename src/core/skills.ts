@@ -4,7 +4,8 @@
  *
  * The ledger (data/graph/skills.jsonl) is append-only: the FIRST line for
  * an id defines name/statement/createdAt, later lines for the same id are
- * link-appends whose edges union in. Everything here derives from the raw
+ * link-appends whose edges union in (a `reworded` line also replaces the
+ * name and statement — the last one wins). Everything here derives from the raw
  * lines — dead references are dropped at read, never rewritten.
  */
 
@@ -22,6 +23,10 @@ export function mergeSkillLines(lines: readonly SkillLine[], liveNodeIds?: Reado
 		if (!prev) {
 			byId.set(line.id, { ...line, requires: [...new Set(line.requires)], restsOn: [...new Set(line.restsOn)] });
 			continue;
+		}
+		if (line.reworded) {
+			prev.name = line.name;
+			prev.statement = line.statement;
 		}
 		prev.requires = union(prev.requires, line.requires);
 		prev.restsOn = union(prev.restsOn, line.restsOn);

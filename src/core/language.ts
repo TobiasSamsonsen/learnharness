@@ -52,7 +52,7 @@ export function resolveLessonLanguage(settings: { language?: LessonLanguage } | 
 }
 
 /** Which prompt family a directive is for. */
-export type LanguageDirectiveRole = "conversation" | "extraction" | "artifact";
+export type LanguageDirectiveRole = "conversation" | "extraction" | "artifact" | "course";
 
 /** The system-prompt paragraph that makes an agent work in the lesson's
  *  language. */
@@ -63,7 +63,9 @@ export function languageDirective(language: LessonLanguage, role: LanguageDirect
 			? `Conduct this entire lesson in ${name}. Everything the learner can see must be in ${name}: your messages, questions, answer options, explanations, hints, plan node labels and every other learner-facing tool argument. The lesson's language can be changed while it runs: if earlier messages are in another language, continue in ${name} from now on. Answer in ${name} even when the learner writes or dictates in another language or mixes in terms from one, unless they explicitly ask you to switch. Keep mathematical notation, code and established technical symbols as they are.`
 			: role === "extraction"
 				? `The session was taught in ${name}. Write every proposition's name, statement and aliases in ${name}, as the lesson phrased them.`
-				: `The lesson this is for is taught in ${name}. Write all learner-visible text — titles, labels, captions, buttons, legends and explanations — in ${name}.`;
+				: role === "course"
+					? `This course is in ${name}. Write the summary and every skill's name and statement in ${name}, whatever language the curriculum, these instructions or the existing graph skills are in. Keep mathematical notation, code and established technical symbols as they are. Leave \`cite\` starting with the material's own name, exactly as given.`
+					: `The lesson this is for is taught in ${name}. Write all learner-visible text — titles, labels, captions, buttons, legends and explanations — in ${name}.`;
 	return `<lesson_language>\n${body}\n</lesson_language>`;
 }
 

@@ -3,7 +3,7 @@ import { isJobLive } from "../agent/subagents/aborts.ts";
 import { coverageOf } from "../core/coverage.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
 import { titleFromPrompt } from "../core/contracts.ts";
-import { DEFAULT_LESSON_LANGUAGE } from "../core/language.ts";
+import { DEFAULT_LESSON_LANGUAGE, type LessonLanguage } from "../core/language.ts";
 import { DEFAULT_PACE, type Pace } from "../core/pace.ts";
 import { graphRevision } from "./graph.ts";
 import { stores } from "./stores.ts";
@@ -40,10 +40,10 @@ export type { ChatDeleteMode, ChatDeletionStats } from "../core/graph-deletion.t
  * addition): the default language, factory English — stamped even without
  * a model, so a lesson's language never drifts with later defaults.
  */
-export function stampNewSession(chatId: string, initial: { pace?: Pace; paceNote?: string } = {}): void {
+export function stampNewSession(chatId: string, initial: { pace?: Pace; paceNote?: string; language?: LessonLanguage } = {}): void {
 	const record = stores.settingsStore.readSettings();
 	const strong = record?.models?.strong;
-	const language = record?.general?.language ?? DEFAULT_LESSON_LANGUAGE;
+	const language = initial.language ?? record?.general?.language ?? DEFAULT_LESSON_LANGUAGE;
 	// Pace (fork addition, 2026-11-01): the new-session setup panel's pick rides the creation request; else the default
 	// (general.pace, set by that panel), factory Thorough. The time note is per session and never a default.
 	const pace = initial.pace ?? record?.general?.pace ?? DEFAULT_PACE;

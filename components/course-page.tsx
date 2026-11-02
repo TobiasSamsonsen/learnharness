@@ -16,6 +16,7 @@ import {
 	type LessonMaterial,
 	type PlanNodeStatus,
 } from "@/src/core";
+import { LanguageControl } from "@/components/language-control";
 import { MaterialsControl } from "@/components/materials-control";
 import { CourseTimeNote } from "@/components/course-time-note";
 import { SkillMap } from "@/components/skill-map";
@@ -350,6 +351,7 @@ export function CourseBody({
 				<div className={SECTION_HEAD}>Curriculum</div>
 				<div className="flex flex-wrap items-center gap-2">
 					<MaterialsControl courseId={course.id} onChange={onMaterials} />
+					<LanguageControl courseId={course.id} />
 					<button
 						type="button"
 						className={BTN}

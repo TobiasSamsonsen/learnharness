@@ -18,6 +18,7 @@ import type { Usage } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { CourseDraft, DraftSkill, Skill } from "../../core/contracts.ts";
 import { draftProblems, uncitedMaterials, type DraftCheckContext } from "../../core/course-draft.ts";
+import { withLanguageDirective, type LessonLanguage } from "../../core/language.ts";
 import type { PiEngine } from "../models.ts";
 import { serverExecute } from "../tool-execute.ts";
 import { runSubmitAgent } from "./submit-agent.ts";
@@ -36,7 +37,7 @@ PREREQUISITES (requires)
 - The direct prerequisites are enough; never list what a prerequisite already requires.
 
 REUSE — the learner's graph already holds skills (from other courses) and propositions (facts from past lessons)
-- Call list_skills first. When a skill you need IS an existing skill — the same ability, however worded — set "reuse" to its id (keep its name and statement in your entry). A duplicate is better than a wrong merge: reuse only the same ability.
+- Call list_skills first. When a skill you need IS an existing skill — the same ability, however worded — set "reuse" to its id (keep its name and statement in your entry — unless they are not in the course's language, then re-word them in it: same ability, same meaning). A duplicate is better than a wrong merge: reuse only the same ability.
 - restsOn: the ids of EXISTING propositions (find_candidates / list_sessions / list_propositions) that are genuinely the facts this skill uses. This connects the course to what the learner has already learned. Leave it empty when nothing in the graph fits — never guess an id.
 
 THE MATERIAL
@@ -111,6 +112,8 @@ export interface CoursePlannerInput {
 	previous?: { draft: CourseDraft; feedback: string };
 	/** The approved skill set's names (a re-plan of an active course). */
 	approved?: ReadonlyArray<{ id: string; name: string; statement: string }>;
+	/** The language the map is written in (the course's). */
+	language: LessonLanguage;
 }
 
 export interface CoursePlannerDeps {
@@ -157,7 +160,7 @@ export async function draftCourse(input: CoursePlannerInput, deps: CoursePlanner
 		toolDescription: "Submit the course's skill map draft: a short summary and every skill.",
 		parameters: draftSchema,
 		fill: fillDraft,
-		systemPrompt: INSTRUCTIONS,
+		systemPrompt: withLanguageDirective(INSTRUCTIONS, input.language, "course"),
 		prompt: plannerPrompt(input),
 		engine: deps.engine,
 		signal: deps.signal,

@@ -42,12 +42,16 @@ export function ConfidenceButtons({
 					title={`${level.stop}% sure`}
 					style={{ color: CONFIDENCE_COLORS[level.index], borderColor: highlight === level.index ? CONFIDENCE_COLORS[level.index] : undefined }}
 					className={cn(
-						"lh-touch h-9 min-w-0 flex-1 truncate rounded-[6px] border border-border/70 bg-transparent px-0 text-[11px] font-medium tracking-tighter transition-colors",
+						"lh-touch flex h-10 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-[6px] border border-border/70 bg-transparent px-0 text-[11px] font-medium tracking-tighter transition-colors",
 						"hover:bg-accent/60 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:bg-transparent",
 						highlight === level.index && "bg-accent/60",
 					)}
 				>
-					{level.label}
+					<span className="max-w-full truncate leading-none">{level.label}</span>
+					{/* the level's percentage, quiet: the word stays the main thing */}
+					<span aria-hidden className="text-[9px] font-normal leading-none tracking-normal text-muted-foreground/60">
+						{level.stop}%
+					</span>
 				</button>
 			))}
 		</div>

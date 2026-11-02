@@ -36,6 +36,7 @@ import {
 	type SkillEvent,
 	type SkillPartition,
 } from "../core/mastery.ts";
+import { DEFAULT_LESSON_LANGUAGE, type LessonLanguage } from "../core/language.ts";
 import { materialBlock } from "../core/materials.ts";
 import { normalizePaceNote } from "../core/pace.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
@@ -274,8 +275,21 @@ export function courseView(courseId: string): CourseView | null {
 
 // ─── create / rename / delete ────────────────────────────────────────────────
 
+/** A course's language: its own stamp, else the CURRENT default language (a course made before
+ *  languages has none) — unlike a lesson, whose missing stamp means English. */
+function courseLanguage(course: CourseRecord): LessonLanguage {
+	return course.language ?? stores.settingsStore.readSettings()?.general?.language ?? DEFAULT_LESSON_LANGUAGE;
+}
+
+/** A new course, stamped with the default language (fork addition, 2026-11-02). */
 export function createCourse(title: string): CourseRecord {
-	return stores.courseStore.createCourse(title);
+	const created = stores.courseStore.createCourse(title);
+	return stores.courseStore.updateCourse(created.id, { language: courseLanguage(created) }) ?? created;
+}
+
+/** Set a course's language: read by its next draft and stamped on the sessions started from it. */
+export function setCourseLanguage(courseId: string, language: LessonLanguage): CourseRecord | null {
+	return stores.courseStore.updateCourse(courseId, { language });
 }
 
 export function renameCourse(courseId: string, title: string): CourseRecord | null {
@@ -383,6 +397,7 @@ async function runDraft(courseId: string, feedback: string | undefined, controll
 					materialsSection,
 					...(feedback && course.draft ? { previous: { draft: course.draft, feedback } } : {}),
 					...(approved.length > 0 ? { approved } : {}),
+					language: courseLanguage(course),
 				},
 				{
 					engine: piEngineForSpec(spec),
@@ -495,7 +510,7 @@ export function createCourseSession(
 	// Learn and the placement test are conversation sessions (the teacher;
 	// the placement tester); practice and review are practice sessions.
 	const chat = stores.chatStore.createChat(title, mode === "learn" || mode === "placement" ? undefined : "practice", link);
-	stampNewSession(chat.id);
+	stampNewSession(chat.id, { language: courseLanguage(course) });
 	stores.chatStore.saveMessages(chat.id, [
 		newCourseContextMessage({
 			courseTitle: course.title,

@@ -82,11 +82,21 @@ export function approveDraft(draft: CourseDraft, ctx: DraftCheckContext, mintId:
 		const requires = s.requires.map((k) => idOf.get(k)!);
 		const existing = s.reuse ? ctx.skills.get(s.reuse) : undefined;
 		if (existing) {
-			// link-append only what is new — a pure re-approval writes nothing
+			// link-append only what is new — a pure re-approval writes nothing. A different
+			// name or statement is a re-wording (the course's language): the latest wins.
 			const newRequires = requires.filter((r) => !existing.requires.includes(r));
 			const newRestsOn = s.restsOn.filter((n) => !existing.restsOn.includes(n));
-			if (newRequires.length === 0 && newRestsOn.length === 0) continue;
-			lines.push({ id, name: existing.name, statement: existing.statement, requires: newRequires, restsOn: newRestsOn, createdAt: now });
+			const reworded = s.name.trim() !== existing.name || s.statement.trim() !== existing.statement;
+			if (newRequires.length === 0 && newRestsOn.length === 0 && !reworded) continue;
+			lines.push({
+				id,
+				name: reworded ? s.name.trim() : existing.name,
+				statement: reworded ? s.statement.trim() : existing.statement,
+				requires: newRequires,
+				restsOn: newRestsOn,
+				createdAt: now,
+				...(reworded ? { reworded: true } : {}),
+			});
 			continue;
 		}
 		lines.push({ id, name: s.name.trim(), statement: s.statement.trim(), requires, restsOn: [...new Set(s.restsOn)], createdAt: now });
