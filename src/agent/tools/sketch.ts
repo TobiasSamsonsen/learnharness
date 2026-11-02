@@ -40,7 +40,7 @@ export const readSketchInputObject = Type.Object({
 
 export type ReadSketchInput = Static<typeof readSketchInputObject>;
 
-export const READ_SKETCH_ACK = "Reading recorded. Now respond to the work.";
+export const READ_SKETCH_ACK = "Reading recorded. Now respond to the work. Do not plan the reply in thinking: only text and `lead` reach him. Work the correct answer out before you write; never correct yourself inside `lead`.";
 export const READ_SKETCH_DOUBT_ACK =
 	"Reading recorded, with doubts. STOP: write nothing now — the learner sees the doubts on the card and will clarify. " +
 	"Read the sketch again once they answer.";

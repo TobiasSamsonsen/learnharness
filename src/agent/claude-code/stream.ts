@@ -625,6 +625,9 @@ class ClaudeProcess implements LiveProcess {
 			return;
 		}
 		if (event.type === "messageStart" && this.sourceComplete && this.sourceCalls.length > 0) {
+			// Diagnostics (fork, owner 2026-11-02): a session on the tablet hit this 4 ms after a tool result in a replayed process.
+			// Log the held time, the line's type fields and the unadmitted calls' NAMES (never arguments or content).
+			console.warn(`claude CLI moved on without admitting its harness tool calls, ${Math.round((Date.now() - this.heldSince) / 1000)}s after the last hold: line type=${String(JSON.parse(line).type)} event=${String(JSON.parse(line).event?.type)} unadmitted=${this.sourceCalls.map((call) => call.name).join(",")} admitted=${this.admitted.length} session=${this.sessionId ? "yes" : "no"}`);
 			this.fail("claude CLI moved on without admitting its harness tool calls");
 			return;
 		}

@@ -48,7 +48,8 @@ export const ANSWER_NEXT_TEXT =
 export const SKETCH_ANSWER_NEXT_TEXT =
 	"A sketch is attached: call read_sketch on it first, in this reply — before any other tool or text. " +
 	"Then reply in the next question's `lead`: what this answer shows (wrong: diagnose and repair), " +
-	"then teach the next step there — or finish in text.";
+	"then teach the next step there — or finish in text. " +
+	"Do not plan the reply in thinking: only text and `lead` reach him. Work the correct answer out before you write; never correct yourself inside `lead`.";
 
 /** And for a sketch on a question that is not prose-gated (ask, probe). */
 export const SKETCH_READ_FIRST_TEXT =

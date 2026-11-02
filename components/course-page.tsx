@@ -192,7 +192,8 @@ function DraftReview({
 	const [feedback, setFeedback] = useState("");
 	const byKey = new Map(draft.skills.map((s) => [s.key, s]));
 	const reusedCount = draft.skills.filter((s) => s.reuse).length;
-	const label = (s: DraftSkill) => (s.reuse ? (data.reused[s.reuse]?.name ?? s.name) : s.name);
+	// A reused skill shows the draft's wording: approval writes it over the stored one (a re-wording into the course language).
+	const label = (s: DraftSkill) => s.name;
 	return (
 		<section data-testid="course-draft" className="rounded-xl border border-border bg-card/60 p-4">
 			<div className={SECTION_HEAD}>
@@ -207,7 +208,7 @@ function DraftReview({
 							<span className="font-prose text-(length:--lh-prose-size)">{label(s)}</span>
 							{s.reuse && <span className="rounded-full border border-border px-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">reused</span>}
 						</div>
-						<p className="text-xs leading-relaxed text-muted-foreground">{s.reuse ? (data.reused[s.reuse]?.statement ?? s.statement) : s.statement}</p>
+						<p className="text-xs leading-relaxed text-muted-foreground">{s.statement}</p>
 						<p className="mt-0.5 text-[11px] text-muted-foreground/80">
 							{s.requires.length > 0 ? `Requires ${s.requires.map((k) => (byKey.get(k) ? label(byKey.get(k)!) : k)).join(", ")}` : "No prerequisites"}
 							{s.restsOn.length > 0 ? ` · rests on ${s.restsOn.length} proposition${s.restsOn.length === 1 ? "" : "s"} you have learned` : ""}

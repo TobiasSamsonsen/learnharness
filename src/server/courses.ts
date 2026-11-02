@@ -523,7 +523,7 @@ export function createCourseSession(
 	]);
 	// a course's activity order follows its sessions
 	stores.courseStore.updateCourse(courseId, {});
-	return { ok: true, value: { id: chat.id, title: chat.title, prompt: courseFirstMessage(mode, course.title, skills) } };
+	return { ok: true, value: { id: chat.id, title: chat.title, prompt: courseFirstMessage(mode, course.title, skills, courseLanguage(course)) } };
 }
 
 /** A course session's per-turn pieces: the prompt section, its mode, and

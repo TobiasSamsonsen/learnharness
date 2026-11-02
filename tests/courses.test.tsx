@@ -430,6 +430,11 @@ describe("course sessions (core/course-session.ts)", () => {
 		assert.equal(session.courseSessionTitle("placement", "Calc", []), "Placement: Calc");
 		assert.equal(session.courseFirstMessage("learn", "Calc", [{ name: "A", statement: "Do a" }]), "I want to learn to: Do a");
 		assert.equal(session.courseFirstMessage("placement", "Calc", []), "Placement test for Calc");
+		assert.equal(session.courseFirstMessage("learn", "Calc", [{ name: "A", statement: "Gjør a" }], "nb"), "Jeg vil lære å: Gjør a");
+		assert.equal(session.courseFirstMessage("practice", "Calc", [{ name: "A", statement: "x" }, { name: "B", statement: "y" }], "nb"), "Øv på: A, B");
+		assert.equal(session.courseFirstMessage("review", "Calc", [], "nb"), "Repeter ferdighetene mine som skal repeteres nå");
+		assert.equal(session.courseFirstMessage("placement", "Calc", [], "nb"), "Nivåtest for Calc");
+		assert.match(session.courseFirstMessage("check", "Calc", [{ name: "A", statement: "Gjør a" }], "nb"), /^Jeg kan dette fra et annet kurs\. Sjekk at jeg kan bruke det i Calc: Gjør a$/);
 	});
 
 	it("the prompt section: Learn targets one skill and finishes; practice modes carry the tagging law; the placement test grades", () => {
@@ -1120,7 +1125,7 @@ describe("the UI", () => {
 						createdAt: "t",
 						summary: "Two skills.",
 						skills: [
-							{ key: "s1", reuse: "sk_old", name: "x", statement: "x", requires: [], restsOn: ["n1"], cite: "Book, p. 2" },
+							{ key: "s1", reuse: "sk_old", name: "Gammel ferdighet", statement: "Gjør gammel", requires: [], restsOn: ["n1"], cite: "Book, p. 2" },
 							{ key: "s2", name: "New", statement: "Do new", requires: ["s1"], restsOn: [] },
 						],
 					},
@@ -1132,8 +1137,10 @@ describe("the UI", () => {
 			}),
 		);
 		assert.match(html, /Draft skill map · 2 skills · 1 reused/);
-		assert.match(html, /Old skill/);
-		assert.match(html, /Requires Old skill/);
+		// a reused skill shows the draft's wording — approval writes it over the stored one
+		assert.match(html, /Gammel ferdighet/);
+		assert.doesNotMatch(html, /Old skill/);
+		assert.match(html, /Requires Gammel ferdighet/);
 		assert.match(html, /rests on 1 proposition you have learned/);
 		assert.match(html, /data-testid="draft-approve"/);
 		assert.doesNotMatch(html, /data-testid="course-map"/);

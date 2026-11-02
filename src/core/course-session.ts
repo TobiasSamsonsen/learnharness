@@ -13,6 +13,7 @@
 
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { CourseMode } from "./contracts/course.ts";
+import type { LessonLanguage } from "./language.ts";
 import { newGraphContextMessage, newMessageId, type GraphContextPick, type LhMarkerMessage, type LhMessage } from "./native-messages.ts";
 
 // ─── finishing a course session (owner, 2026-10-25) ──────────────────────────
@@ -165,7 +166,26 @@ export function courseSessionTitle(mode: CourseMode, courseTitle: string, skills
 }
 
 /** The generated first learner message. */
-export function courseFirstMessage(mode: CourseMode, courseTitle: string, skills: readonly { name: string; statement: string }[]): string {
+export function courseFirstMessage(
+	mode: CourseMode,
+	courseTitle: string,
+	skills: readonly { name: string; statement: string }[],
+	language: LessonLanguage = "en",
+): string {
+	if (language === "nb") {
+		switch (mode) {
+			case "learn":
+				return `Jeg vil lære å: ${skills[0]?.statement ?? courseTitle}`;
+			case "practice":
+				return `Øv på: ${skills.map((s) => s.name).join(", ")}`;
+			case "review":
+				return "Repeter ferdighetene mine som skal repeteres nå";
+			case "placement":
+				return `Nivåtest for ${courseTitle}`;
+			case "check":
+				return `Jeg kan dette fra et annet kurs. Sjekk at jeg kan bruke det i ${courseTitle}: ${skills[0]?.statement ?? courseTitle}`;
+		}
+	}
 	switch (mode) {
 		case "learn":
 			return `I want to learn to: ${skills[0]?.statement ?? courseTitle}`;
