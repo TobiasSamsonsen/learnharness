@@ -8,7 +8,7 @@ publish them; confirm each against the linked source before publishing a build.
 
 | Component | Version | Source | License (per the Termux package) |
 |---|---|---|---|
-| proot | 5.1.107.101 (Termux build) | https://github.com/termux/proot , package `proot_5.1.107.101_aarch64.deb` at https://packages.termux.dev/apt/termux-main/ | GPL-2.0 |
+| proot | 5.1.107.102 (Termux build) | https://github.com/termux/proot , package `proot_5.1.107.102_aarch64.deb` at https://packages.termux.dev/apt/termux-main/ | GPL-2.0 |
 | proot loader | same package | same | GPL-2.0 |
 | libtalloc | 2.5.0 | https://www.samba.org/ftp/talloc/ , package `libtalloc_2.5.0_aarch64.deb` | see the package's copyright file (Termux lists GPL-3.0; upstream talloc states LGPL-3.0-or-later) |
 | libandroid-shmem | 0.7 | https://github.com/termux/libandroid-shmem , package `libandroid-shmem_0.7_aarch64.deb` | see the package's copyright file |

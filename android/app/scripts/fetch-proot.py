@@ -20,7 +20,7 @@ import urllib.request
 REPO = "https://packages.termux.dev/apt/termux-main/"
 # name -> (path in the Termux repo, sha256 of the .deb as listed in the repo's Packages index)
 DEBS = {
-	"proot": ("pool/main/p/proot/proot_5.1.107.101_aarch64.deb", "a28355e9be257e1f87f4e9294b3118470d4fd7a5442fed8b278f4443c83407d7"),
+	"proot": ("pool/main/p/proot/proot_5.1.107.102_aarch64.deb", "10a394b585c2fc2b2c8502544f4e5f1be581dc8bfff79e8ba62f16207423e030"),
 	"libtalloc": ("pool/main/libt/libtalloc/libtalloc_2.5.0_aarch64.deb", "556591f43bb773ad8777e1a29522640866a55f95dab71914418b94a8c58ad5a7"),
 	"libandroid-shmem": ("pool/main/liba/libandroid-shmem/libandroid-shmem_0.7_aarch64.deb", "0da3a24d558b93c92bcf8d611e0826a99ff96e396b148e6cdf33b47c47c57ff6"),
 }
