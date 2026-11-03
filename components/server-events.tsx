@@ -24,7 +24,7 @@
  * React glue is an adapter seam like lh:turn-state (untested by
  * precedent, components/session.ts).
  */
-import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { SERVER_EVENT_TYPES, type ServerEventType, type ServerEvents } from "@/src/core";
 
 /** The minimal source surface the provider consumes — EventSource behind
@@ -33,6 +33,8 @@ export interface NotifySource {
 	close(): void;
 	onOpen(cb: () => void): void;
 	onEvent(name: string, cb: (data: string) => void): void;
+	/** The connection broke (the server went away, or has not come back yet). The source reconnects by itself and calls onOpen when it has. */
+	onError?(cb: () => void): void;
 }
 
 export function openEventsChannel(): NotifySource {
@@ -45,6 +47,9 @@ export function openEventsChannel(): NotifySource {
 		onEvent: (name, cb) => {
 			es.addEventListener(name, (ev) => cb((ev as MessageEvent).data));
 		},
+		onError: (cb) => {
+			es.onerror = () => cb();
+		},
 	};
 }
 
@@ -55,7 +60,23 @@ export function openEventsChannel(): NotifySource {
 export function createNotifyHub() {
 	const byType = new Map<string, Set<(data: never) => void>>();
 	const resyncs = new Set<() => void>();
+	// Can the server be reached? True until the channel errors, true again when it reopens (fork addition, 2026-11-03:
+	// after the Android app rests an unused server, the page stays up while the server starts again, and Send waits for it).
+	let reachable = true;
+	const reachableListeners = new Set<() => void>();
 	return {
+		reachable: () => reachable,
+		setReachable(next: boolean) {
+			if (next === reachable) return;
+			reachable = next;
+			for (const cb of [...reachableListeners]) cb();
+		},
+		subscribeReachable(cb: () => void) {
+			reachableListeners.add(cb);
+			return () => {
+				reachableListeners.delete(cb);
+			};
+		},
 		subscribe<K extends ServerEventType>(type: K, cb: (payload: ServerEvents[K]) => void) {
 			const set = byType.get(type) ?? new Set<(data: never) => void>();
 			byType.set(type, set);
@@ -108,7 +129,11 @@ export function createNotifyHub() {
  *  out so the wiring is testable without React. Returns the disconnect. */
 export function wireSource(source: NotifySource, hub: ReturnType<typeof createNotifyHub>): () => void {
 	for (const name of SERVER_EVENT_TYPES) source.onEvent(name, (raw) => hub.dispatch(name, raw));
-	source.onOpen(() => hub.fireOpen());
+	source.onOpen(() => {
+		hub.setReachable(true);
+		hub.fireOpen();
+	});
+	source.onError?.(() => hub.setReachable(false));
 	return () => source.close();
 }
 
@@ -116,12 +141,50 @@ export function wireSource(source: NotifySource, hub: ReturnType<typeof createNo
 
 const EventsContext = createContext<ReturnType<typeof createNotifyHub> | null>(null);
 
+/** Mount children under a ready-made hub (tests, isolated adapters): the provider without its own channel. */
+export function NotifyHubProvider({ hub, children }: { hub: ReturnType<typeof createNotifyHub>; children: ReactNode }) {
+	return <EventsContext.Provider value={hub}>{children}</EventsContext.Provider>;
+}
+
 /** Transport adapters may also be mounted in isolation with an injected bridge. */
 export function useNotifyHub() { return useContext(EventsContext); }
 
-export function ServerEventsProvider({ children, connect }: { children: ReactNode; connect?: () => NotifySource }) {
+/** How often a broken channel looks for the server, and how it asks (injectable for tests). */
+export const SERVER_PROBE_MS = 500;
+async function serverAnswers(): Promise<boolean> {
+	try {
+		return (await fetch("/api/health", { cache: "no-store" })).ok;
+	} catch {
+		return false;
+	}
+}
+
+export function ServerEventsProvider({ children, connect, probe }: { children: ReactNode; connect?: () => NotifySource; probe?: () => Promise<boolean> }) {
 	const hub = useMemo(() => createNotifyHub(), []);
-	useEffect(() => wireSource((connect ?? openEventsChannel)(), hub), [hub, connect]);
+	// Bumped to open a fresh channel at once instead of waiting out the browser's own reconnect delay.
+	const [attempt, setAttempt] = useState(0);
+	useEffect(() => wireSource((connect ?? openEventsChannel)(), hub), [hub, connect, attempt]);
+	// While the channel is broken (the Android app rested an unused server, or it is restarting), look for the server twice a
+	// second; the moment it answers the page is reachable again, resyncs, and opens a fresh channel.
+	const reachable = useSyncExternalStore(hub.subscribeReachable, hub.reachable, () => true);
+	useEffect(() => {
+		if (reachable) return;
+		let cancelled = false;
+		const id = setInterval(() => {
+			void (probe ?? serverAnswers)().then((up) => {
+				if (!up || cancelled) return;
+				// The server answers, so it is reachable now. Do not wait for the new channel to report open: a browser only does that
+				// when the server's first bytes arrive, which can be a whole heartbeat (25 s) away, and Send would stay off meanwhile.
+				hub.setReachable(true);
+				hub.fireOpen(); // every consumer refetches what it missed while the server was away
+				setAttempt((n) => n + 1);
+			});
+		}, SERVER_PROBE_MS);
+		return () => {
+			cancelled = true;
+			clearInterval(id);
+		};
+	}, [reachable, hub, probe]);
 	return <EventsContext.Provider value={hub}>{children}</EventsContext.Provider>;
 }
 
@@ -140,6 +203,19 @@ export function useServerEvent<K extends ServerEventType>(type: K, cb: (payload:
 			off();
 		};
 	}, [hub, type]);
+}
+
+/**
+ * Can this window reach its server right now? False from the moment the live channel breaks until it reopens. True when there is
+ * no provider (an isolated component) or before the channel has ever failed. The composer's Send waits on it.
+ */
+export function useServerReachable(): boolean {
+	const hub = useContext(EventsContext);
+	return useSyncExternalStore(
+		(cb) => (hub ? hub.subscribeReachable(cb) : () => {}),
+		() => (hub ? hub.reachable() : true),
+		() => true,
+	);
 }
 
 /** Refetch truth on every (re)connect of the window's channel — the

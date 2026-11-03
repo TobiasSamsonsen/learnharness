@@ -15,9 +15,11 @@ import { createNotifyHub, wireSource, type NotifySource } from "../components/se
 function fakeSource() {
 	const events = new Map<string, Set<(data: string) => void>>();
 	const opens = new Set<() => void>();
+	const errors = new Set<() => void>();
 	const src: NotifySource & {
 		push(name: string, payload: unknown): void;
 		open(): void;
+		fail(): void;
 		closed: boolean;
 	} = {
 		closed: false,
@@ -37,6 +39,12 @@ function fakeSource() {
 		},
 		open() {
 			for (const cb of opens) cb();
+		},
+		onError(cb) {
+			errors.add(cb);
+		},
+		fail() {
+			for (const cb of errors) cb();
 		},
 	};
 	return src;
@@ -104,5 +112,49 @@ describe("notify hub + wireSource (the client channel wiring)", () => {
 		assert.equal(src.closed, false, "connected until the provider unmounts");
 		disconnect();
 		assert.equal(src.closed, true, "the effect's cleanup closes the source");
+	});
+});
+
+describe("the hub's reachable state (the server may be starting again)", () => {
+	it("starts reachable, goes unreachable when the channel breaks, and is reachable again when it reopens", () => {
+		const hub = createNotifyHub();
+		const src = fakeSource();
+		wireSource(src, hub);
+		assert.equal(hub.reachable(), true, "a page that just loaded has a server");
+		src.fail();
+		assert.equal(hub.reachable(), false);
+		src.open();
+		assert.equal(hub.reachable(), true);
+	});
+
+	it("tells listeners only when it changes, and stops when they unsubscribe", () => {
+		const hub = createNotifyHub();
+		const seen: boolean[] = [];
+		const off = hub.subscribeReachable(() => seen.push(hub.reachable()));
+		hub.setReachable(true); // no change
+		hub.setReachable(false);
+		hub.setReachable(false); // no change
+		hub.setReachable(true);
+		off();
+		hub.setReachable(false);
+		assert.deepEqual(seen, [false, true]);
+	});
+
+	it("still resyncs on reopen after a break, so every consumer refetches what it missed", () => {
+		const hub = createNotifyHub();
+		const src = fakeSource();
+		wireSource(src, hub);
+		let resyncs = 0;
+		hub.onResync(() => resyncs++);
+		src.fail();
+		src.open();
+		assert.equal(resyncs, 1);
+	});
+
+	it("a source that cannot report errors never makes the page unreachable", () => {
+		const hub = createNotifyHub();
+		const plain: NotifySource = { close() {}, onOpen() {}, onEvent() {} };
+		wireSource(plain, hub);
+		assert.equal(hub.reachable(), true);
 	});
 });

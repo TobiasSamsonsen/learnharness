@@ -19,6 +19,7 @@ import { PathInput } from "@/components/path-input";
 import { SessionStarter } from "@/components/start-session";
 import type { TurnUsage } from "@/src/core";
 import { enterSends } from "@/components/enter-submits";
+import { useServerReachable } from "@/components/server-events";
 
 /**
  * Home — the knowledge graph is the main view, full-bleed edge to edge
@@ -105,7 +106,10 @@ export function Home({
 	 * the run, let the last finals land, THEN read the REF mirror (not the
 	 * state closure) and run. Applies before the setup/key guards too, so
 	 * an intercepted draft is the complete one. */
+	// Starting a session waits while the server is not reachable (the Android app rested it and it is starting again); the topic can be typed meanwhile.
+	const reachable = useServerReachable();
 	const start = () => {
+		if (!reachable) return;
 		if (!dictation.active) {
 			void begin();
 			return;
@@ -278,7 +282,7 @@ export function Home({
 								void start();
 							}
 						}}
-						placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+						placeholder={!reachable ? "Starting the server\u2026" : mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
 						autoFocus
 						className="field-sizing-content lh-input max-h-48 min-h-10 touch:min-h-12 w-full resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 					/>
@@ -292,7 +296,7 @@ export function Home({
 							<button
 								type="submit"
 								aria-label="Start session"
-								disabled={(!topic.trim() && !dictation.active) || busy}
+								disabled={(!topic.trim() && !dictation.active) || busy || !reachable}
 								className="lh-press flex size-10 touch:size-12 shrink-0 items-center justify-center rounded-lgi bg-primary text-primary-foreground hover:opacity-90 active:rounded-xl disabled:bg-primary/25 disabled:text-primary"
 							>
 								<CornerDownLeftIcon className="size-5" />
