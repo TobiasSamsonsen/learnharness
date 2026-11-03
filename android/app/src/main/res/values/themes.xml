@@ -3,6 +3,8 @@
 	<style name="Theme.LearnHarness" parent="android:Theme.DeviceDefault.NoActionBar">
 		<item name="android:windowBackground">#151210</item>
 		<item name="android:colorBackground">#151210</item>
+		<!-- the system launch screen: the app mark (its launcher icon) on the app's own colour -->
+		<item name="android:windowSplashScreenBackground">#151210</item>
 		<item name="android:statusBarColor">@android:color/transparent</item>
 		<item name="android:navigationBarColor">@android:color/transparent</item>
 		<item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>

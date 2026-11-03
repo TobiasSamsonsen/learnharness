@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation";
 import { Conversation, ConversationContent, ConversationEmptyState } from "@/components/ai-elements/conversation";
 import { Composer } from "@/components/composer";
+import { useServerReachable } from "@/components/server-events";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
 import { SidebarToggle } from "@/components/sidebar";
@@ -144,7 +145,9 @@ export function DraftShell({
 	// round, owner 2026-10-01): the spoken text is deferred in the run's
 	// buffer — Enter must reach the finish-first send, not be gated out by
 	// an empty textarea. Nothing said → the send no-ops.
-	const canSend = text.trim().length > 0 || dictation.active;
+	// Send also waits while the server is not reachable (the Android app rested it and it is starting again); the text can be typed meanwhile.
+	const reachable = useServerReachable();
+	const canSend = reachable && (text.trim().length > 0 || dictation.active);
 	const emptyTitle = mode === "practice" ? "New practice session" : "New session";
 	const emptyDescription =
 		mode === "practice"
@@ -232,7 +235,7 @@ export function DraftShell({
 										// input (owner refinement round, 2026-09-24) — no lesson has
 										// started yet, so the composer must not read like one is in
 										// flight.
-										placeholder={mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
+										placeholder={!reachable ? "Starting the server\u2026" : mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
 										edge={{ mic: <DictationBar dictation={dictation} compact /> }}
 									/>
 								</div>

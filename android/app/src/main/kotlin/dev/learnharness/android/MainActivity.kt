@@ -29,6 +29,11 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
+import android.animation.ValueAnimator
+import android.view.animation.AccelerateDecelerateInterpolator
+import android.widget.ImageView
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -69,6 +74,9 @@ class MainActivity : ComponentActivity() {
 	/** The sign-in is running: coming back from the browser must not start it again. */
 	private var loginActive = false
 	private var askedNotifications = false
+
+	/** A server restart under a page that is already showing is in progress (onResume). */
+	@Volatile private var reviving = false
 	/** "Not now" on the update card: not offered again until the next cold start. */
 	private var skipUpdate = false
 	/** The background check found a newer release; the page's card offers it (it probes, we answer). */
@@ -99,6 +107,10 @@ class MainActivity : ComponentActivity() {
 	private lateinit var inkBridge: InkBridge
 	private lateinit var status: LinearLayout
 	private lateinit var title: TextView
+
+	/** The app mark on the waiting screen: it breathes while the server starts (launch screen, owner request 2026-11-03). */
+	private lateinit var mark: ImageView
+	private var pulse: ObjectAnimator? = null
 	private lateinit var detail: TextView
 	private lateinit var primary: Button
 	private lateinit var secondary: Button
@@ -187,14 +199,31 @@ class MainActivity : ComponentActivity() {
 		if (!pageShown && !busy && !loginActive) {
 			begin()
 		} else if (pageShown && !busy && !loginActive && !dev) {
-			// the server rests by itself when unused (IdlePolicy): a page left showing may now face a stopped one, so look, and start it again
+			// The server rests by itself when unused (IdlePolicy), so a page left showing may now face a stopped one. Keep the page and
+			// start the server under it: the page's live channel reconnects by itself and its Send waits meanwhile ("Starting the
+			// server..."), so what is half typed or drawn survives. Only if the server never comes back does the usual screen appear.
+			if (reviving) return
+			reviving = true
 			val p = port
 			thread {
-				if (!checkHealth(p)) runOnUiThread {
-					if (pageShown && !busy && !loginActive) {
-						pageShown = false
-						begin()
+				try {
+					if (checkHealth(p)) return@thread
+					try {
+						ServerService.start(this, p)
+					} catch (_: Exception) {
+						// not allowed to start a foreground service right now (the app has just left the screen): the next resume tries again
+						return@thread
 					}
+					val deadline = System.currentTimeMillis() + START_TIMEOUT_MS
+					while (System.currentTimeMillis() < deadline && !checkHealth(p)) Thread.sleep(150)
+					if (!checkHealth(p)) runOnUiThread {
+						if (pageShown && !busy && !loginActive) {
+							pageShown = false
+							begin()
+						}
+					}
+				} finally {
+					reviving = false
 				}
 			}
 		}
@@ -249,6 +278,11 @@ class MainActivity : ComponentActivity() {
 		webView.webViewClient = client
 		webView.webChromeClient = chrome
 
+		mark = ImageView(this).apply {
+			setImageResource(R.mipmap.ic_launcher_foreground)
+			contentDescription = "LearnHarness"
+			visibility = View.GONE
+		}
 		title = TextView(this).apply { setTextColor(Color.WHITE); setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f); gravity = Gravity.CENTER }
 		detail = TextView(this).apply { setTextColor(0xFFB0B0B0.toInt()); setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f); gravity = Gravity.CENTER; setPadding(0, dp(12), 0, dp(20)) }
 		primary = Button(this)
@@ -282,6 +316,7 @@ class MainActivity : ComponentActivity() {
 			setPadding(dp(24), dp(24), dp(24), dp(24))
 			visibility = View.GONE
 			val wide = LinearLayout.LayoutParams(dp(320), ViewGroup.LayoutParams.WRAP_CONTENT)
+			addView(mark, LinearLayout.LayoutParams(dp(270), dp(270)).apply { bottomMargin = dp(8) })
 			addView(title, wide)
 			addView(detail, wide)
 			addView(primary, wide)
@@ -314,8 +349,9 @@ class MainActivity : ComponentActivity() {
 		}
 	}
 
-	private fun show(titleText: String, detailText: String, primaryLabel: String?, onPrimary: () -> Unit, secondaryLabel: String? = null, onSecondary: () -> Unit = {}, controls: Boolean = true, code: Boolean = false) {
+	private fun show(titleText: String, detailText: String, primaryLabel: String?, onPrimary: () -> Unit, secondaryLabel: String? = null, onSecondary: () -> Unit = {}, controls: Boolean = true, code: Boolean = false, working: Boolean = false) {
 		pageShown = false
+		showMark(working)
 		codeField.visibility = if (code) View.VISIBLE else View.GONE
 		webView.visibility = View.GONE
 		status.visibility = View.VISIBLE
@@ -335,7 +371,55 @@ class MainActivity : ComponentActivity() {
 		devSwitch.setOnCheckedChangeListener { _, on -> dev = on; begin() }
 	}
 
-	private fun showWorking(text: String) = show(text, "", null, {}, controls = false)
+	private fun showWorking(text: String) = show(text, "", null, {}, controls = false, working = true)
+
+	/**
+	 * The waiting screen: the mark breathes and no words are shown, so a normal start (about a second) reads as the app opening.
+	 * Only a wait that runs past a few seconds adds the sentence, so a slow start never looks frozen. Any other screen (an error,
+	 * the sign-in) shows its text at once and no mark.
+	 */
+	private fun showMark(working: Boolean) {
+		title.animate().cancel()
+		detail.animate().cancel()
+		if (!working) {
+			stopPulse()
+			mark.visibility = View.GONE
+			title.alpha = 1f
+			detail.alpha = 1f
+			return
+		}
+		mark.visibility = View.VISIBLE
+		startPulse()
+		// the words (the sentence and any line under it, which the start code sets itself) wait their turn
+		for (words in listOf(title, detail)) {
+			words.alpha = 0f
+			words.animate().alpha(1f).setStartDelay(WORKING_TEXT_AFTER_MS).setDuration(400).start()
+		}
+	}
+
+	private fun startPulse() {
+		if (pulse?.isRunning == true) return
+		pulse = ObjectAnimator.ofPropertyValuesHolder(
+			mark,
+			PropertyValuesHolder.ofFloat(View.ALPHA, 0.45f, 1f),
+			PropertyValuesHolder.ofFloat(View.SCALE_X, 0.94f, 1f),
+			PropertyValuesHolder.ofFloat(View.SCALE_Y, 0.94f, 1f),
+		).apply {
+			duration = 1100
+			repeatCount = ValueAnimator.INFINITE
+			repeatMode = ValueAnimator.REVERSE
+			interpolator = AccelerateDecelerateInterpolator()
+			start()
+		}
+	}
+
+	private fun stopPulse() {
+		pulse?.cancel()
+		pulse = null
+		mark.alpha = 1f
+		mark.scaleX = 1f
+		mark.scaleY = 1f
+	}
 
 	/** Reads the port field (the status screen's only setting) before a retry. */
 	private fun retry() {
@@ -380,6 +464,15 @@ class MainActivity : ComponentActivity() {
 			// the guest is only looked at when nothing answers: a running server needs no checks
 			val down = !dev && !healthy
 			val installed = !down || provisioner.installed()
+			// The server does not wait for the sign-in check below (a second or so in the guest): once there is something to start and
+			// the app is past its first run, start it now; startServer() later finds it already starting.
+			if (down && installed && pastFirstRun()) {
+				try {
+					ServerService.start(this, p)
+				} catch (_: Exception) {
+					// not allowed right now: startServer() does it when it is
+				}
+			}
 			val signedIn = !down || !installed || login.loggedIn()
 			runOnUiThread {
 				if (my != attempt) return@runOnUiThread
@@ -403,6 +496,11 @@ class MainActivity : ComponentActivity() {
 			}
 		}
 	}
+
+	/** Not the first run: settings exist (startServer writes them on a fresh install first) and the notification question is settled. */
+	private fun pastFirstRun(): Boolean =
+		File(guest.home, "lh-data/settings.json").exists() &&
+			(askedNotifications || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
 
 	private fun checkHealth(p: Int): Boolean = try {
 		val c = URL(Server.healthUrl(p)).openConnection() as HttpURLConnection
@@ -697,7 +795,7 @@ class MainActivity : ComponentActivity() {
 		val p = port
 		thread {
 			val deadline = System.currentTimeMillis() + START_TIMEOUT_MS
-			while (System.currentTimeMillis() < deadline && !checkHealth(p)) Thread.sleep(500)
+			while (System.currentTimeMillis() < deadline && !checkHealth(p)) Thread.sleep(150)
 			runOnUiThread {
 				busy = false
 				begin(afterStart = true)
@@ -756,6 +854,7 @@ class MainActivity : ComponentActivity() {
 		pageShown = true
 		saw403 = false
 		status.visibility = View.GONE
+		stopPulse() // the page is up: nothing left to wait for
 		webView.visibility = View.VISIBLE
 		updateProbed = false
 		webView.loadUrl(Server.base(port))
@@ -916,6 +1015,9 @@ base64` here; the system picker picks where the
 		const val START_TIMEOUT_MS = 90_000L
 		/** After the check found an update: how long the page may stay silent before the shell offers it on its own screen. */
 		const val NO_CARD_AFTER_MS = 8_000L
+
+		/** How long the waiting screen stays wordless before it says what it is waiting for. */
+		const val WORKING_TEXT_AFTER_MS = 3_500L
 
 		/**
 		 * The web app saves files with an `<a download>`: a detached blob link revoked right after the click

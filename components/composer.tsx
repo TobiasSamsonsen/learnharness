@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Hint } from "@/components/ui/hint";
 import { ComposerEdge } from "@/components/composer-edge";
 import { enterSends } from "@/components/enter-submits";
+import { useServerReachable } from "@/components/server-events";
 import { PathInput } from "@/components/path-input";
 
 /**
@@ -81,7 +82,9 @@ export function ChatSessionComposer({
 }) {
 	const [draft, setDraft] = useState(value);
 	useLayoutEffect(() => { setDraft(value); }, [revision, value]);
-	const canSend = sendAllowed && (draft.trim().length > 0 || dictationActive);
+	// Send waits while the server is not reachable (it is starting again after the Android app rested it): the text can be typed meanwhile.
+	const reachable = useServerReachable();
+	const canSend = reachable && sendAllowed && (draft.trim().length > 0 || dictationActive);
 	const applyDraft = useCallback((next: string) => {
 		setDraft(next);
 		onChange(next);
@@ -98,7 +101,7 @@ export function ChatSessionComposer({
 			autoFocus={autoFocus}
 			inputRef={inputRef}
 			onEscape={onEscape}
-			placeholder={placeholder}
+			placeholder={reachable ? placeholder : "Starting the server…"}
 			nextProblem={nextProblem}
 			onNext={onNext}
 			edge={edge}
