@@ -22,6 +22,24 @@ No API key is required just to start the UI. Configure a provider/connection and
 
 For local signed macOS packaging, `npm run desktop:dist` runs the build, runtime smoke/assembly checks and Electron Builder with the configured signing/notarization setup. It is not a portable unsigned-build shortcut. See [desktop release](desktop-release.md) for prerequisites, target-OS builds, Windows/Linux packages and release verification.
 
+## Run CI locally before pushing
+
+CI (`.github/workflows/ci.yml`) runs typecheck, tests and lint on **Ubuntu 24.04 with Node 26**. The project is developed on Windows, where some tests behave differently (a 12-hour clock, file modes, shell scripts, path separators), so a green `npm test` on Windows does not mean a green CI, and every failed push mails the owner. Run CI itself on a clean copy of your commit first:
+
+```bash
+npm run ci:local       # npm ci (only when package-lock.json changed), typecheck, tests, lint: all four always run
+```
+
+It tests the commit `HEAD` (commit first; `LH_CI_REF=<sha>` picks another, `LH_CI_WORKTREE=1` tests uncommitted changes, with Windows line endings). On Linux and macOS it runs directly; on Windows it runs inside WSL. The first run installs dependencies (a few minutes); later runs reuse them in `~/.cache/lh-ci`. Per-step logs are in `~/.cache/lh-ci/logs/` inside the distro.
+
+**One-time WSL setup on Windows** (what the project's CI runner has, as far as the tests can tell):
+
+1. Enable WSL2 (`wsl --install --no-distribution`, then restart if asked) and import the official Ubuntu 24.04 image, checking its checksum against `https://releases.ubuntu.com/noble/SHA256SUMS`: `wsl --import Ubuntu-24.04 <folder> ubuntu-24.04.5-wsl-amd64.wsl --version 2`.
+2. Inside it, as root: `apt-get install -y git curl xz-utils ca-certificates rsync python3 make g++ unzip`, then Node 26 from nodejs.org (`https://nodejs.org/dist/index.json` lists the latest v26; extract the linux-x64 tarball into `/usr/local` with `--strip-components=1`, after checking it against that release's `SHASUMS256.txt`).
+3. `npm run ci:local` finds the distro by name; set `LH_CI_WSL` to use another one.
+
+**Optional pre-push hook:** `git config core.hooksPath .githooks` makes a push to `main` run this first and refuse when CI would fail (`git push --no-verify` skips it once; `git config --unset core.hooksPath` turns it off). It is off by default because it adds about five minutes to each push to `main`.
+
 ## Configuration and credentials
 
 Non-secret preferences live in `data/settings.json` (or the directory selected by `LH_DATA_DIR`). The record stores explicit deltas; absent fields resolve through `src/core/settings.ts` and `src/core/settings-resolution.ts`. Model slots/overrides are settings, not environment variables. Prompt override files live under that same data root, with explicit switches in `agent.prompts`.

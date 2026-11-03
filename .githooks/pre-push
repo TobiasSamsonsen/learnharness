@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Optional: refuse a push to main unless CI would pass (fork addition, 2026-11-03). Not active until you turn it on:
+#
+#     git config core.hooksPath .githooks
+#
+# Turn it off again with: git config --unset core.hooksPath
+# It runs `npm run ci:local` (typecheck, tests, lint on Linux, about 5 minutes; docs/development.md) on exactly the commit
+# being pushed. Pushing a feature branch is not checked; `git push --no-verify` skips it for one push.
+zero=0000000000000000000000000000000000000000
+while read -r local_ref local_sha remote_ref _remote_sha; do
+	[ "$remote_ref" = "refs/heads/main" ] || continue
+	[ "$local_sha" = "$zero" ] && continue # a deletion
+	echo "pre-push: running CI locally for $(git rev-parse --short "$local_sha") before it reaches main ..."
+	if ! LH_CI_REF="$local_sha" npm run ci:local; then
+		echo "pre-push: CI would fail, so nothing was pushed. Fix it, or push with --no-verify to skip this check." >&2
+		exit 1
+	fi
+done
+exit 0

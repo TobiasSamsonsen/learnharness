@@ -1,1 +1,3 @@
 android/termux/lh text eol=lf
+scripts/ci-local.sh text eol=lf
+.githooks/* text eol=lf
