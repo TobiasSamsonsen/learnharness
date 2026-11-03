@@ -61,6 +61,13 @@ export function endTurn(chatId: string): void {
 	if (inFlight.delete(chatId)) emit("turn-settled", { chatId });
 }
 
+/** How many turns are in flight right now, dropping stale entries first (the same leak guard as isTurnRunning). The idle check reads this. */
+export function turnsInFlight(): number {
+	const now = Date.now();
+	for (const [chatId, since] of inFlight) if (now - since > MAX_TURN_MS) inFlight.delete(chatId);
+	return inFlight.size;
+}
+
 /** True while the chat's turn is in flight; lazily evicts stale entries.
  * The eviction path is DELIBERATELY event-free: it is a leak guard for a
  * turn whose onFinish never fired (itself pathological), it runs lazily

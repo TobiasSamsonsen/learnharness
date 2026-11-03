@@ -320,6 +320,11 @@ function draftRuns(): Map<string, AbortController> {
 	return g[RUNS_KEY];
 }
 
+/** How many courses are being drafted right now (the idle check reads this). */
+export function courseDraftCount(): number {
+	return draftRuns().size;
+}
+
 /** Is a drafting run live for this course? */
 export function courseDrafting(courseId: string): boolean {
 	return draftRuns().has(courseId);

@@ -136,6 +136,19 @@ function state(): WakeState {
 	return (g.__lhWakePipeline ??= { queues: new Map(), liveAgents: new Map(), userSteers: new Map(), pumping: new Set(), lastSweepAt: 0, automaticDeferred: new WeakSet() });
 }
 
+/**
+ * How much job-result delivery is in progress (the idle check reads this): a live agent being steered, a pump loop running, and
+ * queued steers that are waiting to be delivered. Steers parked as `deferred` wait for a learner run or a restart, not a timer,
+ * so they are not work and never hold the server up.
+ */
+export function wakeWorkCount(): number {
+	const s = state();
+	let queued = 0;
+	for (const entries of s.queues.values()) queued += entries.filter((e) => !e.deferred).length;
+	for (const entries of s.userSteers.values()) queued += entries.length;
+	return s.liveAgents.size + s.pumping.size + queued;
+}
+
 /** chat-handler wires this at module init: its adapter around handleChatRequest. */
 export function setTurnRunner(run: TurnRunner): void {
 	state().turnRunner = run;

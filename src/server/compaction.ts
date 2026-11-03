@@ -133,6 +133,11 @@ export function compactionInFlight(chatId: string): boolean {
 	return state().inFlight.has(chatId);
 }
 
+/** How many compactions are running across all chats (the idle check reads this). */
+export function compactionsInFlight(): number {
+	return state().inFlight.size;
+}
+
 /** Await any in-flight compaction for the chat — the structural gate
  *  every model interaction for the chat passes through. */
 export async function awaitCompaction(chatId: string): Promise<void> {

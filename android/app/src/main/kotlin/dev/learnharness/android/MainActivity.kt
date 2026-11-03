@@ -176,13 +176,28 @@ class MainActivity : ComponentActivity() {
 
 	override fun onPause() {
 		DemoBridge.host = null
+		ServerService.onAppVisible(false)
 		super.onPause()
 	}
 
 	override fun onResume() {
 		super.onResume()
 		DemoBridge.host = root
-		if (!pageShown && !busy && !loginActive) begin()
+		ServerService.onAppVisible(true)
+		if (!pageShown && !busy && !loginActive) {
+			begin()
+		} else if (pageShown && !busy && !loginActive && !dev) {
+			// the server rests by itself when unused (IdlePolicy): a page left showing may now face a stopped one, so look, and start it again
+			val p = port
+			thread {
+				if (!checkHealth(p)) runOnUiThread {
+					if (pageShown && !busy && !loginActive) {
+						pageShown = false
+						begin()
+					}
+				}
+			}
+		}
 	}
 
 	/**

@@ -47,6 +47,11 @@ function runs(): Map<string, Run> {
 }
 const runKey = (chatId: string, id: string) => `${chatId}/${id}`;
 
+/** How many materials are being read right now (the idle check reads this). */
+export function materialRunCount(): number {
+	return runs().size;
+}
+
 /** How long a turn waits for profiles still being read. */
 const TURN_WAIT_MS = 180_000;
 

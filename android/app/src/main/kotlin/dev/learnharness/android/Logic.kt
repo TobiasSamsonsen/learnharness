@@ -238,3 +238,98 @@ object PhotoCapture {
 
 	private val IMAGE_EXTENSIONS = setOf(".jpg", ".jpeg", ".png", ".webp", ".gif")
 }
+
+/**
+ * When an unused server may rest (owner decision, 2026-11-03: 10 and 45 minutes). "Unused" means the app is not on screen AND the
+ * server reports no work in progress (a turn, a job, a sync round ...), so a long problem or a long model turn is never cut: the
+ * clock only runs while nothing is happening. The first step drops the wake lock (the CPU may sleep, the server stays loaded, coming
+ * back is instant); the second stops the server and its notification (the app starts it again on the next open).
+ */
+object IdlePolicy {
+	const val RELEASE_WAKE_LOCK_MS = 10 * 60_000L
+	const val STOP_SERVER_MS = 45 * 60_000L
+
+	/** How often the service looks. Finer than a minute buys nothing: both limits are minutes long. */
+	const val POLL_MS = 30_000L
+
+	enum class Step { KEEP, RELEASE_WAKE_LOCK, STOP }
+
+	/** The three durations. The real ones unless a device check shortened them (limitsFrom). */
+	data class Limits(val releaseMs: Long, val stopMs: Long, val pollMs: Long) {
+		companion object {
+			val DEFAULT = Limits(RELEASE_WAKE_LOCK_MS, STOP_SERVER_MS, POLL_MS)
+		}
+	}
+
+	/** What to do after `idleMs` of nothing in use. */
+	fun step(idleMs: Long, limits: Limits = Limits.DEFAULT): Step = when {
+		idleMs >= limits.stopMs -> Step.STOP
+		idleMs >= limits.releaseMs -> Step.RELEASE_WAKE_LOCK
+		else -> Step.KEEP
+	}
+
+	/** Should the wake lock be held after `idleMs` of nothing in use? (It is re-taken the moment something is in use again.) */
+	fun holdWakeLock(idleMs: Long, limits: Limits = Limits.DEFAULT): Boolean = idleMs < limits.releaseMs
+
+	/**
+	 * Test seam: the optional file `idle-limits` in the app's private storage holds "release stop poll" in SECONDS, so a device check
+	 * does not have to wait 45 minutes. Absent, malformed, or not release < stop with a poll of at least a second: the real limits.
+	 */
+	fun limitsFrom(text: String?): Limits {
+		val n = text?.trim()?.split(Regex("\\s+"))?.map { it.toLongOrNull() ?: return Limits.DEFAULT } ?: return Limits.DEFAULT
+		if (n.size != 3 || n.any { it < 1 } || n[0] >= n[1]) return Limits.DEFAULT
+		return Limits(n[0] * 1000, n[1] * 1000, n[2] * 1000)
+	}
+}
+
+/** The server's answer to GET /api/busy: `{"busy":false,"reasons":[]}`. */
+object ServerBusy {
+	fun url(port: Int): String = "http://127.0.0.1:$port/api/busy"
+
+	/**
+	 * true or false as the server said; null when the body is not a busy report (a starting server, an error page). Callers treat
+	 * null as "in use": an answer nobody understood must never start the idle clock.
+	 */
+	fun parse(body: String): Boolean? {
+		val m = Regex("\"busy\"\\s*:\\s*(true|false)").find(body) ?: return null
+		return m.groupValues[1] == "true"
+	}
+
+	/** The Cookie header the server's token gate wants. */
+	fun cookieHeader(token: String): String = "${Server.COOKIE}=$token"
+}
+
+/**
+ * The guest's process tree. proot ignores SIGTERM, and when it is killed its tracees are NOT: on a Pixel 7 Pro the Node server
+ * kept serving, orphaned, after the app had "stopped" it (2026-11-03). So stopping the server means signalling the whole tree
+ * under proot, not proot alone. These are the pure parts (parsing /proc, walking the tree); ServerService does the signalling.
+ */
+object ProcessTree {
+	/**
+	 * The parent pid from a /proc/<pid>/stat line: "23599 (next-server (v) S 1 1077 ...". The command name sits in parentheses
+	 * and may itself hold spaces and parentheses, so the fields are read after the LAST ")". null for anything else.
+	 */
+	fun parentOf(stat: String): Int? {
+		val close = stat.lastIndexOf(')')
+		if (close < 0) return null
+		val rest = stat.substring(close + 1).trim().split(' ')
+		return rest.getOrNull(1)?.toIntOrNull()
+	}
+
+	/** Every process below `root` (children first, then theirs), given pid -> parent pid for the processes that can be seen. Never includes `root`. */
+	fun descendants(root: Int, parentOf: Map<Int, Int>): List<Int> {
+		val byParent = parentOf.entries.groupBy({ it.value }, { it.key })
+		val out = ArrayList<Int>()
+		val seen = HashSet<Int>().apply { add(root) }
+		val queue = ArrayDeque<Int>().apply { add(root) }
+		while (queue.isNotEmpty()) {
+			for (child in byParent[queue.removeFirst()].orEmpty()) {
+				if (seen.add(child)) {
+					out.add(child)
+					queue.addLast(child)
+				}
+			}
+		}
+		return out
+	}
+}
