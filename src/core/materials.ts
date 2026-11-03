@@ -40,6 +40,10 @@ export interface LessonMaterial {
 	error?: string;
 	/** The reading profile (Markdown, page-cited for PDFs). */
 	profile?: string;
+	/** DERIVED on read, never stored: the material's name, profile and text
+	 *  arrived by sync but its original file is on the device it was uploaded
+	 *  to. The profile still works; reading or searching the original does not. */
+	originalElsewhere?: boolean;
 }
 
 /** Upload ceiling: textbooks are big, but a lesson's copy is local disk. */

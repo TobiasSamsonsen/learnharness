@@ -35,6 +35,16 @@ function textPathOf(ctx: MaterialToolContext, m: LessonMaterial): string {
 	return m.kind === "image" ? ctx.store.auxPath(ctx.chatId, m.id, "content.md") : ctx.store.filePath(ctx.chatId, m);
 }
 
+/** The plain answer for a material whose original file is not on this device (it arrived by sync), or null when the file is here. */
+async function originalElsewhere(ctx: MaterialToolContext, m: LessonMaterial): Promise<string | null> {
+	try {
+		await fs.access(textPathOf(ctx, m)); // the file the tools actually open
+		return null;
+	} catch {
+		return `[${m.name}] its original file is on another device, so it cannot be searched or read here. Its profile (in the lesson's material list) is still available.`;
+	}
+}
+
 function pick(ctx: MaterialToolContext, ref: string | undefined): LessonMaterial[] | string {
 	const all = ctx.store.list(ctx.chatId);
 	if (all.length === 0) return "This lesson has no source material.";
@@ -85,6 +95,11 @@ export function materialTools(ctx: MaterialToolContext): Record<string, AgentToo
 				let hits = 0;
 				for (const m of chosen) {
 					if (hits >= MAX_HITS) break;
+					const elsewhere = await originalElsewhere(ctx, m);
+					if (elsewhere) {
+						out.push(elsewhere);
+						continue;
+					}
 					try {
 						if (m.kind === "pdf") {
 							const result = await pdfSearch(ctx.store.filePath(ctx.chatId, m), query, { literal, contextLines: 2 });
@@ -123,6 +138,8 @@ export function materialTools(ctx: MaterialToolContext): Record<string, AgentToo
 				const chosen = pick(ctx, material);
 				if (typeof chosen === "string") return chosen;
 				const m = chosen[0]!;
+				const elsewhere = await originalElsewhere(ctx, m);
+				if (elsewhere) return elsewhere;
 				try {
 					if (m.kind === "pdf") {
 						const text = await pdfExtract(ctx.store.filePath(ctx.chatId, m), pages ?? "1");

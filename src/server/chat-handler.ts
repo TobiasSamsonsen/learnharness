@@ -54,7 +54,7 @@ import { emit } from "../core/events.ts";
 import { resolveLessonLanguage } from "../core/language.ts";
 import { resolvePace } from "../core/pace.ts";
 import { materialsForTurn } from "./materials.ts";
-import { normalizePhotoSketch, persistInputSketch, resolveSketchRef, sketchImagesFor } from "./sketches.ts";
+import { ensureSketchPngs, normalizePhotoSketch, persistInputSketch, resolveSketchRef, sketchImagesFor } from "./sketches.ts";
 import { courseForTurn } from "./courses.ts";
 import { finishLessonTool, finishSessionTool } from "../agent/tools/course.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
@@ -367,6 +367,8 @@ export async function handleChatInput(
 	// write-ahead below — so a record never references a missing sketch.
 	try {
 		await persistInputSketch(chatId, input);
+		// Drawn sketches that arrived by sync have no PNG yet (it is a render of the SVG): make them before the model projection reads them.
+		await ensureSketchPngs(chatId);
 	} catch (err) {
 		console.error(`[chat ${chatId}] sketch persist failed:`, err);
 		return Response.json({ error: "The sketch could not be saved" }, { status: 500 });

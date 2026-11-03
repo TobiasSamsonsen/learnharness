@@ -126,6 +126,23 @@ describe("the lookup tools", () => {
 	});
 });
 
+describe("a material whose original is on another device (it arrived by sync)", () => {
+	const chatId = "chat_elsewhere";
+	const m = materialStore.add(chatId, { kind: "pdf", name: "away.pdf", ext: ".pdf", bytes: fs.readFileSync(FIXTURE_PDF) });
+	fs.rmSync(materialStore.filePath(chatId, m)); // sync carries the index and profile, not the original
+	const tools = materialTools({ chatId, store: materialStore });
+
+	it("search and read say so plainly instead of failing with a file error", async () => {
+		assert.match(await call(tools.material_search!, { query: "force", literal: true }), /\[away\.pdf\] its original file is on another device/);
+		assert.match(await call(tools.material_read!, { material: m.id, pages: "1" }), /original file is on another device/);
+	});
+
+	it("is marked in the status line", () => {
+		assert.equal(materialStatusLine({ ...m, status: "ready", pages: 3, originalElsewhere: true }), "3 pages · original on another device");
+		assert.equal(materialStatusLine({ ...m, status: "ready", pages: 3 }), "3 pages");
+	});
+});
+
 describe("the profiler", () => {
 	const engine = (reply: string) => {
 		const faux = createFauxCore({});

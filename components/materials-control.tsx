@@ -38,8 +38,8 @@ import {
 export function materialStatusLine(m: LessonMaterial): string {
 	if (m.status === "reading") return "reading…";
 	if (m.status === "error") return `not read${m.error ? ` — ${m.error}` : ""}`;
-	if (m.kind === "pdf" && m.pages) return `${m.pages} pages`;
-	return m.kind === "web" ? "web page" : m.kind === "image" ? "image" : "text";
+	const base = m.kind === "pdf" && m.pages ? `${m.pages} pages` : m.kind === "web" ? "web page" : m.kind === "image" ? "image" : "text";
+	return m.originalElsewhere ? `${base} · original on another device` : base;
 }
 
 /** The pill's label. Pure. */

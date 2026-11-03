@@ -28,6 +28,7 @@ import type {
 } from "../core/settings.ts";
 import { BACKGROUND_MODEL_ROLES, CACHE_RETENTIONS, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
+import { parseRepo } from "./sync/service.ts";
 import { LESSON_LANGUAGES, isDictationEngine, isLessonLanguage } from "../core/language.ts";
 import { PACES, PACE_NOTE_MAX, isPace, normalizePaceNote, type Pace } from "../core/pace.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
@@ -155,6 +156,18 @@ export function parseClaudeCodeSettingsBody(body: unknown): SettingsBodyResult<{
 	if (raw.enabled === undefined) return { ok: true, settings: {} };
 	if (typeof raw.enabled !== "boolean") return { ok: false, error: "enabled must be a boolean" };
 	return { ok: true, settings: { enabled: raw.enabled } };
+}
+
+/** sync: which private repo this device syncs with. Empty (or no repo) turns sync off; anything else must be owner/repo (a pasted GitHub URL is accepted and normalised). */
+export function parseSyncSettingsBody(body: unknown): SettingsBodyResult<{ repo?: string }> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	if (raw.repo === undefined || raw.repo === null) return { ok: true, settings: {} };
+	if (typeof raw.repo !== "string") return { ok: false, error: "repo must be a string" };
+	if (raw.repo.trim() === "") return { ok: true, settings: {} };
+	const parsed = parseRepo(raw.repo);
+	if (!parsed) return { ok: false, error: "repo must look like owner/repo" };
+	return { ok: true, settings: { repo: `${parsed.owner}/${parsed.repo}` } };
 }
 
 /** agent.models: only the six known background roles; each override's
@@ -511,6 +524,7 @@ export const SETTINGS_SECTIONS = {
 	models: parseModelsSettingsBody,
 	dictation: parseDictationSettingsBody,
 	claudeCode: parseClaudeCodeSettingsBody,
+	sync: parseSyncSettingsBody,
 } as const;
 
 export type SettingsSectionName = keyof typeof SETTINGS_SECTIONS;

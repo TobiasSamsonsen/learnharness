@@ -510,6 +510,8 @@ export interface UserSettings {
 	dictation?: DictationSettings;
 	/** Explicit app-wide opt-in; absent/invalid is off, including older records. */
 	claudeCode?: { enabled?: boolean };
+	/** GitHub sync (fork addition, 2026-11-02): which private repo this device syncs with, "owner/repo". Per device (never travels); the token is in auth.json. */
+	sync?: { repo?: string };
 	agent?: AgentSettings;
 	/** The strong/cheap/vision model slots (model slots wave, 2026-09-20). */
 	models?: ModelsSettings;
@@ -870,6 +872,11 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 		out.claudeCode = raw !== null && typeof raw === "object" && !Array.isArray(raw)
 			&& typeof (raw as Record<string, unknown>).enabled === "boolean"
 			? { enabled: (raw as { enabled: boolean }).enabled } : {};
+	}
+	if (r.sync !== undefined) {
+		const raw = r.sync;
+		const repo = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>).repo : undefined;
+		out.sync = typeof repo === "string" && repo.trim().length > 0 && repo.length <= 200 ? { repo: repo.trim() } : {};
 	}
 	if (r.agent !== null && typeof r.agent === "object" && !Array.isArray(r.agent)) {
 		out.agent = sanitizeAgent(r.agent as Record<string, unknown>);

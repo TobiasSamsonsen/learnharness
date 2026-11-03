@@ -12,10 +12,10 @@ import { describe, it } from "node:test";
 import { AUTH_KEYS, genericProviderKeyGuard, isKnownAuthKey, maskKey, validateKeyShape } from "../src/core/auth-keys.ts";
 
 describe("the catalog", () => {
-	it("is exactly the three CURATED app-service keys (provider keys live in the provider table)", () => {
+	it("is exactly the four CURATED app-service keys (provider keys live in the provider table)", () => {
 		assert.deepEqual(
 			AUTH_KEYS.map((k) => k.id),
-			["DEEPGRAM_API_KEY", "TAVILY_API_KEY", "BRAVE_API_KEY"],
+			["DEEPGRAM_API_KEY", "TAVILY_API_KEY", "BRAVE_API_KEY", "LH_GITHUB_SYNC_TOKEN"],
 		);
 		for (const k of AUTH_KEYS) {
 			assert.ok(k.label.length > 0, `${k.id} has a label`);
@@ -42,6 +42,13 @@ describe("the catalog", () => {
 });
 
 describe("validateKeyShape (the 400 gate — curated keys)", () => {
+	it("accepts a GitHub sync token of either family and refuses a stub or whitespace", () => {
+		assert.ok(validateKeyShape("LH_GITHUB_SYNC_TOKEN", "github_pat_11ABCDEFG0abcdefghijklmnop").ok);
+		assert.ok(validateKeyShape("LH_GITHUB_SYNC_TOKEN", "ghp_abcdefghijklmnopqrstuvwxyz0123456789").ok);
+		assert.equal(validateKeyShape("LH_GITHUB_SYNC_TOKEN", "short").ok, false);
+		assert.equal(validateKeyShape("LH_GITHUB_SYNC_TOKEN", "github_pat_ has a space inside it").ok, false);
+	});
+
 	it("Tavily: tvly- prefix required, length floor past it", () => {
 		assert.ok(validateKeyShape("TAVILY_API_KEY", "tvly-abc123def456ghi78").ok);
 		assert.ok(!validateKeyShape("TAVILY_API_KEY", "sk-or-v1-abcdefghij").ok, "wrong family");

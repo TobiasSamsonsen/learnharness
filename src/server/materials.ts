@@ -112,7 +112,10 @@ function startProfile(chatId: string, material: LessonMaterial): Promise<void> {
 export function listMaterials(chatId: string): LessonMaterial[] {
 	const materials = stores.materialStore.list(chatId);
 	for (const m of materials) if (m.status === "reading" && !runs().has(runKey(chatId, m.id))) void startProfile(chatId, m);
-	return materials;
+	// Source files do not sync (owner decision, 2026-11-02): a material that arrived from another device has no original here.
+	return materials.map((m) =>
+		m.status !== "reading" && !fs.existsSync(stores.materialStore.filePath(chatId, m)) ? { ...m, originalElsewhere: true } : m,
+	);
 }
 
 /** Add an uploaded file. */

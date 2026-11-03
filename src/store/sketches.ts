@@ -59,6 +59,30 @@ export const sketchStore: SketchStore = {
 		return readOrNull(() => fs.readFileSync(path.join(sketchDir(chatId, sketchId), "strokes.json"), "utf8"));
 	},
 
+	missingPngs(chatId) {
+		const out: { sketchId: string; page: number }[] = [];
+		const root = chatDir(chatId);
+		const sketches = readOrNull(() => fs.readdirSync(root, { withFileTypes: true })) ?? [];
+		for (const s of sketches) {
+			if (!s.isDirectory() || !SAFE_ID.test(s.name)) continue;
+			const files = new Set(readOrNull(() => fs.readdirSync(path.join(root, s.name))) ?? []);
+			for (const f of files) {
+				const m = /^(\d{1,2})\.svg$/.exec(f);
+				if (m && !files.has(`${m[1]}.png`)) out.push({ sketchId: s.name, page: Number(m[1]) });
+			}
+		}
+		return out;
+	},
+
+	savePagePng(chatId, sketchId, page, png) {
+		const file = pageFile(chatId, sketchId, page, "png");
+		if (!file) throw new Error(`invalid page: ${page}`);
+		// tmp + rename: a reader never sees half a PNG
+		const tmp = `${file}.tmp`;
+		fs.writeFileSync(tmp, png);
+		fs.renameSync(tmp, file);
+	},
+
 	removeAll(chatId) {
 		fs.rmSync(chatDir(chatId), { recursive: true, force: true });
 	},

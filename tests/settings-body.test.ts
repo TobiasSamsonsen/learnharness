@@ -17,6 +17,7 @@ import {
 	parseCompactionSettingsBody,
 	parseGraphSettingsBody,
 	SETTINGS_SECTIONS,
+	parseSyncSettingsBody,
 } from "../src/server/settings-body.ts";
 
 describe("parseGeneralSettingsBody", () => {
@@ -234,14 +235,14 @@ describe("parseCompactionSettingsBody (owner round 14)", () => {
 });
 
 describe("SETTINGS_SECTIONS (the route's section map)", () => {
-	it("maps exactly the eight record sections", () => {
+	it("maps exactly the record sections", () => {
 		// compaction joined (owner round 14): its own section PUT — the
 		// threshold is engine behavior, not an agent-section key. The custom
 		// endpoint is NOT a section: it is one more provider in the Keys list,
 		// connected through POST /api/custom-provider.
 		assert.deepEqual(
 			Object.keys(SETTINGS_SECTIONS),
-			["general", "chat", "agent", "appearance", "graph", "compaction", "models", "dictation", "claudeCode"],
+			["general", "chat", "agent", "appearance", "graph", "compaction", "models", "dictation", "claudeCode", "sync"],
 		);
 	});
 });
@@ -289,5 +290,24 @@ describe("parseModelsSettingsBody (model slots wave, 2026-09-20)", () => {
 		assert.equal(parseModelsSettingsBody({ cheap: { model: { provider: "x" } } }).ok, false);
 		assert.equal(parseModelsSettingsBody({ vision: { thinkingLevel: 7 } }).ok, false);
 		assert.equal(parseModelsSettingsBody("nope").ok, false);
+	});
+});
+
+describe("parseSyncSettingsBody (GitHub sync, 2026-11-02)", () => {
+	it("takes owner/repo, normalising a pasted URL", () => {
+		assert.deepEqual(parseSyncSettingsBody({ repo: "me/sync" }), { ok: true, settings: { repo: "me/sync" } });
+		assert.deepEqual(parseSyncSettingsBody({ repo: " https://github.com/me/sync.git " }), { ok: true, settings: { repo: "me/sync" } });
+	});
+
+	it("treats no repo, null or blank as sync off", () => {
+		for (const body of [{}, { repo: null }, { repo: "" }, { repo: "   " }]) {
+			assert.deepEqual(parseSyncSettingsBody(body), { ok: true, settings: {} });
+		}
+	});
+
+	it("refuses anything that is not owner/repo, and non-JSON", () => {
+		for (const body of [{ repo: "nope" }, { repo: "a/b/c" }, { repo: 5 }, "x", null]) {
+			assert.equal(parseSyncSettingsBody(body).ok, false, JSON.stringify(body));
+		}
 	});
 });

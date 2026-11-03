@@ -120,17 +120,55 @@ export function sketchImagesFor(chatId: string): SketchImageResolver {
 	};
 }
 
-/** A stored page for the UI route; null when unknown or the ids are bad. */
-export function readSketchPage(
+/** The width a page was planned at: its SVG's root `width` attribute. */
+function svgWidth(svg: string): number | null {
+	const m = /<svg\b[^>]*?\swidth="(\d+(?:\.\d+)?)"/.exec(svg);
+	const w = m ? Math.round(Number(m[1])) : NaN;
+	return Number.isFinite(w) && w > 0 ? w : null;
+}
+
+/**
+ * Re-render the PNG of every drawn sketch page that has its SVG but no PNG
+ * (fork addition, 2026-11-02). A drawn page's PNG is a render of its SVG, so
+ * sync does not carry it (owner decision): a sketch that arrived from another
+ * device is rendered here, the first time a turn or the UI needs it, and kept
+ * on disk. Same renderer and canonical PNG as persistInputSketch.
+ */
+export async function ensureSketchPngs(chatId: string): Promise<void> {
+	let missing: { sketchId: string; page: number }[];
+	try {
+		missing = stores.sketchStore.missingPngs(chatId);
+	} catch {
+		return; // a bad chat id has no sketches
+	}
+	if (missing.length === 0) return;
+	const { Resvg } = await import("@resvg/resvg-js");
+	for (const { sketchId, page } of missing) {
+		try {
+			const svg = stores.sketchStore.pageSvg(chatId, sketchId, page);
+			const width = svg ? svgWidth(svg) : null;
+			if (!svg || !width) continue;
+			const png = providerSafePng(new Resvg(svg, { fitTo: { mode: "width", value: width }, background: "#ffffff" }).render().asPng());
+			stores.sketchStore.savePagePng(chatId, sketchId, page, new Uint8Array(png));
+		} catch (err) {
+			console.error(`[chat ${chatId}] sketch ${sketchId} page ${page}: PNG re-render failed:`, err);
+		}
+	}
+}
+
+/** A stored page for the UI route; null when unknown or the ids are bad. A drawn page's missing PNG is rendered on the spot. */
+export async function readSketchPage(
 	chatId: string,
 	sketchId: string,
 	page: number,
 	format: "svg" | "png",
-): string | Uint8Array | null {
+): Promise<string | Uint8Array | null> {
 	try {
-		return format === "svg"
-			? stores.sketchStore.pageSvg(chatId, sketchId, page)
-			: stores.sketchStore.pagePng(chatId, sketchId, page);
+		if (format === "svg") return stores.sketchStore.pageSvg(chatId, sketchId, page);
+		const png = stores.sketchStore.pagePng(chatId, sketchId, page);
+		if (png) return png;
+		await ensureSketchPngs(chatId);
+		return stores.sketchStore.pagePng(chatId, sketchId, page);
 	} catch {
 		return null;
 	}

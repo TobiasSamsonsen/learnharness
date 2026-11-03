@@ -9,7 +9,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 	const { id, sketchId, page } = await params;
 	const format = new URL(req.url).searchParams.get("format") === "png" ? "png" : "svg";
 	const index = /^\d{1,2}$/.test(page) ? Number(page) : -1;
-	const body = index < 0 ? null : readSketchPage(id, sketchId, index, format);
+	const body = index < 0 ? null : await readSketchPage(id, sketchId, index, format);
 	if (body === null) return Response.json({ error: "Unknown sketch page" }, { status: 404 });
 	return new Response(body as BodyInit, {
 		headers: {

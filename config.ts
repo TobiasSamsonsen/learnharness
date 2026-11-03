@@ -41,6 +41,9 @@ export const PATHS = {
 	/** Sketch answers (fork addition, 2026-10-26): data/sketches/<chatId>/
 	 *  <sketchId>/ — strokes plus rendered pages (src/store/sketches.ts). */
 	sketches: path.join(DATA_ROOT, "sketches"),
+	/** GitHub sync bookkeeping (fork addition, 2026-11-02): data/sync/manifest.json
+	 *  and the .conflict copies (src/server/sync/). Never itself synced. */
+	sync: path.join(DATA_ROOT, "sync"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────

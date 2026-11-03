@@ -266,6 +266,11 @@ export interface SketchStore {
 	pageSvg(chatId: string, sketchId: string, page: number): string | null;
 	/** The strokes as sent (JSON); null when unknown. */
 	strokes(chatId: string, sketchId: string): string | null;
+	/** Pages that have an SVG but no PNG (a drawn sketch that arrived by
+	 *  sync: its PNG is a render of the SVG and does not travel). */
+	missingPngs(chatId: string): { sketchId: string; page: number }[];
+	/** Store a page's PNG next to its SVG (the lazy re-render of a synced sketch). */
+	savePagePng(chatId: string, sketchId: string, page: number, png: Uint8Array): void;
 	/** Delete every sketch of a lesson (its deletion). */
 	removeAll(chatId: string): void;
 }

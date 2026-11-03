@@ -48,6 +48,12 @@ export const AUTH_KEYS: readonly AuthKeyInfo[] = [
 		description: "Web-search engine for the researcher sub-agent — the alternative to Tavily. Setting the key activates it.",
 		docsUrl: "https://brave.com/search/api/",
 	},
+	{
+		id: "LH_GITHUB_SYNC_TOKEN",
+		label: "GitHub sync",
+		description: "A fine-grained GitHub token with Contents read and write on the one private repo that holds your synced learning data.",
+		docsUrl: "https://github.com/settings/personal-access-tokens/new",
+	},
 ] as const;
 
 const AUTH_KEY_IDS: ReadonlySet<string> = new Set(AUTH_KEYS.map((k) => k.id));
@@ -176,6 +182,9 @@ export function validateKeyShape(id: string, rawValue: string): KeyShapeResult {
 			return nonEmpty(20);
 		case "DEEPGRAM_API_KEY":
 			// No public format — the length floor only catches truncated pastes.
+			return nonEmpty(20);
+		case "LH_GITHUB_SYNC_TOKEN":
+			// github_pat_… (fine-grained) or ghp_… (classic): only the length floor and paste hygiene.
 			return nonEmpty(20);
 		default:
 			return { ok: false, error: `unknown key "${id}" (supported: ${[...AUTH_KEY_IDS].join(", ")})` };

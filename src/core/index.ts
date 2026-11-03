@@ -111,3 +111,5 @@ export * from "./coverage.ts";
 // ONE session→markdown formatter — the extractor's view and the user-facing
 // export share it. Pure, browser-safe.
 export * from "./session-markdown.ts";
+// sync-status.ts (fork addition, 2026-11-02): the GitHub sync status shape + its one-line summary (pure).
+export * from "./sync-status.ts";

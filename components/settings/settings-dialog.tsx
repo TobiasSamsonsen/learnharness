@@ -48,6 +48,7 @@ import type { ModelsSettings } from "@/src/core";
 import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { KeysSection } from "./keys-section.tsx";
+import { SyncSection } from "./sync-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
@@ -65,6 +66,7 @@ const SECTIONS = [
 	{ id: "appearance", label: "Appearance", summary: "Background, reading font, colours" },
 	{ id: "graph", label: "Graph", summary: "Extraction and rendering" },
 	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device", summary: "Shortcuts, stored on this device" },
+	{ id: "sync", label: "Sync", summary: "Keep devices in step through a private GitHub repo" },
 	{ id: "general", label: "General", summary: "Updates and default lesson language" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -466,6 +468,11 @@ export function SettingsDialogBody({
 										general={record.general}
 										onChange={(next) => void write("general", next)}
 									/>
+								</SettingsSection>
+							)}
+							{active === "sync" && (
+								<SettingsSection title="Sync" testid="section-sync">
+									<SyncSection />
 								</SettingsSection>
 							)}
 							{active === "keys" && (
