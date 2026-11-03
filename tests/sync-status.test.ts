@@ -53,7 +53,10 @@ describe("syncStatusLine", () => {
 		const line = syncStatusLine(done({ pulled: 3, pushed: 2, merged: 1, deleted: 1 }));
 		assert.match(line, /^Synced .* · 3 received · 2 sent · 1 merged · 1 deletion$/);
 		assert.match(syncStatusLine(done({ deleted: 2 })), /2 deletions$/);
-		assert.match(syncStatusLine(done({})), /^Synced \S+$/);
+		// the clock is the viewer's locale ("14:02" or "02:02 PM"): only that a time follows, and no counts
+		const quiet = syncStatusLine(done({}));
+		assert.match(quiet, /^Synced \d{1,2}:\d{2}/);
+		assert.ok(!quiet.includes(" · "), quiet);
 	});
 });
 
