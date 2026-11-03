@@ -94,6 +94,33 @@ With no base (a first sync, or its blob is gone) every rule falls back to a
 union: nothing is discarded, but a deletion made before the first sync can
 come back.
 
+## Replace this device with the repo
+
+Settings → Sync → "Replace this device with the repo…" (owner request,
+2026-11-03). It makes this device's synced data exactly the repo's and pushes
+nothing: files only here are removed, differing files replaced, repo-only files
+added. Use it to start a device from an existing repo, or to throw away a
+device's divergent state.
+
+- The link first asks the server for a read-only preview (counts by kind) and
+  shows it in a confirmation; nothing changes until "Replace this device".
+  `POST /api/sync/replace` never replaces without `{confirm: true}`.
+- Nothing on the device is touched until every needed file has been fetched,
+  and the change is then applied in one synchronous step, so a network failure
+  leaves the device as it was.
+- Everything replaced or removed is first copied to
+  `data/sync/replaced-<time>/` (owner decision), reported in the status. It is
+  not synced; delete it when no longer needed.
+- Not touched: settings that stay on the device (custom provider, Claude Code,
+  dictation, appearance), the token, original source files, `models/`. The
+  shared part of settings is replaced.
+- Refused: a repo holding no synced data (it would only delete everything), a
+  public repo, and a round already running.
+- Skipped, and said so: a chat in use, a course still drafting, a file written
+  while it fetched. A material still being read on this device stays.
+- Afterwards the repo's state is this device's sync base, so the next normal
+  round is idle and the removed files are not pushed back.
+
 ## Limits and known gaps
 
 - Text and web materials have no original on the other device either (their
@@ -127,5 +154,5 @@ come back.
 `src/core/sync-plan.ts` (scope, three-way), `src/core/sync-merge.ts` (merge
 rules, portable settings/materials), `src/core/sync-status.ts` (status shape
 for the UI), `src/server/sync/{github,local,engine,service}.ts`,
-`src/server/sync-service.ts` (wiring), `app/api/sync/**`,
+`src/server/sync-service.ts` (wiring), `app/api/sync/**` (status, run, replace),
 `components/settings/sync-{section,client}.ts*`, `instrumentation.ts`.

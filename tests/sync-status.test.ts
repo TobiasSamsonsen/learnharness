@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { syncNotes, syncStatusLine, type SyncStatus } from "../src/core/index.ts";
+import { replacePreviewLines, syncNotes, syncStatusLine, type SyncStatus } from "../src/core/index.ts";
 
 const base: SyncStatus = {
 	configured: true,
@@ -54,6 +54,29 @@ describe("syncStatusLine", () => {
 		assert.match(line, /^Synced .* · 3 received · 2 sent · 1 merged · 1 deletion$/);
 		assert.match(syncStatusLine(done({ deleted: 2 })), /2 deletions$/);
 		assert.match(syncStatusLine(done({})), /^Synced \S+$/);
+	});
+});
+
+describe("replace", () => {
+	const replaced = (over: { backup: string | null }): SyncStatus =>
+		done({ replaced: { written: 5, removed: 2, backup: over.backup } });
+
+	it("reads as a replace in the status line", () => {
+		assert.match(syncStatusLine(replaced({ backup: "replaced-x" })), /^Replaced from the repo .* · 5 received · 2 removed$/);
+	});
+
+	it("says where the backup is, and nothing when there is none", () => {
+		assert.match(syncNotes(replaced({ backup: "replaced-2026-03-01T10-00-00-000Z" }))[0] ?? "", /sync\/replaced-2026-03-01T10-00-00-000Z/);
+		assert.deepEqual(syncNotes(replaced({ backup: null })), []);
+	});
+
+	it("words the confirmation with counts by kind", () => {
+		const both = replacePreviewLines({ remove: { chats: 12, courses: 1, sketches: 3 }, write: { chats: 40, graph: 2 } });
+		assert.equal(both.remove, "Removed from this device (it is not in the repo): 12 chats, 1 course, 3 sketch files.");
+		assert.equal(both.write, "Added or replaced from the repo: 40 chats, 2 graph files.");
+		const none = replacePreviewLines({ remove: {}, write: {} });
+		assert.match(none.remove, /Nothing on this device is missing/);
+		assert.equal(none.write, "This device already matches the repo.");
 	});
 });
 

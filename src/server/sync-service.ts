@@ -69,6 +69,16 @@ export function runSyncNow(): Promise<SyncStatus> {
 	return getSyncService().syncNow();
 }
 
+/** What "replace this device with the repo" would change (read-only; for the confirmation). */
+export function previewReplaceFromRepo() {
+	return getSyncService().previewReplace();
+}
+
+/** Make this device's synced data the repo's, keeping a backup of what is replaced or removed. */
+export function replaceDeviceFromRepo(): Promise<SyncStatus> {
+	return getSyncService().replaceFromRepo();
+}
+
 /** Start the background loop (pull now, then every few minutes, push after quiet). Idempotent. */
 export function startSyncLoop(): void {
 	if (process.env.NODE_ENV === "test" || process.env.LH_SYNC === "0") return;

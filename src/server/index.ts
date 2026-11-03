@@ -56,7 +56,7 @@ export { vocabularyForChat } from "./stt-vocabulary.ts";
 export { dismissUpstreamVersion, launchClaudeUpdate, upstreamStatus } from "./upstream.ts";
 export { readSketchPage, readSketchStrokes, sniffImageMime } from "./sketches.ts";
 // GitHub sync (fork addition, 2026-11-02): status, the manual round, the boot-time loop.
-export { runSyncNow, startSyncLoop, syncStatus, SYNC_TOKEN_KEY } from "./sync-service.ts";
+export { previewReplaceFromRepo, replaceDeviceFromRepo, runSyncNow, startSyncLoop, syncStatus, SYNC_TOKEN_KEY } from "./sync-service.ts";
 export { parseRepo } from "./sync/service.ts";
 export { addLinkMaterial, addUploadedMaterial, listMaterials, removeMaterial } from "./materials.ts";
 // Courses (fork addition — docs/courses.md).

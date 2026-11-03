@@ -123,6 +123,55 @@ describe("Settings → Sync", () => {
 		}
 	});
 
+	it("shows what a replace would do and runs it only after a confirm", async () => {
+		const ready = status({ configured: true, repo: "me/sync", hasToken: true });
+		const done = status({
+			...ready,
+			lastOkAt: "2026-03-01T14:02:00",
+			last: { at: "2026-03-01T14:02:00", idle: false, pulled: 4, pushed: 0, merged: 0, deleted: 2, conflicts: 0, skipped: 0, notes: [], replaced: { written: 4, removed: 2, backup: "replaced-x" } },
+		});
+		let replaced = false;
+		const ui = await mount({
+			"GET /api/sync": () => ({ json: replaced ? done : ready }),
+			"GET /api/settings": () => ({ json: { settings: { sync: { repo: "me/sync" } } } }),
+			"POST /api/sync/replace": (c) => {
+				if ((c.body as { dryRun?: boolean }).dryRun) return { json: { preview: { write: { chats: 4 }, remove: { chats: 2 } }, error: null } };
+				replaced = true;
+				return { json: done };
+			},
+		});
+		try {
+			assert.equal(ui.q("sync-replace-confirm"), null, "nothing is asked until the link is pressed");
+			await ui.click("sync-replace-open");
+			assert.match(ui.q("sync-replace-remove")!.textContent ?? "", /2 chats/);
+			assert.match(ui.q("sync-replace-write")!.textContent ?? "", /4 chats/);
+			assert.equal(replaced, false, "opening the confirmation changes nothing");
+			await ui.click("sync-replace-cancel");
+			assert.equal(ui.q("sync-replace-confirm"), null);
+			assert.equal(replaced, false, "cancel changes nothing");
+			await ui.click("sync-replace-open");
+			await ui.click("sync-replace-confirm-run");
+			assert.equal(replaced, true);
+			assert.equal(ui.q("sync-replace-confirm"), null, "the panel closes");
+			assert.match(ui.q("sync-status")!.textContent ?? "", /Replaced from the repo .* 4 received · 2 removed/);
+			assert.deepEqual(ui.calls.filter((c) => c.method === "POST").map((c) => c.body), [{ dryRun: true }, { dryRun: true }, { confirm: true }]);
+		} finally {
+			ui.cleanup();
+		}
+	});
+
+	it("keeps the replace link off until a repo and token are set", async () => {
+		const ui = await mount({
+			"GET /api/sync": () => ({ json: status() }),
+			"GET /api/settings": () => ({ json: { settings: null } }),
+		});
+		try {
+			assert.equal(ui.q<HTMLButtonElement>("sync-replace-open")!.hasAttribute("disabled"), true);
+		} finally {
+			ui.cleanup();
+		}
+	});
+
 	it("shows a failed round as an error line, not a crash", async () => {
 		const failed = status({ configured: true, repo: "me/sync", hasToken: true, error: { code: "auth", message: "GitHub refused the token." } });
 		const ui = await mount({

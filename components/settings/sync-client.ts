@@ -1,4 +1,4 @@
-import type { SyncStatus, UserSettings } from "../../src/core/index.ts";
+import type { ReplacePreview, SyncStatus, UserSettings } from "../../src/core/index.ts";
 
 /**
  * The Sync settings screen's requests (fork addition, 2026-11-02), apart from
@@ -48,6 +48,29 @@ export const saveSyncRepo = (repo: string): Promise<string | null> => send("PUT"
 export const saveSyncToken = (value: string): Promise<string | null> => send("PUT", `/api/keys/${SYNC_TOKEN_ID}`, { value }, "Could not save the token");
 
 export const removeSyncToken = (): Promise<string | null> => send("DELETE", `/api/keys/${SYNC_TOKEN_ID}`, undefined, "Could not remove the token");
+
+/** What replacing this device with the repo would change (changes nothing). */
+export async function previewReplace(): Promise<{ preview: ReplacePreview | null; error: string | null }> {
+	try {
+		const res = await fetch("/api/sync/replace", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dryRun: true }) });
+		if (!res.ok) return { preview: null, error: await problem(res, "Could not check the repo") };
+		const body = (await res.json()) as { preview: ReplacePreview | null; error: { message: string } | null };
+		return { preview: body.preview, error: body.error?.message ?? null };
+	} catch {
+		return { preview: null, error: "Could not check the repo" };
+	}
+}
+
+/** Replace this device's synced data with the repo's. Resolves when it has finished; a refusal comes back in the status' error. */
+export async function replaceFromRepo(): Promise<{ status: SyncStatus | null; error: string | null }> {
+	try {
+		const res = await fetch("/api/sync/replace", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: true }) });
+		if (!res.ok) return { status: null, error: await problem(res, "Replace failed") };
+		return { status: (await res.json()) as SyncStatus, error: null };
+	} catch {
+		return { status: null, error: "Replace failed" };
+	}
+}
 
 /** Run a round now; resolves when it has finished. */
 export async function runSyncRound(): Promise<{ status: SyncStatus | null; error: string | null }> {

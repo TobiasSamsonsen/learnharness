@@ -19,6 +19,16 @@ export interface SyncSummary {
 	/** Files held back this round (still drafting, in use, changed meanwhile). */
 	skipped: number;
 	notes: string[];
+	/** Set when this round was "replace this device with the repo". */
+	replaced?: { written: number; removed: number; backup: string | null };
+}
+
+/** What "replace this device with the repo" would do, for the confirmation: counts by top-level folder. */
+export interface ReplacePreview {
+	/** Files that would be added or overwritten. */
+	write: Record<string, number>;
+	/** Files that exist only on this device and would be removed. */
+	remove: Record<string, number>;
 }
 
 export interface SyncStatus {
@@ -52,6 +62,10 @@ export function syncStatusLine(s: SyncStatus | null): string {
 	if (s.error) return s.error.message;
 	if (!s.last || !s.lastOkAt) return "Ready. Not synced yet.";
 	const when = clock(s.lastOkAt);
+	if (s.last.replaced) {
+		const r = s.last.replaced;
+		return `Replaced from the repo ${when} · ${r.written} received · ${r.removed} removed`;
+	}
 	if (s.last.idle) return `Up to date · checked ${when}`;
 	const parts = [
 		s.last.pulled > 0 && `${s.last.pulled} received`,
@@ -62,12 +76,42 @@ export function syncStatusLine(s: SyncStatus | null): string {
 	return `Synced ${when}${parts.length > 0 ? ` · ${parts.join(" · ")}` : ""}`;
 }
 
+const FOLDER_NOUN: Record<string, [string, string]> = {
+	chats: ["chat", "chats"],
+	courses: ["course", "courses"],
+	sketches: ["sketch file", "sketch files"],
+	graph: ["graph file", "graph files"],
+	materials: ["material file", "material files"],
+	prompts: ["prompt file", "prompt files"],
+};
+
+const countList = (by: Record<string, number>): string =>
+	Object.entries(by)
+		.map(([folder, n]) => {
+			const [one, many] = FOLDER_NOUN[folder] ?? ["file", "files"];
+			return `${n} ${n === 1 ? one : many}`;
+		})
+		.join(", ");
+
+/** The two sentences of the "replace this device" confirmation: what would be removed, and what would be added or replaced. */
+export function replacePreviewLines(p: ReplacePreview): { remove: string; write: string } {
+	const removeAny = Object.keys(p.remove).length > 0;
+	const writeAny = Object.keys(p.write).length > 0;
+	return {
+		remove: removeAny ? `Removed from this device (it is not in the repo): ${countList(p.remove)}.` : "Nothing on this device is missing from the repo, so nothing is removed.",
+		write: writeAny ? `Added or replaced from the repo: ${countList(p.write)}.` : "This device already matches the repo.",
+	};
+}
+
 /** Extra lines worth showing under the status: held-back files and kept conflict copies. Empty when there is nothing to say. */
 export function syncNotes(s: SyncStatus | null): string[] {
 	if (!s) return [];
 	const out: string[] = [];
 	if (s.last && s.last.skipped > 0) {
 		out.push(`${plural(s.last.skipped, "item")} held back this time (still being drafted, in use, or changed meanwhile). They sync on a later round.`);
+	}
+	if (s.last?.replaced?.backup) {
+		out.push(`What was replaced or removed is kept in the app's data folder under sync/${s.last.replaced.backup}. Delete it when you no longer need it.`);
 	}
 	if (s.conflictCopies > 0) {
 		out.push(

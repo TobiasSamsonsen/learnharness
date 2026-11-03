@@ -332,3 +332,129 @@ async function round(deps: SyncDeps): Promise<SyncReport> {
 	report.commit = tip?.commit ?? null;
 	return report;
 }
+
+// ─── Replace this device with the repo ─────────────────────────────────────
+
+/** The repo has nothing to replace this device with: refusing is the only safe answer. */
+export class ReplaceRefused extends Error {
+	readonly code = "empty-repo";
+}
+
+/** How many files would be written (new or different) and removed (only here), by top-level folder. */
+export interface ReplaceCounts {
+	write: Record<string, number>;
+	remove: Record<string, number>;
+}
+
+const folderOf = (rel: string): string => (rel.includes("/") ? (rel.split("/")[0] as string) : rel);
+const tally = (paths: readonly string[]): Record<string, number> => {
+	const out: Record<string, number> = {};
+	for (const p of paths) out[folderOf(p)] = (out[folderOf(p)] ?? 0) + 1;
+	return out;
+};
+
+/**
+ * Make this device's synced data exactly the repo's (owner request,
+ * 2026-11-03): files only here are removed, files that differ are replaced,
+ * files only in the repo are added, and NOTHING is pushed. Nothing is touched
+ * until every needed blob has been fetched, so a network failure leaves the
+ * device as it was. Everything replaced or removed is first copied to
+ * `<syncDir>/replaced-<time>/` (owner decision: keep a backup). Device-only
+ * data (settings that stay on the device, the token, original source files)
+ * is never touched; a chat in use, a course still drafting, and an item whose
+ * file changed meanwhile are skipped. With `dryRun` it only counts.
+ */
+export async function runReplace(deps: SyncDeps, opts: { dryRun?: boolean } = {}): Promise<SyncReport & { counts: ReplaceCounts; backup: string | null }> {
+	const { dataDir, syncDir, remote, repoName, branch } = deps;
+	const now = deps.now ?? (() => new Date());
+	const report = { ...emptyReport(), counts: { write: {}, remove: {} } as ReplaceCounts, backup: null as string | null };
+
+	// ── ASYNC: read ─────────────────────────────────────────────────────────
+	const head = await remote.head(branch);
+	const remoteShas: Record<string, string> = {};
+	if (head) for (const [p, e] of Object.entries(ownedByApp(await remote.tree(head.tree)))) remoteShas[p] = e.sha;
+	report.commit = head?.commit ?? null;
+	if (!head || Object.keys(remoteShas).length === 0) {
+		throw new ReplaceRefused("The repo holds no synced data, so there is nothing to replace this device with.");
+	}
+	const localShas = scanLocal(dataDir);
+	const writePaths = Object.keys(remoteShas).filter((p) => localShas[p] !== remoteShas[p]);
+	// settings.json is shared in part only: it is replaced, never deleted
+	const removePaths = Object.keys(localShas).filter((p) => !(p in remoteShas) && p !== "settings.json");
+	report.counts = { write: tally(writePaths), remove: tally(removePaths) };
+	if (opts.dryRun) return report;
+	const blobs = await remote.blobs(writePaths.map((p) => remoteShas[p] as string));
+
+	// ── SYNC: back up, then apply ───────────────────────────────────────────
+	const stamp = now().toISOString().replace(/[:.]/g, "-");
+	const backupDir = `replaced-${stamp}`;
+	const next: Record<string, string> = {};
+	const applied: AppliedChange[] = [];
+	let backedUp = 0;
+	const skip = (rel: string, reason: string): void => {
+		report.skipped.push({ path: rel, reason });
+	};
+	const backup = (rel: string): void => {
+		try {
+			const raw = fs.readFileSync(path.join(dataDir, rel));
+			writeFileAtomic(syncDir, path.posix.join(backupDir, rel), raw);
+			backedUp++;
+		} catch {
+			/* nothing there to keep */
+		}
+	};
+	/** True when this file must be left alone this time. */
+	const held = (rel: string, action: SyncAction): string | null => {
+		const nowLocal = readSyncedFile(dataDir, rel);
+		if ((nowLocal ? gitBlobSha(nowLocal) : undefined) !== localShas[rel]) return "changed on this device while replacing";
+		if (deps.isBusy?.(rel)) return "in use on this device right now";
+		return unfinishedOn(rel, action, nowLocal, blobs[remoteShas[rel] as string]);
+	};
+
+	for (const p of Object.keys(remoteShas)) if (localShas[p] === remoteShas[p]) next[p] = remoteShas[p] as string;
+	for (const rel of writePaths) {
+		const why = held(rel, { path: rel, kind: "pull" });
+		if (why) {
+			skip(rel, why);
+			continue;
+		}
+		const bytes = blobs[remoteShas[rel] as string];
+		if (!bytes) {
+			skip(rel, "the repo's copy could not be read");
+			continue;
+		}
+		backup(rel);
+		let existing: string | null = null;
+		try {
+			existing = fs.readFileSync(path.join(dataDir, rel), "utf8");
+		} catch {
+			/* a new file */
+		}
+		const merged = applyProjection(rel, existing, text(bytes));
+		writeFileAtomic(dataDir, rel, merged === null ? bytes : Buffer.from(merged, "utf8"));
+		applied.push({ path: rel, kind: "written" });
+		report.pulled.push(rel);
+		next[rel] = remoteShas[rel] as string;
+	}
+	for (const rel of removePaths) {
+		const why = held(rel, { path: rel, kind: "delete-local" });
+		if (why) {
+			skip(rel, why);
+			continue;
+		}
+		backup(rel);
+		// a materials index keeps this device's own still-reading items
+		const kept = projectionOf(rel) ? applyProjection(rel, fs.existsSync(path.join(dataDir, rel)) ? fs.readFileSync(path.join(dataDir, rel), "utf8") : null, "[]") : null;
+		if (kept !== null && kept !== "[]") writeFileAtomic(dataDir, rel, Buffer.from(kept, "utf8"));
+		else removeFile(dataDir, rel);
+		applied.push({ path: rel, kind: kept !== null && kept !== "[]" ? "written" : "removed" });
+		report.deletedLocal.push(rel);
+	}
+	if (applied.length > 0) deps.onApplied?.(applied);
+	report.backup = backedUp > 0 ? backupDir : null;
+	report.notes.push(...(backedUp > 0 ? [`${backedUp} replaced or removed file(s) were copied to sync/${backupDir} first`] : []));
+
+	// the repo's state is now this device's base: the next normal round starts from it
+	writeManifest(syncDir, { version: 1, repo: repoName, branch, commit: head.commit, files: next });
+	return report;
+}

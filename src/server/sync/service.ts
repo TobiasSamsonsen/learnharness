@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { SyncStatus, SyncSummary } from "../../core/sync-status.ts";
-import { runSync, type AppliedChange, type SyncReport } from "./engine.ts";
+import type { ReplacePreview, SyncStatus, SyncSummary } from "../../core/sync-status.ts";
+import { ReplaceRefused, runReplace, runSync, type AppliedChange, type SyncReport } from "./engine.ts";
 import { GitHubError, GitHubRepo, type RemoteRepo } from "./github.ts";
 import { quickFingerprint } from "./local.ts";
 
@@ -29,7 +29,7 @@ export interface SyncConfig {
 	token: string | null;
 }
 
-export type { SyncStatus, SyncSummary };
+export type { ReplacePreview, SyncStatus, SyncSummary };
 
 export interface SyncServiceDeps {
 	dataDir: string;
@@ -51,6 +51,10 @@ export interface SyncService {
 	status(): SyncStatus;
 	/** Run a round now (or join the running one). Never rejects. */
 	syncNow(): Promise<SyncStatus>;
+	/** What replacing this device with the repo would change (read-only). */
+	previewReplace(): Promise<{ preview: ReplacePreview | null; error: { code: string; message: string } | null }>;
+	/** Make this device's synced data the repo's, keeping a backup. Never rejects; joins nothing: refuses while a round runs. */
+	replaceFromRepo(): Promise<SyncStatus>;
 	/** Resolves when no round is running (at once when none is). */
 	whenIdle(): Promise<void>;
 	/** One look at whether an automatic round is due. Exposed for tests. */
@@ -61,6 +65,10 @@ export interface SyncService {
 
 class Refused extends Error {
 	readonly code = "public-repo";
+}
+
+class Busy extends Error {
+	readonly code = "busy";
 }
 
 /** "owner/repo", tolerating a pasted GitHub URL and a trailing .git. null when it is neither. */
@@ -74,6 +82,8 @@ function explain(err: unknown): { code: string; message: string } {
 	if (err instanceof Refused) {
 		return { code: err.code, message: "That repo is public. Sync would publish your chats; use a private repo." };
 	}
+	if (err instanceof ReplaceRefused) return { code: err.code, message: err.message };
+	if (err instanceof Busy) return { code: err.code, message: "A sync round is running. Try again when it has finished." };
 	if (err instanceof GitHubError) {
 		switch (err.code) {
 			case "auth":
@@ -229,6 +239,80 @@ export function createSyncService(deps: SyncServiceDeps): SyncService {
 		return inFlight;
 	}
 
+	/** The configured repo, verified private, ready to use. Throws like a round would. */
+	async function connect(): Promise<{ remote: RemoteRepo; branch: string; repoName: string; key: string }> {
+		const cfg = deps.readConfig();
+		const target = parseRepo(cfg.repo);
+		if (!target || !cfg.token) throw new Error("Set a repo and a token first.");
+		const key = keyOf(cfg);
+		const remote = makeRemote(target.owner, target.repo, cfg.token);
+		if (verified?.key !== key) {
+			const info = await remote.info();
+			if (!info.private) throw new Refused("public repo");
+			verified = { key, defaultBranch: info.defaultBranch };
+		}
+		return { remote, branch: verified.defaultBranch, repoName: `${target.owner}/${target.repo}`, key };
+	}
+
+	async function previewReplace(): Promise<{ preview: ReplacePreview | null; error: SyncStatus["error"] }> {
+		try {
+			const c = await connect();
+			const report = await runReplace(
+				{ dataDir: deps.dataDir, syncDir: deps.syncDir, remote: c.remote, repoName: c.repoName, branch: c.branch, now, isBusy: deps.isBusy },
+				{ dryRun: true },
+			);
+			return { preview: report.counts, error: null };
+		} catch (err) {
+			return { preview: null, error: explain(err) };
+		}
+	}
+
+	function replaceFromRepo(): Promise<SyncStatus> {
+		if (inFlight) {
+			error = explain(new Busy("a round is running"));
+			return Promise.resolve(status());
+		}
+		inFlight = (async () => {
+			const started = now();
+			lastRunAt = started.toISOString();
+			let key = "";
+			try {
+				const c = await connect();
+				key = c.key;
+				const report = await runReplace({
+					dataDir: deps.dataDir,
+					syncDir: deps.syncDir,
+					remote: c.remote,
+					repoName: c.repoName,
+					branch: c.branch,
+					now,
+					isBusy: deps.isBusy,
+					onApplied: deps.onApplied,
+				});
+				last = {
+					...summarize(report, started.toISOString()),
+					replaced: { written: report.pulled.length, removed: report.deletedLocal.length, backup: report.backup },
+				};
+				skipped = report.skipped.slice(0, 20);
+				lastOkAt = started.toISOString();
+				error = null;
+				blockedKey = null;
+				pausedUntil = 0;
+				syncedFp = seenFp = quickFingerprint(deps.dataDir);
+				seenAt = now().getTime();
+			} catch (err) {
+				error = explain(err);
+				verified = err instanceof Refused ? null : verified;
+				if (key && (err instanceof Refused || (err instanceof GitHubError && (err.code === "auth" || err.code === "not-found")))) blockedKey = key;
+			} finally {
+				lastRoundAt = now().getTime();
+				inFlight = null;
+			}
+			return status();
+		})();
+		return inFlight;
+	}
+
 	function tick(): void {
 		try {
 			if (inFlight) return;
@@ -255,6 +339,8 @@ export function createSyncService(deps: SyncServiceDeps): SyncService {
 	return {
 		status,
 		syncNow,
+		previewReplace,
+		replaceFromRepo,
 		async whenIdle() {
 			await inFlight;
 		},

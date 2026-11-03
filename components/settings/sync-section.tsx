@@ -1,10 +1,10 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { syncNotes, syncStatusLine, type SyncStatus } from "@/src/core";
+import { replacePreviewLines, syncNotes, syncStatusLine, type ReplacePreview, type SyncStatus } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { Button } from "@/components/ui/button";
 import { SettingsRow } from "./controls";
-import { loadSyncState, removeSyncToken, runSyncRound, saveSyncRepo, saveSyncToken } from "./sync-client.ts";
+import { loadSyncState, previewReplace, removeSyncToken, replaceFromRepo, runSyncRound, saveSyncRepo, saveSyncToken } from "./sync-client.ts";
 
 /**
  * Settings → Sync (fork addition, 2026-11-02): keep chats, courses, sketches
@@ -26,6 +26,9 @@ export function SyncSection() {
 	const [token, setToken] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	/** The confirmation for "replace this device with the repo": null when closed. */
+	const [confirm, setConfirm] = useState<ReplacePreview | null>(null);
+	const [replacing, setReplacing] = useState(false);
 	const loaded = useRef(false);
 
 	const load = useCallback(async () => {
@@ -80,6 +83,29 @@ export function SyncSection() {
 		setError(null);
 		setStatus((s) => (s ? { ...s, running: true } : s));
 		const { status: next, error: failed } = await runSyncRound();
+		if (next) setStatus(next);
+		else {
+			setError(failed);
+			await load();
+		}
+	}
+
+	/** Ask the server what replacing would change, then show it for confirmation. Changes nothing yet. */
+	async function openReplace(): Promise<void> {
+		setError(null);
+		setReplacing(true);
+		const { preview, error: failed } = await previewReplace();
+		setReplacing(false);
+		if (preview) setConfirm(preview);
+		else setError(failed ?? "Could not check the repo");
+	}
+
+	async function doReplace(): Promise<void> {
+		setError(null);
+		setReplacing(true);
+		const { status: next, error: failed } = await replaceFromRepo();
+		setReplacing(false);
+		setConfirm(null);
 		if (next) setStatus(next);
 		else {
 			setError(failed);
@@ -179,10 +205,50 @@ export function SyncSection() {
 				>
 					Sync now
 				</Button>
+				<button
+					type="button"
+					onClick={() => void openReplace()}
+					disabled={busy || replacing || !status?.configured || status.running || confirm !== null}
+					data-testid="sync-replace-open"
+					className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-red-500 hover:underline disabled:text-muted-foreground/40 disabled:no-underline"
+				>
+					Replace this device with the repo…
+				</button>
 				<span role="status" data-testid="sync-status" className={`text-xs ${status?.error ? "text-red-500" : "text-muted-foreground"}`}>
 					{syncStatusLine(status)}
 				</span>
 			</div>
+			{confirm && (
+				<div role="alertdialog" aria-label="Replace this device with the repo" data-testid="sync-replace-confirm" className="flex flex-col gap-2 rounded-sm border border-red-500/40 p-3">
+					<p className="text-xs font-medium text-foreground">Replace this device with the repo?</p>
+					<p className="text-xs leading-relaxed text-muted-foreground">This device will end up with exactly what the repo has. Nothing is sent to the repo.</p>
+					<p data-testid="sync-replace-remove" className="text-xs leading-relaxed text-foreground">{replacePreviewLines(confirm).remove}</p>
+					<p data-testid="sync-replace-write" className="text-xs leading-relaxed text-muted-foreground">{replacePreviewLines(confirm).write}</p>
+					<p className="text-xs leading-relaxed text-muted-foreground">
+						A copy of everything replaced or removed is kept first, in the app&apos;s data folder under sync/. Settings that belong to this device, your token and original source files are not touched.
+					</p>
+					<div className="flex items-center gap-3">
+						<button
+							type="button"
+							onClick={() => void doReplace()}
+							disabled={replacing}
+							data-testid="sync-replace-confirm-run"
+							className="shrink-0 text-xs text-red-500 underline-offset-2 hover:underline disabled:text-muted-foreground/40 disabled:no-underline"
+						>
+							{replacing ? "Replacing…" : "Replace this device"}
+						</button>
+						<button
+							type="button"
+							onClick={() => setConfirm(null)}
+							disabled={replacing}
+							data-testid="sync-replace-cancel"
+							className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline"
+						>
+							Cancel
+						</button>
+					</div>
+				</div>
+			)}
 			{notes.map((line) => (
 				<p key={line} className="text-xs leading-relaxed text-muted-foreground">
 					{line}
