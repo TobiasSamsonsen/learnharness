@@ -249,6 +249,10 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 					if (groupOutputs.length > 0 && (closesTurn || echoesOutput(block.text, groupOutputs))) continue;
 					rest.push({ type: "text", id: `${m.id}-t${textN++}`, text: block.text, state: "done" });
 				} else if (block.type === "thinking") {
+					// Owner ruling (2026-11-05): a SETTLED thinking block with no text is not a row. The Claude CLI omits the
+					// thinking text (an empty block that carries only a signature), so a multi-step turn stacked one empty
+					// "Agent's thinking" row per step. A message still streaming keeps its row (the spinner is the working signal).
+					if (block.thinking.trim() === "" && !streamingMessage) continue;
 					reasoning.push({ type: "reasoning", id: `${m.id}-r${reasoningN++}`, text: block.thinking, state: "done" });
 				} else if (block.type === "toolCall") {
 					const part = toolPartOf(block, live, streamingMessage);

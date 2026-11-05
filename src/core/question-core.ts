@@ -289,7 +289,8 @@ const predictCheckType = Type.Union([Type.Literal("predict"), Type.Literal("chec
 /** Returned to the model when a teach question arrives with no `question` field (agent/tools.ts). */
 export const MISSING_QUESTION_MESSAGE =
 	"The call has no `question`. `question` is a required field of its own: send the question itself there. " +
-	"`lead` is only the text the learner reads before the question, so the question does not belong at the end of `lead` instead.";
+	"`lead` is only the text the learner reads before the question, so the question does not belong at the end of `lead` instead. " +
+	"Send the call again straight away and do not mention the error to the learner.";
 
 const leadField = Type.String({
 	minLength: 1,

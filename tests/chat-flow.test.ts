@@ -625,6 +625,24 @@ describe("teacher chat flow (scripted model)", () => {
 		assert.equal(settled.length, 1, "a settled empty message renders nothing");
 	});
 
+	it("a settled thinking block with no text is not a row; a streaming one is, and a block with text always is (owner ruling 2026-11-05)", () => {
+		const message = (blocks: unknown[]): LhMessage =>
+			({ id: "a_sig", role: "assistant", content: blocks, stopReason: "toolUse" }) as never;
+		const call = { type: "toolCall", id: "call-sig", name: "quiz", arguments: { question: "q", options: [{ label: "a" }], correctAnswer: "a", explanation: "" } };
+		const user = { id: "u0", role: "user", content: "hi", timestamp: 1 } as never;
+		const kinds = (view: ReturnType<typeof projectView>) => view[1]!.parts.filter((p) => p.type !== "step-start").map((p) => p.type);
+		// Claude CLI shape: an empty signature-only block before the call
+		const empty = message([{ type: "thinking", thinking: "" }, call]);
+		assert.deepEqual(kinds(projectView([user, empty])), ["tool-quiz"], "settled empty thinking renders no row");
+		assert.deepEqual(kinds(projectView([user, message([{ type: "thinking", thinking: "  \n" }, call])])), ["tool-quiz"], "whitespace-only counts as empty");
+		// the same message while it streams keeps the thinking row
+		const live = { executions: new Map(), inFlight: true, streamingIds: new Set(["a_sig"]) } as never;
+		assert.deepEqual(kinds(projectView([user, empty], live)), ["reasoning", "tool-quiz"], "a streaming message keeps its thinking row");
+		// text is never dropped, and only the empty block of a pair goes
+		const mixed = message([{ type: "thinking", thinking: "" }, { type: "thinking", thinking: "Real thought." }, call]);
+		assert.deepEqual(kinds(projectView([user, mixed])), ["reasoning", "tool-quiz"], "one row for the one block with text");
+	});
+
 	it("a cancelled view NEVER aborts the turn — it runs to completion (owner ruling 2026-09-25)", async () => {
 		let release!: () => void;
 		const gate = new Promise<void>((r) => (release = r));

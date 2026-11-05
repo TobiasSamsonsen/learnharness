@@ -37,7 +37,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 import { QUESTION_TOOLS, type PendingQuestion } from "./pending.ts";
 import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
-import { leadOf } from "./tutor-prose.ts";
+import { LEAD_TOOLS, leadOf } from "./tutor-prose.ts";
 import {
 	CONCLUDE_ACK_TEXT,
 	HANDOFF_TEXT,
@@ -45,7 +45,7 @@ import {
 	THINKING_LABEL,
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
-import { ANSWER_NEXT_TEXT, PROSE_GATED_TOOLS, SKETCH_ANSWER_NEXT_TEXT, SKETCH_READ_FIRST_TEXT } from "./prose-gate.ts";
+import { ANSWER_NEXT_TEXT, SKETCH_ANSWER_NEXT_TEXT, SKETCH_READ_FIRST_TEXT } from "./prose-gate.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import type { SketchRef } from "./contracts/sketch.ts";
 import { SKETCH_MAX_REQUEST_PAGES, sketchLabel, sketchStubText } from "./sketch.ts";
@@ -247,7 +247,8 @@ export function newAnswerResult(
 ): LhMessage & ToolResultMessage {
 	const forModel = compactAnswerForModel(answer as QuestionAnswerData);
 	const hasSketch = (answer as QuestionAnswerData).sketch !== undefined;
-	if (PROSE_GATED_TOOLS.includes(toolName)) forModel.next = hasSketch ? SKETCH_ANSWER_NEXT_TEXT : ANSWER_NEXT_TEXT;
+	// only the tools that carry a `lead`: the hint says "reply in the next question's `lead`", which an ask has not
+	if (LEAD_TOOLS.includes(toolName)) forModel.next = hasSketch ? SKETCH_ANSWER_NEXT_TEXT : ANSWER_NEXT_TEXT;
 	else if (hasSketch) forModel.next = SKETCH_READ_FIRST_TEXT;
 	return {
 		id: newMessageId(),

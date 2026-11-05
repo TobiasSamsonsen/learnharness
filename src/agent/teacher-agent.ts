@@ -27,7 +27,7 @@ import { readSketchTool } from "./tools/sketch.ts";
 import { READ_SKETCH_TOOL, isDoubtfulReadResult, sketchIdsOf } from "../core/sketch-gate.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
 import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL, type SketchImageResolver } from "../core/native-messages.ts";
-import { PROSE_GATED_TOOLS, PROSE_GATE_REASON, proseGateBlocks, proseGateRefusedLast } from "../core/prose-gate.ts";
+import { PROSE_GATED_TOOLS, proseGateBlocks, proseGateReason, proseGateRefusedLast } from "../core/prose-gate.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } from "../core/language.ts";
@@ -293,7 +293,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 			? {
 					beforeToolCall: async ({ assistantMessage, toolCall, context }: BeforeToolCallContext) =>
 						proseGateBlocks(context.messages, assistantMessage, toolCall.id, toolCall.name)
-							? { block: true, reason: PROSE_GATE_REASON }
+							? { block: true, reason: proseGateReason(toolCall.name) }
 							: undefined,
 				}
 			: {}),

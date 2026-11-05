@@ -8,7 +8,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, getCurrentTools, type AssistantMessage, type ToolCall } from "@earendil-works/pi-ai";
-import { ANSWER_NEXT_TEXT, PROSE_GATE_REASON, proseGateBlocks, proseGateRefusedLast } from "../src/core/prose-gate.ts";
+import { ANSWER_NEXT_TEXT, PROSE_GATE_REASON, PROSE_GATE_REASON_NO_LEAD, proseGateBlocks, proseGateReason, proseGateRefusedLast } from "../src/core/prose-gate.ts";
 import { newAnswerResult } from "../src/core/native-messages.ts";
 import { bareQuestionTools, createPracticeAgent, createTeacherAgent } from "../src/agent/teacher-agent.ts";
 
@@ -88,11 +88,52 @@ describe("proseGateBlocks (the pure rule)", () => {
 		assert.equal(proseGateBlocks([...answered, prior, result("r1", "read"), next], next, "q2", "quiz"), false);
 	});
 
-	it("a learner's own message resets the walk; ask and the first question are never gated", () => {
+	it("a learner's own message resets the walk; the first question is never gated", () => {
 		const next = assistant([call("q2")]);
 		assert.equal(proseGateBlocks([...answered, { role: "user", content: "another one", timestamp: 2 }], next, "q2", "quiz"), false);
-		assert.equal(proseGateBlocks(answered, next, "q2", "ask_user_question"), false);
+		assert.equal(proseGateBlocks([...answered, { role: "user", content: "another one", timestamp: 2 }], next, "q2", "ask_user_question"), false);
 		assert.equal(proseGateBlocks([{ role: "user", content: "hi", timestamp: 0 }], next, "q2", "quiz"), false);
+		assert.equal(proseGateBlocks([{ role: "user", content: "hi", timestamp: 0 }], next, "q2", "ask_user_question"), false, "the opening ask");
+	});
+
+	describe("ask_user_question (no `lead`; owner, 2026-11-05)", () => {
+		const ask = (id: string) => ({ type: "toolCall" as const, id, name: "ask_user_question", arguments: { question: "Where do we go next?", options: [{ label: "a" }, { label: "b" }] } });
+		const sent = { type: "toolCall" as const, id: "s1", name: "send_to_user", arguments: { message: "Not quite: …" } };
+
+		it("a bare ask right after a graded answer is refused", () => {
+			const next = assistant([ask("a1")]);
+			assert.equal(proseGateBlocks([...answered, next], next, "a1", "ask_user_question"), true);
+		});
+
+		it("thinking is not prose for an ask either", () => {
+			const next = assistant([{ type: "thinking", thinking: "Det avgjørende er at …" }, ask("a1")]);
+			assert.equal(proseGateBlocks([...answered, next], next, "a1", "ask_user_question"), true);
+		});
+
+		it("send_to_user or plain text before the ask passes; after it does not", () => {
+			assert.equal(proseGateBlocks(answered, assistant([sent, ask("a1")]), "a1", "ask_user_question"), false);
+			assert.equal(proseGateBlocks(answered, assistant([text("Not quite: …"), ask("a1")]), "a1", "ask_user_question"), false);
+			assert.equal(proseGateBlocks(answered, assistant([ask("a1"), sent]), "a1", "ask_user_question"), true);
+		});
+
+		it("a message sent in an earlier step of the same turn passes", () => {
+			const prior = assistant([sent]);
+			const next = assistant([ask("a1")]);
+			assert.equal(proseGateBlocks([...answered, prior, { ...result("s1", "send_to_user"), content: [text("Message received for display.")] }, next], next, "a1", "ask_user_question"), false);
+		});
+
+		it("an ask the learner answered is not a graded answer: the next question is not gated by it", () => {
+			const prior = assistant([ask("a0")]);
+			const askAnswer = { ...result("a0", "ask_user_question"), content: [text('{"kind":"ask","other":"x"}')] };
+			const next = assistant([call("q2")]);
+			assert.equal(proseGateBlocks([{ role: "user", content: "teach me", timestamp: 0 }, prior, askAnswer, next], next, "q2", "quiz"), false);
+		});
+
+		it("a rejected ask (an error result) is not an answer", () => {
+			const next = assistant([ask("a2")]);
+			const rejected = { ...result("q1", "quiz"), isError: true };
+			assert.equal(proseGateBlocks([{ role: "user", content: "quiz me", timestamp: 0 }, assistant([call("q1")]), rejected, next], next, "a2", "ask_user_question"), false);
+		});
 	});
 
 	it("a rejected quiz (an error result) is not an answer — the retry passes", () => {
@@ -133,6 +174,16 @@ describe("proseGateRefusedLast (what the force-text step keys on)", () => {
 
 	it("true when the tail of the transcript is this gate's refusal", () => {
 		assert.equal(proseGateRefusedLast([...answered, assistant([call("q2")]), refusal]), true);
+	});
+
+	it("true for the no-lead refusal of an ask too, and the refusal text is the right one per tool", () => {
+		const askRefusal = { ...result("a2", "ask_user_question"), isError: true, content: [text(PROSE_GATE_REASON_NO_LEAD)] };
+		assert.equal(proseGateRefusedLast([...answered, assistant([call("a2", "ask_user_question")]), askRefusal]), true);
+		assert.equal(proseGateReason("ask_user_question"), PROSE_GATE_REASON_NO_LEAD);
+		assert.equal(proseGateReason("quiz"), PROSE_GATE_REASON);
+		assert.match(PROSE_GATE_REASON_NO_LEAD, /send_to_user/);
+		assert.doesNotMatch(PROSE_GATE_REASON_NO_LEAD, /`lead`/, "an ask has no lead to put the reply in");
+		assert.equal(PROSE_GATE_REASON_NO_LEAD.slice(0, 60), PROSE_GATE_REASON.slice(0, 60), "the force-text step matches on this prefix");
 	});
 
 	it("false for a graded answer, another error, or once anything else follows", () => {
@@ -181,6 +232,25 @@ describe("the gate is live in the teacher (and only there)", () => {
 		assert.equal(refused.isError, true);
 		assert.match(refused.content[0]!.text!, new RegExp(PROSE_GATE_REASON.slice(0, 40)));
 		assert.equal(results.find((r) => r.toolCallId === "q3")!.isError, false, "the retry with a lead is posed");
+	});
+
+	// The tablet's failure (2026-11-05): after a "don't know" an ask_user_question went out with the explanation only in thinking.
+	it("a bare ask after an answer comes back refused with the send_to_user wording; the retry after a message goes through", async () => {
+		const askArgs = { question: "Where do we go next?", options: [{ label: "The table" }, { label: "An example" }] };
+		const agent = createTeacherAgent(undefined, {
+			engine: engine([
+				() => fauxAssistantMessage([fauxToolCall("ask_user_question", askArgs as ToolCall["arguments"], { id: "a2" })], { stopReason: "toolUse" }),
+				() => fauxAssistantMessage([fauxToolCall("send_to_user", { message: "Not quite — 2+2 is 4 because …" } as ToolCall["arguments"], { id: "s2" }), fauxToolCall("ask_user_question", askArgs as ToolCall["arguments"], { id: "a3" })], { stopReason: "toolUse" }),
+			], "claude-code"),
+			tools: bareQuestionTools(),
+			messages: answered as never,
+		});
+		await agent.continue();
+		const results = agent.state.messages.filter((m) => (m as { role?: string }).role === "toolResult") as Array<{ toolCallId: string; isError: boolean; content: Array<{ text?: string }> }>;
+		const refused = results.find((r) => r.toolCallId === "a2")!;
+		assert.equal(refused.isError, true);
+		assert.equal(refused.content[0]!.text, PROSE_GATE_REASON_NO_LEAD);
+		assert.equal(results.find((r) => r.toolCallId === "a3")!.isError, false, "the ask after a delivered message is posed");
 	});
 
 	/** Three scripted replies: a bare quiz (refused), a text-only reply, a quiz. Records which tools each request declared. */

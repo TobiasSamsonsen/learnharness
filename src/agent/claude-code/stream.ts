@@ -100,6 +100,12 @@ export function toClaudeArgs(input: ClaudeArgsInput): string[] {
 		input.model,
 		"--effort",
 		input.effort,
+		// Explicit, because the CLI's default is whatever the API defaults to for the model and build: some builds return
+		// summaries of the tutor's thinking, and those summaries were the reply it drafted for the learner (2026-11-05,
+		// tablet: 22 of 87 thinking blocks). The app never uses thinking text. (`showThinkingSummaries` in --settings is
+		// ignored in print mode.)
+		"--thinking-display",
+		"omitted",
 		"--system-prompt-file",
 		input.systemPromptFile,
 		"--tools",

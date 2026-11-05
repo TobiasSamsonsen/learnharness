@@ -292,6 +292,8 @@ test("toClaudeArgs includes every isolation flag from Global Constraints", () =>
 		"opus",
 		"--effort",
 		"high",
+		"--thinking-display",
+		"omitted",
 		"--system-prompt-file",
 		"/private/system-prompt.md",
 		"--tools",

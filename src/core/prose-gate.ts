@@ -20,17 +20,37 @@ import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai"
 import { sendToUserText } from "./native-messages.ts";
 import { LEAD_TOOLS, leadOf, tutorProse } from "./tutor-prose.ts";
 
-/** The teach-side question tools the gate guards (the ones that carry a
- *  `lead`: since 2026-10-27 the reply the learner reads rides in the call). */
-export const PROSE_GATED_TOOLS: readonly string[] = LEAD_TOOLS;
+/** The teach-side question tools without a `lead`, which the gate guards too (owner, 2026-11-05: on the tablet an
+ *  `ask_user_question` after a "don't know" carried NO prose while the explanation sat in the thinking summary, so the
+ *  learner got a bare question). Their reply rides in `send_to_user` or in plain text before the call. */
+export const NO_LEAD_GATED_TOOLS: readonly string[] = ["ask_user_question"];
+
+/** The teach-side question tools the gate guards: the ones that carry a `lead` (since 2026-10-27 the reply the learner
+ *  reads rides in the call) and the ones that do not. */
+export const PROSE_GATED_TOOLS: readonly string[] = [...LEAD_TOOLS, ...NO_LEAD_GATED_TOOLS];
 
 /** Tool results that carry the learner's graded answer. */
 const GRADED_ANSWER_TOOLS: ReadonlySet<string> = new Set(["quiz", "explain", "probe", "recall"]);
 
+const REASON_HEAD =
+	"Refused: the learner just answered, and nothing you have written since has reached him — your thinking is invisible to him. ";
+
 export const PROSE_GATE_REASON =
-	"Refused: the learner just answered, and nothing you have written since has reached him — your thinking is invisible to him. " +
+	REASON_HEAD +
 	"Put your response to his answer in `lead` (what it shows; if it was wrong, diagnose and repair), then teach the next step there, " +
 	"and call the question again with that `lead`. A call without it will be refused again.";
+
+/** The same refusal for a question without a `lead` (ask_user_question): the reply goes through send_to_user, or plain
+ *  text when you have no such tool. Shares its first words with PROSE_GATE_REASON: `proseGateRefusedLast` matches them. */
+export const PROSE_GATE_REASON_NO_LEAD =
+	REASON_HEAD +
+	"Send your response to his answer first, with send_to_user (plain text before the call only if you have no send_to_user): " +
+	"what it shows; if it was wrong, diagnose and repair. Then call the question again. A call without it will be refused again.";
+
+/** The refusal text for a gated tool. */
+export function proseGateReason(toolName: string): string {
+	return NO_LEAD_GATED_TOOLS.includes(toolName) ? PROSE_GATE_REASON_NO_LEAD : PROSE_GATE_REASON;
+}
 
 /** The just-in-time half (owner, 2026-10-25 — the mutable-types lesson:
  *  the gate fired on 6 of 7 checks and the retries passed it with one

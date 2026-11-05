@@ -486,6 +486,12 @@ describe("a teach question with no `question` field", () => {
 		}
 	});
 
+	it("tells the model to resend at once and not to mention the error to the learner (owner, 2026-11-05)", () => {
+		// seen on the tablet: "I accidentally broke the parameter syntax; retrying cleanly." reached a Norwegian learner
+		const tool = teachQuizToolFor({ chatId: "none", chatStore });
+		assert.throws(() => tool.prepareArguments!(sent), /straight away and do not mention the error to the learner/);
+	});
+
 	it("passes a call that has `question` through unchanged", () => {
 		const tool = teachQuizToolFor({ chatId: "none", chatStore });
 		const full = { ...sent, question: "Which one?" };

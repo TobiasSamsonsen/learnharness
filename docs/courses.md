@@ -42,7 +42,7 @@ between questions. Decided:
 | The skill map's size | The map lives in a **pan/zoom viewport** that opens readable (zoom 0.9, centered on what is due or next up) instead of the whole map shrunk into the column (a 32-skill map's text had shrunk to ~5px). Drag pans, Ctrl/⌘ + wheel zooms (a plain wheel scrolls the page), buttons zoom, fit and **expand** the map to the window. A map that is readable whole shows whole. |
 | The skills you know | **In the knowledge graph**, as its second node kind: every held skill (learned or known) drawn as a rounded square in the skill color — solid when known, faint while learning, ringed when due — with arrows from its prerequisite skills and from the propositions it rests on, and one region per course. Clicking one opens its card (state, courses, what it rests on). The snapshot carries them as `skills` (`graphSkillLayer`); the canvas folds them in at fetch (`withSkillLayer`). |
 | Short lessons in the graph | **Extract on finish**: a finished Learn session extracts whatever text is left, however little (`extractionDue`); a lesson under the batch budget used to never reach the graph. |
-| No teaching between questions | **Gate + prompt**: the teacher's quiz/explain call is refused when no text has reached the learner since their last graded answer (`core/prose-gate.ts`), plus a teaching-prompt rule. |
+| No teaching between questions | **Gate + prompt**: the teacher's quiz/explain call, and its `ask_user_question` (since 2026-11-05, answered through `send_to_user` or plain text), is refused when no text has reached the learner since their last graded answer (`core/prose-gate.ts`), plus a teaching-prompt rule. |
 
 ## 1. Data
 
