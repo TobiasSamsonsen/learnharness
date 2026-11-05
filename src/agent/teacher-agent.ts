@@ -17,9 +17,9 @@ import {
 import { practiceTools, type PracticeToolContext } from "./tools/practice.ts";
 import { placementProbeTool } from "./tools/course.ts";
 import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
-import { sendToUserTool } from "./tools/send-to-user.ts";
+import { sendToUserApplies, sendToUserTool } from "./tools/send-to-user.ts";
+import { makeNarrationGuard, narrationGuardApplies, SEND_TO_USER_DELIVERY_RULE } from "./narration-guard.ts";
 import { createReadTool, readTool } from "./tools/read.ts";
-import { CLAUDE_CODE_PROVIDER } from "./claude-code/constants.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { figureInputProblems } from "../core/figures/index.ts";
 import { circuitSolveTool, figureGuideTool } from "./tools/figures.ts";
@@ -34,11 +34,11 @@ import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } f
 import { paceSection, type Pace } from "../core/pace.ts";
 
 /**
- * The two teaching-side agents (docs/probe-teach-split.md): the PROBER and
+ * The two teaching-side agents (docs/archive/probe-teach-split.md): the PROBER and
  * the TEACHER. Same transcript, different prompts and tool sets; the
  * chat-handler constructs ONE per request off the transcript's seam
  * (probe_done = teacher) — the STATELESS per-turn engine (docs/
- * pi-engine-swap.md §2): the persisted record is the source of truth, the
+ * docs/archive/pi-engine-swap.md §2): the persisted record is the source of truth, the
  * agent is rebuilt from it every POST and discarded at turn end.
  *
  * Engines are injectable so tests can pass a scripted faux engine and drive
@@ -161,7 +161,7 @@ export interface AgentBuildOptions {
 }
 
 /**
- * The turn's question-stop rule (docs/pi-engine-swap.md §2; Wave A
+ * The turn's question-stop rule (docs/archive/pi-engine-swap.md §2; Wave A
  * 2026-09-26, owner Option A): a question tool call (quiz /
  * ask_user_question) that RESOLVED — its synthetic "question posed" result
  * is not an error — ends the run: the learner's answer arrives as the next
@@ -248,7 +248,11 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const engine = opts.engine ?? piEngineFor(kind as "prober" | "teacher");
 	const stopper = makeQuestionStopper(kind);
 	const forceText = kind === "teacher" && !FORCE_TEXT_OFF_PROVIDERS.includes(engine.model.provider);
-	const systemPrompt = agentSystemPrompt(kind, opts);
+	// Upstream's narration guard (v0.5.0) rides beside the fork's prose gate: its delivery rule is
+	// appended to the conversation prompt when it applies, its hooks are chained below.
+	const narrationGuard = narrationGuardApplies(kind, engine.model, opts.tools !== undefined);
+	const composedPrompt = agentSystemPrompt(kind, opts);
+	const systemPrompt = narrationGuard ? `${composedPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composedPrompt;
 	// read_sketch (Android plan M2) rides EVERY agent, always — practice
 	// builds its own (it shares the conclude gate). A caller-owned registry
 	// (opts.tools — the tests') is never touched.
@@ -277,7 +281,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 				...tools.map((tool) => tool.name === "read" && tool.execute === readTool.execute
 					? { ...tool, execute: createReadTool(engine.model).execute as AgentTool<any>["execute"] }
 					: tool),
-				...(opts.tools === undefined && (engine.model.provider === CLAUDE_CODE_PROVIDER || engine.model.id.toLowerCase().includes("claude"))
+				...(sendToUserApplies(kind, engine.model, opts.tools !== undefined)
 					? [withArgumentHeal(sendToUserTool)]
 					: []),
 			],
@@ -288,14 +292,21 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		// The prose gate (owner, 2026-10-25 — core/prose-gate.ts): the
 		// TEACHER's quiz/explain is refused when nothing visible reached the
 		// learner since his last graded answer; the refusal is an error
-		// result the model retries on, in the same turn.
+		// result the model retries on, in the same turn. Upstream's narration
+		// guard (v0.5.0: narration-marked thinking is not delivery; paired
+		// hooks track successful output before allowing its question) is
+		// chained after it — either can refuse.
 		...(kind === "teacher"
-			? {
-					beforeToolCall: async ({ assistantMessage, toolCall, context }: BeforeToolCallContext) =>
-						proseGateBlocks(context.messages, assistantMessage, toolCall.id, toolCall.name)
-							? { block: true, reason: proseGateReason(toolCall.name) }
-							: undefined,
-				}
+			? (() => {
+					const narration = narrationGuard ? makeNarrationGuard() : undefined;
+					return {
+						beforeToolCall: async ({ assistantMessage, toolCall, context }: BeforeToolCallContext, signal?: AbortSignal) =>
+							proseGateBlocks(context.messages, assistantMessage, toolCall.id, toolCall.name)
+								? { block: true, reason: proseGateReason(toolCall.name) }
+								: narration?.beforeToolCall?.({ assistantMessage, toolCall, context } as BeforeToolCallContext, signal),
+						...(narration?.afterToolCall ? { afterToolCall: narration.afterToolCall } : {}),
+					};
+				})()
 			: {}),
 		// 0.87.1: shouldStopAfterTurn → finishTurn. Same call point (after
 		// tool results attach, before turn_end) and `{ action: "end" }` still
@@ -445,7 +456,8 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
  * problem + conclude (tools/practice.ts); the doctrine prompt
  * (prompts/practice/) carries the method. A successful problem pose ends
  * the run, natively for a problem-only batch and via the shared stop hook
- * for a mixed batch (for example, send_to_user + problem).
+ * for a mixed batch (including caller-injected legacy output tools).
+ * Practice uses ordinary final prose, not the explicit output tool.
  */
 export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOptions = {}) {
 	const tools = opts.tools ?? practiceTools(ctx);

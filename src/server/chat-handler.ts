@@ -29,6 +29,8 @@ import {
 	unregisterLiveAgent,
 } from "./jobs.ts";
 import { runPiTurn } from "./pi/ui-stream.ts";
+import { setFileAccessPolicy } from "../agent/tools/file-access.ts";
+import { fileAccessPolicy } from "./file-access.ts";
 import { collectToolCallIds } from "./pi/call-ids.ts";
 import { providerEventNote } from "../agent/provider-events.ts";
 import { effectiveSettings, stores } from "./stores.ts";
@@ -174,6 +176,10 @@ function retentionForSlot(slot: ModelSlotName) {
 }
 
 setJobRespawn((jobId) => void jobRunner.runJob(jobId));
+// The learner-filesystem policy (file-access wave): every tool registry is
+// built in this composition root, so the seam is installed here — the
+// tools read it fresh per call (allowed folders + the app's private paths).
+setFileAccessPolicy(fileAccessPolicy);
 
 /** The planning turn's engine (fork addition): the teacher's first turn —
  *  the probe is done, no plan exists yet — runs on agent.models.planner
@@ -449,7 +455,7 @@ export async function handleChatInput(
 		});
 	};
 
-	// AGENT CONSTRUCTION BRANCH (docs/probe-teach-split.md §2): the transcript
+	// AGENT CONSTRUCTION BRANCH (docs/archive/probe-teach-split.md §2): the transcript
 	// is the seam — a probe_done call in the record means the probe is
 	// concluded: build the TEACHER (planning + the full toolset). Otherwise
 	// the session is still probing: build the PROBER (quiz/ask + probe_done).

@@ -30,9 +30,11 @@ export function ComposerEdgeTools({ chatId }: { chatId?: string }) {
 
 /** The standalone edge row (beneath a dock): tools left, the mic right.
  *  While recording, the mic's meter fills the free middle. */
-export function ComposerEdge({ chatId, mic, trailing }: { chatId?: string; mic?: ReactNode; trailing?: ReactNode }) {
+export function ComposerEdge({ chatId, mic, trailing, leading }: { chatId?: string; mic?: ReactNode; trailing?: ReactNode; leading?: ReactNode }) {
 	return (
 		<div data-testid="composer-edge" className="flex min-w-0 items-center gap-1">
+			{/* The attach paperclip (upstream v0.5.0), first in the row. */}
+			{leading}
 			<ComposerEdgeTools chatId={chatId} />
 			<div className="flex min-w-0 flex-1 items-center justify-end">{mic}</div>
 			{trailing}

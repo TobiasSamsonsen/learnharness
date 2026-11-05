@@ -46,6 +46,8 @@ export interface RunDemoOptions {
 }
 
 export interface RenderSvgOptions {
+	/** Annotation images use only the static native rasterizer, never executable browser markup. */
+	nativeOnly?: boolean;
 	/** Viewport size — defaults to the SVG's width/height attrs, else 900×700. */
 	width?: number;
 	height?: number;
@@ -442,7 +444,8 @@ async function renderSvg(svg: string, opts: RenderSvgOptions = {}): Promise<Buff
 			background: "#ffffff",
 		});
 		return providerSafePng(resvg.render().asPng());
-	} catch {
+	} catch (error) {
+		if (opts.nativeOnly) throw error;
 		/* fall through to the browser path */
 	}
 	const dir = tempDir("lh-visual-");

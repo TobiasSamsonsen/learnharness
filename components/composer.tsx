@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { ArrowRightIcon, CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Hint } from "@/components/ui/hint";
 import { ComposerEdge } from "@/components/composer-edge";
 import { enterSends } from "@/components/enter-submits";
 import { useServerReachable } from "@/components/server-events";
 import { PathInput } from "@/components/path-input";
+import { AttachFilesButton } from "@/components/attach-files-button";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -188,6 +188,8 @@ export function Composer({
 			{busy && !canSend ? <SquareIcon className="size-4" /> : <CornerDownLeftIcon className="size-5" />}
 		</button>
 	);
+	const ownInputRef = useRef<HTMLDivElement>(null);
+	const editorRef = inputRef ?? ownInputRef;
 	return (
 		<form
 			data-testid="composer"
@@ -198,7 +200,7 @@ export function Composer({
 			}}
 		>
 			<PathInput
-				ref={inputRef}
+				ref={editorRef}
 				value={value}
 				onValueChange={onChange}
 				defaultDropTarget
@@ -242,7 +244,7 @@ export function Composer({
 				 (click and Enter share one lane), and typing anything
 				 returns the regular send. The green is the app's correct-
 				 answer register (answered-card's green-500/600). */}
-				{edge ? <ComposerEdge chatId={edge.chatId} mic={edge.mic} trailing={submit} /> : submit}
+				{edge ? <ComposerEdge chatId={edge.chatId} mic={edge.mic} trailing={submit} leading={<AttachFilesButton editorRef={editorRef} edge />} /> : <><AttachFilesButton editorRef={editorRef} />{submit}</>}
 		</form>
 	);
 }

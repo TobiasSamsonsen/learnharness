@@ -16,6 +16,7 @@ import { SidebarToggle } from "@/components/sidebar";
 import { StatsBar } from "@/components/stats-bar";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { PathInput } from "@/components/path-input";
+import { AttachFilesButton } from "@/components/attach-files-button";
 import { SessionStarter } from "@/components/start-session";
 import type { TurnUsage } from "@/src/core";
 import { enterSends } from "@/components/enter-submits";
@@ -253,6 +254,7 @@ export function Home({
 					/>
 					{startError && <p role="alert" className="mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 					<form
+						data-attachment-composer=""
 						className="flex flex-col gap-0.5 rounded-xxl border border-border/50 bg-card p-1.5 touch:p-2 shadow-lg"
 					onSubmit={(e) => {
 						e.preventDefault();
@@ -291,6 +293,7 @@ export function Home({
 					    tooltip on the square — the ↵ glyph is the affordance
 					    (owner, subtlety round 2026-09-25). */}
 					<ComposerEdge
+						leading={<AttachFilesButton editorRef={topicInputRef} edge />}
 						mic={<DictationBar dictation={dictation} compact />}
 						trailing={
 							<button
