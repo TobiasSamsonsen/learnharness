@@ -83,6 +83,19 @@ Do not commit `.env.local`, credentials, or learning records. Do not copy a pers
 
 Read the relevant installed Next guide under `node_modules/next/dist/docs/` before framework-facing changes. The import restrictions live in `eslint.config.mjs`; they do not enforce every architectural convention. [Architecture's code map](architecture.md#code-boundaries) and [prompt composition](../src/agent/prompts/README.md) identify the main entry points.
 
+## Checking a change on a phone
+
+Run the PC's code in the Android app, with a throwaway data root (see above), instead of building the server bundle:
+
+1. `LH_DATA_DIR=<empty dir> npm run dev`, then `adb reverse tcp:3000 tcp:3000`. If the app's own server is already listening on the phone's port 3000 the reverse fails ("Address already in use") and the WebView silently shows the phone's server: `adb shell am force-stop dev.learnharness.android` first, then reverse.
+2. Start the debug APK in dev mode: `adb shell am start -n dev.learnharness.android/.MainActivity --ez lh.dev true`. It sticks until you start it with `--ez lh.dev false`; in dev mode the app never provisions its own server.
+3. `next dev` blocks client chunks requested from `127.0.0.1` unless `allowedDevOrigins` allows it (it does, in `next.config.ts`); without that the page renders and never hydrates. The first compile of a route over the phone takes about ten seconds, so give a page time before judging it.
+4. `/dev-sketch` mounts the sketch view with the throwaway ink key `dev-sketch` (a 404 in a production build), to seed ink and try the erasers without a lesson.
+5. Debug builds enable WebView debugging: find the socket with `adb shell cat /proc/net/unix` (`webview_devtools_remote_<pid>`), `adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`, then use the DevTools protocol on `http://127.0.0.1:9222/json`.
+6. `adb shell input swipe` and `input motionevent DOWN|MOVE|UP` inject finger touches through the native ink layer. Start at least ~100 px (device px) in from the screen's side edge: closer is Android's Back gesture and leaves the page.
+
+The dev server and the installed app share the origin `http://127.0.0.1:3000`, so a device with real data keeps its settings and unsent ink in the same `localStorage`: never clear it there; remove only keys you created. `next dev` rewrites a heading in `AGENTS.md` when it starts: `git checkout AGENTS.md` before committing.
+
 ## Debugging
 
 - `LH_PROVIDER_EVENTS=1` saves raw provider events under the selected data root. They may contain private lesson/provider content.
