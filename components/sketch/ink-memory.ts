@@ -165,6 +165,15 @@ function persistHistory(ls: Storage, key: string, state: InkState, signature: nu
 	else ls.setItem(HIST_PREFIX + key, text);
 }
 
+/** Keys whose last write to storage failed (quota): the in-memory ink is fine, but a reload would lose it. */
+const saveFailed = new Set<string>();
+function setSaveFailed(key: string, failed: boolean): void {
+	if (failed === saveFailed.has(key)) return;
+	if (failed) saveFailed.add(key);
+	else saveFailed.delete(key);
+	notify();
+}
+
 function persistInk(key: string, state: InkState): void {
 	try {
 		const ls = storage();
@@ -182,9 +191,40 @@ function persistInk(key: string, state: InkState): void {
 		ls.setItem(LS_PREFIX + key, text);
 		persistHistory(ls, key, state, text.length);
 		}
+		setSaveFailed(key, false);
 	} catch {
-		// quota or a blocked store: the in-memory ink still works
+		// quota or a blocked store: the in-memory ink still works, and the view says so (useInkSaveFailed)
+		setSaveFailed(key, true);
 	}
+}
+
+/** How long after the last change the ink is written to storage. */
+export const PERSIST_DELAY_MS = 500;
+// Writing stringifies the whole page and its history, so it waits for a pause in drawing instead of running on every
+// stroke. The latest state per key is held here; the timer is module-level, so closing the view does not drop it.
+const pending = new Map<string, InkState>();
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
+
+function schedulePersist(key: string, state: InkState): void {
+	pending.set(key, state);
+	clearTimeout(persistTimer);
+	persistTimer = setTimeout(flushInk, PERSIST_DELAY_MS);
+}
+
+/** Write what is waiting now (the page is being hidden or closed, or a test wants the storage current). */
+export function flushInk(): void {
+	clearTimeout(persistTimer);
+	persistTimer = undefined;
+	const waiting = [...pending];
+	pending.clear();
+	for (const [key, state] of waiting) persistInk(key, state);
+}
+
+if (typeof window !== "undefined" && typeof document !== "undefined") {
+	window.addEventListener("pagehide", flushInk);
+	document.addEventListener("visibilitychange", () => {
+		if (document.visibilityState === "hidden") flushInk();
+	});
 }
 
 export function readInk(key: string): InkState {
@@ -198,19 +238,20 @@ export function readInk(key: string): InkState {
 export function writeInk(key: string, state: InkState): void {
 	if (state.strokes.length === 0 && state.undo.length === 0 && state.redo.length === 0 && state.thawed === undefined) ink.delete(key);
 	else ink.set(key, state);
-	persistInk(key, state);
+	schedulePersist(key, state);
 	notify();
 }
 
-/** Test seam: a page reload (the memory is gone, localStorage stays). */
+/** Test seam: a page reload (the memory is gone, localStorage stays). A real reload flushes on pagehide; so does this. */
 export function forgetInkMemory(): void {
+flushInk();
 ink.clear();
 kept.clear();
 }
 
 export function clearInk(key: string): void {
 	ink.delete(key);
-	persistInk(key, EMPTY_INK);
+	schedulePersist(key, EMPTY_INK);
 	notify();
 }
 
@@ -226,6 +267,12 @@ export function writeKept(key: string, page: KeptPage | null): void {
 
 export function useInk(key: string): InkState {
 	return useSyncExternalStore(subscribe, () => readInk(key), () => EMPTY_INK);
+}
+
+/** Did the last write of this page's ink to storage fail (the quota)? A reload would lose it until a write succeeds. */
+export const inkSaveFailed = (key: string): boolean => saveFailed.has(key);
+export function useInkSaveFailed(key: string): boolean {
+	return useSyncExternalStore(subscribe, () => inkSaveFailed(key), () => false);
 }
 
 export function useKept(key: string): KeptPage | null {

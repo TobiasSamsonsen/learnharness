@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SKETCH_INK, sketchStrokeCut, sketchStrokeHit, sketchStrokePath, type SketchStroke } from "@/src/core";
+import { SKETCH_INK, sketchStrokeHit, sketchStrokePath, type SketchStroke } from "@/src/core";
+import { advanceCut, isAppend, layerBlit, layerGeometry, layerWorldRect, newCut, sameSet, sameStrokes, sameView, strokeVisible, xyOf, type CutState, type LayerGeometry, type Rect } from "@/components/sketch/ink-layer";
 import { DEFAULT_ERASER, DEFAULT_PEN, penStroke, type EraserSettings, type PenSettings } from "@/components/sketch/pen-settings";
 import { backgroundColor, backgroundLines, PAPER_SIZES, DEFAULT_PAPER_SIZE, type SketchBackground } from "@/components/sketch/sketch-background";
 import { displayInk, SHEET_COLOR, type SheetTone } from "@/components/sketch/sketch-sheet";
@@ -63,16 +64,32 @@ export function lowestInk(strokes: readonly SketchStroke[]): number {
 
 export type SketchTool = "pen" | "eraser";
 
-/** The x, y of flat [x, y, pressure] triples, as flat [x, y, …]. */
-function xyOf(points: readonly number[]): number[] {
-	const out: number[] = [];
-	for (let k = 0; k + 1 < points.length; k += 3) out.push(points[k]!, points[k + 1]!);
-	return out;
+/** A stable "no kept page": a fresh `[]` default per render would look like new ink to the draw effect. */
+const NO_STROKES: readonly SketchStroke[] = [];
+/** The layer's context transform: world to its bitmap, for a layer drawn at view `v`. */
+function layerTransform(v: SketchView, g: LayerGeometry): [number, number, number, number, number, number] {
+	return [g.scale * v.zoom, 0, 0, g.scale * v.zoom, g.scale * (g.mx - v.x * v.zoom), g.scale * (g.my - v.y * v.zoom)];
+}
+/** How long after the view last moved the ink layer is rasterised again, sharp. */
+const SETTLE_MS = 140;
+
+/** The cached bitmap of the committed ink (see ink-layer.ts): what it holds, and the view it was drawn at. */
+interface InkLayer {
+	canvas: HTMLCanvasElement;
+	ctx: CanvasRenderingContext2D;
+	geo: LayerGeometry;
+	view: SketchView;
+	dpr: number;
+	tone: SheetTone;
+	strokes: readonly SketchStroke[];
+	kept: readonly SketchStroke[];
+	/** Strokes left out of the bitmap: the eraser is showing them dimmed or in pieces. */
+	excluded: ReadonlySet<SketchStroke>;
 }
 
 export function SketchCanvas({
 	strokes,
-	kept = [],
+	kept = NO_STROKES,
 	tool = "pen",
 	brush = DEFAULT_PEN,
 	eraser = DEFAULT_ERASER,
@@ -112,7 +129,12 @@ export function SketchCanvas({
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	// The gesture in progress. `erase` collects hit indices; `size` and `radius` are fixed at pointerdown, in
 	// world units, so a zoom mid-stroke cannot change them.
-	const live = useRef<{ pointerId: number; pointerType: string; points: number[]; erase: Set<number> | null; size: number; radius: number; straight: boolean } | null>(null);
+	// `cut` is the pixel eraser's progress (what is left of each stroke it touched, and those pieces as paths).
+	const live = useRef<{ pointerId: number; pointerType: string; points: number[]; erase: Set<number> | null; size: number; radius: number; straight: boolean; cut: { state: CutState; paths: Map<SketchStroke, { alpha: number; paths: Path2D[] }> } | null } | null>(null);
+	// the cached ink layer, whether the view has moved since it was drawn (settle), and the timer that redraws it sharp
+	const layer = useRef<InkLayer | null>(null);
+	const settleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	const forceLayer = useRef(false);
 	// Hold to straighten (M16c): where the pen has been (screen px, with times) and the timer that checks it stayed put
 	const holdSamples = useRef<{ x: number; y: number; t: number }[]>([]);
 	const holdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -161,6 +183,36 @@ export function SketchCanvas({
 		return p;
 	};
 
+	const paintStroke = (ctx: CanvasRenderingContext2D, s: SketchStroke, alpha: number, tone: SheetTone) => {
+		ctx.globalAlpha = alpha;
+		ctx.fillStyle = displayInk(s.color, tone);
+		ctx.fill(pathOf(s));
+	};
+
+	/** The kept page, then the working ink, those meeting `rect` (world) and not `skip`. */
+	const paintInk = (ctx: CanvasRenderingContext2D, working: readonly SketchStroke[], keptStrokes: readonly SketchStroke[], skip: ReadonlySet<SketchStroke>, rect: Rect, tone: SheetTone) => {
+		for (const s of keptStrokes) if (!skip.has(s) && strokeVisible(s, rect)) paintStroke(ctx, s, KEPT_ALPHA, tone);
+		// sent ink being edited (thawed, marked `fresh: false`) stays dimmed like the kept page
+		for (const s of working) if (!skip.has(s) && strokeVisible(s, rect)) paintStroke(ctx, s, s.fresh === false ? KEPT_ALPHA : 1, tone);
+		ctx.globalAlpha = 1;
+	};
+
+	/** Draw the committed ink into the (reused) offscreen layer at `v`; null when there is no second canvas to draw in. */
+	const rasterLayer = (canvas: HTMLCanvasElement, dpr: number, geo: LayerGeometry, v: SketchView, tone: SheetTone, working: readonly SketchStroke[], keptStrokes: readonly SketchStroke[], excluded: ReadonlySet<SketchStroke>): InkLayer | null => {
+		const el = layer.current?.canvas ?? document.createElement("canvas");
+		if (el.width !== geo.width || el.height !== geo.height) {
+			el.width = geo.width;
+			el.height = geo.height;
+		}
+		const ctx = el.getContext("2d");
+		if (!ctx) return null;
+		ctx.setTransform(1, 0, 0, 1, 0, 0);
+		ctx.clearRect(0, 0, el.width, el.height);
+		ctx.setTransform(...layerTransform(v, geo));
+		paintInk(ctx, working, keptStrokes, excluded, layerWorldRect(v, geo), tone);
+		return { canvas: el, ctx, geo, view: v, dpr, tone, strokes: working, kept: keptStrokes, excluded };
+	};
+
 	const draw = () => {
 		const canvas = canvasRef.current;
 		const ctx = canvas?.getContext("2d");
@@ -188,43 +240,87 @@ export function SketchCanvas({
 				ctx.stroke();
 			}
 		}
-		ctx.setTransform(dpr * v.zoom, 0, 0, dpr * v.zoom, -v.x * v.zoom * dpr, -v.y * v.zoom * dpr);
-		const hits = live.current?.erase;
-		// the pixel eraser shows its cut live: a touched stroke is drawn as its pieces
-		const radius = live.current?.radius ?? 0;
-		const cutPath = live.current?.erase && eraserRef.current.mode === "pixel" ? thinPath(xyOf(live.current.points), radius / 4) : null;
-		// the sent page (dimmed, locked) is reachable by the eraser too: its strokes are numbered after the working ones
-		const working = strokesRef.current.length;
-		keptRef.current.forEach((s, j) => {
-			const pieces = cutPath ? sketchStrokeCut(s, cutPath, radius) : null;
-			ctx.globalAlpha = hits?.has(working + j) && !cutPath ? 0.2 : KEPT_ALPHA;
-			ctx.fillStyle = displayInk(s.color, tone);
-			if (pieces) for (const piece of pieces) ctx.fill(new Path2D(sketchStrokePath(piece)));
-			else ctx.fill(pathOf(s));
-		});
-		strokesRef.current.forEach((s, i) => {
-			const pieces = cutPath ? sketchStrokeCut(s, cutPath, radius) : null;
-			// sent ink being edited (thawed, marked `fresh: false`) stays dimmed like the kept page; a stroke the
-			// stroke eraser is over fades until the gesture ends
-			ctx.globalAlpha = s.fresh === false ? KEPT_ALPHA : hits?.has(i) && !cutPath ? 0.2 : 1;
-			ctx.fillStyle = displayInk(s.color, tone);
-			if (pieces) for (const piece of pieces) ctx.fill(new Path2D(sketchStrokePath(piece)));
-			else ctx.fill(pathOf(s));
-		});
-		ctx.globalAlpha = 1;
-		if (live.current && !live.current.erase && live.current.points.length >= 3) {
-			const l = penStroke({ color: brushRef.current.color, size: live.current.size }, live.current.points);
-			ctx.fillStyle = displayInk(l.color, tone);
-			ctx.fill(new Path2D(sketchStrokePath(l)));
+		const working = strokesRef.current;
+		const keptStrokes = keptRef.current;
+		const l = live.current;
+		// What the eraser is showing live — a stroke dimmed (stroke eraser) or in pieces (pixel eraser) — is left out of
+		// the cached layer and drawn on top. The sent page (dimmed, locked) is reachable too: its strokes are numbered
+		// after the working ones.
+		const excluded = new Set<SketchStroke>();
+		const pixel = !!l?.erase && eraserRef.current.mode === "pixel";
+		if (l?.erase) {
+			if (pixel) {
+				l.cut ??= { state: newCut(), paths: new Map() };
+				for (const s of advanceCut(l.cut.state, l.points, l.radius, [keptStrokes, working])) {
+					l.cut.paths.set(s, { alpha: s.fresh === false || keptStrokes.includes(s) ? KEPT_ALPHA : 1, paths: (l.cut.state.pieces.get(s) ?? []).map((p) => new Path2D(sketchStrokePath(p))) });
+				}
+				for (const s of l.cut.paths.keys()) excluded.add(s);
+			} else {
+				for (const i of l.erase) {
+					const s = i < working.length ? working[i] : keptStrokes[i - working.length];
+					if (s) excluded.add(s);
+				}
+			}
 		}
-		// the hover preview, in screen space: the eraser's reach, or the pen's own width in its colour
-		if (hover.current && !live.current) {
-			const erasing = toolRef.current === "eraser";
+		// the committed ink: the cached layer, drawn again only when its content changed (or the view settled)
+		const force = forceLayer.current;
+		forceLayer.current = false;
+		const geo = layerGeometry(canvas.width / dpr, canvas.height / dpr, dpr);
+		let layerNow = layer.current;
+		if (layerNow && !force && layerNow.dpr === dpr && layerNow.geo.width === geo.width && layerNow.geo.height === geo.height && layerNow.tone === tone && sameStrokes(layerNow.kept, keptStrokes) && sameSet(layerNow.excluded, excluded)) {
+			if (!sameStrokes(layerNow.strokes, working)) {
+				if (isAppend(layerNow.strokes, working)) {
+					// one stroke more (a pen lifted): paint it onto the layer instead of drawing the page again
+					const added = working[working.length - 1]!;
+					layerNow.ctx.setTransform(...layerTransform(layerNow.view, layerNow.geo));
+					if (!excluded.has(added) && strokeVisible(added, layerWorldRect(layerNow.view, layerNow.geo))) paintStroke(layerNow.ctx, added, added.fresh === false ? KEPT_ALPHA : 1, tone);
+					layerNow.strokes = working;
+				} else layerNow = null;
+			}
+		} else layerNow = null;
+		layerNow ??= rasterLayer(canvas, dpr, geo, v, tone, working, keptStrokes, excluded);
+		layer.current = layerNow;
+		if (layerNow) {
+			const b = layerBlit(layerNow.view, v, layerNow.geo);
+			ctx.setTransform(1, 0, 0, 1, 0, 0);
+			ctx.globalAlpha = 1;
+			ctx.drawImage(layerNow.canvas, Math.round(b.x * dpr), Math.round(b.y * dpr), Math.round(b.w * dpr), Math.round(b.h * dpr));
+		}
+		ctx.setTransform(dpr * v.zoom, 0, 0, dpr * v.zoom, -v.x * v.zoom * dpr, -v.y * v.zoom * dpr);
+		if (!layerNow) {
+			// no second canvas to cache in: draw the visible strokes straight onto this one
+			const rect: Rect = { minX: v.x, minY: v.y, maxX: v.x + canvas.width / dpr / v.zoom, maxY: v.y + canvas.height / dpr / v.zoom };
+			paintInk(ctx, working, keptStrokes, excluded, rect, tone);
+		}
+		// the eraser's live view of what it touches: the strokes it is over fade, the pixel eraser's pieces show
+		if (l?.erase) {
+			if (pixel && l.cut) {
+				for (const [s, { alpha, paths }] of l.cut.paths) {
+					ctx.globalAlpha = alpha;
+					ctx.fillStyle = displayInk(s.color, tone);
+					for (const p of paths) ctx.fill(p);
+				}
+			} else {
+				ctx.globalAlpha = 0.2;
+				for (const s of excluded) {
+					ctx.fillStyle = displayInk(s.color, tone);
+					ctx.fill(pathOf(s));
+				}
+			}
+		}
+		ctx.globalAlpha = 1;
+		if (l && !l.erase && l.points.length >= 3) {
+			const inkNow = penStroke({ color: brushRef.current.color, size: l.size }, l.points);
+			ctx.fillStyle = displayInk(inkNow.color, tone);
+			ctx.fill(new Path2D(sketchStrokePath(inkNow)));
+		}
+		// the hover preview, in screen space: the eraser's reach (the pen has none: the OS already shows its own)
+		if (hover.current && !l && toolRef.current === "eraser") {
 			ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 			ctx.beginPath();
-			ctx.arc(hover.current.x, hover.current.y, erasing ? eraserRef.current.radius : Math.max(1.5, brushRef.current.size / 2), 0, Math.PI * 2);
+			ctx.arc(hover.current.x, hover.current.y, eraserRef.current.radius, 0, Math.PI * 2);
 			ctx.lineWidth = 1;
-			ctx.strokeStyle = erasing ? "#64748b" : displayInk(brushRef.current.color, tone);
+			ctx.strokeStyle = "#64748b";
 			ctx.stroke();
 		}
 	};
@@ -238,10 +334,20 @@ export function SketchCanvas({
 		});
 	};
 
+	/** The view stopped moving: draw the ink layer again at it, sharp, if it was drawn at another. */
+	const settle = () => {
+		settleTimer.current = undefined;
+		if (layer.current && sameView(layer.current.view, view.current)) return;
+		forceLayer.current = true;
+		draw();
+	};
+
 	const setView = (next: SketchView) => {
-	view.current = next;
-	setZoomPct(Math.round(next.zoom * 100));
-	drawSoon();
+		view.current = next;
+		setZoomPct(Math.round(next.zoom * 100));
+		drawSoon();
+		clearTimeout(settleTimer.current);
+		settleTimer.current = setTimeout(settle, SETTLE_MS);
 	};
 
 	// Size the backing store to the viewport (and the screen's density); open on the ink the first time.
@@ -300,6 +406,7 @@ export function SketchCanvas({
 	useEffect(draw, [strokes, kept, background, tone, paperSize]);
 	useEffect(() => () => {
 		if (frame.current !== null) cancelAnimationFrame(frame.current);
+		clearTimeout(settleTimer.current);
 	}, []);
 
 	// The wheel pans; Ctrl+wheel (a trackpad pinch arrives so) zooms about the cursor. Not passive: the page must not scroll.
@@ -432,6 +539,7 @@ export function SketchCanvas({
 						size: penWorldSize(brushRef.current.size, view.current.zoom),
 						radius: eraserWorldRadius(eraserRef.current.radius, view.current.zoom),
 						straight: false,
+						cut: null,
 						};
 						live.current = l;
 						if (!erasing) {
@@ -445,7 +553,7 @@ export function SketchCanvas({
 					if (e.pointerType === "pen") {
 						penNearAt.current = performance.now(); // hovering counts: the palm is near
 						notePenNear();
-						if (!live.current && e.buttons === 0) {
+						if (!live.current && e.buttons === 0 && toolRef.current === "eraser") {
 							hover.current = local(e);
 							drawSoon();
 						}

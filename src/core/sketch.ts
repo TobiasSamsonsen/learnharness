@@ -482,6 +482,9 @@ function strokeBounds(s: SketchStroke): { minX: number; minY: number; maxX: numb
 	return bounds;
 }
 
+/** A stroke's bounding box of its points (page px), cached per stroke; `null` for a stroke with no point. The canvas culls with it. */
+export const sketchStrokeBounds = strokeBounds;
+
 /** Does a pointer (x, y) with radius r touch the stroke? Distance to the
  *  polyline, plus half the stroke's width — the stroke eraser's hit test.
  *  A pointer farther than the reach from the stroke's bounding box cannot touch it, so most strokes of a busy page are

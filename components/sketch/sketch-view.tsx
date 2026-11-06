@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { isDictationActive } from "@/components/dictation";
@@ -13,7 +13,7 @@ import { SketchToolbar, usePenDown, type SketchPanel } from "@/components/sketch
 import { limitShare, sketchStatus, submitBlockReason } from "@/components/sketch/sketch-status";
 import { useNativeInk } from "@/components/sketch/use-native-ink";
 import { loadEraser, loadPen, loadToolbar, saveEraser, savePen, saveToolbar, SKETCH_COLORS, SKETCH_WIDTHS, type EraserSettings, type PenSettings, type ToolbarPrefs } from "@/components/sketch/pen-settings";
-import { applyOp, hasNewInk, pagePayload, readInk, revertOp, sendPage, thawInk, useInk, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
+import { applyOp, hasNewInk, pagePayload, readInk, revertOp, sendPage, thawInk, useInk, useInkSaveFailed, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
 import { cn } from "@/lib/utils";
 import { SketchPayloadError, sketchStrokeCut, type SketchPayload } from "@/src/core";
 import { useBackLayer } from "../back-layers.ts";
@@ -283,9 +283,14 @@ export function SketchView({
 		else h.onClose();
 	});
 
+	// These scan every stroke (every point, for the share), and the view renders on every commit and every toolbar change:
+	// they are worked out again only when the ink or the kept page is another one.
+	const keptShown = ink.thawed === undefined ? kept?.strokes : undefined;
+	const saveFailed = useInkSaveFailed(inkKey);
+	const share = useMemo(() => limitShare(ink.strokes, keptShown), [ink.strokes, keptShown]);
+	const empty = useMemo(() => !hasNewInk(ink), [ink]);
+	const canUndo = useMemo(() => ink.undo.length > 0 || ink.strokes.some((s) => s.fresh !== false), [ink]);
 	if (typeof document === "undefined") return null;
-	const empty = !hasNewInk(ink);
-	const canUndo = ink.undo.length > 0 || ink.strokes.some((s) => s.fresh !== false);
 	const submitBlock = submitBlockReason({ empty, disabled, blocked, keptStatus });
 	const status = sketchStatus({
 		error,
@@ -294,7 +299,8 @@ export function SketchView({
 		disabled,
 		keptStatus,
 		blocked,
-		share: limitShare([...(ink.thawed === undefined ? (kept?.strokes ?? []) : []), ...ink.strokes]),
+		share,
+		saveFailed,
 	});
 	return createPortal(
 		<div

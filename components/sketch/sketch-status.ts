@@ -14,11 +14,13 @@ export interface SketchStatus {
 /** Warn from this share of the stroke or point limit. */
 export const LIMIT_WARN_SHARE = 0.8;
 
-/** The larger of the stroke and point shares the page uses (0..1+). The byte limit is not estimated: points dominate it. */
-export function limitShare(strokes: readonly { points: readonly number[] }[]): number {
+/** The larger of the stroke and point shares the page uses (0..1+). The byte limit is not estimated: points dominate it.
+ *  `also` is a second list on the same page (the kept strokes under the unsent ones), counted without joining the two. */
+export function limitShare(strokes: readonly { points: readonly number[] }[], also: readonly { points: readonly number[] }[] = []): number {
 	let points = 0;
 	for (const s of strokes) points += Math.floor(s.points.length / 3);
-	return Math.max(strokes.length / SKETCH_MAX_STROKES, points / SKETCH_MAX_POINTS);
+	for (const s of also) points += Math.floor(s.points.length / 3);
+	return Math.max((strokes.length + also.length) / SKETCH_MAX_STROKES, points / SKETCH_MAX_POINTS);
 }
 
 export interface SketchStatusInput {
@@ -31,6 +33,8 @@ export interface SketchStatusInput {
 	blocked?: string;
 	/** Strokes on the page (the kept page plus unsent ink). */
 	share: number;
+	/** The unsent ink could not be written to this device's storage (the quota): a reload would lose it. */
+	saveFailed?: boolean;
 }
 
 export function sketchStatus(i: SketchStatusInput): SketchStatus | null {
@@ -41,6 +45,7 @@ export function sketchStatus(i: SketchStatusInput): SketchStatus | null {
 	if (i.keptStatus === "loading") return { kind: "info", text: "Loading your earlier page…" };
 	if (i.blocked) return { kind: "info", text: i.blocked };
 	if (i.keptStatus === "failed") return { kind: "warn", text: "Couldn't load your earlier page; new ink goes alone." };
+	if (i.saveFailed) return { kind: "warn", text: "Couldn't save this page on this device. Send it soon so the ink isn't lost." };
 	if (i.share >= 1) return { kind: "error", text: "This page is full. Submit it or clear some ink." };
 	if (i.share >= LIMIT_WARN_SHARE) return { kind: "warn", text: `This page is ${Math.floor(i.share * 100)}% full. Submit soon, or clear some ink.` };
 	return null;

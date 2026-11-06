@@ -16,7 +16,7 @@ const store = new Map<string, string>();
 	length: 0,
 } as Storage;
 
-const { readInk, writeInk, forgetInkMemory, commitSketch, writeKept, applyOp, revertOp, HISTORY_OPS, validOp } = await import("../components/sketch/ink-memory.ts");
+const { readInk, writeInk, flushInk, forgetInkMemory, commitSketch, writeKept, applyOp, revertOp, HISTORY_OPS, validOp } = await import("../components/sketch/ink-memory.ts");
 import type { SketchStroke } from "../src/core";
 import type { InkOp, InkState } from "../components/sketch/ink-memory.ts";
 
@@ -60,6 +60,7 @@ describe("the undo history across a reload", () => {
 
 	it("is dropped when it does not match the strokes (undo then falls back to the newest stroke)", () => {
 		writeInk("h3", drawn(3));
+		flushInk(); // (writes are deferred a moment: this one has to be in storage before it is changed)
 		// the strokes change under it, as if another tab wrote them
 		store.set("lh:ink:h3", JSON.stringify(drawn(4).strokes));
 		forgetInkMemory();
@@ -70,10 +71,12 @@ describe("the undo history across a reload", () => {
 
 	it("is dropped when it is damaged", () => {
 		writeInk("h4", drawn(2));
+		flushInk();
 		store.set("lh:ink-hist:h4", "{not json");
 		forgetInkMemory();
 		assert.equal(readInk("h4").undo.length, 0);
 		writeInk("h4", drawn(2));
+		flushInk();
 		const text = JSON.parse(store.get("lh:ink-hist:h4")!) as { undo: unknown[] };
 		text.undo.push({ kind: "bogus" });
 		store.set("lh:ink-hist:h4", JSON.stringify(text));
