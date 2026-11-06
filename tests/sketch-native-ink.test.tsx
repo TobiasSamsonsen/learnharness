@@ -381,9 +381,11 @@ describe("native ink is on", () => {
 		await touch("pointermove", 7, 300, 200);
 		assert.equal(zoom(), "100%", "not before the touches settle");
 		await settled();
-		await touch("pointermove", 7, 300, 200); // the baseline
-		await touch("pointermove", 7, 400, 200); // 200 apart to 300 apart
-		assert.equal(zoom(), "150%");
+		await touch("pointermove", 7, 300, 200); // the gate opens: the page starts where the fingers landed (100 apart)
+		assert.equal(zoom(), "100%", "no jump when the pinch begins");
+		await settled(); // the motion made while waiting is paid back over about 100 ms
+		await touch("pointermove", 7, 400, 200); // 100 apart where they landed to 300 apart now: everything since the landing counts
+		assert.equal(zoom(), "300%");
 		await touch("pointerup", 7, 400, 200);
 		await touch("pointerup", 6, 100, 200);
 	});

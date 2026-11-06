@@ -376,9 +376,11 @@ describe("pen and clear (M13b)", () => {
 		await touch("pointermove", 2, 300, 100); // too soon: the palm gate waits for both touches to settle
 		assert.equal(label(), "100%", "no zoom before the touches settle");
 		await settleTouches();
-		await touch("pointermove", 2, 300, 100); // the first move once settled only sets the baseline
-		await touch("pointermove", 2, 400, 100); // spread from 200 to 300 apart
-		assert.equal(label(), "150%");
+		await touch("pointermove", 2, 300, 100); // the gate opens: the page starts where the fingers landed (100 apart)
+		assert.equal(label(), "100%", "no jump when the pinch begins");
+		await settleTouches(); // the motion made while waiting is paid back over about 100 ms
+		await touch("pointermove", 2, 400, 100); // 100 apart where they landed to 300 apart now: everything since the landing counts
+		assert.equal(label(), "300%");
 		await touch("pointerup", 2, 400, 100);
 		await touch("pointerup", 1, 100, 100);
 		assert.equal(readInk("k-pinch").strokes.length, 0, "the stroke the first finger began was dropped");

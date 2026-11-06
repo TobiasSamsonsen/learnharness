@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useRef, type RefObject } from "react";
-import { isPalmShaped, pinchReady } from "@/components/sketch/pinch-gate";
-import { panBy, pinchOf, pinchStep, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
+import { PinchTracker } from "@/components/sketch/pinch-gate";
+import { panBy, pinchStep, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
 
 /**
  * The view gestures of an element that draws nothing itself (M13c): the native-ink surface, where the shell's layer
  * draws UNDER a transparent page. The wheel pans, Ctrl+wheel (a trackpad pinch) zooms about the cursor, the middle mouse
  * button drags the page, and two fingers pan and pinch. One finger does nothing (a palm beside the pen must not drag
- * the page), and neither does a palm: the pinch needs exactly two settled, fingertip-shaped touches (pinch-gate.ts).
- * The web canvas has the same rules inline (sketch-canvas.tsx), where it also draws.
+ * the page), and neither does a palm: the pinch needs exactly two settled, fingertip-sized touches (pinch-gate.ts).
+ * The web canvas follows the same rules through the same PinchTracker (sketch-canvas.tsx), where it also draws.
  *
  * `get` / `set` read and write the view; coordinates are relative to the element's top-left.
  */
@@ -19,16 +19,11 @@ export function useViewGestures(ref: RefObject<HTMLElement | null>, get: () => S
 	useEffect(() => {
 		const el = ref.current;
 		if (!el || !enabled) return;
-		const touches = new Map<number, { x: number; y: number; downAt: number; palm: boolean }>();
-		let pinch: ReturnType<typeof pinchOf> | null = null;
+		const gate = new PinchTracker();
 		let drag: { id: number; x: number; y: number } | null = null;
 		const local = (e: PointerEvent) => {
 			const r = el.getBoundingClientRect();
 			return { x: e.clientX - r.left, y: e.clientY - r.top };
-		};
-		const two = () => {
-			const [a, b] = [...touches.values()];
-			return pinchOf(a!, b!);
 		};
 		const onWheel = (e: WheelEvent) => {
 			e.preventDefault();
@@ -43,9 +38,9 @@ export function useViewGestures(ref: RefObject<HTMLElement | null>, get: () => S
 		};
 		const onDown = (e: PointerEvent) => {
 			if (e.pointerType === "touch") {
-				touches.set(e.pointerId, { ...local(e), downAt: performance.now(), palm: isPalmShaped(e.width, e.height) });
+				const p = local(e);
+				gate.down(e.pointerId, p.x, p.y, e.width, e.height, performance.now()); // the pinch begins on a later move, once the touches pass the palm gate
 				el.setPointerCapture?.(e.pointerId);
-				pinch = null; // the pinch begins on a later move, once the touches pass the palm gate
 			} else if (e.pointerType === "mouse" && e.button === 1) {
 				e.preventDefault();
 				el.setPointerCapture?.(e.pointerId);
@@ -59,21 +54,13 @@ export function useViewGestures(ref: RefObject<HTMLElement | null>, get: () => S
 				set(panBy(get(), p.x - drag.x, p.y - drag.y));
 				drag = { id: e.pointerId, ...p };
 			} else {
-				const touch = touches.get(e.pointerId);
-				if (!touch) return;
-				touches.set(e.pointerId, { ...touch, ...local(e), palm: touch.palm || isPalmShaped(e.width, e.height) });
-				if (pinchReady(touches.values(), performance.now())) {
-					const next = two();
-					if (pinch) set(pinchStep(get(), pinch, next));
-					pinch = next; // the first ready move only sets the baseline: no jump
-				} else {
-					pinch = null;
-				}
+				const p = local(e);
+				const frame = gate.move(e.pointerId, p.x, p.y, e.width, e.height, performance.now());
+				if (frame?.prev) set(pinchStep(get(), frame.prev, frame.next)); // the first ready move only sets the baseline: no jump
 			}
 		};
 		const onUp = (e: PointerEvent) => {
-			touches.delete(e.pointerId);
-			pinch = null; // whatever is left starts a fresh baseline
+			gate.up(e.pointerId); // whatever is left starts a fresh baseline
 			if (drag?.id === e.pointerId) drag = null;
 		};
 		el.addEventListener("wheel", onWheel, { passive: false });
