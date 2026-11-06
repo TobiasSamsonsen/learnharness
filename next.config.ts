@@ -6,7 +6,9 @@ import { MAX_IMPORT_BODY_BYTES } from "./lib/notes-import-limits.ts";
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string; homepage: string };
 
 const nextConfig: NextConfig = {
-	allowedDevOrigins: ["127.0.0.1"], // TEMP phone check, never commit
+	// `next dev` only: lets the phone check (the Android debug build over `adb reverse`, docs/development.md) load the client chunks from
+	// 127.0.0.1. Without it that page renders but never hydrates. It has no effect on a production build.
+	allowedDevOrigins: ["127.0.0.1"],
 	// UPLOADS (2026-10-25): proxy.ts guards every /api route, and with a
 	// proxy present Next buffers only the first proxyClientMaxBodySize
 	// bytes of a request body (default 10 MB) — a 13.9 MB PDF arrived
