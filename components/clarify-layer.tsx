@@ -26,6 +26,9 @@ import { cn } from "@/lib/utils";
  * root is then that wording, and it shows only the threads whose anchor names that question (clarify-anchor.ts).
  */
 
+/** How a fresh answer fades in (word by word, top to bottom). Module-level: Streamdown compares the option by reference. */
+const REVEAL = { animation: "fadeIn", duration: 250, stagger: 12 } as const;
+
 /** A bubble is 24px in a 44px touch area; neighbouring lines closer than this are pushed apart. */
 const BUBBLE_GAP = 36;
 const CARD_WIDTH = 416;
@@ -94,6 +97,8 @@ export function ClarifyLayer({ threads, busyKey, error, ask, draft, onDraftDone,
 	const cardRef = useRef<HTMLDivElement>(null);
 	const [tops, setTops] = useState<Record<string, number>>({});
 	const [openKey, setOpenKey] = useState<string | null>(null);
+	// the entry whose answer just arrived live: its text fades in word by word (a reopened thread shows plain text)
+	const [freshId, setFreshId] = useState<string | null>(null);
 	const [place, setPlace] = useState<CardPlace | null>(null);
 
 	// A freshly marked passage opens its card; clearing the draft closes it.
@@ -240,6 +245,7 @@ export function ClarifyLayer({ threads, busyKey, error, ask, draft, onDraftDone,
 	const close = useCallback(() => {
 		if (openRef.current === DRAFT_KEY) onDraftDone();
 		setOpenKey(null);
+		setFreshId(null);
 	}, [onDraftDone]);
 
 	// a tap outside the card and its bubble closes it
@@ -277,7 +283,11 @@ export function ClarifyLayer({ threads, busyKey, error, ask, draft, onDraftDone,
 							data-testid="clarify-bubble"
 							aria-label={thread ? `Questions about “${thread.anchor.text}”` : "New question about the marked text"}
 							aria-expanded={openKey === key}
-							onClick={() => (openKey === key ? close() : setOpenKey(key))}
+							onClick={() => {
+								if (openKey === key) return close();
+								setFreshId(null);
+								setOpenKey(key);
+							}}
 							style={{ top: top - 10 }}
 							className="pointer-events-auto absolute right-0.5 flex size-11 items-center justify-center"
 						>
@@ -302,6 +312,7 @@ export function ClarifyLayer({ threads, busyKey, error, ask, draft, onDraftDone,
 							place={place}
 							quote={open?.quote ?? draft?.quote ?? ""}
 							entries={open?.entries ?? []}
+							freshId={freshId}
 							isDraft={openKey === DRAFT_KEY}
 							busy={busyKey === openKey}
 							error={error && error.key === openKey ? error.message : null}
@@ -310,6 +321,7 @@ export function ClarifyLayer({ threads, busyKey, error, ask, draft, onDraftDone,
 								const target: ClarifyTarget = openKey === DRAFT_KEY && draft ? { anchor: draft.anchor, quote: draft.quote } : { threadId: openKey };
 								const thread = await ask(target, question);
 								if (!thread) return false;
+									setFreshId(thread.entries.at(-1)?.id ?? null);
 								if (openKey === DRAFT_KEY) {
 									onDraftDone();
 									setOpenKey(thread.id);
@@ -329,6 +341,7 @@ function ClarifyCard({
 	place,
 	quote,
 	entries,
+	freshId,
 	isDraft,
 	busy,
 	error,
@@ -339,6 +352,7 @@ function ClarifyCard({
 	place: CardPlace;
 	quote: string;
 	entries: ClarifyThread["entries"];
+	freshId: string | null;
 	isDraft: boolean;
 	busy: boolean;
 	error: string | null;
@@ -353,9 +367,18 @@ function ClarifyCard({
 	useEffect(() => {
 		if (isDraft) fieldRef.current?.focus();
 	}, [isDraft]);
-	// the newest answer is the one in view
-	useEffect(() => {
-		listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+	// While the tutor works, the end of the thread shows its status. When the answer is in, the newest question sits at the
+	// TOP of the list and stays there: the answer fades in beneath it without the view following it down.
+	useLayoutEffect(() => {
+		const list = listRef.current;
+		if (!list) return;
+		if (busy) {
+			list.scrollTo({ top: list.scrollHeight });
+			return;
+		}
+		const newest = list.querySelector<HTMLElement>("[data-clarify-newest]");
+		if (!newest) return;
+		list.scrollTo({ top: list.scrollTop + newest.getBoundingClientRect().top - list.getBoundingClientRect().top - parseFloat(getComputedStyle(list).paddingTop) });
 	}, [entries.length, busy]);
 
 	const send = async () => {
@@ -398,11 +421,11 @@ function ClarifyCard({
 
 			{(entries.length > 0 || busy || error) && (
 				<div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-2" data-testid="clarify-thread">
-					{entries.map((c) => (
-						<div key={c.id} className="flex flex-col gap-1">
+					{entries.map((c, i) => (
+						<div key={c.id} className="flex flex-col gap-1" data-clarify-newest={i === entries.length - 1 ? "" : undefined}>
 							<p className="font-medium">{c.question}</p>
 							<div className="text-muted-foreground">
-								<ToolContentResponse>{c.reply}</ToolContentResponse>
+								<ToolContentResponse animated={c.id === freshId ? REVEAL : undefined}>{c.reply}</ToolContentResponse>
 							</div>
 						</div>
 					))}
