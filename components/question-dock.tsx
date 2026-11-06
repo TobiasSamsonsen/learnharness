@@ -11,6 +11,7 @@ import { PathInput } from "@/components/path-input";
 import { MalformedQuestion } from "@/components/malformed-question";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { FigureScope } from "@/components/figures/figure-scope";
+import { ClarifyWording } from "@/components/clarify-wording";
 import { SketchChoices } from "@/components/sketch/sketch-choices";
 import { SketchView } from "@/components/sketch/sketch-view";
 import { cn } from "@/lib/utils";
@@ -71,6 +72,11 @@ import { ConfidenceButtons } from "@/components/confidence-buttons";
 export interface QuestionDockProps {
 	toolName: "quiz" | "probe" | "ask_user_question" | "explain" | "recall";
 	toolCallId: string;
+	/** The native message the call sits in: with it the question's wording (stem, context) is markable for "Ask about this". */
+	messageId?: string;
+	/** A follow-up card about the wording is open: only the wording shows; the options and the answer fields are hidden (kept
+	 *  mounted, so a half-made selection and typed text survive). */
+	wordingOnly?: boolean;
 	input: QuizToolInput | AskToolInput | ExplainToolInput;
 	/** Collapse state, owned by the DockOverlay (it drives the shell's height morph). */
 	expanded: boolean;
@@ -115,6 +121,8 @@ export interface QuestionDockProps {
 export function QuestionDock({
 	toolName,
 	toolCallId,
+	messageId,
+	wordingOnly = false,
 	input,
 	expanded,
 	reveal = false,
@@ -170,6 +178,8 @@ export function QuestionDock({
 				<QuestionDockForm
 					toolName={toolName}
 					toolCallId={toolCallId}
+					messageId={messageId}
+					wordingOnly={wordingOnly}
 					input={parsed}
 					phase={phase}
 					active={expanded}
@@ -268,6 +278,8 @@ export function QuestionDockBar({
 function QuestionDockForm({
 	toolName,
 	toolCallId,
+	messageId,
+	wordingOnly = false,
 	input,
 	phase = "probe",
 	active,
@@ -653,7 +665,7 @@ function QuestionDockForm({
 			{/* Question area — scrolls internally if very tall; the bottom row stays put.
 			    Capped by the measured column (--dock-max-h; the old fixed 55dvh cut
 			    long questions short — owner round, 2026-10-05). */}
-			<div data-dock-scroll-area="" data-session-find-root="" className="max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3">
+			<div data-dock-scroll-area="" data-session-find-root="" className={cn("max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3", wordingOnly && "pb-3")}>
 				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					{toolName === "probe"
 						? "Probe"
@@ -668,17 +680,20 @@ function QuestionDockForm({
 											: "Question"}
 					{qd.mode === "multi-select" && " · select all that apply"}
 				</div>
-				<div className="mb-3 font-medium">
-					<ToolContentResponse>{qd.question}</ToolContentResponse>
-				</div>
-				{qd.context && (
-					<div className="mb-3 text-sm text-muted-foreground">
-						<ToolContentResponse>{qd.context}</ToolContentResponse>
+				{/* The wording is markable for "Ask about this" (owner, 2026-11-06): the stem and the context, not the options. */}
+				<ClarifyWording messageId={messageId} callId={toolCallId} dock>
+					<div className="mb-3 font-medium">
+						<ToolContentResponse>{qd.question}</ToolContentResponse>
 					</div>
-				)}
+					{qd.context && (
+						<div className="mb-3 text-sm text-muted-foreground">
+							<ToolContentResponse>{qd.context}</ToolContentResponse>
+						</div>
+					)}
+				</ClarifyWording>
 
 				{qd.mode !== "text" && (
-					<div className="flex flex-col gap-2 pb-2" role={qd.mode === "multi-select" ? "group" : "radiogroup"}>
+					<div className={cn("flex flex-col gap-2 pb-2", wordingOnly && "hidden")} role={qd.mode === "multi-select" ? "group" : "radiogroup"}>
 						{qd.options.map((opt, i) => {
 							const isSel = sel.selected.has(i);
 							return (
@@ -804,7 +819,7 @@ function QuestionDockForm({
 			    then press how sure you are — the press submits. "I don't know" is the leading button and needs no pick; the five
 			    levels wait for one. Keys: 1-5 press the levels, 0 presses "I don't know", ←/→ move the highlight, Enter presses it. */}
 			{kind === "quiz" && (
-				<div className="border-t border-border/60 px-4 py-2.5" data-testid="confidence-row">
+				<div className={cn("border-t border-border/60 px-4 py-2.5", wordingOnly && "hidden")} data-testid="confidence-row">
 					<ConfidenceButtons
 						onPick={pressLevel}
 						disabled={!answerPicked || compactionRunning}
@@ -825,7 +840,7 @@ function QuestionDockForm({
 			)}
 
 			<form
-				className="border-t border-border/60 p-1.5"
+				className={cn("border-t border-border/60 p-1.5", wordingOnly && "hidden")}
 				onSubmit={(e) => {
 					e.preventDefault();
 					submit();

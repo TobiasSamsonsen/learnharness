@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import { CLARIFY_ANCHOR_MAX } from "../src/core/contracts/chat.ts";
-import { anchorText, findAnchorRange, passagesOf, spreadBubbles } from "../components/clarify-anchor.ts";
+import { anchorText, findAnchorRange, findQuoteRanges, passagesOf, spreadBubbles } from "../components/clarify-anchor.ts";
 
 // The DOM seam is linkedom, as in tests/session-find.test.tsx. linkedom has no live Selection, and its Range
 // lacks setStart in some builds, so sessionPassageRanges falls back to its StaticRangeLike stand-in; the
@@ -98,6 +98,95 @@ describe("passagesOf — the passages of one message", () => {
 		assert.equal(found[0]!.id, "a");
 		assert.equal(found[1]!.id, "c");
 		assert.equal(passagesOf(doc, "m_none").length, 0);
+	});
+});
+
+describe("passagesOf and findAnchorRange — a question's wording is told apart from the lesson prose", () => {
+	const DOM = `
+		<div class="lh-source-passage" data-source-message-id="m1"><p>The rule in the lesson.</p></div>
+		<div class="lh-source-passage" data-source-message-id="m1" data-source-call-id="c1"><p>State the rule here.</p></div>
+		<div class="lh-source-passage" data-source-message-id="m1" data-source-call-id="c2"><p>Another rule.</p></div>
+	`;
+
+	it("without a callId only the lesson prose, with one only that question's wording", () => {
+		const doc = docWith(DOM);
+		assert.equal(passagesOf(doc, "m1").length, 1);
+		assert.equal(passagesOf(doc, "m1", "c1").length, 1);
+		assert.equal(passagesOf(doc, "m1", "c2").length, 1);
+		assert.equal(passagesOf(doc, "m1", "c3").length, 0);
+	});
+
+	it("an anchor with a callId finds its text in that question's wording, never in the lesson's", () => {
+		const doc = docWith(DOM);
+		const range = findAnchorRange(doc, { messageId: "m1", text: "the rule", occurrence: 0, callId: "c1" });
+		assert.ok(range);
+		assert.equal(range.startContainer, textNodeOf(doc, ".lh-source-passage", 1));
+		const lesson = findAnchorRange(doc, { messageId: "m1", text: "the rule", occurrence: 0 });
+		assert.equal(lesson?.startContainer, textNodeOf(doc, ".lh-source-passage", 0));
+	});
+
+	it("a question's anchor is not found once its wording is off the page (a different or missing call)", () => {
+		const doc = docWith(DOM);
+		assert.equal(findAnchorRange(doc, { messageId: "m1", text: "State the rule", occurrence: 0, callId: "c2" }), null);
+		assert.equal(findAnchorRange(doc, { messageId: "m1", text: "State the rule", occurrence: 0, callId: "gone" }), null);
+	});
+});
+
+describe("findQuoteRanges — every line of the marked text", () => {
+	// <br> splits display runs in test DOMs (no CSS OM), as a block boundary does in the browser: each line is its own run.
+	const passage = (html: string, attrs = "") => `<div class="lh-source-passage" data-source-message-id="m1"${attrs}><p>${html}</p></div>`;
+	const textOf = (range: { startContainer: Node }) => (range.startContainer as Text).data;
+
+	it("a selection over three lines gives one range per line, in order", () => {
+		const doc = docWith(passage("Intro<br>The rule says A<br>and then B<br>Outro"));
+		const anchor = { messageId: "m1", text: "The rule says A", occurrence: 0 };
+		const ranges = findQuoteRanges(doc, anchor, "The rule says A\nand then B");
+		assert.deepEqual(ranges.map(textOf), ["The rule says A", "and then B"]);
+		assert.equal(ranges[1]!.startOffset, 0);
+		assert.equal(ranges[1]!.endOffset, "and then B".length);
+	});
+
+	it("a later line is searched for after the previous one, not at an earlier twin", () => {
+		const doc = docWith(passage("B<br>The rule<br>B<br>end"));
+		const ranges = findQuoteRanges(doc, { messageId: "m1", text: "The rule", occurrence: 0 }, "The rule\nB");
+		assert.equal(ranges.length, 2);
+		const nodes = [...doc.querySelectorAll("p")[0]!.childNodes].filter((n) => n.nodeType === 3);
+		assert.equal(ranges[1]!.startContainer, nodes[2], "the B after the rule, not the B before it");
+	});
+
+	it("a line that is not on the page is skipped and what was found stays", () => {
+		const doc = docWith(passage("Intro<br>The rule<br>Outro"));
+		const ranges = findQuoteRanges(doc, { messageId: "m1", text: "The rule", occurrence: 0 }, "The rule\nnot there\nOutro");
+		assert.deepEqual(ranges.map(textOf), ["The rule", "Outro"]);
+	});
+
+	it("no range at all once the anchor line itself is gone", () => {
+		const doc = docWith(passage("Intro<br>Outro"));
+		assert.deepEqual(findQuoteRanges(doc, { messageId: "m1", text: "The rule", occurrence: 0 }, "The rule\nOutro"), []);
+	});
+
+	it("a first line the anchor capped is widened to its full text", () => {
+		const line = `${"word ".repeat(80)}end`;
+		const capped = anchorText(line);
+		assert.ok(capped.length < line.length, "the anchor line is capped");
+		const doc = docWith(passage(line));
+		const [range] = findQuoteRanges(doc, { messageId: "m1", text: capped, occurrence: 0 }, line);
+		assert.equal(range!.startOffset, 0);
+		assert.equal(range!.endOffset, line.length, "the range covers the whole line");
+	});
+
+	it("an empty quote still marks the anchor line", () => {
+		const doc = docWith(passage("The rule"));
+		assert.equal(findQuoteRanges(doc, { messageId: "m1", text: "The rule", occurrence: 0 }, "").length, 1);
+	});
+
+	it("a question's wording is searched under its callId only", () => {
+		const doc = docWith(
+			passage("The rule in the lesson") +
+				`<div class="lh-source-passage" data-source-message-id="m1" data-source-call-id="c1"><p>State the rule<br>and prove it</p></div>`,
+		);
+		const ranges = findQuoteRanges(doc, { messageId: "m1", text: "the rule", occurrence: 0, callId: "c1" }, "the rule\nand prove it");
+		assert.deepEqual(ranges.map(textOf), ["State the rule", "and prove it"]);
 	});
 });
 

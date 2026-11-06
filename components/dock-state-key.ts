@@ -13,6 +13,9 @@
  * and closes instantly"). The fold machine itself already treats
  * practice as a dock owner; this key now agrees.
  */
-export function dockStateKey(mode: string, docked: boolean, expanded: boolean): string {
-	return docked ? `${mode}:${expanded}` : `${mode}:-`;
+export function dockStateKey(mode: string, docked: boolean, expanded: boolean, wordingOnly = false): string {
+	if (!docked) return `${mode}:-`;
+	// Fork (owner, 2026-11-06): while a follow-up card about the question's wording is open, the dock shows only that wording; the
+	// shrink and the return morph like the fold does.
+	return wordingOnly ? `${mode}:${expanded}:wording` : `${mode}:${expanded}`;
 }

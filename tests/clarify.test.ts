@@ -25,7 +25,7 @@ process.env.OPENROUTER_API_KEY ??= "test-key-clarify";
 
 const { clarifyPrompt, handleClarifyRead, handleClarifyRequest, parseAnchor } = await import("../src/server/clarify.ts");
 const { chatStore } = await import("../src/store/chats.ts");
-const { CLARIFY_ANCHOR_MAX, CLARIFY_QUESTION_MAX, CLARIFY_QUOTE_MAX } = await import("../src/core/contracts/chat.ts");
+const { CLARIFY_ANCHOR_MAX, CLARIFY_CALL_ID_MAX, CLARIFY_QUESTION_MAX, CLARIFY_QUOTE_MAX } = await import("../src/core/contracts/chat.ts");
 const { beginTurn, endTurn } = await import("../src/server/turn-liveness.ts");
 import type { PiEngine } from "../src/agent/models.ts";
 
@@ -195,6 +195,65 @@ describe("parseAnchor — the anchor of a new thread", () => {
 		assert.equal(parseAnchor({ messageId: "m1", text: "x", occurrence: -1 }), null);
 		assert.equal(parseAnchor({ messageId: "m1", text: "x", occurrence: "0" }), null);
 		assert.equal(parseAnchor({ messageId: "m1", text: "x" }), null);
+	});
+});
+
+describe("parseAnchor — a question's own wording names its call", () => {
+	it("keeps a callId, and an anchor without one stays exactly as before", () => {
+		assert.deepEqual(parseAnchor({ messageId: "m1", text: "x", occurrence: 0, callId: "call-1" }), { messageId: "m1", text: "x", occurrence: 0, callId: "call-1" });
+		assert.deepEqual(parseAnchor({ messageId: "m1", text: "x", occurrence: 0 }), { messageId: "m1", text: "x", occurrence: 0 });
+	});
+
+	it("rejects a callId that is empty, not a string or over-long", () => {
+		assert.equal(parseAnchor({ messageId: "m1", text: "x", occurrence: 0, callId: "" }), null);
+		assert.equal(parseAnchor({ messageId: "m1", text: "x", occurrence: 0, callId: 7 }), null);
+		assert.equal(parseAnchor({ messageId: "m1", text: "x", occurrence: 0, callId: null }), null);
+		assert.equal(parseAnchor({ messageId: "m1", text: "x", occurrence: 0, callId: "c".repeat(CLARIFY_CALL_ID_MAX + 1) }), null);
+		assert.ok(parseAnchor({ messageId: "m1", text: "x", occurrence: 0, callId: "c".repeat(CLARIFY_CALL_ID_MAX) }));
+	});
+});
+
+describe("handleClarifyRequest — text marked in a question's wording", () => {
+	const QUESTION_ANCHOR = { messageId: "m_asst", text: "closest to the sun", occurrence: 0, callId: "call-1" };
+
+	it("a thread on the pending quiz's wording is stored with its callId, and the never-reveal rule applies", async () => {
+		const chat = pendingChat("Clarify wording pending");
+		const { engine, contexts } = scripted([reply("It asks which planet orbits nearest the sun.")]);
+		const res = await handleClarifyRequest(chat.id, { anchor: QUESTION_ANCHOR, quote: "closest to the sun", question: "what does it want?" }, engine);
+		assert.equal(res.status, 200);
+		const body = (await res.json()) as { thread: { id: string } };
+		assert.deepEqual(chatStore.getChat(chat.id)!.clarifyThreads?.find((t) => t.id === body.thread.id)?.anchor, QUESTION_ANCHOR);
+		assert.ok(lastUserText(contexts[0]).includes("Do NOT state"), "the model is told never to reveal the answer");
+	});
+
+	it("400 when the callId is not a call of that message", async () => {
+		const chat = pendingChat("Clarify wording wrong call");
+		const res = await post(chat.id, { anchor: { ...QUESTION_ANCHOR, callId: "call-other" }, quote: "x", question: "y" });
+		assert.equal(res.status, 400);
+		assert.match(((await res.json()) as { error: string }).error, /no longer in the session/);
+	});
+
+	it("400 when the callId names a call but the message has none (a plain text message)", async () => {
+		const chat = answeredChat("Clarify wording no call");
+		assert.equal((await post(chat.id, { anchor: QUESTION_ANCHOR, quote: "x", question: "y" })).status, 400);
+	});
+
+	it("an OPEN practice problem is pending too: the solution is never revealed (owner, 2026-11-06)", async () => {
+		const chat = chatStore.createChat("Clarify wording practice");
+		chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+		chatStore.saveMessages(chat.id, [
+			{ id: "m_user", role: "user", content: "give me a problem", timestamp: 1 } as never,
+			{
+				id: "m_prob", role: "assistant", timestamp: 2, stopReason: "toolUse", api: "openai-completions", provider: "openrouter",
+				model: "z-ai/glm-5.3-flash", usage: USAGE,
+				content: [{ type: "toolCall", id: "prob-1", name: "problem", arguments: { statement: "Find the root of x^2 = 9.", mode: "worked" } }],
+			} as never,
+			{ id: "m_ack", role: "toolResult", toolCallId: "prob-1", toolName: "problem", content: [{ type: "text", text: "posed" }], isError: false, timestamp: 3 } as never,
+		]);
+		const { engine, contexts } = scripted([reply("It asks for the values of x that square to nine.")]);
+		const res = await handleClarifyRequest(chat.id, { anchor: { messageId: "m_prob", text: "the root", occurrence: 0, callId: "prob-1" }, quote: "the root", question: "what is a root here?" }, engine);
+		assert.equal(res.status, 200);
+		assert.ok(lastUserText(contexts[0]).includes("Do NOT state"), "an open problem gets the never-reveal rule");
 	});
 });
 

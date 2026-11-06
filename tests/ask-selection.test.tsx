@@ -113,6 +113,36 @@ describe("currentMark — what the Ask button may offer", () => {
 		assert.equal(mark!.y, RECT.top - 42);
 	});
 
+	it("a mark inside a question's wording carries the call it belongs to (owner, 2026-11-06)", () => {
+		const doc = docWith(
+			'<div class="lh-source-passage" data-source-message-id="m1" data-source-call-id="call-1"><p id="q">Which planet is closest to the sun?</p></div>',
+		);
+		const node = textNodeIn(doc, "#q");
+		const mark = currentMark(selectionOver(node, 16, 34, "closest to the sun"), WIN);
+		assert.ok(mark, "the wording is markable");
+		assert.deepEqual(mark!.anchor, { messageId: "m1", text: "closest to the sun", occurrence: 0, callId: "call-1" });
+	});
+
+	it("the occurrence of a phrase in a question's wording is counted among that question's passages only, not the lesson's", () => {
+		const doc = docWith(
+			'<div class="lh-source-passage" data-source-message-id="m1"><p>The rule is simple.</p></div>' +
+				'<div class="lh-source-passage" data-source-message-id="m1" data-source-call-id="call-1"><p id="q">State the rule.</p></div>',
+		);
+		const node = textNodeIn(doc, "#q");
+		const mark = currentMark(selectionOver(node, 10, 14, "rule"), WIN);
+		assert.ok(mark);
+		assert.deepEqual(mark!.anchor, { messageId: "m1", text: "rule", occurrence: 0, callId: "call-1" });
+	});
+
+	it("null for an option beside the wording: only the stem and context are passages", () => {
+		const doc = docWith(
+			'<div class="lh-source-passage" data-source-message-id="m1" data-source-call-id="call-1"><p>Which planet?</p></div>' +
+				'<div role="radiogroup"><button id="o" type="button">Mercury</button></div>',
+		);
+		const node = textNodeIn(doc, "#o");
+		assert.equal(currentMark(selectionOver(node, 0, 4, "Merc"), WIN), null);
+	});
+
 	it("the anchor's occurrence is the match the selection starts on", () => {
 		// "rule" occurs at offsets 4 and 17; the learner marks the second one.
 		const doc = docWith('<div class="lh-source-passage" data-source-message-id="m1"><p id="p">The rule and the rule.</p></div>');

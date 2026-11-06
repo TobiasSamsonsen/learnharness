@@ -9,7 +9,8 @@ import { anchorFromSelection } from "@/components/clarify-anchor";
  * The floating "Ask" button (owner design, 2026-11-01; margin threads 2026-11-02): marking text in the learning text offers
  * an "Ask about this" button beside the selection; pressing it hands the marked text and its anchor to the margin layer,
  * which opens a thread on that line. It never takes focus or collapses the selection (pointerdown is prevented), so native
- * copy and the touch handles keep working. Text in the quiz dock is not offered: a thread hangs on the lesson prose.
+ * copy and the touch handles keep working. The offer is for passages only (clarify-anchor.ts): the lesson prose and the wording
+ * of a question or problem (its stem and context, in the dock or in the answered card); options, fields and chrome are not.
  */
 
 /** What the button hands over: the marked text as displayed, and where it sits. */

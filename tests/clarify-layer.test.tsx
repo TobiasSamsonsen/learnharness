@@ -73,6 +73,26 @@ describe("placeCard — where the thread card goes", () => {
 		assert.equal(place.top + place.maxHeight, 700 - 8);
 	});
 
+	it("a bubble inside the dock (question wording) gets the full card height above the dock, not the minimum", () => {
+		const place = placeCard({ left: 500, top: 750, bottom: 770 }, VIEW, { minTop: 100, dockTop: 700 });
+		assert.equal(place.top + place.maxHeight, 700 - 8, "ends above the dock");
+		assert.ok(place.maxHeight > 220, "taller than the minimum card");
+	});
+
+	it("a tall dock (little room above it): the card still goes above the dock with the room there is, never over the question", () => {
+		// the real phone: dock top 320, transcript top 95 → ~209px of room, less than the 220 a card normally wants
+		const place = placeCard({ left: 344, top: 414, bottom: 458 }, { width: 430, height: 933 }, { minTop: 95, dockTop: 320 });
+		assert.equal(place.top + place.maxHeight, 320 - 8, "ends right above the dock");
+		assert.equal(place.bottom, 933 - (320 - 8), "stands on the dock, whatever the card's height, instead of floating above a gap");
+		assert.equal(place.maxHeight, 320 - 8 - (95 + 8), "takes the room there is");
+		assert.ok(place.top >= 95 + 8, "inside the scroller");
+	});
+
+	it("a bubble in the dock with no usable room above it (keyboard up) falls back to clearing the keyboard", () => {
+		const place = placeCard({ left: 344, top: 300, bottom: 344 }, { width: 430, height: 464 }, { minTop: 95, dockTop: 200 });
+		assert.equal(place.top + place.maxHeight, 464 - 8, "89px of room is under the floor: the card only clears the keyboard");
+	});
+
 	it("never returns null: a bubble scrolled out of view or behind the dock pins the card to the nearest edge of the visible area", () => {
 		const above = placeCard({ left: 500, top: 50, bottom: 100 }, VIEW, NO_DOCK);
 		assert.equal(above.top, 108, "pinned under minTop + 8");
