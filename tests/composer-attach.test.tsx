@@ -19,7 +19,7 @@ import { quoteFilePath } from "../src/core/file-paths.ts";
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => { await cleanup?.(); cleanup = undefined; });
 
-async function fixture({ desktop = true } = {}) {
+async function fixture({ desktop = true, android = false } = {}) {
 	const { window: win, document: doc } = parseHTML("<html><body><div id='root'></div></body></html>");
 	let active: Element = doc.body;
 	Object.defineProperty(doc, "activeElement", { get: () => active });
@@ -54,6 +54,7 @@ async function fixture({ desktop = true } = {}) {
 			chooseAttachmentFolder: async () => { folderCalls++; if (folderResult instanceof Error) throw folderResult; return folderResult; },
 		} : undefined,
 	});
+	if (android) Object.defineProperty(win, "lhAndroid", { configurable: true, value: { postMessage() {} } });
 	const { createRoot } = await import("react-dom/client");
 	const root = createRoot(doc.getElementById("root")!);
 	function draw() {
@@ -61,9 +62,10 @@ async function fixture({ desktop = true } = {}) {
 	}
 	await act(async () => { draw(); });
 	const picker = doc.querySelector<HTMLInputElement>('[data-testid="attach-files-input"]')!;
-	picker.click = () => { pickerClicks++; };
+	if (picker) picker.click = () => { pickerClicks++; };
 	cleanup = async () => {
 		await act(async () => { root.unmount(); });
+		delete (win as unknown as Record<string, unknown>).lhAndroid;
 		for (const [name, descriptor] of previous) {
 			if (descriptor) Object.defineProperty(globalThis, name, descriptor);
 			else delete (globalThis as Record<string, unknown>)[name];
@@ -154,6 +156,18 @@ describe("composer attach button", () => {
 		const send = html.indexOf('aria-label="Send"');
 		assert.ok(editor >= 0 && editor < attach && attach < send, "the paperclip follows the input and precedes Send");
 		assert.ok(html.includes('type="file"') && !html.includes("accept="), "any file type");
+	});
+
+	it("the Android app does not offer the paperclip (no file input, no button), the composer still sends", async () => {
+		const f = await fixture({ desktop: false, android: true });
+		assert.equal(f.button, null);
+		assert.equal(f.doc.querySelector('[data-testid="attach-files-input"]'), null);
+		assert.ok(f.doc.querySelector('[aria-label="Send"]'), "Send is still there");
+	});
+
+	it("a plain browser still shows the faded paperclip with its explanation", async () => {
+		const f = await fixture({ desktop: false });
+		assert.equal(f.button.getAttribute("aria-disabled"), "true");
 	});
 
 	it("desktop: the button offers Files/Folder, and Files keeps multi-file any-type chips at the caret", async () => {
