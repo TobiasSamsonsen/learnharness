@@ -461,10 +461,35 @@ return plan;
 	return plan;
 }
 
+/** A stroke's bounding box of its points (page px). Strokes are never edited in place (a thaw or a cut makes new ones), so the
+ *  box is cached per stroke object; the point count guards the one case that could go stale. */
+const strokeBoundsCache = new WeakMap<SketchStroke, { len: number; minX: number; minY: number; maxX: number; maxY: number }>();
+function strokeBounds(s: SketchStroke): { minX: number; minY: number; maxX: number; maxY: number } | null {
+	const p = s.points;
+	if (p.length < 3) return null;
+	const cached = strokeBoundsCache.get(s);
+	if (cached && cached.len === p.length) return cached;
+	let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+	for (let k = 0; k + 1 < p.length; k += 3) {
+		const x = p[k]!, y = p[k + 1]!;
+		if (x < minX) minX = x;
+		if (x > maxX) maxX = x;
+		if (y < minY) minY = y;
+		if (y > maxY) maxY = y;
+	}
+	const bounds = { len: p.length, minX, minY, maxX, maxY };
+	strokeBoundsCache.set(s, bounds);
+	return bounds;
+}
+
 /** Does a pointer (x, y) with radius r touch the stroke? Distance to the
- *  polyline, plus half the stroke's width — the stroke eraser's hit test. */
+ *  polyline, plus half the stroke's width — the stroke eraser's hit test.
+ *  A pointer farther than the reach from the stroke's bounding box cannot touch it, so most strokes of a busy page are
+ *  rejected with four comparisons instead of a walk of every segment (the answer is the same either way). */
 export function sketchStrokeHit(s: SketchStroke, x: number, y: number, r: number): boolean {
 	const reach = r + s.size / 2;
+	const b = strokeBounds(s);
+	if (b && (x < b.minX - reach || x > b.maxX + reach || y < b.minY - reach || y > b.maxY + reach)) return false;
 	const p = s.points;
 	let px = p[0]!, py = p[1]!;
 	if (Math.hypot(x - px, y - py) <= reach) return true;

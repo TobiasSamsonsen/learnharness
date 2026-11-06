@@ -115,6 +115,89 @@ class InkWireEraserTest {
 		org.junit.Assert.assertFalse("a stroke with no points is never hit", InkWire.strokeHit(InkWire.Stroke(4f, null, FloatArray(0)), 0f, 0f, 50f))
 	}
 
+	@org.junit.Test fun sentInkIsTheStrokesTheWebMarksFreshFalse() {
+		// the page's local marker for sent ink it copied into the working page: drawn dimmed. Anything else (absent, true) is new ink.
+		val parsed = InkWire.strokes(
+			"[{\"size\":4,\"fresh\":false,\"points\":[1,2,0.5]},{\"size\":4,\"fresh\":true,\"points\":[1,2,0.5]},{\"size\":4,\"points\":[1,2,0.5]},{\"size\":4,\"color\":\"#ff0000\",\"fresh\":false,\"points\":[3,4,0.5,5,6,0.5]}]",
+		)!!
+		org.junit.Assert.assertEquals(listOf(true, false, false, true), parsed.map { it.sent })
+		org.junit.Assert.assertEquals("a colour survives alongside the marker", "#ff0000", parsed[3].color)
+		org.junit.Assert.assertFalse("a stroke the shell draws itself is never sent ink", InkWire.Stroke(4f, null, floatArrayOf(1f, 2f, 0.5f)).sent)
+		// the marker is not echoed back: the shell never reports a stroke as sent
+		org.junit.Assert.assertFalse(InkWire.strokesJson(listOf(parsed[0])).contains("fresh"))
+	}
+
+	@org.junit.Test fun theCapsLineAndTheErasedLine() {
+		org.junit.Assert.assertEquals(InkOp.Caps(hits = true), InkWire.parse("caps hits"))
+		org.junit.Assert.assertEquals(InkOp.Caps(hits = true), InkWire.parse(" caps hits "))
+		for (bad in listOf("caps", "caps nothing", "caps hits more", "capshits")) org.junit.Assert.assertNull(bad, InkWire.parse(bad))
+		org.junit.Assert.assertEquals("erased 5 0,3,4", InkWire.erasedLine(5, setOf(4, 0, 3)))
+		org.junit.Assert.assertEquals("erased 5", InkWire.erasedLine(5, emptySet()))
+		org.junit.Assert.assertEquals("erased 0", InkWire.erasedLine(0, emptyList()))
+	}
+
+	/** The plain walk, as strokeHit was before the bounding box: the reference every answer is held to. */
+	private fun walk(s: InkWire.Stroke, x: Float, y: Float, r: Float): Boolean {
+		val p = s.points
+		if (p.size < 3) return false
+		val reach = r + s.size / 2f
+		var px = p[0]
+		var py = p[1]
+		if (kotlin.math.hypot((x - px).toDouble(), (y - py).toDouble()) <= reach) return true
+		var k = 3
+		while (k + 1 < p.size) {
+			val qx = p[k]
+			val qy = p[k + 1]
+			val dx = qx - px
+			val dy = qy - py
+			val len2 = dx * dx + dy * dy
+			val t = if (len2 == 0f) 0f else (((x - px) * dx + (y - py) * dy) / len2).coerceIn(0f, 1f)
+			if (kotlin.math.hypot((x - (px + t * dx)).toDouble(), (y - (py + t * dy)).toDouble()) <= reach) return true
+			px = qx
+			py = qy
+			k += 3
+		}
+		return false
+	}
+
+	@org.junit.Test fun theBoundingBoxShortcutNeverChangesAnAnswer() {
+		val rnd = java.util.Random(11)
+		val strokes = List(120) {
+			val n = 1 + rnd.nextInt(40)
+			var x = rnd.nextFloat() * 400f
+			var y = rnd.nextFloat() * 600f
+			val pts = FloatArray(n * 3)
+			for (i in 0 until n) {
+				x += (rnd.nextFloat() - 0.5f) * 30f
+				y += (rnd.nextFloat() - 0.5f) * 30f
+				pts[i * 3] = x
+				pts[i * 3 + 1] = y
+				pts[i * 3 + 2] = 0.5f
+			}
+			InkWire.Stroke(1f + rnd.nextFloat() * 9f, null, pts)
+		}
+		var hits = 0
+		var misses = 0
+		for (s in strokes) for (i in 0 until 40) {
+			val x = rnd.nextFloat() * 500f - 50f
+			val y = rnd.nextFloat() * 700f - 50f
+			val r = floatArrayOf(0.5f, 4f, 20f, 60f, 400f)[i % 5]
+			val want = walk(s, x, y, r)
+			org.junit.Assert.assertEquals("point $x,$y radius $r", want, InkWire.strokeHit(s, x, y, r))
+			if (want) hits++ else misses++
+		}
+		org.junit.Assert.assertTrue("both outcomes are sampled ($hits hits, $misses misses)", hits > 300 && misses > 300)
+	}
+
+	@org.junit.Test fun aPointerExactlyAtTheReachStillHits_andOneBeyondDoesNot() {
+		val s = InkWire.Stroke(6f, null, floatArrayOf(100f, 100f, 0.5f, 200f, 100f, 0.5f)) // reach with r = 10 is 13
+		org.junit.Assert.assertTrue(InkWire.strokeHit(s, 100f, 113f, 10f))
+		org.junit.Assert.assertFalse(InkWire.strokeHit(s, 100f, 113.5f, 10f))
+		org.junit.Assert.assertTrue(InkWire.strokeHit(s, 87f, 100f, 10f))
+		org.junit.Assert.assertFalse(InkWire.strokeHit(s, 86f, 100f, 10f))
+		org.junit.Assert.assertTrue(InkWire.strokeHit(s, 213f, 100f, 10f))
+	}
+
 	@org.junit.Test fun theHitsAreTheStrokesAnyPathPointTouched_andOnlyFromTheGivenPointOn() {
 		val a = stroke(0f, 0f, 100f, 0f)
 		val b = stroke(0f, 200f, 100f, 200f)

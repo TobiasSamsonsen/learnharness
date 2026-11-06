@@ -8,7 +8,8 @@ import org.json.JSONException
  * The native-ink bridge, pure parts (Android plan M10, docs/android/m10-plan.md). The web store owns the strokes
  * (owner decision B, 2026-10-27): the shell draws, reports each finished stroke and eraser gesture, and the web pushes
  * the finished set back. Lines the web sends (`src/core/ink-bridge.ts` writes them): `open`, `holes`, `tool`,
- * `eraser`, `brush`, `sheet`, `strokes`, `kept`, `view`, `ack`, `close`. Lines the shell sends back: `stroke`, `erase`, `gesture`, `penseen`, `fallback`.
+ * `eraser`, `brush`, `sheet`, `strokes`, `kept`, `view`, `ack`, `caps`, `close`. Lines the shell sends back: `stroke`, `erase`, `erased`
+ * (only after `caps hits`), `gesture`, `penseen`, `fallback`.
  * No Android types except org.json, so `./gradlew test` covers it.
  */
 
@@ -34,8 +35,11 @@ sealed interface InkOp {
 	data class Kept(val strokes: List<InkWire.Stroke>) : InkOp
 	/** The infinite canvas's view (M13c): zoom and the world position of the layer's top-left corner. */
 	data class View(val view: InkView) : InkOp
-	/** The stroke the shell just reported is in the web's store: keep it as drawn (no full push needed). */
+	/** The stroke the shell just reported is in the web's store: keep it as drawn (no full push needed). After an `erased` line:
+	 *  the web applied that erase, so the strokes the shell already removed stay removed. */
 	data object Ack : InkOp
+	/** What the page understands. `hits`: the `erased` line, so the stroke eraser reports its hits instead of the path. */
+	data class Caps(val hits: Boolean) : InkOp
 	data object Close : InkOp
 }
 
@@ -89,6 +93,7 @@ object InkWire {
 				if (parts.size != 3) return null
 				InkOp.View(InkView.parse(finite(parts[0]), finite(parts[1]), finite(parts[2])) ?: return null)
 			}
+			"caps" -> if (rest == "hits") InkOp.Caps(hits = true) else null
 			"ack" -> if (rest.isEmpty()) InkOp.Ack else null
 			"close" -> if (rest.isEmpty()) InkOp.Close else null
 			else -> null
@@ -102,8 +107,30 @@ object InkWire {
 		return if (n.size == 4) InkRect(n[0], n[1], n[2], n[3]) else null
 	}
 
-	/** A stroke: base size in CSS px, an optional #rrggbb, flat [x, y, pressure, …] in the canvas' page CSS px. */
-	class Stroke(val size: Float, val color: String?, val points: FloatArray)
+	/** A stroke: base size in CSS px, an optional #rrggbb, flat [x, y, pressure, …] in the canvas' page CSS px. [sent]: it was already
+	 *  sent to the tutor (the page's `fresh: false`): drawn dimmed even inside the working page, where the eraser put it. */
+	class Stroke(val size: Float, val color: String?, val points: FloatArray, val sent: Boolean = false) {
+		/** The bounding box of the points, [minX, minY, maxX, maxY], found once (a stroke is never edited): the eraser skips a stroke
+		 *  whose box is farther from the pointer than the reach, instead of walking every segment. Null for a stroke with no points. */
+		val bounds: FloatArray? by lazy(LazyThreadSafetyMode.NONE) {
+			if (points.size < 3) return@lazy null
+			var minX = Float.POSITIVE_INFINITY
+			var minY = Float.POSITIVE_INFINITY
+			var maxX = Float.NEGATIVE_INFINITY
+			var maxY = Float.NEGATIVE_INFINITY
+			var k = 0
+			while (k + 1 < points.size) {
+				val x = points[k]
+				val y = points[k + 1]
+				if (x < minX) minX = x
+				if (x > maxX) maxX = x
+				if (y < minY) minY = y
+				if (y > maxY) maxY = y
+				k += 3
+			}
+			floatArrayOf(minX, minY, maxX, maxY)
+		}
+	}
 
 	/** The `SketchStroke[]` JSON from the web, or null when any part of it is malformed (never throws). */
 	fun strokes(json: String): List<Stroke>? = try {
@@ -120,7 +147,9 @@ object InkWire {
 			val size = o.getDouble("size").toFloat()
 			if (!size.isFinite() || size <= 0f) return null
 			val color = o.optString("color", "").takeIf { Regex("#[0-9a-fA-F]{6}").matches(it) }
-			Stroke(size, color, points)
+			// the page marks sent ink it has copied into the working page `"fresh":false`: drawn dimmed, like the kept page
+			val sent = o.has("fresh") && !o.optBoolean("fresh", true)
+			Stroke(size, color, points, sent)
 		}
 	} catch (_: JSONException) {
 		null
@@ -139,6 +168,9 @@ object InkWire {
 
 	const val PEN_SEEN = "penseen"
 
+	/** Float rounding margin for the eraser's bounding-box reject, page px. */
+	private const val BOX_SLACK = 0.01f
+
 	/** One finished stroke. */
 	fun strokeLine(s: Stroke) = "stroke ${strokesJson(listOf(s))}"
 
@@ -153,6 +185,13 @@ object InkWire {
 			val p = s.points
 			if (p.size < 3) return false
 			val reach = r + s.size / 2f
+			// a pointer farther than the reach from the stroke's box cannot touch it (the same answer as the walk below; the small
+			// margin keeps float rounding from ever rejecting a pointer exactly at the reach)
+			val b = s.bounds
+			if (b != null) {
+				val slack = reach + BOX_SLACK
+				if (x < b[0] - slack || x > b[2] + slack || y < b[1] - slack || y > b[3] + slack) return false
+			}
 			var px = p[0]
 			var py = p[1]
 			if (kotlin.math.hypot((x - px).toDouble(), (y - py).toDouble()) <= reach) return true
@@ -190,6 +229,14 @@ object InkWire {
 			}
 			return hits
 		}
+
+		/**
+		 * The stroke eraser's gesture ended and the shell already found what it touched (sent only after the web's `caps hits`):
+		 * [count] strokes are held, [indices] are the ones removed from what the shell shows (indexes in that list, which is the
+		 * web's order). The web applies them as they are, or pushes its own strokes if its count differs.
+		 */
+		fun erasedLine(count: Int, indices: Collection<Int>) =
+			if (indices.isEmpty()) "erased $count" else "erased $count ${indices.sorted().joinToString(",")}"
 
 		/** An eraser gesture: flat [x, y, …] in the canvas' page CSS px. The web decides which strokes it hit. */
 	fun eraseLine(points: FloatArray) = "erase ${points.joinToString(",") { n(if (it.isFinite()) it else 0f) }}"

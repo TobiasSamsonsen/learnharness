@@ -187,8 +187,12 @@ export function SketchView({
 		const op: InkOp = { kind: "cut", changes };
 		record(state, applyOp(state.strokes, op), op);
 	};
+	/** The stroke eraser: whole strokes go. `indices` count the working strokes first and, while the sent page is still locked, the
+	 *  sent (dimmed) strokes after them, in the kept page's order. The first touch of sent ink thaws it into the working page (as the
+	 *  pixel eraser does), where its copies sit right after the unsent strokes: an index past them is the same number there. */
 	const erase = (indices: number[]) => {
-		const state = readInk(inkKey);
+		let state = readInk(inkKey);
+		if (kept && state.thawed === undefined && keptStatus === "ready" && indices.some((i) => i >= state.strokes.length)) state = thawInk(state, kept);
 		const removed = [...indices].sort((a, b) => a - b).flatMap((index) => (state.strokes[index] ? [{ index, stroke: state.strokes[index]! }] : []));
 		if (removed.length === 0) return;
 		record(state, applyOp(state.strokes, { kind: "erase", removed }), { kind: "erase", removed });
