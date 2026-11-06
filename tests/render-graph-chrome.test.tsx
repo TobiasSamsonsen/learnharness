@@ -66,6 +66,26 @@ describe("GraphChromeRow — the empty-graph ruling (owner, 2026-09-25)", () => 
 		assert.equal(html.split("graph-chrome-fade-in").length - 1, 3, "three fade carriers: search + chains + settings");
 	});
 
+	it("the bar has a narrow form (owner, 2026-11-06): icon-only text buttons that keep their names, and a search that can shrink", () => {
+		const html = renderToStaticMarkup(createElement(GraphChromeRow, { ...PROPS, isEmpty: false }));
+		// the names survive the icon-only form as aria-labels, and the visible labels sit in spans the narrow form hides
+		assert.match(html, /data-testid="open-chain-table"[^>]*aria-label="Chains"|aria-label="Chains"[^>]*data-testid="open-chain-table"/);
+		assert.match(html, /data-testid="import-notes"[^>]*aria-label="Extract files…"|aria-label="Extract files…"[^>]*data-testid="import-notes"/);
+		assert.equal(html.split('class="@max-[34rem]:hidden"').length - 1, 2, "both labels hide when the bar's area is narrow");
+		assert.ok(html.includes("@max-[34rem]:w-7"), "the buttons turn into squares");
+		// the search container gives way (a flex basis, not a definite width: that counts as its minimum size and ran off the screen)
+		assert.ok(/class="graph-chrome-fade-in min-w-0 shrink basis-56 /.test(html));
+		assert.equal(/class="graph-chrome-fade-in [^"]*\bw-56\b/.test(html), false);
+		assert.ok(html.includes('class="relative min-w-0"') && html.includes("h-7 w-full min-w-0"), "the field can shrink inside it");
+	});
+
+	it("the Extract button is the same 28px as its neighbours: no touch-size growth (lh-touch made it 44px beside 28px)", () => {
+		for (const isEmpty of [true, false]) {
+			const html = renderToStaticMarkup(createElement(GraphChromeRow, { ...PROPS, isEmpty }));
+			assert.equal(html.includes("lh-touch"), false, `no lh-touch in the bar (isEmpty=${isEmpty})`);
+		}
+	});
+
 	it("the no-match note renders only when the wrapper says so (its truth stays upstream)", () => {
 		const html = renderToStaticMarkup(
 			createElement(GraphChromeRow, { ...PROPS, isEmpty: false, query: "zzz", noMatch: true }),
