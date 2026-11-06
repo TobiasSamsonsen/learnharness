@@ -190,15 +190,19 @@ export function SketchCanvas({
 			}
 		}
 		ctx.setTransform(dpr * v.zoom, 0, 0, dpr * v.zoom, -v.x * v.zoom * dpr, -v.y * v.zoom * dpr);
-		ctx.globalAlpha = KEPT_ALPHA;
-		for (const s of keptRef.current) {
-			ctx.fillStyle = displayInk(s.color, tone);
-			ctx.fill(pathOf(s));
-		}
 		const hits = live.current?.erase;
 		// the pixel eraser shows its cut live: a touched stroke is drawn as its pieces
 		const radius = live.current?.radius ?? 0;
 		const cutPath = live.current?.erase && eraserRef.current.mode === "pixel" ? thinPath(xyOf(live.current.points), radius / 4) : null;
+		// the sent page (dimmed, locked) is reachable by the eraser too: its strokes are numbered after the working ones
+		const working = strokesRef.current.length;
+		keptRef.current.forEach((s, j) => {
+			const pieces = cutPath ? sketchStrokeCut(s, cutPath, radius) : null;
+			ctx.globalAlpha = hits?.has(working + j) && !cutPath ? 0.2 : KEPT_ALPHA;
+			ctx.fillStyle = displayInk(s.color, tone);
+			if (pieces) for (const piece of pieces) ctx.fill(new Path2D(sketchStrokePath(piece)));
+			else ctx.fill(pathOf(s));
+		});
 		strokesRef.current.forEach((s, i) => {
 			const pieces = cutPath ? sketchStrokeCut(s, cutPath, radius) : null;
 			// sent ink being edited (thawed, marked `fresh: false`) stays dimmed like the kept page; a stroke the
@@ -348,7 +352,7 @@ export function SketchCanvas({
 
 	/** Mark the new strokes under the eraser's newest samples. */
 	const eraseAt = (points: number[], from: number, hits: Set<number>, radius: number) => {
-		strokesRef.current.forEach((s, i) => {
+		const touch = (s: SketchStroke, i: number) => {
 			if (hits.has(i)) return;
 			for (let k = from; k < points.length; k += 3) {
 				if (sketchStrokeHit(s, points[k]!, points[k + 1]!, radius)) {
@@ -356,7 +360,11 @@ export function SketchCanvas({
 					return;
 				}
 			}
-		});
+		};
+		strokesRef.current.forEach(touch);
+		// the sent page (dimmed): numbered after the working strokes; the view thaws it on the first one that goes
+		const working = strokesRef.current.length;
+		keptRef.current.forEach((s, j) => touch(s, working + j));
 	};
 
 	const local = (e: React.PointerEvent) => ({ x: e.clientX - rect.current.left, y: e.clientY - rect.current.top });

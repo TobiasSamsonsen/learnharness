@@ -12,6 +12,18 @@ import { describe, it } from "node:test";
 
 import { dockStateKey } from "../components/dock-state-key.ts";
 
+describe("dockStateKey — the question-only variant (owner, 2026-11-06)", () => {
+	it("a docked shell showing only the wording gets its own key, so the shrink and the return morph", () => {
+		assert.notEqual(dockStateKey("question:call_q1", true, true, true), dockStateKey("question:call_q1", true, true, false));
+		assert.equal(dockStateKey("question:call_q1", true, true, true), "question:call_q1:true:wording");
+	});
+
+	it("the default is unchanged, and the composer (not docked) never has the variant", () => {
+		assert.equal(dockStateKey("question:call_q1", true, true), "question:call_q1:true");
+		assert.equal(dockStateKey("chat", false, true, true), "chat:-");
+	});
+});
+
 describe("dockStateKey (the height-morph trigger)", () => {
 	it("a docked variant carries its fold state — practice included", () => {
 		assert.equal(dockStateKey("practice:call_p1", true, true), "practice:call_p1:true");

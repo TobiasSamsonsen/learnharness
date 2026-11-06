@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { decodeShellLine, encodeInkOp, eraseHits, type NativeInkOp, type NativeInkRect, type NativeInkTool, type SketchStroke } from "@/src/core";
+import { decodeShellLine, encodeInkOp, eraseHits, isErasedExactly, type NativeInkOp, type NativeInkRect, type NativeInkTool, type SketchStroke } from "@/src/core";
 import { SKETCH_ERASER_RADIUS } from "@/components/sketch/sketch-canvas";
 import { useViewGestures } from "@/components/sketch/use-view-gestures";
 import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, roundView, thinPath, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
@@ -103,6 +103,8 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 	latest.current = options;
 	const sentStrokes = useRef<readonly SketchStroke[]>([]);
 	const ingested = useRef<SketchStroke | null>(null);
+	/** The indexes the shell told us (`erased`) it had already removed: when the store ends up with exactly those gone, an `ack` is enough. */
+	const shellErased = useRef<readonly number[] | null>(null);
 	const sendRef = useRef<(op: NativeInkOp) => void>(() => {});
 	const view = useRef<SketchView>(HOME_VIEW);
 	const size = useRef({ w: 0, h: 0 });
@@ -161,6 +163,8 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 			reportHoles();
 		};
 		reportAll();
+		// this page understands `erased` (ink-bridge.ts): a shell that knows it reports the stroke eraser's hits instead of the path
+		send({ op: "caps" });
 		// the first time, open on the ink (the home view when it fits)
 		if (!fitted.current && size.current.w > 0 && size.current.h > 0) {
 			fitted.current = true;
@@ -196,8 +200,24 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 						o.onCut(thinPath(shell.points, radius / 4), radius);
 						break;
 					}
-					const hits = eraseHits(o.strokes, shell.points, radius);
+					// the sent page (dimmed, locked) is reachable too: its strokes are numbered after the working ones (sketch-view erase)
+					const hits = eraseHits([...o.strokes, ...(o.kept ?? [])], shell.points, radius);
 					if (hits.length > 0) o.onErase(hits);
+					break;
+				}
+				case "erased": {
+					// the shell found the hits while the gesture ran and has already removed those strokes from what it shows
+					// the shell counts the working strokes, then the sent (dimmed) ones: the same order the page numbers them in
+					if (shell.count !== o.strokes.length + (o.kept?.length ?? 0)) {
+						// it and the page disagree about the page (an undo in the middle of the gesture): the page's set wins
+						send({ op: "strokes", strokes: o.strokes });
+						send({ op: "kept", strokes: o.kept ?? [] });
+						break;
+					}
+					if (shell.indices.length > 0) {
+						shellErased.current = shell.indices;
+						o.onErase(shell.indices);
+					}
 					break;
 				}
 				case "gesture":
@@ -232,7 +252,10 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 		const prev = sentStrokes.current;
 		const appended =
 			strokes.length === prev.length + 1 && prev.every((s, i) => strokes[i] === s) && strokes[strokes.length - 1] === ingested.current;
-		sendRef.current(appended ? { op: "ack" } : { op: "strokes", strokes });
+		// an erase the shell already showed (it removed the strokes itself at lift) needs no push: the shell keeps what it has
+		const erasedByShell = !appended && shellErased.current !== null && isErasedExactly(prev, strokes, shellErased.current);
+		shellErased.current = null;
+		sendRef.current(appended || erasedByShell ? { op: "ack" } : { op: "strokes", strokes });
 		if (appended) ingested.current = null; // used once: a redo of the same stroke must be pushed whole
 		sentStrokes.current = strokes;
 	}, [active, strokes]);

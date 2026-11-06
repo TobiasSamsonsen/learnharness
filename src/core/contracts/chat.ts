@@ -81,6 +81,9 @@ export interface ClarifyAnchor {
 	messageId: string;
 	text: string;
 	occurrence: number;
+	/** The question or practice problem (its tool call id inside `messageId`) whose own wording the text is marked in; absent =
+	 *  the message's lesson prose, as every thread stored before questions became markable. */
+	callId?: string;
 }
 
 /** One question to the tutor about the marked text, and its answer. */
@@ -114,6 +117,7 @@ export interface LegacyClarification {
 export const CLARIFY_QUOTE_MAX = 2_000;
 export const CLARIFY_QUESTION_MAX = 2_000;
 export const CLARIFY_ANCHOR_MAX = 300;
+export const CLARIFY_CALL_ID_MAX = 200;
 
 /** The chat record format this build writes and understands. */
 export const CURRENT_CHAT_VERSION = 1;

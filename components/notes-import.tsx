@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ChangeEvent } from "react";
 import { WaypointsIcon } from "lucide-react";
 import { Hint } from "@/components/ui/hint";
+import { COMPACT_BUTTON, COMPACT_LABEL } from "@/components/chrome-compact";
 import { createNotesImportQueue, EMPTY_IMPORT_QUEUE, notesPath } from "./notes-import-queue";
 
 export { MAX_IMPORT_BYTES } from "@/lib/notes-import-limits.ts";
@@ -105,8 +106,9 @@ export function NotesImportControl({ importing, onImportFiles }: { importing: bo
 			<input ref={folderRef} type="file" {...{ webkitdirectory: "" }} className="hidden" onChange={onChange} />
 			<Hint label="Extract files into the graph" side="bottom">
 				<button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="menu" data-testid="import-notes"
-					className="lh-touch flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent">
-					<WaypointsIcon className="size-3" />{importing ? "Extracting…" : "Extract files…"}
+					aria-label={importing ? "Extracting…" : "Extract files…"}
+					className={`flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent ${COMPACT_BUTTON}`}>
+					<WaypointsIcon className="size-3 shrink-0" /><span className={COMPACT_LABEL}>{importing ? "Extracting…" : "Extract files…"}</span>
 				</button>
 			</Hint>
 			{open && (

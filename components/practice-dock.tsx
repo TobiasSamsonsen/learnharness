@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CameraIcon, ChevronRightIcon, PenLineIcon, XIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
+import { ClarifyWording } from "@/components/clarify-wording";
 import { Button } from "@/components/ui/button";
 import { PhotoError, preparePhoto, releasePhoto, type PreparedPhoto } from "@/components/photo-answer";
 import { useCamera } from "@/components/use-camera";
@@ -43,6 +44,10 @@ export type ThinkingMark = { confidence?: number; dontKnow?: true };
 export interface PracticeDockProps {
 	/** The active problem's tool-call id (submissions target it). */
 	problemCallId: string;
+	/** The native message the problem sits in: with it the statement is markable for "Ask about this" (owner, 2026-11-06). */
+	messageId?: string;
+	/** A follow-up card about the statement is open: only the statement shows (the learner's half stays mounted, hidden). */
+	wordingOnly?: boolean;
 	/** The pose's arguments — only the statement is the learner's (the
 	 *  mode badge would edge toward announcing the target; dropped). */
 	input: { statement: string };
@@ -72,6 +77,8 @@ export interface PracticeDockProps {
 
 export function PracticeDock({
 	problemCallId,
+	messageId,
+	wordingOnly = false,
 	input,
 	expanded,
 	onExpand,
@@ -212,16 +219,16 @@ export function PracticeDock({
 			    (--dock-max-h; the old fixed 40vh cut long problems short). */}
 			<div data-dock-scroll-area="" className="max-h-[var(--dock-max-h,40vh)] overflow-y-auto px-4 pt-3 pb-2">
 				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Problem</div>
-				<div className="lh-prose text-[15px]">
+				<ClarifyWording messageId={messageId} callId={problemCallId} dock className="lh-prose text-[15px]">
 					<ToolContentResponse>{input.statement}</ToolContentResponse>
-				</div>
+				</ClarifyWording>
 			</div>
 
 			{/* The learner's half: Enter SENDS (owner round 2, 2026-10-05);
 			    Shift+Enter makes a newline — less to decide about. */}
 			<div
 				data-testid="practice-thinking-field"
-				className="m-1.5 rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
+				className={cn("m-1.5 rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50", wordingOnly && "hidden")}
 			>
 				<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					YOUR THINKING

@@ -563,7 +563,7 @@ export function problemInputForConclude(
 
 export function activeProblemOf(
 	messages: readonly LhMessage[],
-): { toolCallId: string; input: unknown } | null {
+): { toolCallId: string; input: unknown; messageId: string } | null {
 	// HONEST ACTIVATION (owner ruling, 2026-10-05 — the BKT incident):
 	// calls count only through their RESULTS — a problem activates on its
 	// clean ack, a conclude frees on its clean ack; errored and dangling
@@ -587,7 +587,7 @@ export function activeProblemOf(
 					continue; // errored/dangling conclude: the free never happened
 				}
 				if (block.name !== PRACTICE_PROBLEM_TOOL) continue;
-				if (cleanCallIds.has(block.id)) return { toolCallId: block.id, input: block.arguments };
+				if (cleanCallIds.has(block.id)) return { toolCallId: block.id, input: block.arguments, messageId: assistant.id };
 				// errored/dangling pose — it did not go through; keep scanning
 			}
 			continue;

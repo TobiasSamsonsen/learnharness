@@ -30,6 +30,7 @@ class InkFrame(context: Context, private val webView: WebView, private val close
 		layer.listener = object : InkLayerListener {
 			override fun onStroke(stroke: InkWire.Stroke) = send(InkWire.strokeLine(stroke))
 			override fun onErase(points: FloatArray) = send(InkWire.eraseLine(points))
+			override fun onErased(count: Int, indices: Set<Int>) = send(InkWire.erasedLine(count, indices))
 		}
 		addView(layer, LayoutParams(0, 0))
 		addView(webView, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -50,6 +51,7 @@ class InkFrame(context: Context, private val webView: WebView, private val close
 				is InkOp.Kept -> layer.finished.setKept(op.strokes)
 				is InkOp.View -> layer.setView(op.view)
 				is InkOp.Ack -> layer.finished.ackPending()
+				is InkOp.Caps -> layer.reportsHits = op.hits
 			}
 		} catch (e: RuntimeException) {
 			close()

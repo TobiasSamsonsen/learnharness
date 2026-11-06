@@ -44,17 +44,20 @@ class Guest(context: Context) {
 	}
 
 	/** Writes the phone's current resolvers into the guest (Android has no /etc/resolv.conf); a network change needs another call. */
-	fun refreshDns() {
-		val cm = appContext.getSystemService(ConnectivityManager::class.java)
-		val servers = try {
+	@Synchronized
+	fun refreshDns(known: List<String>? = null) {
+		val servers = known ?: try {
+			val cm = appContext.getSystemService(ConnectivityManager::class.java)
 			cm.getLinkProperties(cm.activeNetwork)?.dnsServers?.mapNotNull { it.hostAddress }.orEmpty()
 		} catch (_: SecurityException) {
 			emptyList()
 		}
 		File(rootfs, "etc").mkdirs()
-		val file = File(rootfs, "etc/resolv.conf")
-		file.delete() // the file may be a dangling symlink from the image
-		file.writeText(ResolvConf.render(servers))
+		// Written aside and renamed over, so a guest process never reads a half-written file; the rename also replaces a
+		// dangling symlink from the image.
+		val tmp = File(rootfs, "etc/resolv.conf.new")
+		tmp.writeText(ResolvConf.render(servers))
+		if (!tmp.renameTo(File(rootfs, "etc/resolv.conf"))) throw java.io.IOException("could not replace resolv.conf")
 	}
 
 	/** Runs `argv` to the end and returns its exit code and output (stdout and stderr together). */

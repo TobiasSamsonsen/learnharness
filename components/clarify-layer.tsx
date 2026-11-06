@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MessageSquareIcon, SendIcon, XIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import type { AskMark } from "@/components/ask-selection";
-import { findAnchorRange, passagesOf, spreadBubbles } from "@/components/clarify-anchor";
+import { findQuoteRanges, passagesOf, spreadBubbles } from "@/components/clarify-anchor";
+import { clearLayerHighlights, injectAskStyles, setLayerHighlights } from "@/components/clarify-highlight";
 import { enterSends } from "@/components/enter-submits";
 import { DRAFT_KEY, type ClarifyTarget, type ClarifyThreads } from "@/components/use-clarify-threads";
 import { CLARIFY_QUESTION_MAX, type ClarifyThread } from "@/src/core";
@@ -20,6 +21,9 @@ import { cn } from "@/lib/utils";
  *
  * The card is `position: fixed` in a portal (the transcript clips and scrolls its own content), clamped to the viewport and
  * kept above the quiz dock, so it never covers the question being answered.
+ *
+ * The same layer also renders INSIDE the dock, around the wording of the pending question or problem (ClarifyWording): its
+ * root is then that wording, and it shows only the threads whose anchor names that question (clarify-anchor.ts).
  */
 
 /** A bubble is 24px in a 44px touch area; neighbouring lines closer than this are pushed apart. */
@@ -27,10 +31,16 @@ const BUBBLE_GAP = 36;
 const CARD_WIDTH = 416;
 const CARD_MAX_HEIGHT = 460;
 const CARD_MIN_HEIGHT = 220;
+/** The least card worth showing above a tall dock. */
+const CARD_FLOOR_HEIGHT = 120;
 
 interface CardPlace {
 	left: number;
+	/** Where the card's top edge is at its tallest (maxHeight); the card hangs from here... */
 	top: number;
+	/** ...unless `bottom` is set (a bubble in the dock): then the card stands on that line, a distance up from the viewport's
+	 *  bottom, so it sits right on the dock whatever its height instead of floating above a gap. */
+	bottom?: number;
 	width: number;
 	maxHeight: number;
 }
@@ -51,6 +61,16 @@ export function placeCard(
 	const limitBottom = dockRoom ? Math.min(viewBottom, limits.dockTop! - 8) : viewBottom;
 	const width = Math.min(CARD_WIDTH, view.width - 16);
 	const left = Math.max(8, bubble.left - width - 8);
+	// A bubble in the dock (the wording of the question being asked about): its card goes above the dock with whatever room is
+	// there, never over the question. A tall dock leaves little (about 200px on a phone); the card scrolls inside. Only with no
+	// usable room (the keyboard is up, the dock sits high) does the card fall back to the rule below.
+	if (limits.dockTop !== null && bubble.top >= limits.dockTop) {
+		const room = limits.dockTop - 8 - minTop;
+		if (room >= CARD_FLOOR_HEIGHT) {
+			const height = Math.min(CARD_MAX_HEIGHT, room);
+			return { left, top: limits.dockTop - 8 - height, bottom: view.height - (limits.dockTop - 8), width, maxHeight: height };
+		}
+	}
 	const top = Math.max(minTop, Math.min(bubble.top - 8, limitBottom - CARD_MIN_HEIGHT));
 	return { left, top, width, maxHeight: Math.max(120, Math.min(CARD_MAX_HEIGHT, limitBottom - top)) };
 }
@@ -64,9 +84,11 @@ export interface ClarifyLayerProps {
 	draft: AskMark | null;
 	/** The draft is over (its first question went out, or the learner closed the card). */
 	onDraftDone: () => void;
+	/** This layer's card is showing or not (the dock's layer: the dock then reduces itself to the question's wording). */
+	onCardOpenChange?: (open: boolean) => void;
 }
 
-export function ClarifyLayer({ threads, busyKey, error, ask, draft, onDraftDone }: ClarifyLayerProps) {
+export function ClarifyLayer({ threads, busyKey, error, ask, draft, onDraftDone, onCardOpenChange }: ClarifyLayerProps) {
 	const layerRef = useRef<HTMLDivElement>(null);
 	const bubbleEls = useRef(new Map<string, HTMLElement>());
 	const cardRef = useRef<HTMLDivElement>(null);
@@ -80,19 +102,33 @@ export function ClarifyLayer({ threads, busyKey, error, ask, draft, onDraftDone 
 		else setOpenKey((k) => (k === DRAFT_KEY ? null : k));
 	}, [draft]);
 
+	// ── the tint on the marked text (clarify-highlight.ts): this layer's ranges, as the last measure found them ──
+	const layerId = useId();
+	const rangesByKey = useRef(new Map<string, Range[]>());
+	const openKeyRef = useRef<string | null>(null);
+	openKeyRef.current = openKey;
+	const publishMarks = useCallback(() => {
+		const all = [...rangesByKey.current.values()].flat();
+		setLayerHighlights(layerId, all, rangesByKey.current.get(openKeyRef.current ?? "") ?? []);
+	}, [layerId]);
+
 	// ── bubble positions: re-find every anchor against the live text ──
 	const measure = useCallback(() => {
 		const layer = layerRef.current;
 		const root = layer?.parentElement;
 		if (!layer || !root) return;
 		const items = [
-			...threads.map((t) => ({ key: t.id, anchor: t.anchor })),
-			...(draft ? [{ key: DRAFT_KEY, anchor: draft.anchor }] : []),
+			...threads.map((t) => ({ key: t.id, anchor: t.anchor, quote: t.quote })),
+			...(draft ? [{ key: DRAFT_KEY, anchor: draft.anchor, quote: draft.quote }] : []),
 		];
 		const layerTop = layer.getBoundingClientRect().top;
 		const found: { key: string; top: number }[] = [];
+		const marked = new Map<string, Range[]>();
 		for (const item of items) {
-			const range = findAnchorRange(root, item.anchor);
+			// every line of the marked text, for the tint; the first one is where the bubble sits
+			const lines = findQuoteRanges(root, item.anchor, item.quote);
+			if (lines.length > 0) marked.set(item.key, lines);
+			const range = lines[0] ?? null;
 			const line = range ? (range.getClientRects?.()[0] ?? range.getBoundingClientRect?.()) : undefined;
 			if (line && (line.width > 0 || line.height > 0)) {
 				// centred on the first line of the marked text
@@ -100,9 +136,12 @@ export function ClarifyLayer({ threads, busyKey, error, ask, draft, onDraftDone 
 				continue;
 			}
 			// the text is gone from the page: the bubble keeps to the top of its message
-			const passage = passagesOf(root, item.anchor.messageId)[0];
+			// (a question's thread keeps to ITS wording, never to the message's lesson prose; with neither on the page, no bubble)
+			const passage = passagesOf(root, item.anchor.messageId, item.anchor.callId)[0];
 			if (passage) found.push({ key: item.key, top: passage.getBoundingClientRect().top - layerTop + 4 });
 		}
+		rangesByKey.current = marked;
+		publishMarks();
 		const placed = spreadBubbles(found.map((f) => f.top), BUBBLE_GAP);
 		const next: Record<string, number> = {};
 		found.forEach((f, i) => {
@@ -112,11 +151,20 @@ export function ClarifyLayer({ threads, busyKey, error, ask, draft, onDraftDone 
 			const a = Object.keys(prev);
 			return a.length === Object.keys(next).length && a.every((k) => prev[k] === next[k]) ? prev : next;
 		});
-	}, [threads, draft]);
+	}, [threads, draft, publishMarks]);
 
 	useLayoutEffect(() => {
 		measure();
 	}, [measure]);
+
+	// the open thread's text is tinted a little stronger; the tint leaves with the layer
+	useEffect(() => {
+		publishMarks();
+	}, [openKey, publishMarks]);
+	useEffect(() => {
+		injectAskStyles();
+		return () => clearLayerHighlights(layerId);
+	}, [layerId]);
 
 	useEffect(() => {
 		const layer = layerRef.current;
@@ -156,7 +204,7 @@ export function ClarifyLayer({ threads, busyKey, error, ask, draft, onDraftDone 
 			{ width: window.innerWidth, height: Math.min(window.innerHeight, window.visualViewport?.height ?? window.innerHeight) },
 			{ minTop: scroller?.getBoundingClientRect().top ?? 0, dockTop: dock ? dock.getBoundingClientRect().top : null },
 		);
-		setPlace((prev) => (prev && next && prev.left === next.left && prev.top === next.top && prev.width === next.width && prev.maxHeight === next.maxHeight ? prev : next));
+		setPlace((prev) => (prev && next && prev.left === next.left && prev.top === next.top && prev.bottom === next.bottom && prev.width === next.width && prev.maxHeight === next.maxHeight ? prev : next));
 	}, [openKey]);
 
 	useLayoutEffect(() => {
@@ -176,6 +224,15 @@ export function ClarifyLayer({ threads, busyKey, error, ask, draft, onDraftDone 
 		frame = requestAnimationFrame(tick);
 		return () => cancelAnimationFrame(frame);
 	}, [openKey, placeNow]);
+
+	// the card is showing only when there is a bubble to hang it on (a draft for text elsewhere opens none here)
+	const cardOpen = openKey !== null && place !== null;
+	const cardOpenChangeRef = useRef(onCardOpenChange);
+	cardOpenChangeRef.current = onCardOpenChange;
+	useEffect(() => {
+		cardOpenChangeRef.current?.(cardOpen);
+	}, [cardOpen]);
+	useEffect(() => () => cardOpenChangeRef.current?.(false), []);
 
 	// read through a ref: a state updater must not call the parent's setter
 	const openRef = useRef(openKey);
@@ -315,7 +372,7 @@ function ClarifyCard({
 			data-clarify-card=""
 			data-session-find-exclude=""
 			data-testid="clarify-card"
-			style={{ position: "fixed", left: place.left, top: place.top, width: place.width, maxHeight: place.maxHeight }}
+			style={{ position: "fixed", left: place.left, top: place.bottom === undefined ? place.top : undefined, bottom: place.bottom, width: place.width, maxHeight: place.maxHeight }}
 			className="z-50 flex flex-col overflow-hidden rounded-xl border border-border bg-popover text-sm text-popover-foreground shadow-xl"
 			onKeyDown={(e) => {
 				if (e.key === "Escape") {

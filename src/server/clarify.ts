@@ -3,7 +3,7 @@ import { agentSystemPrompt, type AgentKind } from "../agent/teacher-agent.ts";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
 import { runSubagent } from "../agent/subagents/pi-run.ts";
 import { isSubscriptionProvider } from "../agent/subscription-connections.ts";
-import { asAgentMessages, hasProbeDone, pendingQuestionOf, toLlmMessages } from "../core/native-messages.ts";
+import { activeProblemOf, asAgentMessages, hasProbeDone, pendingQuestionOf, toLlmMessages } from "../core/native-messages.ts";
 import { emit } from "../core/events.ts";
 import { resolveLessonLanguage } from "../core/language.ts";
 import { resolvePace } from "../core/pace.ts";
@@ -11,6 +11,7 @@ import { resolveConversationSpec } from "../core/settings-resolution.ts";
 import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope } from "../core/settings.ts";
 import {
 	CLARIFY_ANCHOR_MAX,
+	CLARIFY_CALL_ID_MAX,
 	CLARIFY_QUESTION_MAX,
 	CLARIFY_QUOTE_MAX,
 	type CallUsage,
@@ -80,11 +81,13 @@ function bad(error: string, status: number): Response {
 
 /** The anchor of a new thread, or null when the body's is malformed. */
 export function parseAnchor(raw: unknown): ClarifyAnchor | null {
-	const a = (raw ?? {}) as { messageId?: unknown; text?: unknown; occurrence?: unknown };
+	const a = (raw ?? {}) as { messageId?: unknown; text?: unknown; occurrence?: unknown; callId?: unknown };
 	if (typeof a.messageId !== "string" || !a.messageId) return null;
 	if (typeof a.text !== "string" || !a.text.trim() || a.text.length > CLARIFY_ANCHOR_MAX) return null;
 	if (typeof a.occurrence !== "number" || !Number.isInteger(a.occurrence) || a.occurrence < 0 || a.occurrence > 10_000) return null;
-	return { messageId: a.messageId, text: a.text, occurrence: a.occurrence };
+	if (a.callId === undefined) return { messageId: a.messageId, text: a.text, occurrence: a.occurrence };
+	if (typeof a.callId !== "string" || !a.callId || a.callId.length > CLARIFY_CALL_ID_MAX) return null;
+	return { messageId: a.messageId, text: a.text, occurrence: a.occurrence, callId: a.callId };
 }
 
 /** GET /api/chats/[id]/clarify — every margin thread of the chat. */
@@ -124,7 +127,13 @@ export async function handleClarifyRequest(
 		if (!anchor) return bad("Mark some text first", 400);
 		if (!quote) return bad("Mark some text first", 400);
 		if (quote.length > CLARIFY_QUOTE_MAX) return bad("The marked text is too long", 400);
-		if (!record.messages.some((m) => (m as { id?: string }).id === anchor.messageId)) return bad("That text is no longer in the session", 400);
+		const anchorMessage = record.messages.find((m) => (m as { id?: string }).id === anchor.messageId) as { content?: unknown } | undefined;
+		if (!anchorMessage) return bad("That text is no longer in the session", 400);
+		// Text marked in a question's wording names the call it belongs to; that call must be in this message.
+		if (anchor.callId !== undefined) {
+			const blocks = Array.isArray(anchorMessage.content) ? (anchorMessage.content as { type?: string; id?: string }[]) : [];
+			if (!blocks.some((b) => b.type === "toolCall" && b.id === anchor.callId)) return bad("That text is no longer in the session", 400);
+		}
 		thread = { id: crypto.randomUUID(), anchor, quote, entries: [] };
 	}
 
@@ -147,6 +156,8 @@ export async function handleClarifyRequest(
 	if (!record) return bad("Unknown chat", 404);
 	// Read AFTER the awaits: the learner may have answered meanwhile.
 	const pending = pendingQuestionOf(record.messages);
+	// An open practice problem is a question waiting for its learner as well: its solution is never revealed (owner, 2026-11-06).
+	const waiting = pending !== null || activeProblemOf(record.messages) !== null;
 
 	let engine: PiEngine;
 	try {
@@ -187,7 +198,7 @@ export async function handleClarifyRequest(
 			systemPrompt,
 			messages: asAgentMessages(record.messages),
 			convertToLlm: (messages) => toLlmMessages(messages),
-			prompt: clarifyPrompt({ quote: thread.quote, question, earlier: thread.entries, pending: pending !== null }),
+			prompt: clarifyPrompt({ quote: thread.quote, question, earlier: thread.entries, pending: waiting }),
 			maxTurns: 1,
 			abortSignal: AbortSignal.timeout(CLARIFY_TIMEOUT_MS),
 			onUsage: collect,

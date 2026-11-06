@@ -59,6 +59,7 @@ import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
 import { AskSelection, type AskMark } from "@/components/ask-selection";
 import { ClarifyLayer } from "@/components/clarify-layer";
+import { ClarifyDockContext } from "@/components/clarify-wording";
 import { useClarifyThreads } from "@/components/use-clarify-threads";
 import { SessionFind } from "@/components/session-find";
 import { SessionMessageNavigation } from "@/components/session-navigation";
@@ -604,6 +605,21 @@ export function Chat({
 	 * marked text waits here, unsent, as a draft until its first question is asked. */
 	const clarifyThreads = useClarifyThreads(chatId);
 	const [askDraft, setAskDraft] = useState<AskMark | null>(null);
+	// The same threads, handed to the margin layer the dock renders beside a pending question's wording (ClarifyWording).
+	// A card about the question's wording is open: the dock shows only that wording, so the card has the room (owner, 2026-11-06).
+	const [dockAsking, setDockAsking] = useState(false);
+	const dockClarify = useMemo(
+		() => ({
+			threads: clarifyThreads.threads,
+			busyKey: clarifyThreads.busyKey,
+			error: clarifyThreads.error,
+			ask: clarifyThreads.ask,
+			draft: askDraft,
+			onDraftDone: () => setAskDraft(null),
+			onCardOpenChange: setDockAsking,
+		}),
+		[clarifyThreads.threads, clarifyThreads.busyKey, clarifyThreads.error, clarifyThreads.ask, askDraft],
+	);
 	useEffect(() => setAskDraft(null), [chatId]);
 	useLayoutEffect(() => {
 		// Different calls never share a draft; a failed submission of THIS
@@ -1731,7 +1747,7 @@ export function Chat({
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
 															return (
-																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} chatId={chatId} reading={sketchReadings.readingFor(mi, pi, (part.output as QuestionAnswerData).sketch?.id)} />
+																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} chatId={chatId} messageId={part.sourceMessageId} callId={part.toolCallId} reading={sketchReadings.readingFor(mi, pi, (part.output as QuestionAnswerData).sketch?.id)} />
 															);
 														}
 														return null;
@@ -1832,8 +1848,11 @@ export function Chat({
 				    height morph (typing, a question growing the band, the
 				    fold) and NEVER overlaps the composer. */}
 				<AskSelection enabled onAsk={setAskDraft} />
+				{/* The dock's wording gets its own margin bubbles (ClarifyWording): the dock is outside the transcript the layer above measures. */}
+				<ClarifyDockContext.Provider value={dockClarify}>
 				<DockOverlay
 					pending={pending}
+					wordingOnly={dockAsking}
 					initialQuestionDraft={pending ? questionDraft(pending.key)?.form : undefined}
 					onSaveQuestionDraft={(form) => { if (pending) saveQuestionDraft(pending.key, { form }); }}
 					practice={activeProblem}
@@ -1923,6 +1942,7 @@ export function Chat({
 						return submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output, sketch, pending.key);
 					}}
 				/>
+				</ClarifyDockContext.Provider>
 				</Conversation>
 
 				{/* The session-scoped focuses (chrome-melt wave, 2026-09-19): mounted
@@ -2078,6 +2098,7 @@ export function shouldStampGeometryMute(nextH: number, prevH: number, pending: b
 
 function DockOverlay({
 	pending,
+	wordingOnly,
 	initialQuestionDraft,
 	onSaveQuestionDraft,
 	practice,
@@ -2107,6 +2128,8 @@ function DockOverlay({
 	queuedSteers,
 }: {
 	pending: ReturnType<typeof pendingQuestionOf>;
+	/** A follow-up card about the question's wording is open: the docks show only that wording (owner, 2026-11-06). */
+	wordingOnly: boolean;
 	initialQuestionDraft?: QuestionFormDraft;
 	onSaveQuestionDraft: (draft: QuestionFormDraft) => void;
 	/** Compaction running for this chat (round 14) — the docks' submit
@@ -2115,7 +2138,7 @@ function DockOverlay({
 	/** The ACTIVE practice problem (practice sessions, 2026-10-04):
 	 *  {toolCallId, input} — dock ownership exactly like a pending
 	 *  question (the composer is replaced); null in teaching sessions. */
-	practice: { toolCallId: string; input: unknown } | null;
+	practice: { toolCallId: string; input: unknown; messageId: string } | null;
 	/** (commit, text) — the practice dock's two submit lanes. */
 	/** Resolves to whether the server accepted the submission. */
 	onSubmitThinking: (text: string, sketch?: SketchPayload, sketchRef?: string, mark?: ThinkingMark) => Promise<boolean>;
@@ -2495,7 +2518,7 @@ function DockOverlay({
 	// term (the fold) belongs to EVERY docked variant — question AND
 	// practice (owner fix, 2026-10-06). Typing growth keeps the key and
 	// never animates; the fold/unfold morphs like teaching always has.
-	const stateKey = dockStateKey(mode, !!pending || !!practice, expanded);
+	const stateKey = dockStateKey(mode, !!pending || !!practice, expanded, wordingOnly && expanded);
 	const prevRef = useRef<{ key: string; height: number } | null>(null);
 	useIsoLayoutEffect(() => {
 		const el = shellRef.current;
@@ -2574,6 +2597,8 @@ function DockOverlay({
 								<QuestionDock
 									toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall"}
 									toolCallId={pending.toolCallId}
+									messageId={pending.messageId}
+									wordingOnly={wordingOnly}
 									input={pending.input as never}
 									expanded={expanded}
 									reveal={revealPending}
@@ -2590,6 +2615,8 @@ function DockOverlay({
 							) : practice ? (
 								<PracticeDock
 									problemCallId={practice.toolCallId}
+									messageId={practice.messageId}
+									wordingOnly={wordingOnly}
 									input={practice.input as { statement: string }}
 									expanded={expanded}
 									onExpand={expandPractice}
@@ -2609,7 +2636,7 @@ function DockOverlay({
 						    the same sources/language/mic row beneath it, so the mic
 						    never moves while an answer is dictated. */}
 						{(pending || practice) && (
-							<div className="px-1.5 pb-1.5">
+							<div className={wordingOnly ? "hidden" : "px-1.5 pb-1.5"}>
 								<ComposerEdge chatId={chatId} mic={dictationSlot} />
 							</div>
 						)}

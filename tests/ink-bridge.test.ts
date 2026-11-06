@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decodeShellLine, encodeInkOp, eraseHits, parseNativeStrokes } from "../src/core/ink-bridge.ts";
+import { decodeShellLine, encodeInkOp, eraseHits, isErasedExactly, parseNativeStrokes } from "../src/core/ink-bridge.ts";
 import { SketchPayloadError } from "../src/core/sketch.ts";
 
 test("encodeInkOp: one short line per operation, numbers rounded to 2 decimals", () => {
@@ -67,6 +67,32 @@ test("decodeShellLine: anything else is ignored, never thrown", () => {
 	for (const bad of ["", "nonsense", "stroke", "stroke nope", "stroke []", 'stroke [{"size":4,"points":[1,2]}]', "erase", "erase 1", "erase 1,2,3", "erase a,b", "pan 5", "gesture", "gesture 1 2 3", "gesture 1 2 0 3 4", "gesture 1 2 -1 3 4", "gesture a b c d e", "gesture 1 2 NaN 3 4", "penseen now"]) {
 		assert.equal(decodeShellLine(bad), null, bad);
 	}
+});
+
+test("caps: the page says it understands `erased`", () => {
+	assert.equal(encodeInkOp({ op: "caps" }), "caps hits");
+});
+
+test("decodeShellLine: erased <count> [indexes] — the stroke eraser's hits, found by the shell", () => {
+	assert.deepEqual(decodeShellLine("erased 5 0,3,4"), { kind: "erased", count: 5, indices: [0, 3, 4] });
+	assert.deepEqual(decodeShellLine("erased 5 2"), { kind: "erased", count: 5, indices: [2] });
+	assert.deepEqual(decodeShellLine("erased 5"), { kind: "erased", count: 5, indices: [] }, "nothing was hit");
+	assert.deepEqual(decodeShellLine("erased 0"), { kind: "erased", count: 0, indices: [] });
+	for (const bad of ["erased", "erased x", "erased -1", "erased 1.5", "erased 5 5", "erased 5 -1", "erased 5 1,1", "erased 5 a,b", "erased 5 1,2 extra", "erased 5 1,,2", "erased  "]) {
+		assert.equal(decodeShellLine(bad), null, bad);
+	}
+});
+
+test("isErasedExactly: only an erase of exactly those strokes, the rest untouched, lets the page answer with an ack", () => {
+	const [a, b, c, d] = [0, 1, 2, 3].map((n) => ({ size: 4, points: [n, n, 0.5] }));
+	assert.equal(isErasedExactly([a!, b!, c!, d!], [a!, c!], [1, 3]), true);
+	assert.equal(isErasedExactly([a!, b!, c!, d!], [a!, c!, d!], [1]), true);
+	assert.equal(isErasedExactly([a!, b!, c!, d!], [a!, b!, c!, d!], []), false, "nothing removed is not an erase");
+	assert.equal(isErasedExactly([a!, b!, c!, d!], [a!, c!], [1]), false, "the page removed more than the shell did");
+	assert.equal(isErasedExactly([a!, b!, c!, d!], [a!, b!, d!], [1, 2]), false, "the page kept one the shell dropped");
+	assert.equal(isErasedExactly([a!, b!, c!, d!], [a!, { ...c! }, d!], [1]), false, "a survivor was replaced by a copy");
+	assert.equal(isErasedExactly([a!, b!, c!, d!], [c!, a!], [1, 3]), false, "survivors out of order");
+	assert.equal(isErasedExactly([a!, b!], [a!], [1, 2]), false, "an index past the working strokes names sent ink: pushed whole, never just acknowledged");
 });
 
 test("eraseHits: any point of the gesture within reach of a stroke, each stroke once", () => {

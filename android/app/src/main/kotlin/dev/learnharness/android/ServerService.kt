@@ -8,6 +8,9 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
 import android.os.IBinder
 import android.os.Build
 import android.os.PowerManager
@@ -36,6 +39,7 @@ class ServerService : Service() {
 	@Volatile private var stopping = false
 	@Volatile private var process: Process? = null
 	private var bridge: DemoBridge? = null
+	@Volatile private var dnsCallback: ConnectivityManager.NetworkCallback? = null
 
 	override fun onBind(intent: Intent?): IBinder? = null
 
@@ -139,9 +143,33 @@ class ServerService : Service() {
 		null
 	}
 
+	/**
+	 * Keeps the guest's resolvers equal to the phone's. resolv.conf was written only when the server started, so after the phone
+	 * moved to another network (2026-11-06, tablet: the server started on one network, the Wi-Fi changed an hour later) the
+	 * guest kept an unreachable resolver: every lookup hung, and the claude CLI stalled silently until the request timed out.
+	 * Processes started after a change read the new file (each clarification starts a fresh CLI). A long-lived idle-reused CLI
+	 * may keep its old resolver until it is recycled (unverified).
+	 */
+	private fun followNetwork(guest: Guest) {
+		val cm = getSystemService(ConnectivityManager::class.java)
+		dnsCallback?.let { runCatching { cm.unregisterNetworkCallback(it) } }
+		val callback = object : ConnectivityManager.NetworkCallback() {
+			override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+				try {
+					guest.refreshDns(linkProperties.dnsServers.mapNotNull { it.hostAddress })
+				} catch (e: Exception) {
+					File(filesDir, "server.log").appendText("dns refresh failed: " + e + System.lineSeparator())
+				}
+			}
+		}
+		dnsCallback = callback
+		cm.registerDefaultNetworkCallback(callback)
+	}
+
 	/** Runs the server; restarts it when it dies, but gives up when it keeps dying right away. */
 	private fun supervise(port: Int) {
 		val guest = Guest(this)
+		followNetwork(guest)
 		val token = TokenStore(File(filesDir, "token")).get()
 		File(guest.home, ".lh").mkdirs()
 		File(guest.home, "lh-data").mkdirs()
@@ -234,6 +262,8 @@ class ServerService : Service() {
 	}
 
 	override fun onDestroy() {
+		dnsCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
+		dnsCallback = null
 		stopServer()
 		monitor?.interrupt()
 		bridge?.stop()

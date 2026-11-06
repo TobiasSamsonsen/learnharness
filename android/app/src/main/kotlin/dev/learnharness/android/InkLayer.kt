@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
@@ -38,7 +39,7 @@ class FinishedStrokesView(context: Context) : View(context) {
 	private val renderer = CanvasStrokeRenderer.create()
 	private val plain = ArrayList<Stroke>()
 	private var strokes: List<Drawn> = emptyList()
-	private var kept: List<Stroke> = emptyList()
+	private var kept: List<Drawn> = emptyList()
 	private var pending: List<Drawn> = emptyList()
 	// the wire strokes behind the ink above: a change of sheet tone rebuilds the ink in the new colours
 	private var strokesRaw: List<InkWire.Stroke> = emptyList()
@@ -49,6 +50,17 @@ class FinishedStrokesView(context: Context) : View(context) {
 	/** The strokes the stroke eraser is over (M16): drawn faint until the gesture ends. */
 	private var faded: Set<InkWire.Stroke> = emptySet()
 	private var dark = false
+	// The part eraser's trail: while it runs, a paper-coloured stroke as wide as its reach follows the pen over the ink, so what is
+	// under it is gone at once. The page's exact cut replaces it when it answers (setStrokes / ackPending), or a safety stop does.
+	private val trailPath = Path()
+	private var trailing = false
+	private var trailRadius = 0f
+	private val trailPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+		style = Paint.Style.STROKE
+		strokeCap = Paint.Cap.ROUND
+		strokeJoin = Paint.Join.ROUND
+	}
+	private val stopTrail = Runnable { clearTrail() }
 	private val matrix = Matrix()
 	private val identity = Matrix()
 	private var density = 1f
@@ -74,23 +86,60 @@ var paper = Color.WHITE
 		pendingRaw = emptyList()
 		live = null
 		faded = emptySet()
+		clearTrail()
 		invalidate()
 	}
 
-	/** Every wire stroke of the working page, finished ones first, then the ones the web has not acknowledged yet. */
-	fun allRaw(): List<InkWire.Stroke> = strokesRaw + pendingRaw
+	/**
+	 * Every wire stroke the eraser can reach, in the order the page numbers them: the working page (finished ones first, then the ones
+	 * the web has not acknowledged yet), then the sent page (the kept strokes, drawn dimmed).
+	 */
+	fun allRaw(): List<InkWire.Stroke> = strokesRaw + pendingRaw + keptRaw
 
 	fun setStrokes(list: List<InkWire.Stroke>) {
 		strokesRaw = list
 		strokes = drawn(list)
 		pendingRaw = emptyList()
 		pending = emptyList() // the web's set now holds what we had drawn ahead of it
+		clearTrail() // the page's answer to a part-eraser gesture is the new strokes: its cut replaces the trail
 		invalidate()
 	}
 
 	fun setKept(list: List<InkWire.Stroke>) {
 		keptRaw = list
-		kept = list.mapNotNull { toInk(it) }
+		kept = drawn(list)
+		invalidate()
+	}
+
+	/** The part eraser began at (x, y) (page px) with a reach of [radiusWorld]: its trail starts there. */
+	fun startTrail(radiusWorld: Float, x: Float, y: Float) {
+		removeCallbacks(stopTrail)
+		trailPath.rewind()
+		trailPath.moveTo(x, y)
+		trailPath.lineTo(x + 0.01f, y) // a round-capped zero-length stroke is a dot
+		trailRadius = radiusWorld
+		trailing = true
+		invalidate()
+	}
+
+	fun extendTrail(x: Float, y: Float) {
+		if (!trailing) return
+		trailPath.lineTo(x, y)
+		invalidate()
+	}
+
+	/** The gesture ended and the page has its path: the trail stays until the page's cut arrives (a safety stop if none ever does). */
+	fun holdTrail() {
+		if (!trailing) return
+		removeCallbacks(stopTrail)
+		postDelayed(stopTrail, TRAIL_HOLD_MS)
+	}
+
+	fun clearTrail() {
+		removeCallbacks(stopTrail)
+		if (!trailing) return
+		trailing = false
+		trailPath.rewind()
 		invalidate()
 	}
 
@@ -107,6 +156,7 @@ var paper = Color.WHITE
 		strokesRaw = strokesRaw + pendingRaw
 		pendingRaw = emptyList()
 		pending = emptyList()
+		clearTrail()
 		invalidate()
 	}
 
@@ -118,6 +168,21 @@ var paper = Color.WHITE
 	/** The stroke held straight, shown until it is committed (null: none). */
 	fun setLive(stroke: InkWire.Stroke?) {
 		live = stroke?.let { toInk(it) }
+		invalidate()
+	}
+
+	/**
+	 * The stroke eraser's hits, gone now: dropped from what is shown without rebuilding the others (identity, from [allRaw]). The web
+	 * then holds the same strokes, and its `ack` keeps this state; a full `strokes` push would replace it, as always.
+	 */
+	fun removeStrokes(gone: Set<InkWire.Stroke>) {
+		if (gone.isEmpty()) return
+		strokes = strokes.filter { it.raw !in gone }
+		strokesRaw = strokesRaw.filter { it !in gone }
+		pending = pending.filter { it.raw !in gone }
+		pendingRaw = pendingRaw.filter { it !in gone }
+		kept = kept.filter { it.raw !in gone }
+		keptRaw = keptRaw.filter { it !in gone }
 		invalidate()
 	}
 
@@ -136,7 +201,7 @@ var paper = Color.WHITE
 		dark = on
 		paper = if (on) InkSheet.DARK_PAPER else InkSheet.LIGHT_PAPER
 		strokes = drawn(strokesRaw)
-		kept = keptRaw.mapNotNull { toInk(it) }
+		kept = drawn(keptRaw)
 		pending = drawn(pendingRaw)
 		invalidate()
 	}
@@ -154,20 +219,29 @@ var paper = Color.WHITE
 		// (found on the phone, 2026-10-29). Passing it WITHOUT scaling the canvas left the strokes at the same spot on the screen.
 		val page = canvas.save()
 		canvas.concat(matrix)
-		if (kept.isNotEmpty()) {
+		val fade = faded
+		// Sent ink is drawn dimmed: the kept page, and the sent strokes the web copied into the working page when the eraser first
+		// touched them (`sent`): only what is new, and the pieces left of what was cut, is drawn in full (as the web canvas does)
+		if (kept.isNotEmpty() || strokes.any { it.raw.sent }) {
 			val save = canvas.saveLayerAlpha(null, (KEPT_ALPHA * 255).toInt())
-			for (stroke in kept) renderer.draw(canvas, stroke, matrix)
+			for (d in kept) if (!fade.contains(d.raw)) renderer.draw(canvas, d.stroke, matrix)
+			for (d in strokes) if (d.raw.sent && !fade.contains(d.raw)) renderer.draw(canvas, d.stroke, matrix)
 			canvas.restoreToCount(save)
 		}
-		val fade = faded
-		for (d in strokes) if (!fade.contains(d.raw)) renderer.draw(canvas, d.stroke, matrix)
+		for (d in strokes) if (!d.raw.sent && !fade.contains(d.raw)) renderer.draw(canvas, d.stroke, matrix)
 		for (d in pending) if (!fade.contains(d.raw)) renderer.draw(canvas, d.stroke, matrix)
 		if (fade.isNotEmpty()) {
 			// the strokes the stroke eraser is over fade until the gesture ends (the web canvas does the same)
 			val save = canvas.saveLayerAlpha(null, (FADE_ALPHA * 255).toInt())
+			for (d in kept) if (fade.contains(d.raw)) renderer.draw(canvas, d.stroke, matrix)
 			for (d in strokes) if (fade.contains(d.raw)) renderer.draw(canvas, d.stroke, matrix)
 			for (d in pending) if (fade.contains(d.raw)) renderer.draw(canvas, d.stroke, matrix)
 			canvas.restoreToCount(save)
+		}
+		if (trailing) {
+			trailPaint.color = paper
+			trailPaint.strokeWidth = 2f * (trailRadius + TRAIL_MARGIN)
+			canvas.drawPath(trailPath, trailPaint)
 		}
 		live?.let { renderer.draw(canvas, it, matrix) }
 		canvas.restoreToCount(page)
@@ -198,6 +272,10 @@ var paper = Color.WHITE
 		const val KEPT_ALPHA = 0.45f
 		/** The strokes the stroke eraser is over (the web canvas fades them to 0.2 too). */
 		const val FADE_ALPHA = 0.2f
+		/** The part eraser's trail is as wide as its reach plus this (half a typical pen width): the web cuts the reach plus half the stroke. */
+		const val TRAIL_MARGIN = 2f
+		/** The longest the trail waits for the page's cut after the pen lifts. */
+		const val TRAIL_HOLD_MS = 1000L
 		/** The finished strokes' mesh tolerance, page px (it was 0.1: visible as facets at high zoom). */
 		const val EPSILON = 0.03f
 		}
@@ -207,6 +285,8 @@ var paper = Color.WHITE
 interface InkLayerListener {
 	fun onStroke(stroke: InkWire.Stroke)
 	fun onErase(points: FloatArray)
+	/** The stroke eraser's gesture ended and the layer already removed what it touched: [count] strokes were held, [indices] went. */
+	fun onErased(count: Int, indices: Set<Int>)
 }
 
 /** The pen's (or the eraser's) reach under a hovering stylus, as a thin ring. */
@@ -260,6 +340,8 @@ class InkLayer(context: Context) : FrameLayout(context) {
 	private var view = InkView()
 	var eraser = false
 	var listener: InkLayerListener? = null
+	/** The page said `caps hits`: it takes the stroke eraser's hits (`erased`) instead of the path (`erase`). */
+	var reportsHits = false
 
 	private var id: InProgressStrokeId? = null
 	private var points = ArrayList<Float>()
@@ -274,6 +356,7 @@ class InkLayer(context: Context) : FrameLayout(context) {
 	private var eraserRadius = 20f
 	private val fadeHits = HashSet<InkWire.Stroke>()
 	private var fadeChecked = 0
+	private var trailChecked = 0
 
 	// hold to straighten
 	private val holdCheck = Runnable { onHold() }
@@ -337,6 +420,7 @@ class InkLayer(context: Context) : FrameLayout(context) {
 		id = null
 		points.clear()
 		erasing = false
+		finished.clearTrail()
 		endGesture()
 	}
 
@@ -347,6 +431,7 @@ class InkLayer(context: Context) : FrameLayout(context) {
 		finished.setLive(null)
 		fadeHits.clear()
 		fadeChecked = 0
+		trailChecked = 0 // the trail itself stays for a part-eraser gesture until the page answers (see holdTrail)
 		finished.setFaded(emptySet())
 	}
 
@@ -376,7 +461,10 @@ class InkLayer(context: Context) : FrameLayout(context) {
 					startHold(event.getX(index), event.getY(index))
 				}
 				record(event, index, historical = false)
-				if (erasing) updateFade()
+				if (erasing) {
+					updateFade()
+					updateTrail()
+				}
 			}
 			MotionEvent.ACTION_MOVE -> {
 				val current = id
@@ -388,13 +476,28 @@ class InkLayer(context: Context) : FrameLayout(context) {
 				}
 				if (current != null || erasing || straight) record(event, index, historical = true)
 				if (straight) previewLine() else if (current != null) holdMoved(event.getX(index), event.getY(index))
-				if (erasing) updateFade()
+				if (erasing) {
+					updateFade()
+					updateTrail()
+				}
 			}
 			MotionEvent.ACTION_UP -> {
 				val current = id
 				if (erasing) {
 					record(event, index, historical = false)
-					listener?.onErase(InkWire.xyOf(points.toFloatArray()))
+					if (strokeEraser && reportsHits) {
+						// The hits were found while the gesture ran (the last samples now too): report them and drop those strokes from
+						// what is shown at once. The page answers with an ack; it does not re-test the gesture or push the page back.
+						updateFade()
+						val all = finished.allRaw()
+						val indices = all.indices.filterTo(LinkedHashSet()) { fadeHits.contains(all[it]) }
+						listener?.onErased(all.size, indices)
+						finished.removeStrokes(fadeHits)
+					} else {
+						updateTrail()
+						listener?.onErase(InkWire.xyOf(points.toFloatArray()))
+						finished.holdTrail() // gone when the page's cut arrives
+					}
 				} else if (straight) {
 					record(event, index, historical = false)
 					commitLine()
@@ -465,9 +568,24 @@ class InkLayer(context: Context) : FrameLayout(context) {
 		val pairs = xy.size / 2
 		if (pairs <= fadeChecked) return
 		val all = finished.allRaw()
+		val before = fadeHits.size
 		for (index in InkWire.eraseHits(all, xy, eraserRadius / view.zoom, fadeChecked)) all.getOrNull(index)?.let { fadeHits += it }
 		fadeChecked = pairs
-		finished.setFaded(fadeHits)
+		// the fade only changes when the eraser reached another stroke: most moves reach none, and rebuilding the set per move was waste
+		if (fadeHits.size != before) finished.setFaded(fadeHits)
+	}
+
+	/** The part eraser's trail follows the samples the gesture has recorded so far (page px). */
+	private fun updateTrail() {
+		if (strokeEraser) return
+		val count = points.size / 3
+		if (count == 0 || count <= trailChecked) return
+		if (trailChecked == 0) {
+			finished.startTrail(eraserRadius / view.zoom, points[0], points[1])
+			trailChecked = 1
+		}
+		for (i in trailChecked until count) finished.extendTrail(points[i * 3], points[i * 3 + 1])
+		trailChecked = count
 	}
 
 	private fun record(event: MotionEvent, index: Int, historical: Boolean) {

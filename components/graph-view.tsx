@@ -78,6 +78,7 @@ import { MenuShell } from "@/components/menu-shell.tsx";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { Hint } from "@/components/ui/hint";
+import { COMPACT_BUTTON, COMPACT_LABEL } from "@/components/chrome-compact";
 import {
 	ARROW_LENGTH_LADDER,
 	CHARGE_RANGE,
@@ -940,14 +941,16 @@ export function GraphChromeRow({
 	return (
 		<>
 			{!isEmpty && (
-				<div className="graph-chrome-fade-in w-56 min-w-0 shrink rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
+				// basis-56, not w-56 (owner, 2026-11-06): a definite width counts as the field's minimum size when the row is measured, so it never
+				// shrank and ran off a phone's left edge; a flex basis can give way to the other buttons.
+				<div className="graph-chrome-fade-in min-w-0 shrink basis-56 rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
 					<Hint
 						// ⌘F focuses node search (surface-scoped registry action).
 						label="Search nodes"
 						action="find"
 						side="bottom"
 					>
-					<div className="relative">
+					<div className="relative min-w-0">
 						<SearchIcon className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
 						<input
 							ref={searchInputRef}
@@ -956,7 +959,7 @@ export function GraphChromeRow({
 							placeholder="Search nodes…"
 							aria-label="Search nodes"
 							spellCheck={false}
-							className="h-7 w-full rounded-lg border bg-background pl-8 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
+							className="h-7 w-full min-w-0 rounded-lg border bg-background pl-8 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
 						/>
 					</div>
 					</Hint>
@@ -973,10 +976,12 @@ export function GraphChromeRow({
 							type="button"
 							onClick={onOpenChains}
 							data-testid="open-chain-table"
-							className="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent"
+							// A narrow bar (a phone, a narrow window) shows the icon alone (COMPACT_*); the name rides the aria-label.
+							aria-label="Chains"
+							className={`flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent ${COMPACT_BUTTON}`}
 						>
-							<ListTreeIcon className="size-3" />
-							Chains
+							<ListTreeIcon className="size-3 shrink-0" />
+							<span className={COMPACT_LABEL}>Chains</span>
 						</button>
 					</Hint>
 				</div>
@@ -1647,7 +1652,12 @@ export function GraphView({
 			    against the full-bleed parent) — the row NEVER wraps (owner
 			    rejected the two-row fold); in narrow windows the search is
 			    the flexible element and shrinks instead. */}
-			<div className="lh-no-drag lh-wco-floating absolute right-[calc(0.5rem+var(--lh-safe-right))] top-[calc(0.5rem+var(--lh-safe-top))] z-10 flex max-w-[calc(100%-5.5rem)] flex-col items-end gap-2">
+			{/* The bar's width container (owner, 2026-11-06): a full-width strip with no height, so the bar can switch to its icon-only form
+			    when its own area is narrow (chrome-compact.ts), on a phone or in a narrow window with the sidebar open. It holds ONLY the bar:
+			    container queries make it a containing block, which the graph's fixed overlays must not sit inside. z-10 is the column's
+			    old level (the node card after it still paints above); pointer-events pass through the strip, the column takes them back. */}
+			<div className="@container pointer-events-none absolute inset-x-0 top-0 z-10 h-0">
+			<div className="lh-no-drag lh-wco-floating pointer-events-auto absolute right-[calc(0.5rem+var(--lh-safe-right))] top-[calc(0.5rem+var(--lh-safe-top))] z-10 flex max-w-[calc(100%-5.5rem)] flex-col items-end gap-2">
 			{/* z-20 (2026-09-20): the row paints above the cost number below
 			    it — without this, the later-in-DOM cost control layered over
 			    the settings/coverage dropdowns (owner report), still hoverable
@@ -1691,6 +1701,7 @@ export function GraphView({
 					<span className="tabular-nums">{Math.max(0, Math.round((Date.now() - run.startedAt) / 1000))}s</span>
 				</div>
 			))}
+			</div>
 			</div>
 
 			{selected && !isEmpty && (

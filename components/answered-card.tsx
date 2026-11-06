@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ClarifyWording } from "@/components/clarify-wording";
 import { ConfidenceRail } from "@/components/confidence-rail";
 import { GlyphMark } from "@/components/ui/glyph-mark";
 import { ThinkingBlock } from "@/components/thinking-block";
@@ -23,7 +24,7 @@ import { answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core
  * client — the card reveals his answer, the committed correct answer, and
  * the explanation, with NO verdict chips (owner ruling 2026-09-27).
  */
-export function AnsweredCard({ answer: savedAnswer, input, chatId, reading }: { answer: QuestionAnswerData; input?: unknown; chatId?: string; reading?: ArtifactPartProps["part"] }) {
+export function AnsweredCard({ answer: savedAnswer, input, chatId, reading, messageId, callId }: { answer: QuestionAnswerData; input?: unknown; chatId?: string; reading?: ArtifactPartProps["part"]; messageId?: string; callId?: string }) {
 	const answer = answerForPresentation(savedAnswer, input);
 	const [whyOpen, setWhyOpen] = useState(false); // the tucked explanation (predictions, owner 2026-10-03)
 	if (answer.dismissed) {
@@ -91,16 +92,19 @@ export function AnsweredCard({ answer: savedAnswer, input, chatId, reading }: { 
 						<span className="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">incorrect</span>
 					))}
 			</div>
-			<div className="mb-3 font-medium">
-				<ToolContentResponse>{answer.questionText}</ToolContentResponse>
-			</div>
-			{parsedDetails && (
-				// The details line, same paint as the pending dock (owner,
-				// 2026-10-12): full markdown, LaTeX included.
-				<div className="mb-3 text-sm text-muted-foreground">
-					<ToolContentResponse>{parsedDetails}</ToolContentResponse>
+			{/* The wording stays markable after the answer (owner, 2026-11-06): threads asked while it sat in the dock hang here. */}
+			<ClarifyWording messageId={messageId} callId={callId}>
+				<div className="mb-3 font-medium">
+					<ToolContentResponse>{answer.questionText}</ToolContentResponse>
 				</div>
-			)}
+				{parsedDetails && (
+					// The details line, same paint as the pending dock (owner,
+					// 2026-10-12): full markdown, LaTeX included.
+					<div className="mb-3 text-sm text-muted-foreground">
+						<ToolContentResponse>{parsedDetails}</ToolContentResponse>
+					</div>
+				)}
+			</ClarifyWording>
 
 			{((answer.options?.length ?? 0) > 0 || answer.other) && (
 				<div className="flex flex-col gap-1.5 text-sm">

@@ -48,6 +48,12 @@ function useDesktopPaths(): boolean {
 	return useSyncExternalStore(noSubscribe, () => Boolean(window.lh?.getPathForFile), () => false);
 }
 
+/** Inside the standalone Android app (the shell injects `window.lhAndroid`)? A phone has no local file paths to attach, and
+ *  Sources already brings files, photos and links in, so the paperclip is not offered there (owner, 2026-11-06). */
+function useAndroidShell(): boolean {
+	return useSyncExternalStore(noSubscribe, () => Boolean((window as unknown as { lhAndroid?: unknown }).lhAndroid), () => false);
+}
+
 /**
  * The attach button (issue #285): the picker's twin of a file drop — files
  * stay where they are and only their quoted paths enter the draft, at the
@@ -60,6 +66,7 @@ function useDesktopPaths(): boolean {
 export function AttachFilesButton({ editorRef, edge = false }: { editorRef: React.RefObject<HTMLDivElement | null>; edge?: boolean }) {
 	const pickerRef = useRef<HTMLInputElement>(null);
 	const desktop = useDesktopPaths();
+	const androidShell = useAndroidShell();
 	const buttonRef = useRef<HTMLButtonElement>(null);
 	const popupRef = useRef<HTMLDivElement>(null);
 	const choosingFolder = useRef(false);
@@ -115,6 +122,7 @@ export function AttachFilesButton({ editorRef, edge = false }: { editorRef: Reac
 		} catch { setNotice("Could not choose a folder. Try again."); }
 		finally { choosingFolder.current = false; }
 	};
+	if (androidShell) return null;
 	return (
 		<div className="relative shrink-0"
 			onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget) && !popupRef.current?.contains(event.relatedTarget)) setOpen(false); }}

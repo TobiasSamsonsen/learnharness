@@ -15,15 +15,27 @@
  *                                     stroke eraser is over while the gesture runs (M16)
  *   sheet light|dark                 the sheet's tone (M13): a dark sheet shows ink in lighter variants (display only)
  *   brush <#rrggbb> <size>            the pen's colour and base width in CSS px (M13): the next strokes use it
- *   strokes <json>                    the finished strokes of the page being written (replaces what the shell has)
+ *   strokes <json>                    the finished strokes of the page being written (replaces what the shell has). A stroke the page
+ *                                     marks `"fresh":false` is SENT ink it copied into the working page (the eraser touched it): the
+ *                                     shell draws it dimmed, like `kept`, so only new ink and cut pieces are in full
  *   kept <json>                       strokes already sent to the tutor (drawn faint)
  *   view <zoom> <x> <y>               the infinite canvas's view (M13c): zoom (0.1-8) and the world position of the layer's
  *                                     top-left corner; the web owns it, the shell draws and converts touch points through it
- *   ack                               the stroke the shell just reported is in the store: keep it as drawn
+ *   ack                               the stroke the shell just reported is in the store: keep it as drawn; after an `erased`
+ *                                     line, the erase is in the store: keep the strokes the shell already removed
+ *   caps hits                         this page understands `erased` (sent once, with the first `open`). A shell that has not
+ *                                     seen it keeps sending `erase`, and a shell that does not know `caps` ignores the line, so
+ *                                     the two can be any versions apart (the page is a server bundle, the shell an APK)
  *   close
  * shell -> web
  *   stroke <json>                     one finished stroke (an array of one SketchStroke), canvas-relative page px
- *   erase <x,y,x,y,…>                 an eraser gesture; the web decides which strokes it hit
+ *   erase <x,y,x,y,…>                 an eraser gesture; the web decides which strokes it hit (the part eraser: the shell shows a
+ *                                     paper-coloured trail along the path meanwhile, until the page's cut replaces the strokes)
+ *   erased <count> [i,i,…]            the stroke eraser's gesture ended (only after `caps hits`): the shell already found which
+ *                                     strokes it touched while the gesture ran and removed them from what it shows. `count` is
+ *                                     how many strokes it holds, `i` their indexes in that list: the working strokes first, then the
+ *                                     sent ones of `kept` (the stroke eraser reaches those too: the page thaws them). The page
+ *                                     applies them as they are; when its own count differs it pushes its strokes whole (it wins)
  *   gesture <dx> <dy> <scale> <fx> <fy>  two fingers moved: their midpoint travelled (dx, dy) CSS px, the distance between them
  *                                     changed by `scale` (1 = no pinch), the midpoint is now at (fx, fy) from the layer's top-left
  *   penseen                           a real stylus has been used (touch now scrolls)
@@ -53,7 +65,8 @@ export type NativeInkOp =
 	| { op: "sheet"; tone: "light" | "dark" }
 	| { op: "strokes" | "kept"; strokes: readonly SketchStroke[] }
 	| { op: "view"; zoom: number; x: number; y: number }
-	| { op: "ack" | "close" };
+	| { op: "ack" | "close" }
+	| { op: "caps" };
 
 const KEY_RE = /^[A-Za-z0-9_-]{1,80}$/;
 const BRUSH_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -85,6 +98,8 @@ export function encodeInkOp(op: NativeInkOp): string {
 		case "view":
 			if (!(op.zoom >= 0.1 && op.zoom <= 8) || !Number.isFinite(op.x) || !Number.isFinite(op.y)) throw new Error("view needs a zoom of 0.1-8 and finite coordinates");
 			return `view ${op.zoom.toFixed(4)} ${num(op.x)} ${num(op.y)}`;
+		case "caps":
+			return "caps hits";
 		default:
 			return op.op;
 	}
@@ -105,6 +120,7 @@ export function parseNativeStrokes(text: string): SketchStroke[] {
 export type ShellEvent =
 	| { kind: "stroke"; stroke: SketchStroke }
 	| { kind: "erase"; points: number[] }
+	| { kind: "erased"; count: number; indices: number[] }
 	| { kind: "gesture"; dx: number; dy: number; scale: number; fx: number; fy: number }
 	| { kind: "penseen" }
 	| { kind: "fallback"; reason: string };
@@ -124,6 +140,16 @@ export function decodeShellLine(line: string): ShellEvent | null {
 				const points = rest.split(",").map(Number);
 				return points.length >= 2 && points.length % 2 === 0 && points.every(Number.isFinite) ? { kind: "erase", points } : null;
 			}
+			case "erased": {
+				const [countText, listText, ...extra] = rest.split(" ");
+				const count = Number(countText);
+				if (extra.length > 0 || countText === "" || !Number.isInteger(count) || count < 0) return null;
+				// digits and single commas only: Number("") is 0, so a "1,,2" must not read as [1, 0, 2]
+				if (listText !== undefined && listText !== "" && !/^\d+(,\d+)*$/.test(listText)) return null;
+				const indices = listText === undefined || listText === "" ? [] : listText.split(",").map(Number);
+				const valid = indices.every((i) => Number.isInteger(i) && i < count) && new Set(indices).size === indices.length;
+				return valid ? { kind: "erased", count, indices } : null;
+			}
 			case "gesture": {
 				const n = rest.split(" ").map(Number);
 				const [dx, dy, scale, fx, fy] = n as [number, number, number, number, number];
@@ -139,6 +165,17 @@ export function decodeShellLine(line: string): ShellEvent | null {
 	} catch {
 		return null;
 	}
+}
+
+/** Did `next` come from `prev` by removing exactly the strokes at `indices` (nothing else changed, the survivors are the same
+ *  objects)? Then a shell that already removed them is right and only needs an `ack`; anything else is pushed whole. */
+export function isErasedExactly(prev: readonly SketchStroke[], next: readonly SketchStroke[], indices: readonly number[]): boolean {
+	const gone = new Set(indices);
+	const kept = prev.filter((_, i) => !gone.has(i));
+	// an index past the working strokes names sent (dimmed) ink: the page thaws that page (the strokes change shape) or ignores it
+	// (still loading), and either way the shell must be told the whole truth, not just acknowledged
+	if ([...gone].some((i) => i >= prev.length)) return false;
+	return gone.size > 0 && next.length === kept.length && kept.every((stroke, i) => next[i] === stroke);
 }
 
 /** The indexes of the strokes an eraser gesture touched: any point of the gesture within `radius` of a stroke. */

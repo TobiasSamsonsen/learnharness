@@ -174,6 +174,109 @@ describe("native ink is on", () => {
 		assert.equal(readInk("k-erase").strokes.length, 2);
 	});
 
+	it("the page announces `caps hits` when it opens the layer", async () => {
+		const shell = fakeShell();
+		await mount("k-caps");
+		assert.ok(shell.posted.includes("caps hits"), shell.posted.join(" | "));
+	});
+
+	it("`erased`: the page applies the shell's hits as they are (one undo step) and answers with an ack, not a full push", async () => {
+		store.set("lh:sketch-eraser", JSON.stringify({ mode: "stroke", radius: 10 }));
+		writeInk("k-erased", inkFromStrokes([STROKE, NATIVE_STROKE]));
+		const shell = fakeShell();
+		await mount("k-erased");
+		const before = shell.posted.length;
+		await shell.say("erased 2 0"); // the shell holds two strokes and already removed the first
+		assert.deepEqual(readInk("k-erased").strokes, [NATIVE_STROKE]);
+		assert.deepEqual(shell.posted.slice(before).filter((l) => l.startsWith("strokes ") || l === "ack"), ["ack"], "an ack and no strokes push");
+		await click("sketch-undo");
+		assert.equal(readInk("k-erased").strokes.length, 2, "the erase is one step");
+		assert.equal(shell.posted.at(-1), `strokes ${JSON.stringify([STROKE, NATIVE_STROKE])}`, "an undo is pushed whole: the shell must show the stroke again");
+	});
+
+	it("`erased` with nothing hit changes nothing and posts nothing", async () => {
+		store.set("lh:sketch-eraser", JSON.stringify({ mode: "stroke", radius: 10 }));
+		writeInk("k-erased-none", inkFromStrokes([STROKE, NATIVE_STROKE]));
+		const shell = fakeShell();
+		await mount("k-erased-none");
+		const before = shell.posted.length;
+		await shell.say("erased 2");
+		assert.equal(readInk("k-erased-none").strokes.length, 2);
+		assert.deepEqual(shell.posted.slice(before), []);
+	});
+
+	it("`erased` with a count that is not the page's: the page's strokes win, pushed whole, and nothing is erased", async () => {
+		store.set("lh:sketch-eraser", JSON.stringify({ mode: "stroke", radius: 10 }));
+		writeInk("k-erased-skew", inkFromStrokes([STROKE, NATIVE_STROKE]));
+		const shell = fakeShell();
+		await mount("k-erased-skew");
+		await shell.say("erased 3 0"); // the shell thinks it holds three strokes
+		assert.equal(readInk("k-erased-skew").strokes.length, 2, "nothing erased on a disagreement");
+		assert.equal(shell.posted.at(-2), `strokes ${JSON.stringify([STROKE, NATIVE_STROKE])}`);
+		assert.equal(shell.posted.at(-1), "kept []", "and the sent page too (none here)");
+	});
+
+	it("an older shell still works: `erase <points>` is applied by the page and the result pushed whole, as before", async () => {
+		store.set("lh:sketch-eraser", JSON.stringify({ mode: "stroke", radius: 10 }));
+		writeInk("k-older", inkFromStrokes([STROKE, NATIVE_STROKE]));
+		const shell = fakeShell();
+		await mount("k-older");
+		await shell.say("erase 200,30,201,30");
+		assert.deepEqual(readInk("k-older").strokes, [NATIVE_STROKE]);
+		assert.equal(shell.posted.at(-1), `strokes ${JSON.stringify([NATIVE_STROKE])}`, "a shell that never said `erased` gets the whole set");
+	});
+
+	it("the stroke eraser reaches SENT ink: `erased` indexes after the working strokes thaw the kept page and remove that stroke, whole, as one undo step", async () => {
+		store.set("lh:sketch-eraser", JSON.stringify({ mode: "stroke", radius: 10 }));
+		const old: SketchStroke = { size: 4, points: [0, 100, 0.5, 200, 100, 0.5] }; // sent earlier
+		const old2: SketchStroke = { size: 4, points: [0, 150, 0.5, 200, 150, 0.5] };
+		const added: SketchStroke = { size: 4, points: [0, 300, 0.5, 100, 300, 0.5] }; // written since
+		writeKept("k-erased-old", { id: "sk_oldoldold0000007", strokes: [old, old2] });
+		writeInk("k-erased-old", inkFromStrokes([added]));
+		const shell = fakeShell();
+		await mount("k-erased-old");
+		assert.ok(shell.posted.includes(`kept ${JSON.stringify([old, old2])}`), "the shell is shown the sent page, to dim and to hit-test");
+		const before = shell.posted.length;
+		await shell.say("erased 3 1"); // the shell holds 1 working + 2 sent strokes; the first sent one (index 1) went
+		const ink = readInk("k-erased-old");
+		assert.equal(ink.thawed, "sk_oldoldold0000007", "the first touch thaws the sent page");
+		assert.equal(ink.strokes[0], added, "the unsent stroke keeps its place");
+		assert.deepEqual(ink.strokes.slice(1), [{ ...old2, fresh: false }], "the touched sent stroke is gone whole, the other stays (still marked sent)");
+		const after = shell.posted.slice(before);
+		assert.ok(after.some((l) => l.startsWith("strokes ")), "the page's shape changed: pushed whole, not acknowledged");
+		assert.ok(!after.includes("ack"));
+		assert.ok(after.includes("kept []"), "the sent page now lives in the working strokes");
+		await click("sketch-undo");
+		assert.deepEqual(readInk("k-erased-old").strokes.slice(1), [{ ...old, fresh: false }, { ...old2, fresh: false }], "one undo puts it back, dimmed");
+	});
+
+	it("an older shell's `erase <points>` reaches SENT ink in stroke mode too (the page counts the sent page after the working strokes)", async () => {
+		store.set("lh:sketch-eraser", JSON.stringify({ mode: "stroke", radius: 10 }));
+		const old: SketchStroke = { size: 4, points: [0, 100, 0.5, 200, 100, 0.5] };
+		writeKept("k-older-old", { id: "sk_oldoldold0000006", strokes: [old] });
+		writeInk("k-older-old", inkFromStrokes([NATIVE_STROKE]));
+		const shell = fakeShell();
+		await mount("k-older-old");
+		await shell.say("erase 100,102");
+		const ink = readInk("k-older-old");
+		assert.equal(ink.thawed, "sk_oldoldold0000006");
+		assert.deepEqual(ink.strokes, [NATIVE_STROKE], "only the unsent stroke is left");
+	});
+
+	it("`erased` with the wrong total (the sent page counted or not): the page wins, both lists pushed whole, nothing erased", async () => {
+		store.set("lh:sketch-eraser", JSON.stringify({ mode: "stroke", radius: 10 }));
+		const old: SketchStroke = { size: 4, points: [0, 100, 0.5, 200, 100, 0.5] };
+		writeKept("k-erased-skew2", { id: "sk_oldoldold0000005", strokes: [old] });
+		writeInk("k-erased-skew2", inkFromStrokes([NATIVE_STROKE]));
+		const shell = fakeShell();
+		await mount("k-erased-skew2");
+		await shell.say("erased 1 0"); // an older count that forgot the sent page
+		assert.equal(readInk("k-erased-skew2").thawed, undefined, "nothing thawed");
+		assert.equal(readInk("k-erased-skew2").strokes.length, 1);
+		assert.equal(shell.posted.at(-1), `kept ${JSON.stringify([old])}`);
+		assert.equal(shell.posted.at(-2), `strokes ${JSON.stringify([NATIVE_STROKE])}`);
+	});
+
 	it("erasing part of SENT ink thaws the kept page: one undo step, edited pieces are bracketed, a pure unsent page is untouched", async () => {
 		store.delete("lh:sketch-eraser"); // the default: part of a stroke
 		const old: SketchStroke = { size: 4, points: [0, 100, 0.5, 200, 100, 0.5] }; // sent earlier
