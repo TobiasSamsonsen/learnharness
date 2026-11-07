@@ -8,7 +8,8 @@ import { FloatingProblem } from "@/components/sketch/floating-problem";
 import { SketchCanvas, type SketchTool } from "@/components/sketch/sketch-canvas";
 import { ZoomIndicator } from "@/components/sketch/zoom-indicator";
 import { loadTone, saveTone, type SheetTone } from "@/components/sketch/sketch-sheet";
-import { backgroundCss, loadBackground, loadPaperSize, nextBackground, PAPER_SIZES, saveBackground, savePaperSize, type SketchBackground } from "@/components/sketch/sketch-background";
+import { loadBackground, loadPaperSize, nextBackground, PAPER_SIZES, saveBackground, savePaperSize, type SketchBackground } from "@/components/sketch/sketch-background";
+import { NativePaper } from "@/components/sketch/native-paper";
 import { SketchToolbar, usePenDown, type SketchPanel } from "@/components/sketch/sketch-toolbar";
 import { limitShare, sketchStatus, submitBlockReason } from "@/components/sketch/sketch-status";
 import { useNativeInk } from "@/components/sketch/use-native-ink";
@@ -361,7 +362,7 @@ export function SketchView({
 			<div ref={canvasRef} className={cn("relative min-h-0 flex-1", !native.active && "bg-white")}>
 				{native.active ? (
 					<>
-						<div aria-hidden data-testid="sketch-native-paper" style={backgroundCss(background, native.view, tone, PAPER_SIZES[paperSize] ?? 1)} className="pointer-events-none absolute inset-0" />
+						<NativePaper kind={background} tone={tone} size={PAPER_SIZES[paperSize] ?? 1} viewRef={native.viewRef} onView={native.onView} />
 						<div ref={native.surfaceRef} data-testid="sketch-native-surface" style={{ touchAction: "none" }} className="absolute inset-0" />
 						<ZoomIndicator zoomPct={native.zoomPct} />
 					</>

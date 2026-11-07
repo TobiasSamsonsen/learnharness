@@ -56,7 +56,7 @@ never clears `dispatchMs`, so `scripts/ink-latency.mjs native` overstates (and i
 
 ### What was fixed (branch `perf/native-ink`, 2026-11-07)
 
-All in the shell (`android/app/src/main/kotlin/dev/learnharness/android/`), no wire-protocol change, no web change.
+Items 1-4 are in the shell (`android/app/src/main/kotlin/dev/learnharness/android/`), items 5-6 in the page. No wire-protocol change.
 
 1. **`FinishedStrokesView` is now cached and culled** (own file; `InkCache.kt` holds the testable maths). Each stroke is converted to
    ink once, only when it first meets the view, and recorded once into a `RenderNode`; the visible strokes are drawn into one GPU
@@ -74,6 +74,16 @@ All in the shell (`android/app/src/main/kotlin/dev/learnharness/android/`), no w
 4. Smaller: `ackPending` and `setLive(null)` no longer invalidate when nothing changed; the colour `Regex` is not rebuilt per stroke;
    `allRaw()` is cached.
 
+5. **The paper no longer re-rasters on every view event** (`components/sketch/native-paper.tsx`, maths in `sketch-background.ts`). It is
+   drawn for a base view on an element that overhangs the canvas by 25% each side; a pan or zoom only sets a compositor transform on it
+   (no raster, and no React render: `useNativeInk` now publishes the view through `viewRef` / `onView` instead of setting state per
+   event), and the paper is drawn again for the new view once the view has been still for 140 ms or has left the element. The dots are
+   briefly scaled (a little soft) during a zoom, like the ink. GPU thread `Chrome_InProcGp` during a wheel zoom: 5.1 s -> 1.9 s per 15 s.
+6. **Pushes and saves write each stroke's JSON once** (`strokesJson` in `src/core/ink-bridge.ts`, used by the `strokes` / `kept` push and
+   by `ink-memory.ts` persistence): a stroke is never edited in place, so its text is kept and the page is joined from it. The page-side
+   cost of an undo went 130 ms -> 64 ms, and the debounced save during drawing went from 62-190 ms long frames to about 52 ms
+   (what is left is mostly the 2 MB `localStorage.setItem`).
+
 Measured on the Pixel 7 Pro, 2900 strokes, native ink, debug APK (before -> after):
 
 | | before | after |
@@ -90,21 +100,21 @@ page with 0 differing pixels; the live preview and the committed cut differ by u
 previous build (same lit-pixel count and brightness in the same region). Unit tests: `InkCacheTest` (8), `InkJsonTest` (6), all 114 existing
 Kotlin tests pass.
 
-### Still open (not done, in order of effect)
+### Not done, and why
 
-1. **The page's paper is re-rastered per view change.** Through the page's own wheel zoom the `Chrome_InProcGp` thread still burns
-   about 5 s per 15 s (CSS gradient dots at a new size each event) and that path stays around 1000-1350 mA with 77 fps. Drawing the
-   paper natively in `FinishedStrokesView` (a `paper` wire line, the web's `sketch-native-paper` div removed) would fix it; it moves
-   a feature across the bridge, so it needs a design decision.
-2. **Pan on a dense page is still the most expensive thing the app does** (812 mA at 2900 strokes against 473 mA for a view stream on an
-   empty page): the layer is rebuilt whenever the view leaves its 25% margin and the page is composited each frame. A bigger margin trades
-   texture memory (40 MB now) for fewer rebuilds.
-3. **Persistence** (all paths): the debounced whole-page `JSON.stringify` + `localStorage` write is still O(page), 50-190 ms, about
-   500 ms after a pen-up (seen as `flushInk` in long frames). Append-only storage would fix it.
-4. **The web still pushes the whole set** on undo/redo/cut (stringify 80-140 ms in the page, then the 130 ms above); an op-based protocol
-   would remove the rest, at the cost of a protocol change.
-5. `applyView` posts a React state update and a `view` line per gesture event (one per frame in my test, so not shown to matter); the
-   stroke eraser's fade still converts the whole gesture path per move (O(L^2)); the hover ring invalidates a full-size view. None
+1. **`applyView` is not coalesced.** The shell only sends a `gesture` line per touch `MOVE`, and Android batches those per frame, so the
+   page already sends at most one `view` line per frame (1738 events in 15 s at 116 fps in the wheel test). Coalescing it would
+   add a frame of lag to the paper and the ink for no saving. With item 5 the per-event React render is gone as well.
+2. **Pan on a dense page is at its floor.** 812 mA against 473 mA for the same view stream on an empty page: what is left is the window
+   frame (WebView compositing plus the layer's blit) at 120 Hz, and the layer's rebuild whenever the view leaves its 25% margin. A bigger
+   margin would trade a 40 MB texture for fewer rebuilds; not worth it until a real pan on a real page shows a need.
+3. **The page still pushes the whole stroke set on undo, redo and cut.** With items 2 and 6 the cost is about 60 ms in the page and
+   130 ms in the shell at 2900 strokes (from about 3 s). An op-based push (remove ids, add a stroke) would remove most of that, but it
+   is a protocol change between two things that are installed separately (the shell APK and the web app), so a new page would need to
+   know the shell supports it first; the gain no longer justifies it.
+4. **Saving is still a whole-page `localStorage` write** (about 52 ms, 500 ms after a pen-up, off the pen-up instant). Chunked or
+   append-only storage would remove it but changes a stored format users already have; not worth it for 50 ms.
+5. The stroke eraser's fade still converts the whole gesture path per move (O(L^2)); the hover ring invalidates a full-size view. Neither
    measured as a problem.
 
 Not measured: a real stylus (cannot be injected over adb), input-to-photon latency, and a production React bundle. The installed debug

@@ -1,5 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
-import { newSketchId, parseSketchPayload, type SketchPayload, type SketchStroke } from "@/src/core";
+import { newSketchId, parseSketchPayload, strokesJson, type SketchPayload, type SketchStroke } from "@/src/core";
 
 /**
  * The practice page's ink (Android plan M1 + M3), keyed by the question's
@@ -180,14 +180,14 @@ function persistInk(key: string, state: InkState): void {
 		if (!ls) return;
 		if (state.thawed !== undefined) {
 		const sent = state.strokes.flatMap((s, i) => (s.fresh === false ? [i] : []));
-		const text = JSON.stringify({ thawed: state.thawed, strokes: state.strokes, sent });
+		const text = `{"thawed":${JSON.stringify(state.thawed)},"strokes":${strokesJson(state.strokes)},"sent":${JSON.stringify(sent)}}`;
 		ls.setItem(LS_PREFIX + key, text);
 		persistHistory(ls, key, state, text.length);
 		} else if (state.strokes.length === 0) {
 		ls.removeItem(LS_PREFIX + key);
 		ls.removeItem(HIST_PREFIX + key);
 		} else {
-		const text = JSON.stringify(state.strokes);
+		const text = strokesJson(state.strokes);
 		ls.setItem(LS_PREFIX + key, text);
 		persistHistory(ls, key, state, text.length);
 		}

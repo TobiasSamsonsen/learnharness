@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decodeShellLine, encodeInkOp, eraseHits, isErasedExactly, parseNativeStrokes } from "../src/core/ink-bridge.ts";
+import { decodeShellLine, encodeInkOp, eraseHits, isErasedExactly, parseNativeStrokes, strokesJson } from "../src/core/ink-bridge.ts";
 import { SketchPayloadError } from "../src/core/sketch.ts";
 
 test("encodeInkOp: one short line per operation, numbers rounded to 2 decimals", () => {
@@ -102,4 +102,19 @@ test("eraseHits: any point of the gesture within reach of a stroke, each stroke 
 	assert.deepEqual(eraseHits([line, far], [50, 5, 50, 200], 10), [0, 1]);
 	assert.deepEqual(eraseHits([line, far], [500, 500], 10), []);
 	assert.deepEqual(eraseHits([line], [], 10), []);
+});
+
+test("strokesJson: the same text JSON.stringify makes, stroke by stroke, and again from what it kept", () => {
+	const a = { size: 4, points: [1, 2, 0.5, 3, 4, 0.5] };
+	const b = { size: 2.5, color: "#2563eb" as const, fresh: false, points: [3, 4, 1] };
+	const c = { size: 4, points: [] as number[] };
+	for (const list of [[], [a], [a, b], [b, a, c], [c]]) {
+		assert.equal(strokesJson(list), JSON.stringify(list));
+		assert.equal(strokesJson(list), JSON.stringify(list), "the second time comes from the kept texts");
+	}
+	// a stroke whose points changed length is written again, not served stale
+	const grown = { size: 4, points: [1, 2, 0.5] };
+	assert.equal(strokesJson([grown]), JSON.stringify([grown]));
+	grown.points.push(3, 4, 0.5);
+	assert.equal(strokesJson([grown]), JSON.stringify([grown]));
 });
