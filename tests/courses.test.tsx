@@ -1164,6 +1164,27 @@ describe("the UI", () => {
 		assert.doesNotMatch(html, /placement-offer/, "a course with sessions offers no placement");
 	});
 
+	it("the Review button says how many of the due skills the next review takes (the session cap)", () => {
+		const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
+		const many = payload({
+			skills: ids.map((id) => skillView(id, { understanding: 2, learned: true })),
+			review: ids,
+			reviewBatch: 6,
+			nextUp: [],
+			known: [],
+			learning: ids,
+		});
+		const html = body(many);
+		assert.match(html, /Due for review · 8/, "the section still lists all eight");
+		assert.match(html, />Review · 6 of 8</, "the section's button says six of the eight");
+		// at or under the cap the button just says Review
+		const few = payload({ skills: ids.slice(0, 3).map((id) => skillView(id, { understanding: 2, learned: true })), review: ids.slice(0, 3), reviewBatch: 3, nextUp: [], known: [], learning: ids.slice(0, 3) });
+		const fewHtml = body(few);
+		assert.match(fewHtml, /Due for review · 3/);
+		assert.doesNotMatch(fewHtml, / of 3</);
+		assert.match(fewHtml, />Review</);
+	});
+
 	it("learned skills sit in Learning with Practice and Learn again; a finished lesson is marked", () => {
 		const data = payload({
 			skills: [skillView("a", { understanding: 2, learned: true, needsReview: false, reviewAt: "2099-01-01T00:00:00Z" }), skillView("b", { requires: ["a"] }), skillView("c", { understanding: 4, learned: true })],
