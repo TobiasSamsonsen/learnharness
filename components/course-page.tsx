@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, Loader2Icon } from "lucide-react";
 import {
 	COURSE_MODE_LABEL,
+	courseProgressPercent,
 	KNOWN_UNDERSTANDING,
+	lastsLabel,
 	MAX_UNDERSTANDING,
 	placementQuestionTarget,
 	type CourseMode,
@@ -39,8 +41,8 @@ export type CoursePayload = CourseView & { drafting: boolean };
 
 /** A skill's state word. Pure — exported for render tests. */
 export function skillStateLabel(skill: Pick<CourseSkillView, "understanding" | "learned" | "known" | "missing">): string {
-	if (skill.known) return `Known · understanding ${skill.understanding}/${MAX_UNDERSTANDING}`;
-	if (skill.learned) return `Learned · understanding ${skill.understanding}/${MAX_UNDERSTANDING}`;
+	if (skill.known) return `Known · understanding ${skill.understanding}/${MAX_UNDERSTANDING} · lasts ${lastsLabel(skill.understanding)}`;
+	if (skill.learned) return `Learned · understanding ${skill.understanding}/${MAX_UNDERSTANDING} · lasts ${lastsLabel(skill.understanding)}`;
 	if (skill.missing.length > 0) return "Locked";
 	return "Not started";
 }
@@ -531,7 +533,7 @@ export function reviewLabel(data: Pick<CourseView, "review" | "reviewBatch">): s
 
 export function courseProgress(data: Pick<CourseView, "skills" | "known">): string | null {
 	if (data.skills.length === 0) return null;
-	return `${data.known.length}/${data.skills.length} known · ${Math.round((data.known.length / data.skills.length) * 100)}%`;
+	return `${data.known.length}/${data.skills.length} known · ${courseProgressPercent(data.skills.map((s) => s.understanding))}%`;
 }
 
 export function CoursePage({ courseId, initial }: { courseId: string; initial: CoursePayload }) {

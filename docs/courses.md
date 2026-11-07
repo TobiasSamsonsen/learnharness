@@ -187,7 +187,12 @@ the skill lasts, a year being 10 (S = 1 day: 1.2, 8: 3.7, 30: 5.8, 100: 7.8). It
 fall as days pass. **Needs review** = retrievability now below 90% (`DESIRED_RETENTION`),
 i.e. one stability after the last review. **Learned** = has a memory state (a review
 happened); it unlocks what builds on it. **Known** = understanding ≥ 6
-(`KNOWN_UNDERSTANDING`, about a month of memory). Course progress = known / course skills.
+(`KNOWN_UNDERSTANDING`, about a month of memory). The skill count "x/y known" counts
+the known skills. **Course progress %** (owner, 2026-11-08) is the average of each skill's
+`knownShare` = understanding / 6, capped at 1 (`courseProgressPercent`), so a known skill is
+100%, an inferred prerequisite (5.2) is 87%, and the 0–10 depth above the line adds nothing to
+coverage. The skill rows keep the 0–10 score with a "lasts about …" note (`lastsLabel`: the
+stability behind the number).
 
 **Views (pure functions of skills + states + now):** `review` = learned and needs
 review, in topological order (the review queue's ordering, cap and mix are a later

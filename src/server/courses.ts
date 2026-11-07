@@ -24,6 +24,7 @@ import {
 import { chainsForSelection, formatChainLine } from "../core/chains.ts";
 import { getGraph } from "../core/graph.ts";
 import {
+	courseProgressPercent,
 	foldSkills,
 	inCourseEvidence,
 	isKnown,
@@ -164,6 +165,10 @@ export function listCourseSummaries(): CourseSummary[] {
 			updatedAt: course.updatedAt,
 			total: p.order.length,
 			known: p.known.length,
+			progress: courseProgressPercent(p.order.map((id) => {
+				const state = p.states.get(id)?.state;
+				return state ? understandingOf(state) : 0;
+			})),
 			needsReview: p.review.length,
 		};
 	});

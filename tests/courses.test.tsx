@@ -278,6 +278,29 @@ describe("understanding — the FSRS fold (core/mastery.ts)", () => {
 		assert.equal(mastery.understandingOf(state), mastery.understandingOf({ ...state, lastReview: T0 - 99 * DAY }));
 	});
 
+	it("the course percentage is the average known share: understanding over the known line, capped (owner, 2026-11-08)", () => {
+		assert.equal(mastery.knownShare(0), 0);
+		assert.equal(mastery.knownShare(3), 0.5);
+		assert.equal(mastery.knownShare(6), 1, "known = fully counted");
+		assert.equal(mastery.knownShare(9.5), 1, "depth above the line adds nothing to coverage");
+		assert.equal(mastery.courseProgressPercent([]), 0);
+		// a known skill, a skill at half the line, and one with no evidence: (1 + .5 + 0) / 3
+		assert.equal(mastery.courseProgressPercent([6.3, 3, 0]), 50);
+		// an inferred prerequisite (5.2) no longer falls off a cliff: 87%, not 0
+		assert.equal(mastery.courseProgressPercent([5.2]), 87);
+		assert.equal(mastery.courseProgressPercent([8, 10]), 100);
+	});
+
+	it("an understanding reads as how long the skill lasts", () => {
+		assert.equal(mastery.lastsLabel(0.5), "about a day");
+		assert.equal(mastery.lastsLabel(2), "about 2 days");
+		assert.equal(mastery.lastsLabel(4), "about 10 days");
+		assert.equal(mastery.lastsLabel(5.2), "about 3 weeks");
+		assert.equal(mastery.lastsLabel(6.3), "about 6 weeks");
+		assert.equal(mastery.lastsLabel(7.8), "about 3 months");
+		assert.equal(mastery.lastsLabel(10), "about a year");
+	});
+
 	it("needs review once recall drops below 90%: one stability after the last review", () => {
 		const state = { stability: 4, difficulty: 5, lastReview: T0 };
 		assert.equal(mastery.retrievability(state, T0), 1);
@@ -719,6 +742,8 @@ describe("the course service (src/server/courses.ts)", () => {
 		assert.deepEqual(view.learning, [a], "inferred through B: learned, not known until a real review");
 		assert.deepEqual(view.nextUp, [c]);
 		assert.deepEqual(view.locked, []);
+		// progress counts the inferred prerequisite (a: 5.2 of 6) instead of dropping it: (1 + .87 + 0) / 3
+		assert.equal(courses.listCourseSummaries().find((x) => x.id === courseId)!.progress, 62);
 		const practice = courses.createCourseSession(courseId, "practice");
 		assert.ok(practice.ok, "practice all = the learning group");
 		assert.deepEqual(chatStore.getChat(practice.value.id)!.course!.skillIds, [a]);
@@ -1098,12 +1123,12 @@ describe("the course planner (scripted model)", () => {
 // ─── render ──────────────────────────────────────────────────────────────────
 
 describe("the UI", () => {
-	const summary = { id: "course_a", title: "Calc", status: "active" as const, updatedAt: "t", total: 12, known: 7, needsReview: 2 };
+	const summary = { id: "course_a", title: "Calc", status: "active" as const, updatedAt: "t", total: 12, known: 7, progress: 58, needsReview: 2 };
 
 	it("the sidebar row reads known/total, percent and due", () => {
 		assert.equal(courseMeta(summary), "7/12 known · 58% · 2 due");
 		assert.equal(courseMeta({ ...summary, status: "drafting" }), "Drafting skill map…");
-		assert.equal(courseMeta({ ...summary, total: 0, known: 0, needsReview: 0, status: "draft" }), "Draft ready to review");
+		assert.equal(courseMeta({ ...summary, total: 0, known: 0, progress: 0, needsReview: 0, status: "draft" }), "Draft ready to review");
 		const html = renderToStaticMarkup(<CourseRow course={summary} active={false} onOpen={() => {}} />);
 		assert.match(html, /Calc/);
 		assert.match(html, /7\/12 known/);
@@ -1203,7 +1228,7 @@ describe("the UI", () => {
 		const html = body(data);
 		assert.match(html, /data-testid="course-learning"[\s\S]*Learning · 2[\s\S]*data-testid="practice-all"/);
 		assert.match(html, /data-testid="practice-a"[\s\S]*Learn again/);
-		assert.match(html, /Learned · understanding 2\/10/);
+		assert.match(html, /Learned · understanding 2\/10 · lasts about 2 days/);
 		assert.match(html, /data-testid="course-sessions-open"[\s\S]*Practice: A[\s\S]*aria-expanded="false"[^>]*data-testid="course-sessions-finished-toggle"[^>]*>[\s\S]*Finished · 1/);
 		assert.doesNotMatch(html, /data-testid="course-sessions-finished"/, "finished sessions fold away until opened");
 		const allDone = body({ ...data, sessions: [data.sessions[1]!] });
@@ -1278,11 +1303,11 @@ describe("the UI", () => {
 	});
 
 	it("skill state words", () => {
-		assert.equal(skillStateLabel({ understanding: 8, learned: true, known: true, missing: [] }), "Known · understanding 8/10");
+		assert.equal(skillStateLabel({ understanding: 8, learned: true, known: true, missing: [] }), "Known · understanding 8/10 · lasts about 4 months");
 		assert.equal(skillStateLabel({ understanding: 0, learned: false, known: false, missing: ["x"] }), "Locked");
 		assert.equal(skillStateLabel({ understanding: 0, learned: false, known: false, missing: [] }), "Not started");
-		assert.equal(skillStateLabel({ understanding: 4, learned: true, known: false, missing: [] }), "Learned · understanding 4/10");
-		assert.equal(skillStateLabel({ understanding: 2, learned: true, known: false, missing: ["x"] }), "Learned · understanding 2/10", "learned outranks locked");
+		assert.equal(skillStateLabel({ understanding: 4, learned: true, known: false, missing: [] }), "Learned · understanding 4/10 · lasts about 10 days");
+		assert.equal(skillStateLabel({ understanding: 2, learned: true, known: false, missing: ["x"] }), "Learned · understanding 2/10 · lasts about 2 days", "learned outranks locked");
 	});
 
 	it("Finish lesson: the button, its blocked state, the finished chip, and the divider", () => {

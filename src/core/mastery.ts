@@ -146,6 +146,32 @@ export function understandingOf(state: SkillState): number {
 
 export const isKnown = (state: SkillState): boolean => understandingOf(state) >= KNOWN_UNDERSTANDING;
 
+/** How much of "known" a skill is, 0–1: its understanding over the known line,
+ *  capped, so a known skill is 1 and the 0–10 scale's depth above the line does
+ *  not count toward coverage (owner, 2026-11-08). */
+export function knownShare(understanding: number): number {
+	return Math.min(1, Math.max(0, understanding / KNOWN_UNDERSTANDING));
+}
+
+/** A course's progress, 0–100: the average known share of its skills
+ *  (a skill with no evidence counts 0). Smooth where "known" is a cliff. */
+export function courseProgressPercent(understandings: readonly number[]): number {
+	if (understandings.length === 0) return 0;
+	const mean = understandings.reduce((sum, u) => sum + knownShare(u), 0) / understandings.length;
+	return Math.round(mean * 100);
+}
+
+/** What an understanding means in time: about how long the skill is
+ *  remembered (the stability it was computed from, inverted). */
+export function lastsLabel(understanding: number): string {
+	const days = Math.round(Math.exp((understanding / MAX_UNDERSTANDING) * Math.log(1 + UNDERSTANDING_FULL_DAYS)) - 1);
+	if (days < 2) return "about a day";
+	if (days < 14) return `about ${days} days`;
+	if (days < 60) return `about ${Math.round(days / 7)} weeks`;
+	if (days < 365) return `about ${Math.round(days / 30)} months`;
+	return "about a year";
+}
+
 /** The placement test's grade of one answer (pure — the fold's input). */
 export function placementGrade(answer: Pick<QuestionAnswerData, "dontKnow" | "correct" | "confidence">): "placementKnown" | "placementUnsure" | "placementMiss" {
 	if (answer.dontKnow || answer.correct !== true) return "placementMiss";

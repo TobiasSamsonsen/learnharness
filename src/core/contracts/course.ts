@@ -138,6 +138,8 @@ export interface CourseSummary {
 	updatedAt: string;
 	total: number;
 	known: number;
+	/** 0–100: the average of each skill's understanding over the known line, capped (core/mastery.ts courseProgressPercent). */
+	progress: number;
 	/** Skills that need review now (retrievability below the FSRS target). */
 	needsReview: number;
 }
