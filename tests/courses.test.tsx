@@ -35,7 +35,7 @@ const { composeInstructions, createPlacementAgent } = await import("../src/agent
 const { inputAppends } = await import("../src/core/input-events.ts");
 const { draftCourse } = await import("../src/agent/subagents/course-planner.ts");
 const { CourseRow, courseMeta } = await import("../components/courses-section.tsx");
-const { CourseBody, courseProgress, skillStateLabel } = await import("../components/course-page.tsx");
+const { CourseBody, courseProgress, reviewLabel, skillStateLabel } = await import("../components/course-page.tsx");
 const { GraphContextCard } = await import("../components/graph-context-card.tsx");
 const { FinishLessonButton, LessonFinishedLine, courseOfView } = await import("../components/lesson-finish.tsx");
 const { DictationBar } = await import("../components/dictation.tsx");
@@ -1183,6 +1183,10 @@ describe("the UI", () => {
 		assert.match(fewHtml, /Due for review · 3/);
 		assert.doesNotMatch(fewHtml, / of 3</);
 		assert.match(fewHtml, />Review</);
+		// the header button's label is the same pure function
+		assert.equal(reviewLabel(many), "Review · 6 of 8");
+		assert.equal(reviewLabel(few), "Review · 3");
+		assert.equal(reviewLabel(payload()), "Review", "nothing to review: no count");
 	});
 
 	it("learned skills sit in Learning with Practice and Learn again; a finished lesson is marked", () => {

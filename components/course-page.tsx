@@ -407,7 +407,7 @@ export function CourseBody({
 							<div className="mb-2 flex items-center justify-between">
 								<span className={cn(SECTION_HEAD, "mb-0")}>Due for review · {data.review.length}</span>
 								<button type="button" className={BTN} disabled={busy} onClick={() => onStart("review")}>
-									Review{data.reviewBatch < data.review.length ? ` · ${data.reviewBatch} of ${data.review.length}` : ""}
+									{data.reviewBatch < data.review.length ? reviewLabel(data) : "Review"}
 								</button>
 							</div>
 							<div className="space-y-1.5">{list(data.review).map((s) => <SkillRow key={s.id} skill={s} names={names} />)}</div>
@@ -522,6 +522,13 @@ export function CourseBody({
 }
 
 /** "7/12 known · 58%". Pure. */
+/** The Review buttons' label: how many skills need review, and how many of
+ *  them the next review takes when that is capped (the session size). Pure. */
+export function reviewLabel(data: Pick<CourseView, "review" | "reviewBatch">): string {
+	if (data.review.length === 0) return "Review";
+	return data.reviewBatch < data.review.length ? `Review · ${data.reviewBatch} of ${data.review.length}` : `Review · ${data.review.length}`;
+}
+
 export function courseProgress(data: Pick<CourseView, "skills" | "known">): string | null {
 	if (data.skills.length === 0) return null;
 	return `${data.known.length}/${data.skills.length} known · ${Math.round((data.known.length / data.skills.length) * 100)}%`;
@@ -653,7 +660,7 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 							data-testid="course-review-button"
 							onClick={() => void onStart("review")}
 						>
-							Review{data.review.length > 0 ? (data.reviewBatch < data.review.length ? ` · ${data.reviewBatch} of ${data.review.length}` : ` · ${data.review.length}`) : ""}
+							{reviewLabel(data)}
 						</button>
 					</span>
 				)}
