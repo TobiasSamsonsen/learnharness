@@ -1,6 +1,6 @@
 /**
  * Courses (fork addition, 2026-10-24 — docs/courses.md): skills in the
- * graph, the Leitner stand-in for "known", draft checks + approval, the
+ * graph, the understanding threshold for "known", draft checks + approval, the
  * course-session pieces, the stores, the service seam, the practice tool's
  * skill tags, the planner against a scripted model, and the UI's render.
  * Deterministic: no network, no real model; LH_DATA_DIR isolates.
@@ -79,13 +79,13 @@ function result(toolCallId: string, toolName: string, at: number, isError = fals
 	return { id: `m${++seq}`, role: "toolResult", toolCallId, toolName, content: [{ type: "text", text: "ok" }], isError, timestamp: at } as unknown as LhMessage;
 }
 /** One posed-and-concluded problem on the given skills. */
-function problem(skills: string[], outcome: string, at: number, opts: { poseError?: boolean } = {}): LhMessage[] {
+function problem(skills: string[], outcome: string, at: number, opts: { poseError?: boolean; grades?: unknown[] } = {}): LhMessage[] {
 	const p = `p${++seq}`;
 	const c = `c${++seq}`;
 	return [
 		assistant([{ id: p, name: "problem", args: { statement: "S", mode: "recall", modelSolution: "M", skills } }], at),
 		result(p, "problem", at, opts.poseError),
-		assistant([{ id: c, name: "conclude", args: { outcome, verdict: "v", rung: null, missClass: null, retest: false } }], at + 1),
+		assistant([{ id: c, name: "conclude", args: { outcome, verdict: "v", rung: null, missClass: null, retest: false, ...(opts.grades ? { grades: opts.grades } : {}) } }], at + 1),
 		result(c, "conclude", at + 1),
 	];
 }
@@ -123,10 +123,13 @@ describe("skills (core/skills.ts)", () => {
 	});
 });
 
-// ─── the Leitner stand-in ────────────────────────────────────────────────────
+// ─── understanding (FSRS) ────────────────────────────────────────────────────
 
-describe("known — the box fold (core/mastery.ts)", () => {
+describe("understanding — the FSRS fold (core/mastery.ts)", () => {
 	const none = () => [];
+	const ev = (outcome: string, at: number, grade?: string, skillId = "a") => ({ skillId, outcome: outcome as never, at, ...(grade ? { grade: grade as never } : {}), placement: false });
+	const fold = (...events: ReturnType<typeof ev>[]) => mastery.foldSkills(events, none);
+	const stabilityOf = (...events: ReturnType<typeof ev>[]) => fold(...events).get("a")?.stability;
 
 	it("reads skill events from cleanly concluded problems only", () => {
 		const messages = [
@@ -145,6 +148,29 @@ describe("known — the box fold (core/mastery.ts)", () => {
 		);
 		assert.equal(events[0]!.at, T0 + 1, "the conclude's timestamp");
 		assert.deepEqual(mastery.skillEventsOf(messages, practiceLink(["a"], "learn")), [], "an unfinished Learn session carries no evidence");
+	});
+
+	it("carries the tutor's per-skill grades, and ignores malformed entries", () => {
+		const messages = [
+			...problem(["a", "b"], "solvedWithHints", T0, {
+				grades: [
+					{ skill: "a", grade: "good" },
+					{ skill: "b", grade: "again" },
+					{ skill: "b", grade: "wild" }, // not a grade: ignored, the earlier entry stands
+					{ grade: "easy" }, // no skill
+				],
+			}),
+			...problem(["a"], "solved", T0 + 100), // no grades at all (an older chat)
+		];
+		const events = mastery.skillEventsOf(messages, practiceLink(["a", "b"]));
+		assert.deepEqual(
+			events.map((e) => [e.skillId, e.outcome, e.grade]),
+			[
+				["a", "solvedWithHints", "good"],
+				["b", "solvedWithHints", "again"],
+				["a", "solved", undefined],
+			],
+		);
 	});
 
 	it("a finished Learn session is evidence — the learner's marker or the teacher's clean finish_lesson, first one wins", () => {
@@ -199,84 +225,90 @@ describe("known — the box fold (core/mastery.ts)", () => {
 		assert.deepEqual(mastery.skillEventsOf(messages, practiceLink(["a"])), []);
 	});
 
-	it("a clean solve promotes only when due; hints stay; misses reset to box 1 — but never make a skill learned", () => {
-		const ev = (outcome: string, at: number) => ({ skillId: "a", outcome: outcome as never, at, placement: false });
-		const boxAfter = (...events: ReturnType<typeof ev>[]) => mastery.foldBoxes(events, none).get("a")!.box;
-		assert.equal(boxAfter(ev("solved", T0)), 1, "box 0 is always due");
-		assert.equal(boxAfter(ev("solved", T0), ev("solved", T0 + 1000)), 1, "box 1 is not due for a day");
-		assert.equal(boxAfter(ev("solved", T0), ev("solved", T0 + DAY)), 2);
-		assert.equal(boxAfter(ev("solved", T0), ev("solved", T0 + DAY), ev("solved", T0 + 4 * DAY)), 3, "known after three spaced solves");
-		assert.equal(boxAfter(ev("solved", T0), ev("solvedWithHints", T0 + 5 * DAY)), 1, "with hints: nothing");
-		assert.equal(boxAfter(ev("solved", T0), ev("solved", T0 + DAY), ev("surrendered", T0 + DAY + 5)), 1);
-		assert.equal(mastery.foldBoxes([ev("movedOn", T0)], none).get("a")!.box, 0, "a miss on box 0 stays unlearned (2026-10-25: a miss never unlocks)");
-		assert.equal(mastery.foldBoxes([ev("dismissed", T0)], none).get("a"), undefined, "dismissed is ignored");
-		// events arrive in any order
-		assert.equal(boxAfter(ev("solved", T0 + DAY), ev("solved", T0)), 2);
-		// capped at box 5
-		let at = T0;
-		const many = [];
-		for (let i = 0; i < 8; i++) {
-			many.push(ev("solved", at));
-			at += 40 * DAY;
-		}
-		assert.equal(boxAfter(...many), mastery.MAX_BOX);
+	it("a first review sets the FSRS-6 initial stability by grade: again < hard < good < easy", () => {
+		const first = (grade: string) => stabilityOf(ev("solved", T0, grade))!;
+		assert.ok(first("hard") > 1.29 && first("hard") < 1.30, "w1");
+		assert.ok(first("good") > 2.30 && first("good") < 2.31, "w2");
+		assert.ok(first("easy") > 8.29 && first("easy") < 8.30, "w3");
+		assert.equal(fold(ev("movedOn", T0, "again")).get("a"), undefined, "an again on a skill never learned stays unlearned");
+		assert.ok(first("hard") < first("good") && first("good") < first("easy"));
 	});
 
-	it("placement: a clean solve credits the skill and every transitive prerequisite to box 3", () => {
+	it("without a tutor grade the outcome gives the default: solved good, hints hard, moved on / surrendered / taught again", () => {
+		const first = (outcome: string) => stabilityOf(ev(outcome, T0));
+		assert.equal(first("solved"), stabilityOf(ev("solved", T0, "good")));
+		assert.equal(first("solvedWithHints"), stabilityOf(ev("solved", T0, "hard")));
+		assert.equal(fold(ev("dismissed", T0)).get("a"), undefined, "dismissed is ignored");
+		const learned = [ev("solved", T0, "good")];
+		const after = (outcome: string) => stabilityOf(...learned, ev(outcome, T0 + 3 * DAY))!;
+		assert.ok(after("movedOn") < stabilityOf(...learned)!, "a miss lowers stability");
+		assert.equal(after("movedOn"), after("surrendered"));
+		assert.equal(after("movedOn"), after("taught"));
+		assert.ok(fold(...learned, ev("movedOn", T0 + 3 * DAY)).has("a"), "a miss on a learned skill keeps it learned");
+	});
+
+	it("the tutor's grade beats the outcome's default", () => {
+		assert.equal(stabilityOf(ev("solvedWithHints", T0, "easy")), stabilityOf(ev("solved", T0, "easy")));
+		assert.ok(stabilityOf(ev("solved", T0, "hard"))! < stabilityOf(ev("solved", T0))!);
+	});
+
+	it("spaced good reviews grow stability; a same-moment review adds nothing; order does not matter", () => {
+		const one = stabilityOf(ev("solved", T0))!;
+		const spaced = stabilityOf(ev("solved", T0), ev("solved", T0 + 3 * DAY))!;
+		assert.ok(spaced > one, "a good review when recall had faded grows stability");
+		assert.equal(stabilityOf(ev("solved", T0), ev("solved", T0))!, one, "no credit for drilling the same minute");
+		assert.equal(stabilityOf(ev("solved", T0 + 3 * DAY), ev("solved", T0)), spaced, "events arrive in any order");
+		const harder = stabilityOf(ev("solved", T0), ev("solved", T0 + 3 * DAY, "hard"))!;
+		const easier = stabilityOf(ev("solved", T0), ev("solved", T0 + 3 * DAY, "easy"))!;
+		assert.ok(harder < spaced && spaced < easier, "the grade shapes the growth");
+	});
+
+	it("understanding is 0–10 from stability on a log scale, and known from about a month of memory", () => {
+		const at = (stability: number) => mastery.understandingOf({ stability, difficulty: 5, lastReview: T0 });
+		assert.equal(at(1), 1.2);
+		assert.equal(at(8), 3.7);
+		assert.equal(at(30), 5.8);
+		assert.equal(at(100), 7.8);
+		assert.equal(at(365), 10);
+		assert.equal(at(100000), 10, "capped");
+		assert.equal(mastery.isKnown({ stability: 30, difficulty: 5, lastReview: T0 }), false);
+		assert.equal(mastery.isKnown({ stability: 40, difficulty: 5, lastReview: T0 }), true);
+		// it does not fall as days pass
+		const state = { stability: 10, difficulty: 5, lastReview: T0 };
+		assert.equal(mastery.understandingOf(state), mastery.understandingOf({ ...state, lastReview: T0 - 99 * DAY }));
+	});
+
+	it("needs review once recall drops below 90%: one stability after the last review", () => {
+		const state = { stability: 4, difficulty: 5, lastReview: T0 };
+		assert.equal(mastery.retrievability(state, T0), 1);
+		assert.equal(mastery.needsReview(state, T0 + 2 * DAY), false);
+		assert.equal(mastery.needsReview(state, T0 + 5 * DAY), true);
+		assert.equal(mastery.reviewAt(state), T0 + 4 * DAY);
+		assert.ok(Math.abs(mastery.retrievability(state, mastery.reviewAt(state)) - 0.9) < 1e-6, "R(S) = 90%");
+	});
+
+	it("placement: a confident answer seeds the skill known and every transitive prerequisite lower (learning)", () => {
 		const req: Record<string, string[]> = { c: ["b"], b: ["a"], a: [] };
-		const boxes = mastery.foldBoxes(
+		const states = mastery.foldSkills([{ skillId: "c", outcome: "placementKnown", at: T0, placement: false }], (id) => req[id] ?? []);
+		assert.equal(states.get("c")!.stability, mastery.PLACEMENT_SEED_DAYS);
+		assert.equal(mastery.isKnown(states.get("c")!), true, "known at once");
+		assert.equal(states.get("b")!.stability, mastery.PREREQUISITE_SEED_DAYS, "inferred: weaker evidence");
+		assert.equal(states.get("a")!.stability, mastery.PREREQUISITE_SEED_DAYS);
+		assert.equal(mastery.isKnown(states.get("a")!), false, "learned, not known, until a real review");
+		// the seed never lowers a skill that already lasts longer
+		const strong = mastery.foldSkills(
 			[
-				{ skillId: "a", outcome: "solved", at: T0, placement: false },
-				{ skillId: "a", outcome: "solved", at: T0 + DAY, placement: false },
-				{ skillId: "a", outcome: "solved", at: T0 + 4 * DAY, placement: false },
-				{ skillId: "a", outcome: "solved", at: T0 + 11 * DAY, placement: false }, // box 4
-				{ skillId: "c", outcome: "solved", at: T0 + 12 * DAY, placement: true },
+				{ skillId: "c", outcome: "finished", at: T0, placement: false },
+				{ skillId: "c", outcome: "placementKnown", at: T0 + DAY, placement: false },
 			],
 			(id) => req[id] ?? [],
 		);
-		assert.equal(boxes.get("c")!.box, 3);
-		assert.equal(boxes.get("b")!.box, 3);
-		assert.equal(boxes.get("a")!.box, 4, "never lowered");
-	});
-
-	it("legacy placement problems: with hints → at least box 1; a miss → nothing (never lowers, never learned)", () => {
-		const boxes = mastery.foldBoxes(
-			[
-				{ skillId: "x", outcome: "solvedWithHints", at: T0, placement: true },
-				{ skillId: "y", outcome: "surrendered", at: T0, placement: true },
-				{ skillId: "z", outcome: "solved", at: T0, placement: false },
-				{ skillId: "z", outcome: "solved", at: T0 + DAY, placement: false },
-				{ skillId: "z", outcome: "movedOn", at: T0 + DAY + 1, placement: true },
-			],
-			none,
-		);
-		assert.equal(boxes.get("x")!.box, 1);
-		assert.equal(boxes.get("y")!.box, 0);
-		assert.equal(boxes.get("z")!.box, 2, "a placement miss never lowers");
-	});
-
-	it("finished lessons and placement answers: finished/unsure lift to box 1, known credits prerequisites, a miss does nothing", () => {
-		const req: Record<string, string[]> = { c: ["b"], b: ["a"], a: [] };
-		const boxes = mastery.foldBoxes(
-			[
-				{ skillId: "d", outcome: "finished", at: T0, placement: false },
-				{ skillId: "d", outcome: "finished", at: T0 + DAY, placement: false },
-				{ skillId: "c", outcome: "placementKnown", at: T0, placement: false },
-				{ skillId: "e", outcome: "placementUnsure", at: T0, placement: false },
-				{ skillId: "f", outcome: "placementMiss", at: T0, placement: false },
-			],
-			(id) => req[id] ?? [],
-		);
-		assert.deepEqual(boxes.get("d"), { box: 1, lastMove: T0 }, "a second finish moves nothing");
-		assert.equal(boxes.get("c")!.box, 3);
-		assert.equal(boxes.get("a")!.box, 3, "credited through b");
-		assert.equal(boxes.get("e")!.box, 1);
-		assert.equal(boxes.get("f"), undefined);
+		assert.ok(strong.get("c")!.stability >= mastery.PLACEMENT_SEED_DAYS);
 	});
 
 	it("placement: a direct miss blocks inferred credit, whichever came first", () => {
 		const req: Record<string, string[]> = { c: ["b"], b: ["a"], a: [], y: ["x"], x: [] };
-		const boxes = mastery.foldBoxes(
+		const states = mastery.foldSkills(
 			[
 				{ skillId: "b", outcome: "placementMiss", at: T0, placement: false },
 				{ skillId: "c", outcome: "placementKnown", at: T0 + 1, placement: false },
@@ -285,30 +317,91 @@ describe("known — the box fold (core/mastery.ts)", () => {
 			],
 			(id) => req[id] ?? [],
 		);
-		assert.equal(boxes.get("c")!.box, 3, "the skill answered directly is still known");
-		assert.equal(boxes.get("b")?.box ?? 0, 0, "missed before the credit: not credited");
-		assert.equal(boxes.get("a")!.box, 3, "a prerequisite below the miss is still credited");
-		assert.equal(boxes.get("y")!.box, 3);
-		assert.equal(boxes.get("x")?.box ?? 0, 0, "missed after the credit: not credited either");
+		assert.ok(states.has("c"), "the skill answered directly is still known");
+		assert.equal(states.has("b"), false, "missed before the credit: not credited");
+		assert.ok(states.has("a"), "a prerequisite below the miss is still credited");
+		assert.ok(states.has("y"));
+		assert.equal(states.has("x"), false, "missed after the credit: not credited either");
 	});
 
-	it("due dates follow the box intervals", () => {
-		assert.equal(mastery.isDue({ box: 0, lastMove: null }, T0), true);
-		assert.equal(mastery.dueAt({ box: 0, lastMove: null }), null);
-		assert.equal(mastery.dueAt({ box: 3, lastMove: T0 }), T0 + 7 * DAY);
-		assert.equal(mastery.isDue({ box: 3, lastMove: T0 }, T0 + 7 * DAY - 1), false);
-		assert.equal(mastery.isDue({ box: 3, lastMove: T0 }, T0 + 7 * DAY), true);
+	it("finished lessons and unsure placement answers learn a skill (good / hard); a placement miss does nothing", () => {
+		const states = mastery.foldSkills(
+			[
+				{ skillId: "d", outcome: "finished", at: T0, placement: false },
+				{ skillId: "e", outcome: "placementUnsure", at: T0, placement: false },
+				{ skillId: "f", outcome: "placementMiss", at: T0, placement: false },
+			],
+			none,
+		);
+		assert.equal(states.get("d")!.stability, stabilityOf(ev("solved", T0, "good")));
+		assert.equal(states.get("e")!.stability, stabilityOf(ev("solved", T0, "hard")));
+		assert.equal(states.get("d")!.lastReview, T0);
+		assert.equal(states.has("f"), false);
+	});
+
+	it("legacy placement problems: a solve credits, with hints is hard, a miss is nothing", () => {
+		const states = mastery.foldSkills(
+			[
+				{ skillId: "x", outcome: "solvedWithHints", at: T0, placement: true },
+				{ skillId: "y", outcome: "surrendered", at: T0, placement: true },
+				{ skillId: "z", outcome: "solved", at: T0, placement: true },
+			],
+			none,
+		);
+		assert.equal(states.get("x")!.stability, stabilityOf(ev("solved", T0, "hard")));
+		assert.equal(states.has("y"), false);
+		assert.equal(states.get("z")!.stability, mastery.PLACEMENT_SEED_DAYS, "a clean legacy solve credits like a confident answer");
+	});
+
+	describe("the review session's skills (pickReviewSkills)", () => {
+		/** A partition whose review queue is the given skills: [id, stability, days since last review]. */
+		const queue = (rows: Array<[string, number, number]>) => {
+			const states = new Map(rows.map(([id, stability, ago]) => [id, { state: { stability, difficulty: 5, lastReview: T0 - ago * DAY }, learned: true, known: false, needsReview: true, missing: [] }]));
+			return { review: rows.map(([id]) => id), states } as never;
+		};
+
+		it("takes everything when six or fewer need review, the strongest first (a warm open), then weakest to strongest", () => {
+			const p = queue([["a", 1, 5], ["b", 20, 5], ["c", 3, 5]]);
+			assert.deepEqual(mastery.pickReviewSkills(p), ["b", "a", "c"], "b is the strongest; a (S=1) is weaker than c (S=3)");
+			assert.deepEqual(mastery.pickReviewSkills(queue([])), []);
+		});
+
+		it("with more than six: the four weakest, the stalest of the rest, and one morale skill", () => {
+			// stability 1..8 = understanding rising with the number; "s" is old but strong-ish
+			const p = queue([
+				["w1", 1, 2], ["w2", 1.5, 2], ["w3", 2, 2], ["w4", 2.5, 2], // the weakest four
+				["old", 6, 90], // stale: not practiced for the longest
+				["mid", 5, 2],
+				["top", 30, 2], // the strongest: morale
+				["x", 4, 2],
+			]);
+			const picked = mastery.pickReviewSkills(p);
+			assert.equal(picked.length, mastery.REVIEW_SESSION_SIZE);
+			assert.equal(picked[0], "top", "morale first");
+			assert.deepEqual([...picked].sort(), ["old", "top", "w1", "w2", "w3", "w4"].sort());
+			assert.deepEqual(picked.slice(1), ["w1", "w2", "w3", "w4", "old"], "then weakest to strongest");
+			assert.equal(new Set(picked).size, picked.length, "no skill twice");
+		});
+
+		it("the unpicked skills stay in the queue for the next session", () => {
+			const rows: Array<[string, number, number]> = Array.from({ length: 9 }, (_, i) => [`k${i}`, 1 + i, 2] as [string, number, number]);
+			const first = mastery.pickReviewSkills(queue(rows));
+			assert.equal(first.length, 6);
+			const rest = rows.filter(([id]) => !first.includes(id));
+			assert.equal(rest.length, 3);
+			assert.deepEqual([...mastery.pickReviewSkills(queue(rest))].sort(), rest.map(([id]) => id).sort());
+		});
 	});
 
 	it("partitions a course: review, next up, learning, locked (with what is missing), known — learned unlocks", () => {
 		const skills = new Map<string, Skill>(
 			mergeSkillLines([line("a"), line("b", ["a"]), line("c", ["b"]), line("d"), line("e", ["d"]), line("f", ["e"])]).map((s) => [s.id, s]),
 		);
-		const boxes = new Map([
-			["a", { box: 3, lastMove: T0 }],
-			["d", { box: 1, lastMove: T0 }],
+		const states = new Map([
+			["a", { stability: 40, difficulty: 5, lastReview: T0 }],
+			["d", { stability: 2, difficulty: 5, lastReview: T0 }],
 		]);
-		const p = mastery.partitionSkills(["c", "b", "a", "d", "e", "f", "ghost"], skills, boxes, T0 + 2 * DAY);
+		const p = mastery.partitionSkills(["c", "b", "a", "d", "e", "f", "ghost"], skills, states, T0 + 3 * DAY);
 		assert.ok(p.order.indexOf("a") < p.order.indexOf("b") && p.order.indexOf("b") < p.order.indexOf("c"), "prerequisites first");
 		assert.deepEqual(p.known, ["a"]);
 		assert.deepEqual(p.learning, ["d"], "learned, not known");
@@ -316,7 +409,7 @@ describe("known — the box fold (core/mastery.ts)", () => {
 		assert.deepEqual(p.locked.sort(), ["c", "f"]);
 		assert.deepEqual(p.states.get("c")!.missing, ["b"]);
 		assert.equal(p.states.get("d")!.learned, true);
-		assert.deepEqual(p.review, ["d"], "box ≥ 1 and due (a is known but not due for 7 days)");
+		assert.deepEqual(p.review, ["d"], "learned and recall below 90% (a is known and still fresh)");
 	});
 });
 
@@ -400,21 +493,21 @@ describe("drafts (core/course-draft.ts)", () => {
 // ─── course sessions (pure) ──────────────────────────────────────────────────
 
 describe("course sessions (core/course-session.ts)", () => {
-	const sk = (id: string, box = 0) => ({ id, name: id.toUpperCase(), statement: `Do ${id}`, box, known: box >= 3 });
+	const sk = (id: string, understanding = 0) => ({ id, name: id.toUpperCase(), statement: `Do ${id}`, understanding, learned: understanding > 0, known: understanding >= 6, needsReview: false });
 
 	it("the context marker carries skills, prerequisites, propositions and chains — as a graph-context marker", () => {
 		const m = session.newCourseContextMessage({
 			courseTitle: "Calc",
 			mode: "learn",
-			skills: [sk("sk_b", 1)],
-			background: [sk("sk_a", 4)],
+			skills: [sk("sk_b", 2)],
+			background: [sk("sk_a", 8)],
 			propositions: [{ id: "n1", name: "Chain rule", statement: "(f∘g)' = f'(g)·g'" }],
 			chains: ["A → B"],
 		});
 		assert.equal(m.customType, "graph-context");
 		assert.match(m.content, /course "Calc" \(Learn\)/);
-		assert.match(m.content, /\[sk_b\] SK_B: Do sk_b · learned, not yet known \(box 1 of 5\)/);
-		assert.match(m.content, /prerequisite skills[\s\S]*\[sk_a\] SK_A: Do sk_a · known \(box 4 of 5\)/);
+		assert.match(m.content, /\[sk_b\] SK_B: Do sk_b · learned, not yet known \(understanding 2 of 10\)/);
+		assert.match(m.content, /prerequisite skills[\s\S]*\[sk_a\] SK_A: Do sk_a · known \(understanding 8 of 10\)/);
 		assert.match(m.content, /\[n1\] Chain rule/);
 		assert.match(m.content, /- A → B/);
 		const details = m.details as { course: { title: string; mode: string; skills: unknown[] }; propositions: unknown[] };
@@ -458,7 +551,10 @@ describe("course sessions (core/course-session.ts)", () => {
 		assert.match(placement, /Continue → keep testing until every skill is tested or credited/);
 		assert.match(placement, /untested skills plainly as not tested/);
 		assert.doesNotMatch(placement, /`skills` field/, "no problem tagging law in a quiz test");
-		assert.match(session.coursePromptSection("review", "Calc", []), /due for review/);
+		const review = session.coursePromptSection("review", "Calc", []);
+		assert.match(review, /REVIEW session/);
+		assert.match(review, /do not add skills or extra problems/);
+		assert.match(review, /at most one retest after a taught problem/);
 	});
 });
 
@@ -611,7 +707,7 @@ describe("the course service (src/server/courses.ts)", () => {
 		assert.equal(record.kind, undefined, "the placement tester is a conversation agent, not practice");
 		assert.deepEqual(record.course!.skillIds, [a, b, c]);
 		assert.deepEqual(courses.courseForTurn(placement.value.id)!.skills!().map((s) => s.id), [a, b, c], "the probe may tag every course skill");
-		// a confident correct answer on B → A and B are known
+		// a confident correct answer on B → B is known, its prerequisite A learned
 		const at = Date.now() - 1000;
 		chatStore.saveMessages(placement.value.id, [
 			...record.messages,
@@ -619,11 +715,13 @@ describe("the course service (src/server/courses.ts)", () => {
 			{ ...result("pq1", "probe", at), details: { kind: "quiz", dontKnow: false, answers: [], answeredAt: "t", correct: true, confidence: 90 } } as LhMessage,
 		]);
 		const view = courses.courseView(courseId)!;
-		assert.deepEqual(view.known, [a, b]);
+		assert.deepEqual(view.known, [b]);
+		assert.deepEqual(view.learning, [a], "inferred through B: learned, not known until a real review");
 		assert.deepEqual(view.nextUp, [c]);
 		assert.deepEqual(view.locked, []);
-		const none = courses.createCourseSession(courseId, "practice");
-		assert.ok(!none.ok && none.status === 409, "practice all = the learning group, empty here");
+		const practice = courses.createCourseSession(courseId, "practice");
+		assert.ok(practice.ok, "practice all = the learning group");
+		assert.deepEqual(chatStore.getChat(practice.value.id)!.course!.skillIds, [a]);
 	});
 
 	it("finishing a Learn session makes its skill learned and unlocks what builds on it; practice all = learning", () => {
@@ -704,7 +802,7 @@ describe("the course service (src/server/courses.ts)", () => {
 		// the knowledge graph's skills layer: only what is held (A, learned —
 		// never D, untouched), both its courses, one region for it
 		const layer = courses.graphSkillLayer()!;
-		assert.deepEqual(layer.nodes.map((s) => [s.name, s.known, s.box, s.courses.map((c) => c.title).sort()]), [["A", false, 1, ["Calc", "Physics"]]]);
+		assert.deepEqual(layer.nodes.map((s) => [s.name, s.known, s.understanding, s.courses.map((c) => c.title).sort()]), [["A", false, 2, ["Calc", "Physics"]]]);
 		assert.equal(layer.regions.length, 1, "a skill sits in one course's region");
 		assert.deepEqual(layer.regions[0]!.members, [a]);
 	});
@@ -712,7 +810,7 @@ describe("the course service (src/server/courses.ts)", () => {
 	it("the graph's skills layer: held skills, prerequisite arrows among them, rests-on arrows from live propositions", () => {
 		const { courseId, a, b } = approvedCourse();
 		assert.equal(courses.graphSkillLayer(), undefined, "nothing held → no layer");
-		// a confident placement answer on B credits A and B
+		// a confident placement answer on B credits B (known) and A (learned)
 		const placement = courses.createCourseSession(courseId, "placement");
 		assert.ok(placement.ok);
 		const record = chatStore.getChat(placement.value.id)!;
@@ -724,7 +822,7 @@ describe("the course service (src/server/courses.ts)", () => {
 		]);
 		const layer = courses.graphSkillLayer()!;
 		assert.deepEqual(layer.nodes.map((s) => s.id).sort(), [a, b].sort());
-		assert.ok(layer.nodes.every((s) => s.known));
+		assert.deepEqual(layer.nodes.map((s) => [s.id, s.known]).sort(), [[a, false], [b, true]].sort(), "B known, its inferred prerequisite A learning");
 		assert.deepEqual(
 			layer.edges.map((e) => `${e.from}->${e.to}`).sort(),
 			[`${a}->${b}`, `n1->${b}`].sort(),
@@ -1000,12 +1098,12 @@ describe("the course planner (scripted model)", () => {
 // ─── render ──────────────────────────────────────────────────────────────────
 
 describe("the UI", () => {
-	const summary = { id: "course_a", title: "Calc", status: "active" as const, updatedAt: "t", total: 12, known: 7, due: 2 };
+	const summary = { id: "course_a", title: "Calc", status: "active" as const, updatedAt: "t", total: 12, known: 7, needsReview: 2 };
 
 	it("the sidebar row reads known/total, percent and due", () => {
 		assert.equal(courseMeta(summary), "7/12 known · 58% · 2 due");
 		assert.equal(courseMeta({ ...summary, status: "drafting" }), "Drafting skill map…");
-		assert.equal(courseMeta({ ...summary, total: 0, known: 0, due: 0, status: "draft" }), "Draft ready to review");
+		assert.equal(courseMeta({ ...summary, total: 0, known: 0, needsReview: 0, status: "draft" }), "Draft ready to review");
 		const html = renderToStaticMarkup(<CourseRow course={summary} active={false} onOpen={() => {}} />);
 		assert.match(html, /Calc/);
 		assert.match(html, /7\/12 known/);
@@ -1016,19 +1114,20 @@ describe("the UI", () => {
 		name: id.toUpperCase(),
 		statement: `Do ${id}`,
 		requires: [] as string[],
-		box: 0,
+		understanding: 0,
 		learned: false,
 		known: false,
-		due: true,
-		dueAt: null,
+		needsReview: true,
+		reviewAt: null,
 		missing: [] as string[],
 		propositions: [],
 		...over,
 	});
 	const payload = (over: Partial<CoursePayload> = {}): CoursePayload => ({
 		course: { id: "course_a", title: "Calc", createdAt: "t", updatedAt: "t", status: "active", skills: ["a", "b"] },
-		skills: [skillView("a", { box: 3, learned: true, known: true, due: false, dueAt: "2099-01-01T00:00:00Z" }), skillView("b", { requires: ["a"] })],
+		skills: [skillView("a", { understanding: 6, learned: true, known: true, needsReview: false, reviewAt: "2099-01-01T00:00:00Z" }), skillView("b", { requires: ["a"] })],
 		review: [],
+		reviewBatch: 0,
 		nextUp: ["b"],
 		learning: [],
 		locked: [],
@@ -1067,7 +1166,7 @@ describe("the UI", () => {
 
 	it("learned skills sit in Learning with Practice and Learn again; a finished lesson is marked", () => {
 		const data = payload({
-			skills: [skillView("a", { box: 1, learned: true, due: false, dueAt: "2099-01-01T00:00:00Z" }), skillView("b", { requires: ["a"] }), skillView("c", { box: 2, learned: true })],
+			skills: [skillView("a", { understanding: 2, learned: true, needsReview: false, reviewAt: "2099-01-01T00:00:00Z" }), skillView("b", { requires: ["a"] }), skillView("c", { understanding: 4, learned: true })],
 			nextUp: ["b"],
 			learning: ["a", "c"],
 			known: [],
@@ -1079,7 +1178,7 @@ describe("the UI", () => {
 		const html = body(data);
 		assert.match(html, /data-testid="course-learning"[\s\S]*Learning · 2[\s\S]*data-testid="practice-all"/);
 		assert.match(html, /data-testid="practice-a"[\s\S]*Learn again/);
-		assert.match(html, /Learned · box 1\/5/);
+		assert.match(html, /Learned · understanding 2\/10/);
 		assert.match(html, /data-testid="course-sessions-open"[\s\S]*Practice: A[\s\S]*aria-expanded="false"[^>]*data-testid="course-sessions-finished-toggle"[^>]*>[\s\S]*Finished · 1/);
 		assert.doesNotMatch(html, /data-testid="course-sessions-finished"/, "finished sessions fold away until opened");
 		const allDone = body({ ...data, sessions: [data.sessions[1]!] });
@@ -1098,7 +1197,7 @@ describe("the UI", () => {
 
 	it("skills from another course get their own section with Quick check — shown once, never locked, and the placement offer counts without them", () => {
 		const data = payload({
-			skills: [skillView("a", { box: 3, learned: true, known: true, due: false }), skillView("b", { requires: ["a"] })],
+			skills: [skillView("a", { understanding: 6, learned: true, known: true, needsReview: false }), skillView("b", { requires: ["a"] })],
 			known: ["a"],
 			nextUp: ["b"],
 			contextCheck: ["a"],
@@ -1108,7 +1207,7 @@ describe("the UI", () => {
 		assert.match(html, /data-testid="course-context-check"[\s\S]*From another course · 1[\s\S]*optional, nothing is locked[\s\S]*data-testid="check-a"[^>]*>Quick check/);
 		assert.doesNotMatch(html, /data-testid="course-known"/, "A shows once — in its own section");
 		assert.match(html, /about one short question for 1 skill,/);
-		assert.doesNotMatch(body({ ...data, skills: [skillView("a", { box: 3, learned: true, known: true })], nextUp: [] }), /placement-offer/, "nothing left to place");
+		assert.doesNotMatch(body({ ...data, skills: [skillView("a", { understanding: 6, learned: true, known: true })], nextUp: [] }), /placement-offer/, "nothing left to place");
 	});
 
 	it("a draft shows its skills, reused marks, and the review controls", () => {
@@ -1154,11 +1253,11 @@ describe("the UI", () => {
 	});
 
 	it("skill state words", () => {
-		assert.equal(skillStateLabel({ box: 4, learned: true, known: true, missing: [] }), "Known · box 4/5");
-		assert.equal(skillStateLabel({ box: 0, learned: false, known: false, missing: ["x"] }), "Locked");
-		assert.equal(skillStateLabel({ box: 0, learned: false, known: false, missing: [] }), "Not started");
-		assert.equal(skillStateLabel({ box: 2, learned: true, known: false, missing: [] }), "Learned · box 2/5");
-		assert.equal(skillStateLabel({ box: 1, learned: true, known: false, missing: ["x"] }), "Learned · box 1/5", "learned outranks locked");
+		assert.equal(skillStateLabel({ understanding: 8, learned: true, known: true, missing: [] }), "Known · understanding 8/10");
+		assert.equal(skillStateLabel({ understanding: 0, learned: false, known: false, missing: ["x"] }), "Locked");
+		assert.equal(skillStateLabel({ understanding: 0, learned: false, known: false, missing: [] }), "Not started");
+		assert.equal(skillStateLabel({ understanding: 4, learned: true, known: false, missing: [] }), "Learned · understanding 4/10");
+		assert.equal(skillStateLabel({ understanding: 2, learned: true, known: false, missing: ["x"] }), "Learned · understanding 2/10", "learned outranks locked");
 	});
 
 	it("Finish lesson: the button, its blocked state, the finished chip, and the divider", () => {

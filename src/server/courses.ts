@@ -24,15 +24,17 @@ import {
 import { chainsForSelection, formatChainLine } from "../core/chains.ts";
 import { getGraph } from "../core/graph.ts";
 import {
-	dueAt,
-	foldBoxes,
+	foldSkills,
 	inCourseEvidence,
-	isDue,
-	KNOWN_BOX,
-	LEARNED_BOX,
+	isKnown,
+	needsReview,
 	partitionSkills,
+	pickReviewSkills,
+	REVIEW_SESSION_SIZE,
+	reviewAt,
 	skillEventsOf,
-	type BoxState,
+	understandingOf,
+	type SkillState,
 	type SkillEvent,
 	type SkillPartition,
 } from "../core/mastery.ts";
@@ -99,8 +101,8 @@ interface ReadContext {
 	graph: ReturnType<typeof getGraph>;
 	nodeIds: Set<string>;
 	skills: Map<string, Skill>;
-	/** A skill's box is global: evidence from every course counts. */
-	boxes: Map<string, BoxState>;
+	/** A skill's memory state is global: evidence from every course counts. */
+	skillStates: Map<string, SkillState>;
 	byCourse: Map<string, SkillEvent[]>;
 	now: number;
 }
@@ -110,8 +112,8 @@ function readContext(): ReadContext {
 	const nodeIds = new Set(graph.nodes.map((n) => n.id));
 	const skills = allSkills(nodeIds);
 	const byCourse = eventsByCourse();
-	const boxes = foldBoxes([...byCourse.values()].flat(), (id) => skills.get(id)?.requires ?? []);
-	return { graph, nodeIds, skills, boxes, byCourse, now: Date.now() };
+	const skillStates = foldSkills([...byCourse.values()].flat(), (id) => skills.get(id)?.requires ?? []);
+	return { graph, nodeIds, skills, skillStates, byCourse, now: Date.now() };
 }
 
 function checkContext(ctx = readContext()): DraftCheckContext {
@@ -146,7 +148,7 @@ function learnChatsBySkill(): Map<string, Set<string>> {
 
 function partitionOf(course: CourseRecord, ctx: ReadContext): SkillPartition {
 	const inCourse = inCourseEvidence(ctx.byCourse.get(course.id) ?? [], (id) => ctx.skills.get(id)?.requires ?? []);
-	return partitionSkills(course.skills, ctx.skills, ctx.boxes, ctx.now, inCourse);
+	return partitionSkills(course.skills, ctx.skills, ctx.skillStates, ctx.now, inCourse);
 }
 
 export function listCourseSummaries(): CourseSummary[] {
@@ -162,7 +164,7 @@ export function listCourseSummaries(): CourseSummary[] {
 			updatedAt: course.updatedAt,
 			total: p.order.length,
 			known: p.known.length,
-			due: p.review.length,
+			needsReview: p.review.length,
 		};
 	});
 }
@@ -181,22 +183,22 @@ export function graphSkillLayer(): GraphSkillLayer | undefined {
 	}
 	const learnChats = learnChatsBySkill();
 	const nodes: GraphSkillNode[] = [];
-	for (const [id, state] of ctx.boxes) {
+	for (const [id, state] of ctx.skillStates) {
 		const skill = ctx.skills.get(id);
-		if (!skill || state.box < LEARNED_BOX) continue;
+		if (!skill) continue;
 		nodes.push({
 			id,
 			name: skill.name,
 			statement: skill.statement,
-			box: state.box,
-			known: state.box >= KNOWN_BOX,
-			due: isDue(state, ctx.now),
+			understanding: understandingOf(state),
+			known: isKnown(state),
+			needsReview: needsReview(state, ctx.now),
 			courses: coursesOf.get(id) ?? [],
 			propositions: skillPropositionIds(skill, ctx, learnChats),
 		});
 	}
 	if (nodes.length === 0) return undefined;
-	nodes.sort((a, b) => b.box - a.box || a.name.localeCompare(b.name));
+	nodes.sort((a, b) => b.understanding - a.understanding || a.name.localeCompare(b.name));
 	const held = new Set(nodes.map((n) => n.id));
 	const edges: GraphEdge[] = [];
 	for (const n of nodes) {
@@ -221,17 +223,16 @@ export function courseView(courseId: string): CourseView | null {
 	const skills: CourseSkillView[] = p.order.map((id) => {
 		const skill = ctx.skills.get(id)!;
 		const s = p.states.get(id)!;
-		const due = dueAt(s.state);
 		return {
 			id,
 			name: skill.name,
 			statement: skill.statement,
 			requires: skill.requires.filter((r) => ctx.skills.has(r)),
-			box: s.state.box,
+			understanding: s.state ? understandingOf(s.state) : 0,
 			learned: s.learned,
 			known: s.known,
-			due: s.due,
-			dueAt: due === null ? null : new Date(due).toISOString(),
+			needsReview: s.needsReview,
+			reviewAt: s.state ? new Date(reviewAt(s.state)).toISOString() : null,
 			missing: s.missing,
 			propositions: skillPropositionIds(skill, ctx, learnChats).map((nid) => {
 				const node = nodes.get(nid)!;
@@ -263,6 +264,7 @@ export function courseView(courseId: string): CourseView | null {
 		course,
 		skills,
 		review: p.review,
+		reviewBatch: Math.min(p.review.length, REVIEW_SESSION_SIZE),
 		nextUp: p.nextUp,
 		learning: p.learning,
 		locked: p.locked,
@@ -458,8 +460,16 @@ export function approveCourse(courseId: string): Result<CourseRecord> {
 
 function sessionSkill(id: string, ctx: ReadContext): SessionSkill {
 	const skill = ctx.skills.get(id)!;
-	const state = ctx.boxes.get(id) ?? { box: 0, lastMove: null };
-	return { id, name: skill.name, statement: skill.statement, box: state.box, known: state.box >= KNOWN_BOX };
+	const state = ctx.skillStates.get(id);
+	return {
+		id,
+		name: skill.name,
+		statement: skill.statement,
+		understanding: state ? understandingOf(state) : 0,
+		learned: state !== undefined,
+		known: state !== undefined && isKnown(state),
+		needsReview: state !== undefined && needsReview(state, ctx.now),
+	};
 }
 
 /** Create a session from a course (docs/courses.md §4). The client sends
@@ -487,8 +497,10 @@ export function createCourseSession(
 			if (ids.length === 0) return { ok: false, status: 409, error: "Nothing to practice yet — finish a lesson first" };
 			break;
 		case "review":
-			ids = p.review;
-			if (ids.length === 0) return { ok: false, status: 409, error: "Nothing is due for review" };
+			// one session's worth: the weakest, the stalest, a morale skill;
+			// the rest stay due for the next session
+			ids = pickReviewSkills(p);
+			if (ids.length === 0) return { ok: false, status: 409, error: "Nothing needs review right now" };
 			break;
 		case "placement":
 			// skills already had from another course get their own context
@@ -498,7 +510,7 @@ export function createCourseSession(
 			break;
 		case "check":
 			if (skillId === undefined) return { ok: false, status: 400, error: "A context check needs a skill" };
-			if ((ctx.boxes.get(skillId)?.box ?? 0) < LEARNED_BOX) return { ok: false, status: 409, error: "Learn this skill first — a context check is for skills you already have" };
+			if (!ctx.skillStates.has(skillId)) return { ok: false, status: 409, error: "Learn this skill first — a context check is for skills you already have" };
 			ids = [skillId];
 			break;
 	}
@@ -529,6 +541,17 @@ export function createCourseSession(
 	// a course's activity order follows its sessions
 	stores.courseStore.updateCourse(courseId, {});
 	return { ok: true, value: { id: chat.id, title: chat.title, prompt: courseFirstMessage(mode, course.title, skills, courseLanguage(course)) } };
+}
+
+/** A review or practice course session's course and skills (id + name), for
+ *  the tutor's "Learn <skill>" buttons on a concluded problem. Null for any
+ *  other session, or when the chat is unknown. */
+export function courseSessionSkillNames(chatId: string): { courseId: string; skills: Array<{ id: string; name: string }> } | null {
+	const link = stores.chatStore.getChat(chatId)?.course;
+	if (!link || (link.mode !== "review" && link.mode !== "practice")) return null;
+	const ctx = readContext();
+	const skills = link.skillIds.filter((id) => ctx.skills.has(id)).map((id) => ({ id, name: ctx.skills.get(id)!.name }));
+	return { courseId: link.courseId, skills };
 }
 
 /** A course session's per-turn pieces: the prompt section, its mode, and

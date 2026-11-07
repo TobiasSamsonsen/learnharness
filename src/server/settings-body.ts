@@ -32,6 +32,7 @@ import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { parseRepo } from "./sync/service.ts";
 import { LESSON_LANGUAGES, isDictationEngine, isLessonLanguage } from "../core/language.ts";
 import { PACES, PACE_NOTE_MAX, isPace, normalizePaceNote, type Pace } from "../core/pace.ts";
+import { DIFFICULTIES, isDifficulty, type Difficulty } from "../core/difficulty.ts";
 import { isSearchEngineId, SEARCH_ENGINES } from "../core/search.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 import { parseFileAccessSettings } from "../core/file-access.ts";
@@ -51,6 +52,7 @@ export function parseSettingsBody(body: unknown): SettingsBodyResult<ChatSetting
 		language?: unknown;
 			pace?: unknown;
 			paceNote?: unknown;
+		difficulty?: unknown;
 	};
 	const settings: ChatSettings = {};
 	if (raw.model !== undefined) {
@@ -86,6 +88,11 @@ export function parseSettingsBody(body: unknown): SettingsBodyResult<ChatSetting
 		if (!note.ok) return { ok: false, error: note.error };
 		if (note.note !== undefined) settings.paceNote = note.note;
 	}
+	if (raw.difficulty !== undefined) {
+		const difficulty = parseDifficultyField(raw.difficulty);
+		if (!difficulty.ok) return { ok: false, error: difficulty.error };
+		settings.difficulty = difficulty.difficulty;
+	}
 	// Wave 7 killed the graph-context injection (owner: zero configuration
 	// beyond chat models — the prober reads its map through tools now); its
 	// budget dial is gone with it. A stale client sending the old key has
@@ -103,6 +110,12 @@ export function parseSettingsBody(body: unknown): SettingsBodyResult<ChatSetting
 export function parsePaceField(value: unknown): { ok: true; pace: Pace } | { ok: false; error: string } {
 	if (!isPace(value)) return { ok: false, error: `pace must be one of: ${PACES.map((p) => p.id).join(", ")}` };
 	return { ok: true, pace: value };
+}
+
+/** A problem difficulty (core/difficulty.ts) from a request body: strict, a bad value is a 400. */
+export function parseDifficultyField(value: unknown): { ok: true; difficulty: Difficulty } | { ok: false; error: string } {
+	if (!isDifficulty(value)) return { ok: false, error: `difficulty must be one of: ${DIFFICULTIES.map((d) => d.id).join(", ")}` };
+	return { ok: true, difficulty: value };
 }
 
 /** A time note from a request body: a string up to PACE_NOTE_MAX characters; blank means no note
@@ -142,6 +155,11 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 		const pace = parsePaceField(raw.pace);
 		if (!pace.ok) return { ok: false, error: pace.error };
 		settings.pace = pace.pace;
+	}
+	if (raw.difficulty !== undefined) {
+		const difficulty = parseDifficultyField(raw.difficulty);
+		if (!difficulty.ok) return { ok: false, error: difficulty.error };
+		settings.difficulty = difficulty.difficulty;
 	}
 	if (raw.dictationEngine !== undefined) {
 		if (!isDictationEngine(raw.dictationEngine)) {

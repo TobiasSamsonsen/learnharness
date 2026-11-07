@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { MaterialsControl } from "@/components/materials-control";
 import { LanguageControl } from "@/components/language-control";
 import { PaceControl } from "@/components/pace-control";
+import { DifficultyControl } from "@/components/difficulty-control";
 
 /**
  * The composer shell's bottom edge (owner, 2026-10-25 — the bottom-bar
@@ -24,6 +25,8 @@ export function ComposerEdgeTools({ chatId }: { chatId?: string }) {
 			<LanguageControl chatId={chatId} variant="edge" />
 			{/* Pace (fork addition, 2026-11-01): a running session only; the new-session screen has its setup panel. */}
 			{chatId && <PaceControl chatId={chatId} variant="edge" />}
+			{/* Difficulty (fork addition, 2026-11-07): a practice session only — the mirror of pace. */}
+			{chatId && <DifficultyControl chatId={chatId} variant="edge" />}
 		</>
 	);
 }

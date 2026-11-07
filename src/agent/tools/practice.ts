@@ -31,6 +31,7 @@ import { concludeResult, invalidInputResult, problemResult } from "../tool-execu
 import { healEncodedArguments, healToolRecord } from "./heal.ts";
 import { readSketchTool } from "./sketch.ts";
 import { noteSketchRead, sketchConcludeProblems, sketchGateOf, sketchIdsOf, type SketchGate } from "../../core/sketch-gate.ts";
+import { difficultyInfo, maxSkillsFor, type Difficulty } from "../../core/difficulty.ts";
 
 
 /** The record-reading context the gates need (the plan-tools idiom). */
@@ -53,6 +54,10 @@ export interface PracticeToolContext {
 	 *  field, validated against exactly these (names normalize to ids).
 	 *  Absent → the field does not exist. */
 	courseSkills?: () => ReadonlyArray<{ id: string; name: string }>;
+	/** The session's problem difficulty (fork addition, 2026-11-07 — core/difficulty.ts), resolved per turn.
+	 *  Present → the problem tool rejects more skill tags than the level allows (course sessions, where
+	 *  skills exist). Absent → no cap. */
+	difficulty?: Difficulty;
 }
 
 /** TURN-SCOPED GATE STATE (the BKT incident, 2026-10-05): the gates used
@@ -67,6 +72,9 @@ export interface PracticeToolContext {
  *  this closure — the intra-turn truth the record cannot hold yet. */
 export interface PracticeGate {
 	problemActive: boolean;
+	/** The active problem's tagged skill ids (a course session); conclude
+	 *  must grade exactly these. Absent/empty = nothing to grade. */
+	skills?: string[];
 	/** The active problem's newest sketch and its reading state (Android
 	 *  plan M2): conclude as solved waits on it. Null/absent = nothing to
 	 *  gate. */
@@ -78,8 +86,13 @@ export interface PracticeGate {
 export function createPracticeGate(ctx: PracticeToolContext): PracticeGate {
 	const record = ctx.chatStore.getChat(ctx.chatId);
 	const active = record ? activeProblemOf(record.messages) : null;
+	const tagged = (active?.input as { skills?: unknown } | undefined)?.skills;
+	// ids, whatever the record kept: a name the pose was normalized from still
+	// resolves, so a conclude can never be refused for grading "the wrong" skill
+	const list = ctx.courseSkills?.() ?? [];
 	return {
 		problemActive: active !== null,
+		skills: Array.isArray(tagged) ? [...new Set(tagged.filter((s): s is string => typeof s === "string").map((s) => resolveSkillId(s, list) ?? s))] : [],
 		sketch: record ? sketchGateOf(record.messages as unknown as AgentMessage[], active?.toolCallId ?? null) : null,
 	};
 }
@@ -135,6 +148,7 @@ export function problemTool(
 	gate: PracticeGate,
 	graphNodes?: PracticeToolContext["graphNodes"],
 	courseSkills?: PracticeToolContext["courseSkills"],
+	difficulty?: PracticeToolContext["difficulty"],
 ): AgentTool<typeof problemInputObject> {
 	const parameters = courseSkills ? courseProblemInputObject : problemInputObject;
 	return {
@@ -192,6 +206,12 @@ export function problemTool(
 						`skills ${JSON.stringify(unknown)} are not this session's skills — use ids from the session context's skill list: ${list.map((s) => s.id).join(", ")}`,
 					]);
 				}
+				// DIFFICULTY (fork addition, 2026-11-07): the level caps how many skills one problem tests.
+				if (difficulty && Array.isArray(tags) && tags.length > maxSkillsFor(difficulty)) {
+					return invalidInputResult("problem", [
+						`this session's difficulty is ${difficultyInfo(difficulty).label}: tag at most ${maxSkillsFor(difficulty)} skill(s) per problem (you tagged ${tags.length}) — pose a smaller problem that tests fewer skills, or tag only the skills it genuinely requires`,
+					]);
+				}
 			}
 			// TARGET VALIDATION (owner round 9, round 12): against the WHOLE
 			// graph, and ONLY when targets are present — absent means an
@@ -214,6 +234,8 @@ export function problemTool(
 			const figures = figureInputProblems(input, { perField: true });
 			if (figures.length > 0) return invalidInputResult("problem", figures);
 			gate.problemActive = true;
+			const posed = (input as { skills?: unknown }).skills;
+			gate.skills = Array.isArray(posed) ? posed.filter((s): s is string => typeof s === "string") : [];
 			gate.sketch = null; // a fresh problem starts with no sketch
 			return problemResult();
 		},
@@ -234,6 +256,20 @@ function withSkillIds(healed: unknown, courseSkills: PracticeToolContext["course
 
 // ─── conclude: the end of a problem ──────────────────────────────────────────
 
+/** `grades[].skill` references (ids or names) → ids, as `skills` does at the
+ *  pose. Unresolvable entries pass through for execute to reject. */
+function withGradeSkillIds(healed: unknown, courseSkills: PracticeToolContext["courseSkills"]): unknown {
+	if (!courseSkills) return healed;
+	const grades = (healed as { grades?: unknown }).grades;
+	if (!Array.isArray(grades)) return healed;
+	const list = courseSkills();
+	const normalized = grades.map((g) => {
+		const skill = (g as { skill?: unknown } | null)?.skill;
+		return typeof skill === "string" && g && typeof g === "object" ? { ...(g as object), skill: resolveSkillId(skill, list) ?? skill } : g;
+	});
+	return { ...(healed as Record<string, unknown>), grades: normalized };
+}
+
 export const concludeInputObject = Type.Object({
 	outcome: Type.Union(
 		[
@@ -241,9 +277,15 @@ export const concludeInputObject = Type.Object({
 			Type.Literal("solvedWithHints"),
 			Type.Literal("movedOn"),
 			Type.Literal("surrendered"),
+			Type.Literal("taught"),
 			Type.Literal("dismissed"),
 		],
-		{ description: "REQUIRED — the outcome: solved, solvedWithHints, movedOn, or surrendered — bare words, no quotes (dismissed is synthesized, never yours)." },
+		{
+			description:
+				"REQUIRED — the outcome: solved, solvedWithHints, movedOn, surrendered, or taught — bare words, no quotes " +
+				"(dismissed is synthesized, never yours). taught = you showed the correction and taught the point yourself " +
+				"instead of the learner reaching it.",
+		},
 	),
 	verdict: Type.String({
 		description: "REQUIRED — the plain-language verdict: what was credited, where it broke. On a wrong answer: localize the break, do NOT give the correction.",
@@ -264,11 +306,27 @@ export const concludeInputObject = Type.Object({
 		{ description: "REQUIRED — the miss classification: cue, discrimination, execution, careless, or structural — or null = no miss (bare, no quotes)." },
 	),
 	retest: Type.Boolean({ description: "REQUIRED — true marks the problem for a fresh-surface retest before the session ends." }),
+	grades: Type.Optional(
+		Type.Array(
+			Type.Object({
+				skill: Type.String({ description: "A skill id the problem was tagged with." }),
+				grade: Type.Union([Type.Literal("again"), Type.Literal("hard"), Type.Literal("good"), Type.Literal("easy")], {
+					description: "again, hard, good or easy — bare word, no quotes.",
+				}),
+			}),
+			{
+				description:
+					"REQUIRED in a course session — one entry per tagged skill: your judgment of what the learner demonstrated on THAT skill " +
+					"(Anki scale: again < hard < good < easy), never more than they demonstrated. This is what the course's understanding " +
+					"rating folds over; the practice prompt's grading guideline says how to judge. Omit outside a course session.",
+			},
+		),
+	),
 });
 
 export type ConcludeInput = Static<typeof concludeInputObject>;
 
-export function concludeTool(gate: PracticeGate): AgentTool<typeof concludeInputObject> {
+export function concludeTool(gate: PracticeGate, courseSkills?: PracticeToolContext["courseSkills"]): AgentTool<typeof concludeInputObject> {
 	return {
 		name: "conclude",
 		label: "conclude",
@@ -279,11 +337,25 @@ export function concludeTool(gate: PracticeGate): AgentTool<typeof concludeInput
 			"explicit go-ahead (a *Next problem* message, or their own words asking for the next one). Between problems, " +
 			"answer their questions about the concluded one. Nothing may conclude unless a problem is active.",
 		parameters: concludeInputObject,
-		prepareArguments: (args: unknown) => healEncodedArguments(args, concludeInputObject) as never,
+		prepareArguments: (args: unknown) => withGradeSkillIds(healEncodedArguments(args, concludeInputObject), courseSkills) as never,
 		executionMode: "sequential",
 		execute: async (_toolCallId, input) => {
 			if (!gate.problemActive) {
 				return invalidInputResult("conclude", ["no active problem to conclude — pose one first"]);
+			}
+			// GRADES (course sessions): exactly the problem's tagged skills, each once
+			const tagged = gate.skills ?? [];
+			if (tagged.length > 0) {
+				const graded = (input.grades ?? []).map((g) => g.skill);
+				const problems: string[] = [];
+				if (graded.length === 0) problems.push(`grades is required in a course session — one { skill, grade } entry for each tagged skill: ${tagged.join(", ")}`);
+				else {
+					const stray = graded.filter((id) => !tagged.includes(id));
+					const missing = tagged.filter((id) => !graded.includes(id));
+					if (stray.length > 0) problems.push(`grades names ${JSON.stringify(stray)}, which this problem did not tag — grade only: ${tagged.join(", ")}`);
+					if (missing.length > 0) problems.push(`grades is missing ${JSON.stringify(missing)} — grade every tagged skill: ${tagged.join(", ")}`);
+				}
+				if (problems.length > 0) return invalidInputResult("conclude", problems);
 			}
 			// THE SKETCH GATE (Android plan M2): a solved outcome waits on the
 			// newest sketch being read, free of doubts, and undisputed. A refusal
@@ -313,8 +385,8 @@ export function practiceTools(ctx: PracticeToolContext): Record<string, AgentToo
 	// keep their own (target-normalizing) prepareArguments as the composed
 	// inner pass; the double heal is idempotent by construction.
 	return healToolRecord({
-		problem: problemTool(gate, ctx.graphNodes, ctx.courseSkills),
-		conclude: concludeTool(gate),
+		problem: problemTool(gate, ctx.graphNodes, ctx.courseSkills, ctx.difficulty),
+		conclude: concludeTool(gate, ctx.courseSkills),
 		// The tutor's transcription of the learner's handwriting (Android
 		// plan M2) — sketches are named from the record, fresh per call; a
 		// read flips the conclude gate mid-turn.

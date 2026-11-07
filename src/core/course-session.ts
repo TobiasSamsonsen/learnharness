@@ -94,8 +94,11 @@ export interface SessionSkill {
 	id: string;
 	name: string;
 	statement: string;
-	box: number;
+	/** 0–10 (core/mastery.ts); 0 = not learned. */
+	understanding: number;
+	learned: boolean;
 	known: boolean;
+	needsReview: boolean;
 }
 
 export const COURSE_MODE_LABEL: Record<CourseMode, string> = {
@@ -113,7 +116,11 @@ export interface CourseContextDetails {
 	skills: Array<{ id: string; name: string; statement: string }>;
 }
 
-const stateLabel = (s: SessionSkill) => (s.known ? `known (box ${s.box} of 5)` : s.box === 0 ? "not learned yet" : `learned, not yet known (box ${s.box} of 5)`);
+const stateLabel = (s: SessionSkill) => {
+	if (!s.learned) return "not learned yet";
+	const level = `understanding ${s.understanding} of 10`;
+	return `${s.known ? "known" : "learned, not yet known"} (${level}${s.needsReview ? ", due for review" : ""})`;
+};
 
 /** The session's context marker (message[0]). `background` = a Learn
  *  session's prerequisites (listed as context, not as targets). */
@@ -200,7 +207,7 @@ export function courseFirstMessage(
 	}
 }
 
-const TAGGING_LAW = `Every problem you pose tests one or more of the session's skills (the session context lists them with their ids), and the problem call's \`skills\` field MUST name them. That tag is how the course tracks what the learner knows: concluding moves the tagged skills' review boxes — \`solved\` (no hints) is a clean solve, \`solvedWithHints\` is not, \`movedOn\` and \`surrendered\` are misses. Tag only the skills solving the problem genuinely requires, and conclude honestly.`;
+const TAGGING_LAW = `Every problem you pose tests one or more of the session's skills (the session context lists them with their ids), and the problem call's \`skills\` field MUST name them. That tag is how the course tracks what the learner knows: concluding grades each tagged skill (the \`grades\` field, one entry per skill, on the again/hard/good/easy scale — the practice prompt's grading guideline says how) and that grade moves the skill's understanding. Tag only the skills solving the problem genuinely requires, and grade honestly: never more than the learner demonstrated.`;
 
 /** The per-turn system-prompt section of a course session. */
 export function coursePromptSection(mode: CourseMode, courseTitle: string, skills: readonly SessionSkill[]): string {
@@ -240,7 +247,11 @@ export function coursePromptSection(mode: CourseMode, courseTitle: string, skill
 				`- Once they have shown it, wrap up in two or three sentences, call \`${FINISH_SESSION_TOOL}\`, and pose nothing more. If a problem reveals a real gap, say so plainly and recommend a Learn session on the skill instead of stretching this one.`,
 			);
 		} else {
-			body.push(`These skills are due for review. Pose one fresh problem per skill — a new surface, never a repeat — in the order listed. When every skill has had its problem, wrap up and call \`${FINISH_SESSION_TOOL}\`.`);
+			body.push(
+				"This is a REVIEW session: the skills below were chosen because they need work (the weakest, one not practiced for a long time) and the first is one the learner is strong on, to start warm. Together they ARE the session; do not add skills or extra problems.",
+				"Test every listed skill in the order listed with a fresh problem, a new surface and never a repeat. At difficulty Short that is one problem per skill; at a higher difficulty group the skills, in order, into problems of the size the difficulty section sets.",
+				`When every skill has been tested (and at most one retest after a taught problem), wrap up in a few sentences and call \`${FINISH_SESSION_TOOL}\`.`,
+			);
 		}
 	}
 	return `<course>\n${body.filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n").trim()}\n</course>`;

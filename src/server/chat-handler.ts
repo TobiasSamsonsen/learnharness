@@ -55,6 +55,7 @@ import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.
 import { emit } from "../core/events.ts";
 import { resolveLessonLanguage } from "../core/language.ts";
 import { resolvePace } from "../core/pace.ts";
+import { resolveDifficulty } from "../core/difficulty.ts";
 import { materialsForTurn } from "./materials.ts";
 import { ensureSketchPngs, normalizePhotoSketch, persistInputSketch, resolveSketchRef, sketchImagesFor } from "./sketches.ts";
 import { courseForTurn } from "./courses.ts";
@@ -513,6 +514,8 @@ export async function handleChatInput(
 		// The session's pace and time note (fork addition, 2026-11-01): read fresh each turn, so a change
 		// takes effect on the next one. A course's note wins over the session's own.
 		pace: { level: resolvePace(record.settings), note: course?.note ?? record.settings?.paceNote },
+		// The session's problem difficulty (fork addition, 2026-11-07): the practice agent's problem size.
+		difficulty: resolveDifficulty(record.settings),
 		// The lesson's source material (fork addition): profiles in the
 		// prompt + the lookup tools; absent when the lesson has none.
 		materials: materialsForTurn(chatId),
@@ -569,6 +572,8 @@ export async function handleChatInput(
 						// COURSE SESSIONS (docs/courses.md §1.4): the problem tool
 						// tags the session's skills — the boxes' evidence.
 						...(course?.skills ? { courseSkills: course.skills } : {}),
+						// The session's problem difficulty (fork addition, 2026-11-07): caps the skills a problem tags.
+						difficulty: resolveDifficulty(record.settings),
 					},
 					agentOpts,
 				)

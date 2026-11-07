@@ -14,7 +14,7 @@ import { SwipeRow } from "@/components/swipe-row";
  * §6): one row per course with how much of its curriculum is known, and
  * "+ New course" (creates "Untitled course" and opens its page). Freshness
  * rides the events channel like the session list: courses-changed, and
- * every turn settle (a concluded practice problem moves a box).
+ * every turn settle (a concluded practice problem moves understanding).
  */
 
 /** The row's meta line. Pure — exported for render tests. */
@@ -22,7 +22,7 @@ export function courseMeta(course: CourseSummary): string {
 	if (course.status === "drafting") return "Drafting skill map…";
 	if (course.total === 0) return course.status === "draft" ? "Draft ready to review" : course.status === "error" ? "Drafting failed" : "No skill map yet";
 	const pct = Math.round((course.known / course.total) * 100);
-	return `${course.known}/${course.total} known · ${pct}%${course.due > 0 ? ` · ${course.due} due` : ""}`;
+	return `${course.known}/${course.total} known · ${pct}%${course.needsReview > 0 ? ` · ${course.needsReview} due` : ""}`;
 }
 
 export function CourseRow({ course, active, onOpen }: { course: CourseSummary; active: boolean; onOpen: () => void }) {

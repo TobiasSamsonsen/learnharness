@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, Loader2Icon } from "lucide-react";
 import {
 	COURSE_MODE_LABEL,
-	KNOWN_BOX,
-	MAX_BOX,
+	KNOWN_UNDERSTANDING,
+	MAX_UNDERSTANDING,
 	placementQuestionTarget,
 	type CourseMode,
 	type CourseSkillView,
@@ -32,15 +32,15 @@ import { cn } from "@/lib/utils";
  * session a course can start (2026-10-25: the placement test offered first,
  * finished lessons unlock what builds on them). Everything shown is derived server-side (GET
  * /api/courses/:id); the page refetches on courses-changed and on every
- * turn settle (a concluded practice problem moves a box).
+ * turn settle (a concluded practice problem moves understanding).
  */
 
 export type CoursePayload = CourseView & { drafting: boolean };
 
 /** A skill's state word. Pure — exported for render tests. */
-export function skillStateLabel(skill: Pick<CourseSkillView, "box" | "learned" | "known" | "missing">): string {
-	if (skill.known) return `Known · box ${skill.box}/${MAX_BOX}`;
-	if (skill.learned) return `Learned · box ${skill.box}/${MAX_BOX}`;
+export function skillStateLabel(skill: Pick<CourseSkillView, "understanding" | "learned" | "known" | "missing">): string {
+	if (skill.known) return `Known · understanding ${skill.understanding}/${MAX_UNDERSTANDING}`;
+	if (skill.learned) return `Learned · understanding ${skill.understanding}/${MAX_UNDERSTANDING}`;
 	if (skill.missing.length > 0) return "Locked";
 	return "Not started";
 }
@@ -95,8 +95,8 @@ function PlacementOffer({ total, busy, onTake, onSkip }: { total: number; busy: 
 }
 
 function dueLine(skill: CourseSkillView, now = Date.now()): string | null {
-	if (skill.box === 0 || !skill.dueAt) return null;
-	const ms = Date.parse(skill.dueAt) - now;
+	if (!skill.learned || !skill.reviewAt) return null;
+	const ms = Date.parse(skill.reviewAt) - now;
 	if (ms <= 0) return "due now";
 	const days = Math.ceil(ms / 86_400_000);
 	return days === 1 ? "due tomorrow" : `due in ${days} days`;
@@ -407,7 +407,7 @@ export function CourseBody({
 							<div className="mb-2 flex items-center justify-between">
 								<span className={cn(SECTION_HEAD, "mb-0")}>Due for review · {data.review.length}</span>
 								<button type="button" className={BTN} disabled={busy} onClick={() => onStart("review")}>
-									Review
+									Review{data.reviewBatch < data.review.length ? ` · ${data.reviewBatch} of ${data.review.length}` : ""}
 								</button>
 							</div>
 							<div className="space-y-1.5">{list(data.review).map((s) => <SkillRow key={s.id} skill={s} names={names} />)}</div>
@@ -653,7 +653,7 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 							data-testid="course-review-button"
 							onClick={() => void onStart("review")}
 						>
-							Review{data.review.length > 0 ? ` · ${data.review.length}` : ""}
+							Review{data.review.length > 0 ? (data.reviewBatch < data.review.length ? ` · ${data.reviewBatch} of ${data.review.length}` : ` · ${data.review.length}`) : ""}
 						</button>
 					</span>
 				)}
@@ -685,8 +685,8 @@ data={data}
 						Delete course…
 					</button>
 					<p className="mt-1 text-[11px] text-muted-foreground/60">
-						Learned: a finished lesson or a placement credit — it unlocks the skills that build on it. Known: box {KNOWN_BOX} or higher — clean
-						solves on spaced days, or a confident correct answer in the placement test.
+						Learned: a finished lesson or a placement credit — it unlocks the skills that build on it. Known: understanding {KNOWN_UNDERSTANDING} or higher — about a month of
+						memory, built by solving it on spaced days or a confident correct answer in the placement test.
 					</p>
 				</div>
 			</div>

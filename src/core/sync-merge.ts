@@ -412,7 +412,7 @@ function mergeSections(i: MergeInput & { local: string; remote: string }, depth:
 /** Top-level sections that travel whole. */
 const PORTABLE_SECTIONS = ["version", "agent", "models", "graph", "compaction"] as const;
 /** `general` travels only these; the rest of it (dictationEngine, autoUpdate) is per device. */
-const PORTABLE_GENERAL = ["language", "pace"] as const;
+const PORTABLE_GENERAL = ["language", "pace", "difficulty"] as const;
 
 /** Sorted keys, tab-indented: two devices holding the same settings produce the same bytes. */
 export function canonicalJson(v: unknown): string {
@@ -427,7 +427,7 @@ export function canonicalJson(v: unknown): string {
 
 /**
  * The part of settings.json that travels between devices (owner decision,
- * 2026-11-02): models, agent, graph, compaction and general.language/pace.
+ * 2026-11-02): models, agent, graph, compaction and general.language/pace/difficulty.
  * customProvider, claudeCode, dictation, appearance, notices,
  * general.dictationEngine/autoUpdate and any unknown key stay on the device.
  * null when the text is not a JSON object.

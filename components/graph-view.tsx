@@ -67,7 +67,7 @@ import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, use
 import { NotesImportControl, NotesImportErrors, NotesImportNotices, useNotesImport } from "@/components/notes-import.tsx";
 import Link from "next/link";
 import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
-import { incrementalLayout, isSkillNodeId, MAX_BOX, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
+import { incrementalLayout, isSkillNodeId, MAX_UNDERSTANDING, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
 import { planCostLabel } from "@/components/usage-format";
 import { GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
@@ -182,8 +182,8 @@ export function SkillDetail({
 	return (
 		<div className="mt-3 flex flex-col gap-2" data-testid="skill-detail">
 			<div className="text-xs text-muted-foreground">
-				Skill · {skill.known ? "known" : "learning"} · box {skill.box}/{MAX_BOX}
-				{skill.due ? " · due for review" : ""}
+				Skill · {skill.known ? "known" : "learning"} · understanding {skill.understanding}/{MAX_UNDERSTANDING}
+				{skill.needsReview ? " · due for review" : ""}
 			</div>
 			{skill.courses.length > 0 && (
 				<div className="flex flex-col gap-1">
@@ -1478,7 +1478,7 @@ export function GraphView({
 					x: positions.get(n.id)?.x ?? 0,
 					y: positions.get(n.id)?.y ?? 0,
 					label: n.name,
-					...(skill ? { skill: { known: skill.known, due: skill.due } } : {}),
+					...(skill ? { skill: { known: skill.known, due: skill.needsReview } } : {}),
 				};
 			}),
 			edges: snapshot.edges.map((e) => ({ from: e.from, to: e.to })),

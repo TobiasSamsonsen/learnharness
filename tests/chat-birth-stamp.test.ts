@@ -59,6 +59,7 @@ describe("POST /api/chats — the birth stamp", () => {
 			thinkingLevel: "low",
 			language: "en",
 			pace: "thorough",
+			difficulty: "short",
 		});
 	});
 
@@ -70,7 +71,7 @@ describe("POST /api/chats — the birth stamp", () => {
 		const { id } = (await res.json()) as { id: string };
 		const record = chatStore.getChat(id);
 		assert.ok(record);
-		assert.deepEqual(record.settings, { language: "en", pace: "thorough" }, "no model stamped — nothing to lie about; the factory language and pace are");
+		assert.deepEqual(record.settings, { language: "en", pace: "thorough", difficulty: "short" }, "no model stamped — nothing to lie about; the factory language, pace and difficulty are");
 	});
 
 	it("an unset thinking level rides as-is — the session's level resolves (strong's, then the model's ladder)", async () => {
@@ -83,7 +84,7 @@ describe("POST /api/chats — the birth stamp", () => {
 		const record = chatStore.getChat(id);
 		assert.ok(record);
 		assert.equal(record.settings?.thinkingLevel, undefined);
-		assert.deepEqual(record.settings, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" }, language: "en", pace: "thorough" });
+		assert.deepEqual(record.settings, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" }, language: "en", pace: "thorough", difficulty: "short" });
 	});
 
 	it("the language stamps from the default (general.language) and stays a copy (fork addition)", async () => {

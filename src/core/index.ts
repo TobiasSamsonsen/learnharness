@@ -71,6 +71,8 @@ export * from "./settings.ts";
 export * from "./language.ts";
 // Lesson pace + time note (fork addition, 2026-11-01).
 export * from "./pace.ts";
+// Problem difficulty (fork addition, 2026-11-07).
+export * from "./difficulty.ts";
 // Live dictation piece sizing (fork addition, 2026-10-26 — the Android plan M7b).
 export * from "./dictation-pieces.ts";
 // Upstream release notices (fork addition, 2026-10-24).

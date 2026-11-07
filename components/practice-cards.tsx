@@ -22,11 +22,13 @@ import { repairMathForDisplay, type ArtifactPartProps, type SketchRef } from "@/
  *   language in a faint user-side shell, never collapsible.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 
 import { ThinkingBlock } from "@/components/thinking-block";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
+import { ChatActionsContext } from "@/components/chat";
 
 /* TARGET NAMES (owner round 17, 2026-10-06): targets are normalized to
  * opaque node ids at the record seam (owner round 9 — the mastery trace
@@ -84,6 +86,7 @@ const OUTCOME_LABEL: Record<string, string> = {
 	solvedWithHints: "Solved with hints",
 	movedOn: "Moved on",
 	surrendered: "Surrendered",
+	taught: "Taught",
 	dismissed: "Dismissed",
 };
 
@@ -97,6 +100,7 @@ const OUTCOME_CHIP: Record<string, string> = {
 	solvedWithHints: "bg-amber-500/15 text-amber-500",
 	movedOn: "bg-muted text-muted-foreground",
 	surrendered: "bg-red-500/15 text-red-500",
+	taught: "bg-sky-500/15 text-sky-500",
 	dismissed: "bg-muted text-muted-foreground",
 };
 
@@ -107,11 +111,12 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 	// below in the quiz-explanation register (small, muted, low-key).
 	// Nothing collapsible. Legacy inputs (pre-slim records) that carry
 	// their own solutionReveal fall back to it.
-	const input = (part.input ?? {}) as { outcome?: string; verdict?: string; solutionReveal?: string };
+	const input = (part.input ?? {}) as { outcome?: string; verdict?: string; solutionReveal?: string; grades?: unknown };
 	const outcome = typeof input.outcome === "string" ? input.outcome : "";
 	const verdict = typeof input.verdict === "string" ? input.verdict : "";
 	const reveal =
 		typeof part.reveal === "string" ? part.reveal : typeof input.solutionReveal === "string" ? input.solutionReveal : "";
+	const chat = useContext(ChatActionsContext);
 
 	// The dismissal synthesis: no verdict, no reveal — one muted line (the
 	// learner clicked; the record needs only the fact).
@@ -156,10 +161,109 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 					</div>
 				</>
 			)}
+			{chat && <LearnSkillButtons chatId={chat.chatId} skillIds={learnableSkillIds(input)} />}
 			<MetadataPopover
 				concludeInput={input}
 				problemInput={(part.problemInput ?? {}) as { mode?: unknown; target?: unknown }}
 			/>
+		</div>
+	);
+}
+
+/** The outcomes that leave room to learn a skill the tutor graded `again`. */
+const LEARNABLE_OUTCOMES = ["taught", "movedOn", "surrendered"];
+
+/** The skill ids the tutor graded `again` on a concluded problem, when the
+ *  outcome leaves room to learn them. Pure; malformed grades are skipped. */
+export function learnableSkillIds(input: { outcome?: unknown; grades?: unknown }): string[] {
+	if (typeof input.outcome !== "string" || !LEARNABLE_OUTCOMES.includes(input.outcome)) return [];
+	if (!Array.isArray(input.grades)) return [];
+	const ids: string[] = [];
+	for (const g of input.grades as unknown[]) {
+		if (typeof g !== "object" || g === null) continue;
+		const { skill, grade } = g as { skill?: unknown; grade?: unknown };
+		if (typeof skill === "string" && grade === "again") ids.push(skill);
+	}
+	return [...new Set(ids)];
+}
+
+const LEARN_BTN =
+	"rounded-md border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50";
+
+/* THE LEARN BUTTONS (owner goal, 2026-11-07): a concluded review or practice
+ * problem offers a Learn session on each skill the tutor graded `again`. The
+ * course's skill names are read once per mount; any failure renders nothing.
+ * Starting a Learn session changes no mastery — the review resumes from the
+ * Next problem chip. */
+function LearnSkillButtons({ chatId, skillIds }: { chatId: string; skillIds: string[] }) {
+	const [course, setCourse] = useState<{ courseId: string; skills: Array<{ id: string; name: string }> } | null>(null);
+	const key = skillIds.join("|");
+	useEffect(() => {
+		if (key === "") return;
+		let alive = true;
+		fetch(`/api/chats/${encodeURIComponent(chatId)}/course`)
+			.then((r) => (r.ok ? (r.json() as Promise<{ courseId?: unknown; skills?: unknown } | null>) : null))
+			.then((body) => {
+				if (alive && body && typeof body.courseId === "string" && Array.isArray(body.skills)) {
+					setCourse({ courseId: body.courseId, skills: body.skills as Array<{ id: string; name: string }> });
+				}
+			})
+			.catch(() => {});
+		return () => {
+			alive = false;
+		};
+	}, [chatId, key]);
+	if (!course) return null;
+	const targets = skillIds
+		.map((id) => course.skills.find((s) => s.id === id))
+		.filter((s): s is { id: string; name: string } => s !== undefined);
+	if (targets.length === 0) return null;
+	return <LearnSkillRow courseId={course.courseId} skills={targets} />;
+}
+
+function LearnSkillRow({ courseId, skills }: { courseId: string; skills: Array<{ id: string; name: string }> }) {
+	const router = useRouter();
+	const [busy, setBusy] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const learn = async (skillId: string) => {
+		setBusy(skillId);
+		setError(null);
+		try {
+			const res = await fetch(`/api/courses/${courseId}/sessions`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ mode: "learn", skillId }),
+			});
+			if (!res.ok) {
+				const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+				setError(typeof body?.error === "string" ? body.error : `Could not start the lesson (${res.status})`);
+				setBusy(null);
+				return;
+			}
+			const { id, prompt } = (await res.json()) as { id: string; prompt: string };
+			router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}`);
+		} catch {
+			setError("Could not start the lesson");
+			setBusy(null);
+		}
+	};
+	return (
+		<div className="mt-3">
+			<div className="flex flex-wrap gap-2">
+				{skills.map((s) => (
+					<button
+						key={s.id}
+						type="button"
+						data-testid={`learn-skill-${s.id}`}
+						disabled={busy !== null}
+						onClick={() => void learn(s.id)}
+						className={LEARN_BTN}
+					>
+						{`Learn ${s.name}`}
+					</button>
+				))}
+			</div>
+			{error && <div className="mt-2 text-xs text-red-500">{error}</div>}
 		</div>
 	);
 }

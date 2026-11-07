@@ -7,6 +7,7 @@ import { activeProblemOf, asAgentMessages, hasProbeDone, pendingQuestionOf, toLl
 import { emit } from "../core/events.ts";
 import { resolveLessonLanguage } from "../core/language.ts";
 import { resolvePace } from "../core/pace.ts";
+import { resolveDifficulty } from "../core/difficulty.ts";
 import { resolveConversationSpec } from "../core/settings-resolution.ts";
 import { modelsNotConfigured, providerKeyMissing as providerKeyMissingEnvelope } from "../core/settings.ts";
 import {
@@ -173,6 +174,7 @@ export async function handleClarifyRequest(
 		promptSwitches: effective.agent.prompts,
 		language: resolveLessonLanguage(record.settings),
 		pace: { level: resolvePace(record.settings), note: course?.note ?? record.settings?.paceNote },
+		difficulty: resolveDifficulty(record.settings),
 		materials: materialsForTurn(chatId),
 		...(course ? { course: { section: course.section } } : {}),
 	});

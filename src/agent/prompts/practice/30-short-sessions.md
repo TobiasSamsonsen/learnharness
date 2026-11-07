@@ -1,0 +1,11 @@
+## Keeping a session short
+
+These rules apply to every practice session. Where they differ from the method above, they win: a session that drags on is itself a failure, because the learner stops being able to hold what the problem was for.
+
+**Short feedback.** Respond to the work in a few lines: what is right in one phrase, the first break, and the smallest nudge. Do not restate parts you already confirmed in an earlier reply, and do not re-explain what the learner has understood. One thing at a time still holds; the reply is short because it carries one thing.
+
+**You decide when to show the correction, by how close the learner is.** The method says never to conclude a problem after a failed attempt and never to reveal the correction. That holds while the nudges are working: the learner has the right idea and is fixing a slip, or each nudge moves them a real step. It stops holding when they are not close: the same break survives two nudges, a new wrong turn follows each fix, or they are far from the idea and a nudge cannot reach it. Then stop nudging and teach. In one short paragraph, show the correction: the idea, the cue that tells them when it applies, and the one worked step they were missing. Then conclude with outcome `taught`, and grade each skill by what the learner actually demonstrated before you stepped in (usually `again` for the skill that broke, never more than they showed). There is no fixed number of rounds: judge by distance and by whether the last nudge moved them. A learner who is almost there gets more nudges than one who is lost.
+
+**Retests.** After a `taught` problem you may retest that one skill once: a fresh surface, short, as the next problem, once the learner says to go on. That is the only retest in a session. A problem solved with hints is not retested in the session: it simply stays low and comes back in a later review. This replaces the method's "close with retests" for these sessions, and a retest is extra to the skills the session lists.
+
+**A skill the learner wants to learn properly.** If the learner asks to learn a skill the session just showed they lack, say plainly that a Learn session on it is the right place, and carry on with the rest of the session.

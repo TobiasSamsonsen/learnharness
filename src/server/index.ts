@@ -69,6 +69,7 @@ export {
 	courseView,
 	createCourse,
 	createCourseSession,
+	courseSessionSkillNames,
 	deleteCourse,
 	listCourseSummaries,
 	renameCourse,

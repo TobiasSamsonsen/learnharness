@@ -138,8 +138,8 @@ export interface CourseSummary {
 	updatedAt: string;
 	total: number;
 	known: number;
-	/** Skills due for review now. */
-	due: number;
+	/** Skills that need review now (retrievability below the FSRS target). */
+	needsReview: number;
 }
 
 /** One skill's state in a course view. */
@@ -148,13 +148,16 @@ export interface CourseSkillView {
 	name: string;
 	statement: string;
 	requires: string[];
-	box: number;
-	/** box ≥ 1 — a finished lesson or any credit; unlocks what builds on it. */
+	/** 0–10, how long the skill lasts (core/mastery.ts); 0 = not learned. */
+	understanding: number;
+	/** A finished lesson or any credit; unlocks what builds on it. */
 	learned: boolean;
+	/** understanding ≥ KNOWN_UNDERSTANDING. */
 	known: boolean;
-	due: boolean;
-	/** ISO — when the skill next comes due; null at box 0 (always due). */
-	dueAt: string | null;
+	/** Recall now is below the FSRS target (90%). */
+	needsReview: boolean;
+	/** ISO — when recall reaches the target; null = not learned. */
+	reviewAt: string | null;
 	/** The prerequisites not learned yet (locked skills). */
 	missing: string[];
 	/** The propositions it rests on: stored links ∪ derived from Learn sessions. */
@@ -168,6 +171,8 @@ export interface CourseView {
 	skills: CourseSkillView[];
 	/** Ids, topological order. */
 	review: string[];
+	/** How many of `review` the next Review session takes (the session cap). */
+	reviewBatch: number;
 	/** Not learned, prerequisites learned — what to learn next. */
 	nextUp: string[];
 	/** Learned, not known yet — what to practice. */

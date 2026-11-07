@@ -33,9 +33,9 @@ const skill = (id: string, over: Partial<NonNullable<GraphSnapshot["skills"]>["n
 	id,
 	name: id.toUpperCase(),
 	statement: `Do ${id}`,
-	box: 3,
+	understanding: 6,
 	known: true,
-	due: false,
+	needsReview: false,
 	courses: [{ id: "course_1", title: "ITGK" }],
 	propositions: [],
 	...over,
@@ -50,7 +50,7 @@ describe("folding the skills layer into the graph", () => {
 	it("skills join nodes, edges, logical edges and regions; propositions stay the stored truth", () => {
 		const s = snapshot({
 			skills: {
-				nodes: [skill("sk_a"), skill("sk_b", { known: false, box: 1, propositions: ["n_1"] })],
+				nodes: [skill("sk_a"), skill("sk_b", { known: false, understanding: 2, propositions: ["n_1"] })],
 				edges: [
 					{ from: "sk_a", to: "sk_b" },
 					{ from: "n_1", to: "sk_b" },
@@ -72,9 +72,9 @@ describe("folding the skills layer into the graph", () => {
 describe("a skill's detail card", () => {
 	it("shows its state, its courses (linked) and what it rests on", () => {
 		const html = renderToStaticMarkup(
-			<SkillDetail skill={skill("sk_b", { known: false, box: 1, due: true, propositions: ["n_1", "n_missing"] })} propositionName={(id) => (id === "n_1" ? "Lists are mutable" : undefined)} />,
+			<SkillDetail skill={skill("sk_b", { known: false, understanding: 2, needsReview: true, propositions: ["n_1", "n_missing"] })} propositionName={(id) => (id === "n_1" ? "Lists are mutable" : undefined)} />,
 		);
-		assert.match(html, /data-testid="skill-detail"[\s\S]*Skill · learning · box 1\/5 · due for review/);
+		assert.match(html, /data-testid="skill-detail"[\s\S]*Skill · learning · understanding 2\/10 · due for review/);
 		assert.match(html, /href="\/course\/course_1"[^>]*>ITGK</);
 		assert.match(html, /Rests on[\s\S]*Lists are mutable/);
 		assert.doesNotMatch(html, /n_missing/);

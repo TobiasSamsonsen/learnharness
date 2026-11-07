@@ -45,6 +45,7 @@ import {
 } from "./language.ts";
 import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
 import { DEFAULT_PACE, isPace, type Pace } from "./pace.ts";
+import { DEFAULT_DIFFICULTY, isDifficulty, type Difficulty } from "./difficulty.ts";
 import { parseFileAccessSettings, type FileAccessSettings } from "./file-access.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
@@ -369,6 +370,8 @@ export interface GeneralSettings {
 	dictationEngine?: DictationEngine;
 	/** The default pace (fork addition, 2026-11-01 - core/pace.ts): stamped onto every new session. */
 	pace?: Pace;
+	/** The default problem difficulty (fork addition, 2026-11-07 - core/difficulty.ts): stamped onto every new session. */
+	difficulty?: Difficulty;
 }
 
 /** One app-wide dictation preference, shared by every composer. */
@@ -558,7 +561,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true, language: DEFAULT_LESSON_LANGUAGE, dictationEngine: DEFAULT_DICTATION_ENGINE, pace: DEFAULT_PACE },
+	general: { autoUpdate: true, language: DEFAULT_LESSON_LANGUAGE, dictationEngine: DEFAULT_DICTATION_ENGINE, pace: DEFAULT_PACE, difficulty: DEFAULT_DIFFICULTY },
 	dictation: { language: "en" },
 	appearance: {
 		mode: "dark",
@@ -607,6 +610,7 @@ function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
 	if (isLessonLanguage(raw.language)) out.language = raw.language;
 	if (isDictationEngine(raw.dictationEngine)) out.dictationEngine = raw.dictationEngine;
 	if (isPace(raw.pace)) out.pace = raw.pace;
+	if (isDifficulty(raw.difficulty)) out.difficulty = raw.difficulty;
 	return out;
 }
 

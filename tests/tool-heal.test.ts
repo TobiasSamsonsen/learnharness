@@ -239,3 +239,53 @@ describe("the leaked parameter boundary (Matte 1 placement, 2026-10-25)", () => 
 		assert.equal(healEncodedArguments(present, placementProbeInput), present);
 	});
 });
+
+describe("the leaked JSON boundary (Matte 1 review, 2026-11-07)", () => {
+	// The exact failed call, shortened: the quoting broke inside `statement`, so
+	// the rest of the object rode inside that string, `\n` as two characters.
+	const schema = {
+		properties: {
+			statement: { type: "string" },
+			mode: { anyOf: [{ const: "recall" }, { const: "discrimination" }, { const: "composition" }] },
+			modelSolution: { type: "string" },
+			skills: { type: "array" },
+		},
+	};
+	const head = String.raw`Bruk definisjonen $f'(a)=\lim_{h\to0}\dfrac{f(a+h)-f(a)}{h}$.\n\n**a)** $f(x)=|x-1|$.\n\n**b)** Er $x\neq 1$? \nc) neste.`;
+	const tail = String.raw`","mode":"recall","modelSolution":"a) f(1)=0.\\nb) g(0)=0.","skills":["sk_e0358a5e4f82"]}` + "\n";
+	const leaked = { statement: head + tail };
+
+	it("splits the fields back out, and the healed call carries real newlines", () => {
+		const healed = healEncodedArguments(leaked, schema) as Record<string, unknown>;
+		assert.equal(healed.mode, "recall");
+		assert.deepEqual(healed.skills, ["sk_e0358a5e4f82"]);
+		assert.equal(
+			healed.statement,
+			"Bruk definisjonen $f'(a)=\\lim_{h\\to0}\\dfrac{f(a+h)-f(a)}{h}$.\n\n**a)** $f(x)=|x-1|$.\n\n**b)** Er $x\\neq 1$? \nc) neste.",
+			"\\n becomes a newline; LaTeX \\lim, \\to, \\dfrac and \\neq are kept",
+		);
+		assert.equal(healed.modelSolution, "a) f(1)=0.\nb) g(0)=0.");
+	});
+
+	it("halves a doubled-backslash LaTeX run (the real call's case block)", () => {
+		const doubled = { statement: String.raw`$$k(x)=\\begin{cases}x^2, & x\\le 1\\\\ 2x-1, & x>1\\end{cases}$$` + tail };
+		const healed = healEncodedArguments(doubled, schema) as Record<string, unknown>;
+		assert.equal(healed.statement, String.raw`$$k(x)=\begin{cases}x^2, & x\le 1\\ 2x-1, & x>1\end{cases}$$`);
+	});
+
+	it("leaves it alone when a named field is unknown, already present, or the tail does not parse", () => {
+		const unknown = { statement: head + '","bogus":"x"}' };
+		assert.equal(healEncodedArguments(unknown, schema), unknown);
+		const present = { statement: head + tail, mode: "recall" };
+		assert.equal((healEncodedArguments(present, schema) as Record<string, unknown>).statement, head + tail);
+		const broken = { statement: head + '","mode":"recall","modelSolution":"unterminated' };
+		assert.equal(healEncodedArguments(broken, schema), broken);
+	});
+
+	it("leaves well-formed args and ordinary quoted text as the same reference", () => {
+		const fine = { statement: 'Si "ja","nei": hvilket?', mode: "recall", modelSolution: "M", skills: ["sk_1"] };
+		assert.equal(healEncodedArguments(fine, schema), fine);
+		const mention = { statement: 'Lag en liste: "a","mode": ikke et felt.' };
+		assert.equal(healEncodedArguments(mention, schema), mention, "an unparseable tail is not a leak");
+	});
+});

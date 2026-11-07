@@ -83,6 +83,52 @@ function healLeakedParameters(args: Record<string, unknown>, properties: Record<
 	return healed ?? args;
 }
 
+/** A leaked JSON boundary inside a string value (2026-11-07, a Matte 1
+ *  review): the model's object quoting broke inside `statement`, so the rest
+ *  of the call (`","mode":"recall","modelSolution":"…","skills":[…]}`) rode
+ *  inside that one string and every other required field was missing. The
+ *  validation rejected it and the model had to send the call again. */
+const LEAKED_JSON_FIELD = /","([A-Za-z_]\w*)"\s*:/;
+
+/** LaTeX commands that begin with `n`: a literal backslash-n before one of
+ *  these is LaTeX, not a newline. */
+const LATEX_N_COMMAND = /\\n(?:eq|e|u|abla|ot|otin|i|less|geq|leq|mid|parallel|prec|subset|sim|cong|exists|ewline)(?![A-Za-z])/;
+
+/** A broken-quoting string carries `\n` as two characters, and often its
+ *  LaTeX with every backslash doubled (`\\begin`, `\\\\` for a row break):
+ *  halve a doubled row break and a doubled backslash before a letter, and
+ *  make the newlines newlines again, except where they start a LaTeX command. */
+function unescapeNewlines(text: string): string {
+	return text
+		.replace(/\\\\\\\\/g, "\\\\")
+		.replace(/\\\\(?=[A-Za-z])/g, "\\")
+		.split(/(\\n(?:[A-Za-z]+)?)/)
+		.map((piece) => (piece.startsWith("\\n") && !LATEX_N_COMMAND.test(piece) ? "\n" + piece.slice(2) : piece))
+		.join("");
+}
+
+/** Re-split a string whose tail is the rest of the call's JSON object —
+ *  only when the tail parses, every field it names is a schema property
+ *  absent from the args and named once; anything else stays for validation
+ *  to reject honestly. The string fields are unescaped (see above). */
+function healLeakedJsonFields(args: Record<string, unknown>, properties: Record<string, PropSchema>): Record<string, unknown> {
+	for (const [key, value] of Object.entries(args)) {
+		if (typeof value !== "string") continue;
+		const match = LEAKED_JSON_FIELD.exec(value);
+		if (!match || !(match[1]! in properties) || match[1]! in args) continue;
+		const head = value.slice(0, match.index);
+		const tail = tryParse("{" + value.slice(match.index + 2).trim());
+		if (typeof tail !== "object" || tail === null || Array.isArray(tail)) continue;
+		const fields = tail as Record<string, unknown>;
+		const names = Object.keys(fields);
+		if (!names.every((name) => name in properties && !(name in args) && name !== key)) continue;
+		const healed: Record<string, unknown> = { ...args, [key]: unescapeNewlines(head) };
+		for (const [name, field] of Object.entries(fields)) healed[name] = typeof field === "string" ? unescapeNewlines(field) : field;
+		return healed;
+	}
+	return args;
+}
+
 export function healEncodedArguments(
 	args: unknown,
 	schema: { properties?: Record<string, PropSchema> },
@@ -91,6 +137,7 @@ export function healEncodedArguments(
 	const properties = schema.properties;
 	if (!properties) return args;
 	args = healLeakedParameters(args as Record<string, unknown>, properties);
+	args = healLeakedJsonFields(args as Record<string, unknown>, properties);
 	let healed: Record<string, unknown> | null = null;
 	for (const [key, prop] of Object.entries(properties)) {
 		const raw = (args as Record<string, unknown>)[key];

@@ -32,6 +32,7 @@ import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } from "../core/language.ts";
 import { paceSection, type Pace } from "../core/pace.ts";
+import { difficultySection, type Difficulty } from "../core/difficulty.ts";
 
 /**
  * The two teaching-side agents (docs/archive/probe-teach-split.md): the PROBER and
@@ -138,6 +139,9 @@ export interface AgentBuildOptions {
 	/** The session's pace and the learner's time note (fork addition, 2026-11-01 — core/pace.ts). Only the prober and the
 	 *  teacher are paced; Thorough with no note adds nothing to the prompt. */
 	pace?: { level: Pace; note?: string };
+	/** The session's problem difficulty (fork addition, 2026-11-07 — core/difficulty.ts). Only the practice
+	 *  agent is sized by it; absent adds nothing. */
+	difficulty?: Difficulty;
 	/** The lesson's source material (fork addition): its system-prompt
 	 *  section (core/materials.ts materialsPromptSection) and the lookup
 	 *  tools (tools/materials.ts), added to every conversation agent. */
@@ -225,16 +229,23 @@ function paceFor(kind: AgentKind, pace: AgentBuildOptions["pace"]): string {
 	return paceSection(kind, pace.level, pace.note);
 }
 
+/** The difficulty section: only the practice agent is sized by it (the teacher and the prober are not);
+ *  "" when there is nothing to add. */
+function difficultyFor(kind: AgentKind, difficulty: AgentBuildOptions["difficulty"]): string {
+	if (!difficulty || kind !== "practice") return "";
+	return difficultySection(difficulty);
+}
+
 /** The conversation agent's composed system prompt for one turn — the single
  *  source for the agent itself and for a side call that must read the same
  *  prompt (the clarification call, server/clarify.ts). */
 export function agentSystemPrompt(
 	kind: AgentKind,
-	opts: Pick<AgentBuildOptions, "promptSwitches" | "language" | "materials" | "course" | "pace">,
+	opts: Pick<AgentBuildOptions, "promptSwitches" | "language" | "materials" | "course" | "pace" | "difficulty">,
 ): string {
 	const composed = opts.promptSwitches ? composeInstructions(kind, opts.promptSwitches) : composedInstructions[kind]!;
 	return withLanguageDirective(
-		[composed, opts.materials?.section, opts.course?.section, paceFor(kind, opts.pace)].filter(Boolean).join("\n\n"),
+		[composed, opts.materials?.section, opts.course?.section, paceFor(kind, opts.pace), difficultyFor(kind, opts.difficulty)].filter(Boolean).join("\n\n"),
 		opts.language ?? DEFAULT_LESSON_LANGUAGE,
 		"conversation",
 	);

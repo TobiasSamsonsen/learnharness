@@ -6,6 +6,10 @@ A course turns a curriculum (PDFs, notes, links) into a map of **skills** that
 live in the knowledge graph, tracks how many of them you **know**, and computes
 the route from where you are to the whole curriculum from what you know now.
 
+> **2026-11-07:** the Leitner boxes named in the decisions below were replaced by an
+> FSRS understanding model (spec: section 2). Read "box" in the older text as
+> "understanding"; section 2 is current.
+
 ## Owner decisions (2026-10-24)
 
 | Question | Decision |
@@ -137,42 +141,87 @@ id(s) the problem tests. They are checked against the session's skill set
 stored in the tool call's arguments, so the record carries the evidence and
 nothing is stored anywhere else.
 
-## 2. Known — `src/core/mastery.ts` (pure, browser-safe, derived on read)
+## 2. Understanding — `src/core/mastery.ts` (pure, browser-safe, derived on read)
+
+Every skill has an **FSRS-6 memory state** (difficulty, stability) folded from the
+course sessions' evidence in time order, using the pure model of the `ts-fsrs`
+package with its default parameters, no learning steps and no fuzz. Stability *S*
+is the number of days for recall to fall from 100% to 90%; retrievability *R(t, S)*
+is the chance of recall `t` days after the last review. Background:
+<https://github.com/open-spaced-repetition/awesome-fsrs/wiki/ABC-of-FSRS>.
 
 **Events** (`skillEventsOf`, per course chat):
-- practice / review → every concluded problem with `skills` → `{ skillId, at: conclude timestamp, outcome }`;
-- Learn → its finish (`lessonFinishOf`: the `lesson-finished` marker or a clean `finish_lesson` call, the first one) → `finished`;
+- practice / review → every concluded problem with `skills` → `{ skillId, at: conclude timestamp, outcome, grade? }`; `grade` is the tutor's per-skill grade from the `conclude` call's `grades` (`gradesOf`);
+- Learn → its finish (`sessionFinishOf`: the `lesson-finished` marker or a clean `finish_lesson` call, the first one) → `finished`;
 - placement test → every answered placement `probe` (its `skill` arg + the answer's `correct`/`confidence`/`dontKnow`) → `placementKnown` / `placementUnsure` / `placementMiss`;
 - legacy placement checks (problems, before 2026-10-25) keep `placement: true`.
 
-Folded in time order per skill:
+**Grades** are the Anki scale, least to most learned: `again`, `hard`, `good`, `easy`.
+The **tutor** grades each tagged skill of a problem at `conclude` (`grades`, one entry
+per tagged skill, validated against the problem's `skills`): what the learner
+demonstrated on that skill, never more. The guideline is
+`src/agent/prompts/practice/20-grading.md`; it is a guideline, not a rule. A record
+without grades (older chats) takes the outcome's default grade.
 
-| Event | Effect |
+Each event is one FSRS review:
+
+| Event | Grade |
 |---|---|
-| `finished` | box = max(box, 1) |
-| `solved`, skill **due** | box + 1 (max 5), `lastMove = at` |
-| `solved`, not due | nothing |
-| `solvedWithHints` | nothing |
-| `movedOn` / `surrendered` | box ≥ 1 → box = 1, `lastMove = at`; box 0 stays 0 |
+| tutor's `grade` | as given |
+| `finished` | good |
+| `solved` (no grade) | good |
+| `solvedWithHints` (no grade) | hard |
+| `movedOn` / `surrendered` / `taught` (no grade) | again — on a skill never learned: ignored, a miss never counts as learned |
 | `dismissed` | ignored |
-| `placementKnown` (correct, confidence ≥ 70) | box = max(box, 3), `lastMove = at`; every transitive `requires` the same, except a skill with a `placementMiss` of its own |
-| `placementUnsure` (correct, < 70) | box = max(box, 1) |
-| `placementMiss` (wrong / I don't know) | nothing to its own box; blocks its inferred credit (any order) |
-| legacy placement: solved / with hints / miss | as `placementKnown` / box = max(box, 1) / nothing |
+| `placementKnown` (correct, confidence ≥ 70) | the skill easy, then seeded to ≥ 40 days of stability (`PLACEMENT_SEED_DAYS`, understanding ≈ 6.3: known at once); every transitive `requires` good, seeded to ≥ 20 days (`PREREQUISITE_SEED_DAYS`, ≈ 5.2: learning), except a skill with a `placementMiss` of its own |
+| `placementUnsure` (correct, < 70) | hard |
+| `placementMiss` (wrong / I don't know) | nothing; blocks its inferred credit (any order) |
+| legacy placement: solved / with hints / miss | as `placementKnown` / hard / nothing |
 
-Due: box 0 is always due; otherwise `now ≥ lastMove + [—, 1, 3, 7, 16, 35][box]` days.
-**Learned = box ≥ 1. Known = box ≥ 3.** Course progress = known / course skills.
+A review at the same moment as the last adds no stability (no credit for drilling);
+a review once recall has faded grows it more. `taught` is the outcome for a problem
+where the tutor showed the correction and taught the point itself.
 
-**Views (pure functions of skills + boxes + now):** `review` = learned and due.
-`nextUp` = box 0 with every `requires` learned, in topological order.
-`learning` = box 1–2. `locked` = box 0 with some prerequisite not learned,
-listing which. `known`. `contextCheck` = learned, but this course has no
-evidence on it (`inCourseEvidence`: a fold of the course's own events —
-inferred placement credit included — plus any skill its sessions touched);
-it also stays in `known`/`learning`.
+**Understanding (0–10, what the learner sees)** = `ln(1 + S) / ln(1 + 365) × 10`: how long
+the skill lasts, a year being 10 (S = 1 day: 1.2, 8: 3.7, 30: 5.8, 100: 7.8). It does not
+fall as days pass. **Needs review** = retrievability now below 90% (`DESIRED_RETENTION`),
+i.e. one stability after the last review. **Learned** = has a memory state (a review
+happened); it unlocks what builds on it. **Known** = understanding ≥ 6
+(`KNOWN_UNDERSTANDING`, about a month of memory). Course progress = known / course skills.
+
+**Views (pure functions of skills + states + now):** `review` = learned and needs
+review, in topological order (the review queue's ordering, cap and mix are a later
+step). `nextUp` = not learned with every `requires` learned, in topological order.
+`learning` = learned, not known. `locked` = not learned with some prerequisite not
+learned, listing which. `known`. `contextCheck` = learned, but this course has no
+evidence on it (`inCourseEvidence`: a fold of the course's own events — inferred
+placement credit included — plus any skill its sessions touched); it also stays in
+`known`/`learning`.
 
 Nothing is stored. The course API computes the fold from chat records on read,
 in line with the graph's "derive, don't store" rule.
+
+**Review sessions (2026-11-07).** A Review session is not every due skill: `pickReviewSkills`
+(core/mastery.ts) takes at most `REVIEW_SESSION_SIZE` = 6 of the skills that need review: the
+four with the lowest understanding, the one not practiced for the longest of the rest, and one
+morale skill (the highest understanding of what is left). With six or fewer, all of them. They
+are posed morale first, then weakest to strongest, and the unpicked ones stay due for the next
+session (`CourseView.reviewBatch` is how many the next one takes). The prompt
+(`coursePromptSection`) says the listed skills ARE the session, and that every skill is tested
+in the listed order; a problem may group several skills at a higher difficulty.
+
+**Difficulty (2026-11-07, core/difficulty.ts).** Every practice-kind session carries
+`ChatSettings.difficulty` (default Short; the general default `GeneralSettings.difficulty`
+(Settings → General → Practice) stamps new sessions; the pill in the composer edge changes it): Short 1 skill ~3 min, Medium 2
+skills ~6, Long 3-4 ~12, Exam 4-6 ~20 and exam-level (calibrated to past exams in the course
+sources when there are any). The level's skill cap is enforced by the `problem` tool; minutes
+and "size by the work, not only the skill count" are prompt-only (`<difficulty>` section,
+practice agent only). Practice prompt fragments added: `20-grading.md` (the tutor's grading
+guideline) and `30-short-sessions.md` (short feedback, the tutor decides when to show the
+correction and teach it, ending as `taught`, at most one retest after a taught problem).
+A concluded problem that ended taught / moved on / surrendered shows a "Learn <skill>" button
+per again-graded skill: it opens a Learn session on that skill, and Next problem continues
+the review on return.
 
 **Derived proposition links:** a skill's propositions = stored `restsOn` ∪ every
 proposition whose provenance includes a chat with `course.mode === "learn"` and

@@ -351,15 +351,16 @@ export interface GraphSnapshot {
 	skills?: GraphSkillLayer;
 }
 
-/** One held skill (learned or known — box ≥ 1) as the graph shows it. */
+/** One held skill (learned or known) as the graph shows it. */
 export interface GraphSkillNode {
 	id: string;
 	name: string;
 	statement: string;
-	/** Leitner box 1–5. */
-	box: number;
+	/** 0–10, how long the skill lasts (core/mastery.ts). */
+	understanding: number;
 	known: boolean;
-	due: boolean;
+	/** Recall now is below the FSRS target (90%). */
+	needsReview: boolean;
 	/** The courses whose skill maps hold it. */
 	courses: Array<{ id: string; title: string }>;
 	/** Graph propositions it rests on (live node ids only). */

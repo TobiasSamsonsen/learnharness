@@ -8,6 +8,7 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { LessonLanguage } from "../language.ts";
 import type { Pace } from "../pace.ts";
+import type { Difficulty } from "../difficulty.ts";
 import type { LhMessage } from "../native-messages.ts";
 import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
@@ -147,6 +148,9 @@ export interface ChatSettings {
 	/** The learner's time note for a session with no course ("exam Thursday, 4
 	 *  concepts"); a course session reads the course's note instead. */
 	paceNote?: string;
+	/** The session's problem difficulty (fork addition, 2026-11-07 — core/difficulty.ts): stamped at
+	 *  birth from the default (GeneralSettings.difficulty); absent = Short. Practice sessions only. */
+	difficulty?: Difficulty;
 }
 
 
