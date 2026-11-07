@@ -71,6 +71,27 @@ export type NativeInkOp =
 const KEY_RE = /^[A-Za-z0-9_-]{1,80}$/;
 const BRUSH_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
+/**
+ * `JSON.stringify(strokes)`, with each stroke's text kept: a stroke is never edited in place (a thaw, a cut or an erase makes new
+ * objects), so its text is made once and every later push or save of the page joins what it already has. Undo, redo and cut push the
+ * whole page each time, and writing 2900 strokes out took about 80-140 ms in the page, per push (measured on the phone, 2026-11-07).
+ * The point count guards the one edit that could make a kept text stale.
+ */
+const strokeText = new WeakMap<SketchStroke, { len: number; text: string }>();
+export function strokesJson(strokes: readonly SketchStroke[]): string {
+	let out = "[";
+	for (let i = 0; i < strokes.length; i++) {
+		const s = strokes[i]!;
+		let kept = strokeText.get(s);
+		if (!kept || kept.len !== s.points.length) {
+			kept = { len: s.points.length, text: JSON.stringify(s) };
+			strokeText.set(s, kept);
+		}
+		out += i === 0 ? kept.text : "," + kept.text;
+	}
+	return out + "]";
+}
+
 const num = (n: number): string => String(Math.round(n * 100) / 100);
 const rectText = (r: NativeInkRect): string => `${num(r.x)},${num(r.y)},${num(r.w)},${num(r.h)}`;
 
@@ -94,7 +115,7 @@ export function encodeInkOp(op: NativeInkOp): string {
 			return `brush ${op.color} ${num(op.size)}`;
 		case "strokes":
 		case "kept":
-			return `${op.op} ${JSON.stringify(op.strokes)}`;
+			return `${op.op} ${strokesJson(op.strokes)}`;
 		case "view":
 			if (!(op.zoom >= 0.1 && op.zoom <= 8) || !Number.isFinite(op.x) || !Number.isFinite(op.y)) throw new Error("view needs a zoom of 0.1-8 and finite coordinates");
 			return `view ${op.zoom.toFixed(4)} ${num(op.x)} ${num(op.y)}`;

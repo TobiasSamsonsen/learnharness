@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { decodeShellLine, encodeInkOp, eraseHits, isErasedExactly, type NativeInkOp, type NativeInkRect, type NativeInkTool, type SketchStroke } from "@/src/core";
 import { SKETCH_ERASER_RADIUS } from "@/components/sketch/sketch-canvas";
 import { useViewGestures } from "@/components/sketch/use-view-gestures";
@@ -83,8 +83,11 @@ export interface NativeInk {
 	surfaceRef: RefObject<HTMLDivElement | null>;
 	/** The zoom, in percent, for the zoom buttons. */
 	zoomPct: number;
-	/** The view now (for what the page draws over the shell's ink, like the paper). */
-	view: SketchView;
+	/** The view now, always current (read it; it does not re-render anything). */
+	viewRef: RefObject<SketchView>;
+	/** Be told of every view change (a gesture, the wheel, a zoom button), for what the page draws under the shell's ink, like the paper.
+	 *  Called at once and without a React render: a pan or zoom used to re-render the whole sketch view per event. Returns the unsubscribe. */
+	onView: (listener: (view: SketchView) => void) => () => void;
 /** Back to the ink: the home view when it fits, else a view that shows all of it. */
 }
 
@@ -110,14 +113,19 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 	const size = useRef({ w: 0, h: 0 });
 	const fitted = useRef(false);
 	const [zoomPct, setZoomPct] = useState(100);
-	const [viewState, setViewState] = useState<SketchView>(HOME_VIEW);
+	const viewListeners = useRef(new Set<(view: SketchView) => void>());
+	const onView = useCallback((listener: (view: SketchView) => void) => {
+		viewListeners.current.add(listener);
+		return () => void viewListeners.current.delete(listener);
+	}, []);
+	const emitView = (v: SketchView) => viewListeners.current.forEach((fn) => fn(v));
 
 	/** Adopt a view (as the shell will hold it) and tell the shell. */
 	const applyView = (next: SketchView) => {
 		const v = roundView(next);
 		view.current = v;
 		setZoomPct(Math.round(v.zoom * 100));
-		setViewState(v);
+		emitView(v);
 		sendRef.current({ op: "view", ...v });
 	};
 	const fitAll = () => {
@@ -170,7 +178,7 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 			fitted.current = true;
 			view.current = roundView(fitAll());
 			setZoomPct(Math.round(view.current.zoom * 100));
-			setViewState(view.current);
+			emitView(view.current);
 		}
 		send({ op: "view", ...view.current });
 		if (latest.current.pen) send({ op: "brush", ...latest.current.pen });
@@ -285,6 +293,7 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 		fallback,
 		surfaceRef,
 		zoomPct,
-		view: viewState,
+		viewRef: view,
+		onView,
 };
 }

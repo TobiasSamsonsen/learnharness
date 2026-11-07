@@ -45,6 +45,7 @@ sealed interface InkOp {
 
 object InkWire {
 	private val key = Regex("[A-Za-z0-9_-]{1,80}")
+	private val hexColor = Regex("#[0-9a-fA-F]{6}")
 
 	/** One line from the web, or null when it is not one the shell understands (never throws). */
 	fun parse(line: String): InkOp? {
@@ -77,7 +78,7 @@ object InkWire {
 			}
 			"brush" -> {
 			val parts = rest.split(Regex("\\s+"))
-				if (parts.size != 2 || !Regex("#[0-9a-fA-F]{6}").matches(parts[0])) return null
+				if (parts.size != 2 || !hexColor.matches(parts[0])) return null
 				val size = finite(parts[1])?.takeIf { it in 0.5f..64f } ?: return null
 				InkOp.Brush(parts[0], size)
 			}
@@ -132,8 +133,12 @@ object InkWire {
 		}
 	}
 
-	/** The `SketchStroke[]` JSON from the web, or null when any part of it is malformed (never throws). */
-	fun strokes(json: String): List<Stroke>? = try {
+	/** The `SketchStroke[]` JSON from the web, or null when any part of it is malformed (never throws). The plain shape the page
+	 *  writes is read by [InkJson] (about ten times faster); anything else, and every rejection, goes through [strokesGeneral]. */
+	fun strokes(json: String): List<Stroke>? = InkJson.strokes(json) ?: strokesGeneral(json)
+
+	/** The general reader (org.json): what a line means when the quick one does not recognise it. */
+	internal fun strokesGeneral(json: String): List<Stroke>? = try {
 		val array = JSONArray(json)
 		(0 until array.length()).map { i ->
 			val o = array.getJSONObject(i)
@@ -146,7 +151,7 @@ object InkWire {
 			}
 			val size = o.getDouble("size").toFloat()
 			if (!size.isFinite() || size <= 0f) return null
-			val color = o.optString("color", "").takeIf { Regex("#[0-9a-fA-F]{6}").matches(it) }
+			val color = o.optString("color", "").takeIf { hexColor.matches(it) }
 			// the page marks sent ink it has copied into the working page `"fresh":false`: drawn dimmed, like the kept page
 			val sent = o.has("fresh") && !o.optBoolean("fresh", true)
 			Stroke(size, color, points, sent)

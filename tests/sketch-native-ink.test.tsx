@@ -44,7 +44,7 @@ Object.assign(globalThis, {
 });
 
 const { SketchView } = await import("../components/sketch/sketch-view.tsx");
-const { readInk, writeInk, inkFromStrokes, writeKept, readKept, pagePayload } = await import("../components/sketch/ink-memory.ts");
+const { readInk, writeInk, flushInk, inkFromStrokes, writeKept, readKept, pagePayload } = await import("../components/sketch/ink-memory.ts");
 const { planSketch } = await import("../src/core/index.ts");
 import type { SketchPayload, SketchStroke } from "../src/core";
 
@@ -303,6 +303,7 @@ describe("native ink is on", () => {
 		assert.equal(undone.strokes.length, 2);
 		assert.deepEqual(undone.strokes[1], { ...old, fresh: false });
 		// it survives a reload: the whole page is stored with which strokes were sent
+		flushInk(); // (the write is deferred a moment)
 		const saved = JSON.parse(store.get("lh:ink:k-thaw")!);
 		assert.equal(saved.thawed, "sk_oldoldold0000009");
 		assert.deepEqual(saved.sent, [1]);

@@ -65,6 +65,41 @@ export function backgroundCss(kind: SketchBackground, view: SketchView, tone: "l
 	return { backgroundImage: dot, backgroundSize: size, backgroundPosition: `${ox - step / 2}px ${oy - step / 2}px` };
 }
 
+/**
+ * The native-ink paper while the view moves (owner, 2026-11-07: the page re-rastered its CSS gradients at a new size on every pan
+ * or zoom event, about a third of a core on the GPU thread). The paper is drawn for a "base" view on an element that overhangs the
+ * canvas by [PAPER_PAD] of its size on each side, and a view change only moves and scales that element (a compositor transform, no
+ * raster); the paper is drawn again for the new view once it has been still for a moment or has left the element. These are the
+ * maths for it; see native-paper.tsx.
+ */
+export const PAPER_PAD = 0.25;
+/** The element stands in for the paper only while the zoom is within this range of the zoom it was drawn at. */
+export const PAPER_RATIO_MIN = 0.7;
+export const PAPER_RATIO_MAX = 1.45;
+
+/** The paper for `base` on an element whose top-left is (padX, padY) px up and left of the canvas' top-left. */
+export function paperCss(kind: SketchBackground, base: SketchView, tone: "light" | "dark", scale: number, padX: number, padY: number): CSSProperties {
+	return backgroundCss(kind, { zoom: base.zoom, x: base.x - padX / base.zoom, y: base.y - padY / base.zoom }, tone, scale);
+}
+
+/** The translate (px, relative to the element's own box, origin at its top-left) and scale that carry the paper drawn for `base` to `view`. */
+export function paperTransform(base: SketchView, view: SketchView, padX: number, padY: number): { x: number; y: number; scale: number } {
+	return {
+		x: (base.x - padX / base.zoom - view.x) * view.zoom + padX,
+		y: (base.y - padY / base.zoom - view.y) * view.zoom + padY,
+		scale: view.zoom / base.zoom,
+	};
+}
+
+/** Does the moved element still cover the whole canvas (w x h px), at a zoom the drawn paper can stand in for? */
+export function paperCovers(base: SketchView, view: SketchView, padX: number, padY: number, w: number, h: number): boolean {
+	const t = paperTransform(base, view, padX, padY);
+	if (t.scale < PAPER_RATIO_MIN || t.scale > PAPER_RATIO_MAX) return false;
+	const left = t.x - padX;
+	const top = t.y - padY;
+	return left <= 0 && top <= 0 && left + (w + 2 * padX) * t.scale >= w && top + (h + 2 * padY) * t.scale >= h;
+}
+
 const LS_KEY = "lh:sketch-background";
 
 export function loadBackground(): SketchBackground {
