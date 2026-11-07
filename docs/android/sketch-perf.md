@@ -102,16 +102,20 @@ Kotlin tests pass.
 
 ### Not done, and why
 
-1. **`applyView` is not coalesced.** The shell only sends a `gesture` line per touch `MOVE`, and Android batches those per frame, so the
-   page already sends at most one `view` line per frame (1738 events in 15 s at 116 fps in the wheel test). Coalescing it would
-   add a frame of lag to the paper and the ink for no saving. With item 5 the per-event React render is gone as well.
+1. **`applyView` is not coalesced.** Not measured with real fingers (two-finger input cannot be injected over adb). What was measured:
+   with the wheel, one `view` line per frame (1738 events in 15 s at 116 fps). What is assumed, from how Android delivers touch: it batches
+   `MOVE` events to the frame, and the shell sends one `gesture` line per `MOVE`, so a gesture should not send more than one `view` per
+   frame either. If a real two-finger gesture turns out to send more (log the `gesture` lines per second in the page), coalescing
+   `applyView` to one `requestAnimationFrame` is a small change in `use-native-ink.ts` (the gesture test then needs a frame wait).
 2. **Pan on a dense page is at its floor.** 812 mA against 473 mA for the same view stream on an empty page: what is left is the window
    frame (WebView compositing plus the layer's blit) at 120 Hz, and the layer's rebuild whenever the view leaves its 25% margin. A bigger
    margin would trade a 40 MB texture for fewer rebuilds; not worth it until a real pan on a real page shows a need.
 3. **The page still pushes the whole stroke set on undo, redo and cut.** With items 2 and 6 the cost is about 60 ms in the page and
-   130 ms in the shell at 2900 strokes (from about 3 s). An op-based push (remove ids, add a stroke) would remove most of that, but it
-   is a protocol change between two things that are installed separately (the shell APK and the web app), so a new page would need to
-   know the shell supports it first; the gain no longer justifies it.
+   130 ms in the shell at 2900 strokes (from about 3 s). An op-based push would remove most of it. Design worked out, not built:
+   `edit <from> <rm> <at> <json>` (the store only removes strokes, inserts new ones and keeps survivors in order and as the same objects,
+   so the page can diff by identity), the shell announcing `caps edits` in answer to the page's `caps` (an older shell stays silent, so a
+   newer page keeps pushing whole), and a `resync` line when an edit does not fit what the shell holds. It is a protocol change between
+   two things installed separately (the shell APK and the web app), so it needs both sides and tests; it was started and dropped.
 4. **Saving is still a whole-page `localStorage` write** (about 52 ms, 500 ms after a pen-up, off the pen-up instant). Chunked or
    append-only storage would remove it but changes a stored format users already have; not worth it for 50 ms.
 5. The stroke eraser's fade still converts the whole gesture path per move (O(L^2)); the hover ring invalidates a full-size view. Neither
