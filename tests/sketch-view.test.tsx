@@ -719,9 +719,9 @@ describe("hold to straighten (M16c)", () => {
 		const { mouse } = await setup("k-hold");
 		await mouse("pointerdown", 100, 100);
 		await mouse("pointermove", 150, 101);
-		await mouse("pointermove", 200, 104);
+		await mouse("pointermove", 200, 102); // about 1.1 degrees off horizontal: inside the 2 degree snap (ANGLE_SNAP_DEG)
 		await wait(650); // hold
-		await mouse("pointerup", 200, 104);
+		await mouse("pointerup", 200, 102);
 		const strokes = readInk("k-hold").strokes;
 		assert.equal(strokes.length, 1);
 		const ys = strokes[0]!.points.filter((_, i) => i % 3 === 1);
