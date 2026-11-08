@@ -20,7 +20,7 @@ export const HOLD_GRACE_MS = 20;
 /** A stroke shorter than this (screen px) is a dot or a tick, never a line to straighten. */
 export const MIN_LINE_PX = 24;
 /** A line this close (degrees) to a multiple of 45 snaps to it. */
-export const ANGLE_SNAP_DEG = 5;
+export const ANGLE_SNAP_DEG = 2;
 /** Spacing of the points a straight line is written with (world px): enough for the stroke outline to stay smooth. */
 const LINE_STEP = 6;
 

@@ -10,18 +10,19 @@ import kotlin.math.hypot
 
 class InkStraightTest {
 	@Test fun aLineNearHorizontalVerticalOrDiagonalSnapsAndKeepsItsLength() {
-		val (hx, hy) = InkStraight.snapAngle(0f, 0f, 100f, 4f) // about 2.3 degrees
+		val (hx, hy) = InkStraight.snapAngle(0f, 0f, 100f, 3f) // about 1.7 degrees
 		assertEquals(0f, hy, 1e-3f)
-		assertEquals(hypot(100.0, 4.0).toFloat(), hx, 1e-3f)
-		val (vx, vy) = InkStraight.snapAngle(0f, 0f, -3f, 80f)
+		assertEquals(hypot(100.0, 3.0).toFloat(), hx, 1e-3f)
+		val (vx, vy) = InkStraight.snapAngle(0f, 0f, -2f, 80f)
 		assertEquals(0f, vx, 1e-3f)
-		assertEquals(hypot(3.0, 80.0).toFloat(), vy, 1e-3f)
+		assertEquals(hypot(2.0, 80.0).toFloat(), vy, 1e-3f)
 		val (dx, dy) = InkStraight.snapAngle(0f, 0f, 100f, 104f)
 		assertEquals(dx, dy, 1e-3f)
 	}
 
 	@Test fun aLineThatIsNotCloseToOneIsLeftAlone() {
 		assertEquals(100f to 30f, InkStraight.snapAngle(0f, 0f, 100f, 30f))
+		assertEquals("4 degrees is outside the 2 degree range", 100f to 7f, InkStraight.snapAngle(0f, 0f, 100f, 7f))
 		assertEquals(5f to 5f, InkStraight.snapAngle(5f, 5f, 5f, 5f))
 	}
 
@@ -69,6 +70,6 @@ class InkStraightTest {
 		assertEquals(500L, InkStraight.HOLD_MS)
 		assertEquals(4f, InkStraight.HOLD_RADIUS_DP, 0f)
 		assertEquals(24f, InkStraight.MIN_LINE_DP, 0f)
-		assertEquals(5.0, InkStraight.SNAP_DEG, 0.0)
+		assertEquals(2.0, InkStraight.SNAP_DEG, 0.0)
 	}
 }

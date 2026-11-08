@@ -22,7 +22,7 @@ object InkStraight {
 	const val HOLD_RADIUS_DP = 4f
 	/** A stroke shorter than this (CSS px on screen) is a dot or a tick, never a line. */
 	const val MIN_LINE_DP = 24f
-	const val SNAP_DEG = 5.0
+	const val SNAP_DEG = 2.0
 	/** Spacing of the points a line is written with (world px). */
 	private const val STEP = 6f
 

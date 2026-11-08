@@ -71,6 +71,7 @@ class InkLayer(context: Context) : FrameLayout(context) {
 	val finished = FinishedStrokesView(context)
 	private val inProgress = InProgressStrokesView(context)
 	private val hoverRing = HoverRing(context)
+	private val angleOverlay = AngleOverlay(context)
 	private val predictor = MotionEventPredictor.newInstance(inProgress)
 	private val density = resources.displayMetrics.density
 	private var view = InkView()
@@ -99,6 +100,8 @@ class InkLayer(context: Context) : FrameLayout(context) {
 	private var anchorX = 0f
 	private var anchorY = 0f
 	private var straight = false
+	/** The straight lines already on the page, taken once when the hold fires (the angle guide measures against them). */
+	private var angleSegments: List<InkAngle.Segment> = emptyList()
 
 	/** The pen's colour (#rrggbb) and base size in CSS px, for the strokes drawn from now on. */
 	fun setBrush(color: String, size: Float) {
@@ -130,6 +133,7 @@ class InkLayer(context: Context) : FrameLayout(context) {
 		addView(finished, match)
 		addView(inProgress, match)
 		addView(hoverRing, match)
+		addView(angleOverlay, match)
 		inProgress.addFinishedStrokesListener(object : InProgressStrokesFinishedListener {
 			override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
 				// our own copy (from the recorded points) is already on the page layer
@@ -182,6 +186,8 @@ class InkLayer(context: Context) : FrameLayout(context) {
 	private fun endGesture() {
 		removeCallbacks(holdCheck)
 		straight = false
+		angleSegments = emptyList()
+		angleOverlay.show(null, 0f, 0f, 0)
 		finished.setLive(null)
 		fadeHits.clear()
 		fadeChecked = 0
@@ -291,6 +297,7 @@ class InkLayer(context: Context) : FrameLayout(context) {
 		if (erasing || straight) return
 		if (!InkStraight.longEnough(points.toFloatArray(), view.zoom)) return
 		straight = true
+		angleSegments = InkAngle.segments(finished.allRaw().map { it.points })
 		inProgress.cancelStroke(current)
 		id = null
 		performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -302,6 +309,20 @@ class InkLayer(context: Context) : FrameLayout(context) {
 	private fun previewLine() {
 		val l = line() ?: return
 		finished.setLive(InkWire.Stroke(view.penWorldSize(penSize), penColor, l))
+		updateAngle(l)
+	}
+
+	/** The angle guide for the straight line `l` (flat points, world px), if its start is near another straight line. */
+	private fun updateAngle(l: FloatArray) {
+		val g = InkAngle.guide(
+			l[0].toDouble(), l[1].toDouble(), l[l.size - 3].toDouble(), l[l.size - 2].toDouble(),
+			angleSegments, view.zoom.toDouble(),
+		)
+		if (g == null) {
+			angleOverlay.show(null, 0f, 0f, 0)
+			return
+		}
+		angleOverlay.show(g, view.pxX(g.vx.toFloat(), density), view.pxY(g.vy.toFloat(), density), InkSheet.displayColor(penColor, dark))
 	}
 
 	private fun commitLine() {

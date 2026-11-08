@@ -15,6 +15,10 @@ data class InkView(val zoom: Float = 1f, val x: Float = 0f, val y: Float = 0f) {
 	fun worldX(px: Float, density: Float): Float = px / (density * zoom) + x
 	fun worldY(py: Float, density: Float): Float = py / (density * zoom) + y
 
+	/** A world point to the layer, in device px (the inverse of [worldX] / [worldY]). */
+	fun pxX(wx: Float, density: Float): Float = (wx - x) * density * zoom
+	fun pxY(wy: Float, density: Float): Float = (wy - y) * density * zoom
+
 	/** The pen's width in world units for a width chosen as how it should FEEL on screen (the web's penWorldSize). */
 	fun penWorldSize(screenSize: Float): Float {
 		val v = (screenSize / zoom).coerceIn(MIN_WORLD_SIZE, MAX_WORLD_SIZE)

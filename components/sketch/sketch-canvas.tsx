@@ -11,7 +11,9 @@ import { notePenNear } from "@/components/sketch/palm-guard";
 import { PinchTracker } from "@/components/sketch/pinch-gate";
 import { liftTap, moveTap, startTap, type TapTracker } from "@/components/sketch/tap-gesture";
 import { dist, HOLD_MS, isHeld, linePoints, MIN_LINE_PX, snapAngle } from "@/components/sketch/straight-line";
-import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, penWorldSize, pinchStep, thinPath, toWorld, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
+import { lineAngle, straightSegments, type Segment } from "@/components/sketch/line-angle";
+import { paintAngleGuide } from "@/components/sketch/angle-guide";
+import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, penWorldSize, pinchStep, thinPath, toScreen, toWorld, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
 
 /**
  * The web canvas (Android plan M1 + M3, infinite since M13c): an unbounded
@@ -138,6 +140,8 @@ export function SketchCanvas({
 	// Hold to straighten (M16c): where the pen has been (screen px, with times) and the timer that checks it stayed put
 	const holdSamples = useRef<{ x: number; y: number; t: number }[]>([]);
 	const holdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	// The straight lines already on the page, taken once when the hold fires: the angle guide measures against them
+	const angleSegments = useRef<Segment[]>([]);
 	const frame = useRef<number | null>(null);
 	const penSeen = useRef(false);
 	const penNearAt = useRef(0);
@@ -313,6 +317,16 @@ export function SketchCanvas({
 			const inkNow = penStroke({ color: brushRef.current.color, size: l.size }, l.points);
 			ctx.fillStyle = displayInk(inkNow.color, tone);
 			ctx.fill(new Path2D(sketchStrokePath(inkNow)));
+			// a held line drawn from near another straight line shows the angle between them until the pen lifts
+			if (l.straight) {
+				const start = { x: l.points[0]!, y: l.points[1]! };
+				const end = { x: l.points[l.points.length - 3]!, y: l.points[l.points.length - 2]! };
+				const guide = lineAngle(start, end, angleSegments.current, v.zoom);
+				if (guide) {
+					ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+					paintAngleGuide(ctx, guide, toScreen(v, guide.vertex.x, guide.vertex.y), displayInk(inkNow.color, tone));
+				}
+			}
 		}
 		// the hover preview, in screen space: the eraser's reach (the pen has none: the OS already shows its own)
 		if (hover.current && !l && toolRef.current === "eraser") {
@@ -435,6 +449,7 @@ export function SketchCanvas({
 	clearTimeout(holdTimer.current);
 	holdTimer.current = undefined;
 	holdSamples.current = [];
+	angleSegments.current = [];
 	};
 	/** The pen has been still for a while: if it is mid-stroke and long enough, the stroke becomes a straight line (and follows the pen from here). */
 	const checkHold = () => {
@@ -445,6 +460,7 @@ export function SketchCanvas({
 	const last = { x: l.points[l.points.length - 3]!, y: l.points[l.points.length - 2]! };
 	if (dist(first, last) * view.current.zoom < MIN_LINE_PX) return;
 	l.straight = true;
+	angleSegments.current = straightSegments([...keptRef.current, ...strokesRef.current]);
 	l.points = linePoints(first, snapAngle(first, last));
 	if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate(8);
 	draw();

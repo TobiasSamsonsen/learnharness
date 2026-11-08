@@ -38,7 +38,7 @@ Status: **Approved by the owner 2026-10-29. M16a to M16d built (see STATUS.md); 
 - Undo history of the **unsent** ink survives a reload (stored with the strokes in `ink-memory`). After a submit the history ends: sent ink stays protected, and is edited only through the eraser's existing "thaw".
 
 **M16c, drawing aids.**
-- *Hold to straighten:* at the end of a stroke, holding the pen still for about 0.5 s (less than 4 px of movement) replaces the stroke by a straight line from its start to its end. A line within 5 degrees of horizontal, vertical or 45 degrees snaps to it. One undo step; a short flash confirms. The native live preview shows the freehand stroke until the pen lifts and the web then swaps in the straight line (the web owns the strokes).
+- *Hold to straighten:* at the end of a stroke, holding the pen still for about 0.5 s (less than 4 px of movement) replaces the stroke by a straight line from its start to its end. A line within 2 degrees of horizontal, vertical or 45 degrees snaps to it. One undo step; a short flash confirms. The native live preview shows the freehand stroke until the pen lifts and the web then swaps in the straight line (the web owns the strokes).
 - *Ruler tool: built, then REMOVED (owner, 2026-10-29: "the ruler is not necessary, this is not supposed to be a note app, but just sketching for doing the questions you get").* The scope rule going forward: only what helps answering a question by sketch.
 
 **M16d, Android stylus and stroke look (Kotlin).**
@@ -52,4 +52,4 @@ M16a, M16b, M16c, M16d, each committed on its own with tests (pure logic in `src
 
 ## Decided by default (owner may change)
 
-The popover opens by tapping the active tool again; the wording "Clear"; that undo history ends at submit; the thresholds above (hold 0.5 s, 4 px, 5 degrees, 24 px, 80 percent, palm contact about 30 px, guard window 600 ms); auto-hide off by default; the order.
+The popover opens by tapping the active tool again; the wording "Clear"; that undo history ends at submit; the thresholds above (hold 0.5 s, 4 px, 2 degrees, 24 px, 80 percent, palm contact about 30 px, guard window 600 ms); auto-hide off by default; the order.

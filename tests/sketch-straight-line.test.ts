@@ -11,12 +11,12 @@ describe("snapAngle", () => {
 	const o = { x: 0, y: 0 };
 
 	it("snaps a line near horizontal, vertical or diagonal to it, keeping its length", () => {
-		const to = snapAngle(o, { x: 100, y: 4 }); // about 2.3 degrees
+		const to = snapAngle(o, { x: 100, y: 3 }); // about 1.7 degrees
 		near(to.y, 0);
-		near(to.x, Math.hypot(100, 4));
-		const v = snapAngle(o, { x: -3, y: 80 });
+		near(to.x, Math.hypot(100, 3));
+		const v = snapAngle(o, { x: -2, y: 80 });
 		near(v.x, 0);
-		near(v.y, Math.hypot(3, 80));
+		near(v.y, Math.hypot(2, 80));
 		const diag = snapAngle(o, { x: 100, y: 104 });
 		near(diag.x, diag.y);
 	});
@@ -26,6 +26,9 @@ describe("snapAngle", () => {
 		assert.deepEqual(snapAngle(o, to), to);
 		const justOut = { x: 100, y: 100 * Math.tan(((ANGLE_SNAP_DEG + 0.5) * Math.PI) / 180) };
 		assert.deepEqual(snapAngle(o, justOut), justOut);
+		assert.equal(ANGLE_SNAP_DEG, 2);
+		const fourDeg = { x: 100, y: 7 }; // 4 degrees: used to snap, now it is outside the range
+		assert.deepEqual(snapAngle(o, fourDeg), fourDeg);
 	});
 
 	it("does nothing for a zero-length line", () => {
