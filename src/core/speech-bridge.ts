@@ -7,20 +7,23 @@ import type { LessonLanguage } from "./language.ts";
  * so each side's parser ignores the other's lines. Pure on purpose: the Kotlin side (SpeechBridge.kt, SpeechWire) mirrors it.
  *
  *   page → shell   speech probe                  is speech available here? (answered once, by `speech ready`)
- *                  speech start <en|nb>          begin dictating in that lesson language
+ *                  speech start <en|nb> [online]  begin dictating in that lesson language; `online` (the learner's opt-in) lets the
+ *                                                shell use Google's online recognizer when the language has no offline pack
  *                  speech stop                   end and KEEP what was heard (finals still arrive, then state idle)
  *                  speech cancel                 end and DISCARD (nothing more arrives)
  *   shell → page   speech ready                  this shell can dictate
  *                  speech state <listening|processing|idle>
  *                  speech partial <text>         the recognizer's current guess for the stretch being spoken (replaces the last partial)
  *                  speech final <text>           one recognized stretch (replaces the partial; the shell restarts listening after pauses)
+ *                  speech mode <online|offline>  which recognizer this run uses (online only after the opt-in and a missing offline pack)
  *                  speech level <0..1>           how loud the learner is right now (drives the dictation meter; a few times a second)
- *                  speech error <code> [detail]  codes: permission, unavailable, language, network, busy, other
+ *                  speech error <code> [detail]  codes: permission, unavailable, language (pack exists, Android is downloading it),
+ *                                                unsupported (the recognizer has no offline pack for it at all), network, busy, other
  */
 
-export type SpeechOp = { op: "probe" } | { op: "start"; language: LessonLanguage } | { op: "stop" } | { op: "cancel" };
+export type SpeechOp = { op: "probe" } | { op: "start"; language: LessonLanguage; online?: boolean } | { op: "stop" } | { op: "cancel" };
 
-export const SPEECH_ERROR_CODES = ["permission", "unavailable", "language", "network", "busy", "other"] as const;
+export const SPEECH_ERROR_CODES = ["permission", "unavailable", "language", "unsupported", "network", "busy", "other"] as const;
 export type SpeechErrorCode = (typeof SPEECH_ERROR_CODES)[number];
 
 export type SpeechState = "listening" | "processing" | "idle";
@@ -31,6 +34,7 @@ export type SpeechEvent =
 	| { kind: "partial"; text: string }
 	| { kind: "final"; text: string }
 	| { kind: "level"; level: number }
+	| { kind: "mode"; online: boolean }
 	| { kind: "error"; code: SpeechErrorCode; detail: string };
 
 /** What the learner reads in the dictation button when the shell reports an error. */
@@ -38,13 +42,15 @@ export const SPEECH_ERROR_MESSAGES: Readonly<Record<SpeechErrorCode, string>> = 
 	permission: "Microphone permission is off for this app (Android settings, Apps, learnharness, Permissions).",
 	unavailable: "Offline speech recognition is not available on this phone.",
 	language: "The offline speech pack for this language is not installed yet. Android is downloading it; try again in a minute.",
+	unsupported: "No offline pack for this language. Turn on online dictation in Settings.",
 	network: "Speech recognition lost its connection.",
 	busy: "Another app is using speech recognition. Try again.",
 	other: "Speech recognition stopped unexpectedly.",
 };
 
 export function encodeSpeechOp(op: SpeechOp): string {
-	return op.op === "start" ? `speech start ${op.language}` : `speech ${op.op}`;
+	if (op.op === "start") return op.online ? `speech start ${op.language} online` : `speech start ${op.language}`;
+	return `speech ${op.op}`;
 }
 
 const isErrorCode = (v: string): v is SpeechErrorCode => (SPEECH_ERROR_CODES as readonly string[]).includes(v);
@@ -65,6 +71,8 @@ export function decodeSpeechLine(line: string): SpeechEvent | null {
 			return arg ? { kind: "partial", text: arg } : null;
 		case "final":
 			return arg ? { kind: "final", text: arg } : null;
+		case "mode":
+			return arg === "online" || arg === "offline" ? { kind: "mode", online: arg === "online" } : null;
 		case "level": {
 			const level = Number(arg);
 			return arg !== "" && Number.isFinite(level) ? { kind: "level", level: Math.max(0, Math.min(1, level)) } : null;

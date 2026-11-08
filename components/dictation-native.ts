@@ -53,6 +53,8 @@ export interface NativeSpeechHandlers {
 	/** How loud the learner is, 0..1 (a few times a second while listening). */
 	onLevel?(level: number): void;
 	onError(code: SpeechErrorCode, detail: string): void;
+	/** Which recognizer the run uses: true once the shell went online (the opt-in, and no offline pack for the language). */
+	onMode?(online: boolean): void;
 }
 
 export interface NativeSpeechRun {
@@ -64,8 +66,11 @@ export interface NativeSpeechRun {
 	dispose(): void;
 }
 
-/** Begin dictating in `language`. Throws when the shell is not there; callers check [nativeSpeechReady] first. */
-export function startNativeSpeech(language: LessonLanguage, handlers: NativeSpeechHandlers): NativeSpeechRun {
+/**
+ * Begin dictating in `language`. `online` is the learner's opt-in (Settings → Dictation): it only PERMITS the shell to use the
+ * online recognizer when the language has no offline pack. Throws when the shell is not there; callers check [nativeSpeechReady] first.
+ */
+export function startNativeSpeech(language: LessonLanguage, handlers: NativeSpeechHandlers, online = false): NativeSpeechRun {
 	const b = bridge();
 	if (!b) throw new Error("the Android shell's speech bridge is not available");
 	let live = true;
@@ -77,10 +82,11 @@ export function startNativeSpeech(language: LessonLanguage, handlers: NativeSpee
 		else if (e.kind === "partial") handlers.onPartial(e.text);
 		else if (e.kind === "final") handlers.onFinal(e.text);
 		else if (e.kind === "level") handlers.onLevel?.(e.level);
+		else if (e.kind === "mode") handlers.onMode?.(e.online);
 		else if (e.kind === "error") handlers.onError(e.code, e.detail);
 	};
 	b.addEventListener("message", listener);
-	b.postMessage(encodeSpeechOp({ op: "start", language }));
+	b.postMessage(encodeSpeechOp({ op: "start", language, online }));
 	const dispose = () => {
 		if (!live) return;
 		live = false;

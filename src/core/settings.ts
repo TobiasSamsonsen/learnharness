@@ -368,6 +368,10 @@ export interface GeneralSettings {
 	language?: LessonLanguage;
 	/** Where dictation runs (default local). */
 	dictationEngine?: DictationEngine;
+	/** Android shell only (owner, 2026-11-08): when the phone has no OFFLINE speech pack for the dictation language (Norwegian
+	 *  on the Galaxy Tab S10+), dictate with Google's online recognizer instead of failing. Off by default: audio never
+	 *  leaves the device unless this is on, and then only for a language with no offline pack. Per device (never synced). */
+	dictationOnline?: boolean;
 	/** The default pace (fork addition, 2026-11-01 - core/pace.ts): stamped onto every new session. */
 	pace?: Pace;
 	/** The default problem difficulty (fork addition, 2026-11-07 - core/difficulty.ts): stamped onto every new session. */
@@ -561,7 +565,7 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true, language: DEFAULT_LESSON_LANGUAGE, dictationEngine: DEFAULT_DICTATION_ENGINE, pace: DEFAULT_PACE, difficulty: DEFAULT_DIFFICULTY },
+	general: { autoUpdate: true, language: DEFAULT_LESSON_LANGUAGE, dictationEngine: DEFAULT_DICTATION_ENGINE, dictationOnline: false, pace: DEFAULT_PACE, difficulty: DEFAULT_DIFFICULTY },
 	dictation: { language: "en" },
 	appearance: {
 		mode: "dark",
@@ -609,6 +613,8 @@ function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
 	if (autoUpdate !== undefined) out.autoUpdate = autoUpdate;
 	if (isLessonLanguage(raw.language)) out.language = raw.language;
 	if (isDictationEngine(raw.dictationEngine)) out.dictationEngine = raw.dictationEngine;
+	const dictationOnline = boolOrDrop(raw.dictationOnline);
+	if (dictationOnline !== undefined) out.dictationOnline = dictationOnline;
 	if (isPace(raw.pace)) out.pace = raw.pace;
 	if (isDifficulty(raw.difficulty)) out.difficulty = raw.difficulty;
 	return out;

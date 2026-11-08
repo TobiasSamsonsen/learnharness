@@ -80,6 +80,13 @@ describe("settings: parse strictly, sanitize leniently", () => {
 		assert.equal(parseGeneralSettingsBody({ dictationEngine: "whisper" }).ok, false);
 	});
 
+	test("general: the online-dictation opt-in is a strict boolean, sanitized leniently", () => {
+		assert.deepEqual(parseGeneralSettingsBody({ dictationOnline: true }), { ok: true, settings: { dictationOnline: true } });
+		assert.equal(parseGeneralSettingsBody({ dictationOnline: "yes" }).ok, false);
+		assert.deepEqual(sanitizeUserSettings({ general: { dictationOnline: true } })?.general, { dictationOnline: true });
+		assert.deepEqual(sanitizeUserSettings({ general: { dictationOnline: "yes" } })?.general, {}, "a bad value drops, so the factory off applies");
+	});
+
 	test("a lesson's settings carry its language; bad languages 400", () => {
 		assert.deepEqual(parseSettingsBody({ language: "nb" }), { ok: true, settings: { language: "nb" } });
 		const bad = parseSettingsBody({ language: "de" });

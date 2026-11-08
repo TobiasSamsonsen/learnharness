@@ -7,6 +7,8 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.speech.RecognitionListener
+import android.speech.RecognitionSupport
+import android.speech.RecognitionSupportCallback
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 
@@ -25,6 +27,10 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 	private var wanted = false
 	private var stopping = false
 	private var language = ""
+	/** The learner's opt-in (Settings): this run may use the online recognizer when the language has no offline pack. */
+	private var onlineAllowed = false
+	/** True once this run switched to the online recognizer (audio goes to Google). */
+	private var online = false
 	/** The last partial sent, so an unchanged guess is not sent twice. */
 	private var lastPartial = ""
 	private var lastLevel = ""
@@ -40,15 +46,16 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 		post = reply
 		when (val op = SpeechWire.parse(line)) {
 			SpeechOp.Probe -> post(SpeechWire.ready())
-			is SpeechOp.Start -> start(op.language)
+			is SpeechOp.Start -> start(op.language, op.online)
 			SpeechOp.Stop -> stop()
 			SpeechOp.Cancel -> cancel()
 			null -> Unit
 		}
 	}
 
-	private fun start(lang: String) {
+	private fun start(lang: String, allowOnline: Boolean) {
 		if (recognizer != null) return error("busy")
+		onlineAllowed = allowOnline
 		val tag = SpeechWire.locale(lang) ?: return error("language", lang)
 		// the on-device recognizer API exists from Android 13; an older phone cannot dictate offline
 		if (Build.VERSION.SDK_INT < 33 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) return error("unavailable")
@@ -62,7 +69,8 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 		language = lang
 		wanted = true
 		stopping = false
-		intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+		online = false
+		intent =Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
 			.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
 			.putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag)
 			.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
@@ -90,10 +98,9 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 					keepPartial()
 					if (wanted && !stopping) listenAgain() else finish()
 				}
-				SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> {
-					downloadPack()
-					fail("language", language)
-				}
+				// an online recognizer that rejects the language has nothing further to try (and must not loop back into missingPack)
+				SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
+					if (online) fail("other", "online language") else missingPack()
 				SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> fail("permission")
 				SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> fail("busy")
 				SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER,
@@ -181,6 +188,7 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 		meter.stop()
 		wanted = false
 		stopping = false
+		online = false
 		recognizer?.let {
 			it.setRecognitionListener(null)
 			it.cancel()
@@ -189,13 +197,54 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 		recognizer = null
 	}
 
-	/** Ask Android to fetch the offline pack for the language that was missing, so the next try works. */
-	private fun downloadPack() {
-		if (Build.VERSION.SDK_INT < 33) return
+	/**
+	 * The recognizer has no pack for the language. Ask Android whether it offers one: only then is a download started. Some
+	 * recognizers have no offline pack at all for a language (the Galaxy Tab S10+'s Google recognizers have none for nb-NO, and
+	 * a download request is silently ignored), and that must not read as "downloading". With the learner's opt-in
+	 * ([onlineAllowed]) the run then goes online; without it the page gets an honest error.
+	 */
+	private fun missingPack() {
 		val r = recognizer ?: return
-		val tag = SpeechWire.locale(language) ?: return
+		val tag = SpeechWire.locale(language) ?: return fail("language", language)
 		// not the listening intent: it carries the microphone pipe, which is closed by now ("Bad file descriptor")
-		r.triggerModelDownload(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag))
+		val ask = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag)
+		r.checkRecognitionSupport(ask, context.mainExecutor, object : RecognitionSupportCallback {
+			override fun onSupportResult(support: RecognitionSupport) {
+				// the session may have been cancelled or replaced while Android was answering
+				if (recognizer !== r) return
+				val offered = SpeechWire.offersPack(tag, support.installedOnDeviceLanguages, support.pendingOnDeviceLanguages, support.supportedOnDeviceLanguages)
+				if (offered) r.triggerModelDownload(ask)
+				if (onlineAllowed) goOnline(r)
+				else if (offered) fail("language", language)
+				else fail("unsupported", language)
+			}
+
+			// the pack is known to be missing, so an unanswered support check changes nothing for an opted-in run
+			override fun onError(error: Int) {
+				if (recognizer !== r) return
+				if (onlineAllowed) goOnline(r) else fail("other", "support check $error")
+			}
+		})
+	}
+
+	/**
+	 * Swap the on-device recognizer for the standard one (Speech Services by Google: the engine behind keyboard voice typing),
+	 * online. Only after the learner's opt-in and only for a language with no offline pack. The page is told (`speech mode online`)
+	 * so it can show that audio leaves the device, and the restart-after-pause loop carries on as before.
+	 */
+	private fun goOnline(old: SpeechRecognizer) {
+		if (!wanted || stopping) return finish() // the learner stopped while Android was answering
+		old.setRecognitionListener(null)
+		old.cancel()
+		old.destroy()
+		intent?.removeExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE)
+		val r = SpeechRecognizer.createSpeechRecognizer(context)
+		recognizer = r
+		online = true
+		lastPartial = ""
+		r.setRecognitionListener(listener)
+		post(SpeechWire.mode(true))
+		listen(r)
 	}
 
 	/** Called when the page goes away (a reload, the activity ending): stop listening. */
@@ -208,7 +257,7 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 
 sealed interface SpeechOp {
 	data object Probe : SpeechOp
-	data class Start(val language: String) : SpeechOp
+	data class Start(val language: String, val online: Boolean = false) : SpeechOp
 	data object Stop : SpeechOp
 	data object Cancel : SpeechOp
 }
@@ -223,7 +272,7 @@ object SpeechWire {
 		if (words.size < 2 || words[0] != "speech") return null
 		return when (words[1]) {
 			"probe" -> SpeechOp.Probe
-			"start" -> words.getOrNull(2)?.let { SpeechOp.Start(it) }
+			"start" -> words.getOrNull(2)?.let { SpeechOp.Start(it, online = words.getOrNull(3) == "online") }
 			"stop" -> SpeechOp.Stop
 			"cancel" -> SpeechOp.Cancel
 			else -> null
@@ -236,6 +285,12 @@ object SpeechWire {
 		"nb" -> "nb-NO"
 		else -> null
 	}
+
+	/** True when the recognizer lists [tag] (BCP-47, any case) as installed, being downloaded, or downloadable. */
+	fun offersPack(tag: String, vararg lists: List<String>): Boolean = lists.any { list -> list.any { it.equals(tag, ignoreCase = true) } }
+
+	/** Which recognizer this run uses; `online` means the learner's audio goes to Google (shown on the page). */
+	fun mode(online: Boolean): String = if (online) "speech mode online" else "speech mode offline"
 
 	fun ready(): String = "speech ready"
 	fun state(state: String): String = "speech state $state"

@@ -46,6 +46,18 @@ describe("lesson language — render", () => {
 		assert.match(html, /audio never leaves the machine/);
 	});
 
+	it("settings: the online-dictation opt-in shows only in the Android shell, off by default, and says what it sends", () => {
+		const off = renderToStaticMarkup(<DictationEngineRows general={{}} onChange={() => {}} onlineRow />);
+		assert.match(off, /data-testid="row-dictation-online"/);
+		assert.match(off, /audio is sent to Google/);
+		assert.match(off, /English stays on the device/);
+		assert.match(off, /aria-checked="false"/, "off until the learner turns it on");
+		const on = renderToStaticMarkup(<DictationEngineRows general={{ dictationOnline: true }} onChange={() => {}} onlineRow />);
+		assert.match(on, /aria-checked="true"/);
+		const web = renderToStaticMarkup(<DictationEngineRows general={{}} onChange={() => {}} />);
+		assert.doesNotMatch(web, /row-dictation-online/, "no shell, no row");
+	});
+
 	it("settings: the Deepgram engine explains its key requirement", () => {
 		const html = renderToStaticMarkup(
 			<>

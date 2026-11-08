@@ -1323,10 +1323,14 @@ describe("the UI", () => {
 	});
 
 	it("dictation: a failed local clip offers Retry; the compact idle mic is an icon", () => {
-		const base = { phase: "idle" as const, stopLabel: null, levelRef: { current: 0 }, active: false, toggle() {}, stop() {}, finish: async () => {}, cancel() {}, clearError() {} };
+		const base = { phase: "idle" as const, stopLabel: null, online: false, levelRef: { current: 0 }, active: false, toggle() {}, stop() {}, finish: async () => {}, cancel() {}, clearError() {} };
 		const failed = renderToStaticMarkup(<DictationBar dictation={{ ...base, error: "Local dictation failed: x", retry: () => {} }} compact />);
 		assert.match(failed, /Local dictation failed: x[\s\S]*data-testid="dictation-retry"[^>]*>Retry/);
 		const idle = renderToStaticMarkup(<DictationBar dictation={{ ...base, error: null, retry: null }} compact />);
+		const onlineRun = renderToStaticMarkup(<DictationBar dictation={{ ...base, error: null, retry: null, phase: "recording", active: true, online: true }} compact />);
+		assert.match(onlineRun, /data-testid="dictation-online"/, "an online run says so on the bar");
+		const offlineRun = renderToStaticMarkup(<DictationBar dictation={{ ...base, error: null, retry: null, phase: "recording", active: true }} compact />);
+		assert.doesNotMatch(offlineRun, /dictation-online/);
 		assert.match(idle, /aria-label="Start dictation"/);
 		assert.doesNotMatch(idle, />Dictate</, "icon only");
 		assert.doesNotMatch(idle, /dictation-retry/);

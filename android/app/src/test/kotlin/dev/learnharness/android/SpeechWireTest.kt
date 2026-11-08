@@ -12,6 +12,8 @@ class SpeechWireTest {
 		assertEquals(SpeechOp.Probe, SpeechWire.parse("speech probe"))
 		assertEquals(SpeechOp.Start("nb"), SpeechWire.parse("speech start nb"))
 		assertEquals(SpeechOp.Start("en"), SpeechWire.parse("  speech   start   en \n"))
+		assertEquals(SpeechOp.Start("nb", online = true), SpeechWire.parse("speech start nb online"))
+		assertEquals(SpeechOp.Start("nb", online = false), SpeechWire.parse("speech start nb maybe"))
 		assertEquals(SpeechOp.Stop, SpeechWire.parse("speech stop"))
 		assertEquals(SpeechOp.Cancel, SpeechWire.parse("speech cancel"))
 	}
@@ -26,6 +28,14 @@ class SpeechWireTest {
 		assertFalse(SpeechWire.isSpeech("speechless"))
 	}
 
+	@Test fun aPackIsOfferedOnlyWhenTheRecognizerListsTheLocale() {
+		// the Galaxy Tab S10+'s Google recognizer lists no nb-NO anywhere: no download exists, so none may be promised
+		assertFalse(SpeechWire.offersPack("nb-NO", listOf("en-US"), listOf(), listOf("en-US", "de-DE")))
+		assertTrue(SpeechWire.offersPack("nb-NO", listOf("en-US"), listOf(), listOf("en-US", "nb-NO")))
+		assertTrue(SpeechWire.offersPack("nb-NO", listOf(), listOf("NB-no"), listOf()))
+		assertFalse(SpeechWire.offersPack("nb-NO", listOf(), listOf(), listOf()))
+	}
+
 	@Test fun lessonLanguagesMapToLocales() {
 		assertEquals("en-US", SpeechWire.locale("en"))
 		assertEquals("nb-NO", SpeechWire.locale("nb"))
@@ -35,6 +45,8 @@ class SpeechWireTest {
 	@Test fun linesToThePageAreOneLineEach() {
 		assertEquals("speech ready", SpeechWire.ready())
 		assertEquals("speech state listening", SpeechWire.state("listening"))
+		assertEquals("speech mode online", SpeechWire.mode(true))
+		assertEquals("speech mode offline", SpeechWire.mode(false))
 		assertEquals("speech partial hello the", SpeechWire.partial("hello\n  the "))
 		assertEquals("speech level 0.00", SpeechWire.level(-0.5f))
 		assertEquals("speech level 0.50", SpeechWire.level(0.5f))

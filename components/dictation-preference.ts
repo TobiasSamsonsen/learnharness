@@ -11,8 +11,13 @@ const INITIAL = { language: undefined as DictationLanguage | undefined, saving: 
 
 /** The fork's General dictation settings, read from the same record (and the same GET) as the language: which engine
  * runs, and the lesson language a draft page uses. Defaults until a read succeeds. */
-export interface DictationGeneral { engine: DictationEngine; language: LessonLanguage }
-const DEFAULT_GENERAL: DictationGeneral = { engine: DEFAULT_DICTATION_ENGINE, language: DEFAULT_LESSON_LANGUAGE };
+export interface DictationGeneral {
+	engine: DictationEngine;
+	language: LessonLanguage;
+	/** The Android shell may use the online recognizer for a language with no offline pack (Settings → Dictation, off by default). */
+	online: boolean;
+}
+const DEFAULT_GENERAL: DictationGeneral = { engine: DEFAULT_DICTATION_ENGINE, language: DEFAULT_LESSON_LANGUAGE, online: FACTORY_SETTINGS.general.dictationOnline };
 
 /** One confirmed preference and one write in flight, shared by every surface.
  * The factory keeps transport tests isolated without a second persistence path.
@@ -50,6 +55,7 @@ export function createDictationLanguageStore(request: typeof fetch, saved: () =>
 				general = {
 					engine: record?.general?.dictationEngine ?? DEFAULT_GENERAL.engine,
 					language: record?.general?.language ?? DEFAULT_GENERAL.language,
+					online: record?.general?.dictationOnline ?? DEFAULT_GENERAL.online,
 				};
 				publish({ language, error: null });
 				return language;

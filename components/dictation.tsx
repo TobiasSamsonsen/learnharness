@@ -352,6 +352,8 @@ export type Dictation = {
 	stopLabel: string | null;
 	/** Latest observed RMS, 0..1 — sampled by the meter's own tick, never reset. */
 	levelRef: { current: number };
+	/** The run uses the online recognizer (Android shell, opt-in, language without an offline pack): audio leaves the device. */
+	online: boolean;
 	/** Not idle — from the click until the stop completes (the optimistic window). */
 	active: boolean;
 	/** End + KEEP the transcript: flush the deferred buffer into the primary
@@ -413,6 +415,8 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 	/** The Android shell's speech recognizer run (docs/android/m12-plan.md step 6): when the shell answers the probe,
 	 *  dictation uses it instead of any engine above — no microphone capture, no server round trip. */
 	const nativeRef = useRef<NativeSpeechRun | null>(null);
+	/** True while the native run uses the online recognizer (the learner's opt-in and no offline pack): the bar says so. */
+	const [online, setOnline] = useState(false);
 	/** What that run has put in the field so far: its live partial and its finals (Esc takes them back out). */
 	const transcriptRef = useRef<LiveTranscript | null>(null);
 	useEffect(() => probeNativeSpeech(), []);
@@ -483,6 +487,7 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 	const cleanup = useCallback((warmNext = true) => {
 		genRef.current++;
 		setDictationActive(false);
+		setOnline(false);
 		nativeRef.current?.dispose();
 		nativeRef.current = null;
 		transcriptRef.current?.settle(); // what is in the field stays
@@ -611,6 +616,9 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 			const transcript = (transcriptRef.current = createLiveTranscript(() => questionTarget ?? appendRef.current));
 			const normalizeLevel = createLevelNormalizer();
 			nativeRef.current = startNativeSpeech(config.language, {
+				onMode: (online) => {
+					if (gen === genRef.current) setOnline(online);
+				},
 				onState: (s) => {
 					if (gen !== genRef.current) return;
 					if (s === "listening") setPhase("recording");
@@ -630,7 +638,7 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 					setError(SPEECH_ERROR_MESSAGES[code]);
 					cleanup();
 				},
-			});
+			}, general.online);
 			return;
 		}
 		const local = config.engine === "local";
@@ -943,6 +951,7 @@ export function useDictation({ append, chatId }: { append: DictationAppend; chat
 		error,
 		stopLabel,
 		levelRef,
+		online,
 		active: phase !== "idle",
 		toggle,
 		stop,
@@ -978,6 +987,8 @@ export function DictationBar({ dictation, compact = false }: { dictation: Dictat
 	 *  the error — the surface is clean when the user returns. Any other
 	 *  error keeps the old behavior (click = retry, which clears). */
 	const keyless = error === DICTATION_KEYLESS;
+	/** The Android shell has no offline pack for the language: the error is a pointer, so a tap opens Settings → Dictation (the opt-in). */
+	const toSettings = error === SPEECH_ERROR_MESSAGES.unsupported;
 	const [levels, setLevels] = useState<number[]>(() => new Array(METER_CELLS).fill(0));
 	/** Adaptive cell count (owner round 2): derived from the meter's
 	 *  measured width — narrow rows show fewer bars instead of
@@ -1023,7 +1034,7 @@ export function DictationBar({ dictation, compact = false }: { dictation: Dictat
 		const retry = dictation.retry;
 		const toggleButton = (
 			<Hint
-				// The error line truncates in the button; its tooltip reveals it.
+				// The error line wraps in the button; its tooltip repeats it.
 				label={error ?? "Dictate"}
 				action={error ? undefined : "toggle-dictation"}
 				side="top"
@@ -1034,6 +1045,9 @@ export function DictationBar({ dictation, compact = false }: { dictation: Dictat
 						if (keyless) {
 							clearError();
 							openSettings("dictation", DEEPGRAM_KEY_ID);
+						} else if (toSettings) {
+							clearError();
+							openSettings("dictation");
 						} else {
 							toggle();
 						}
@@ -1043,15 +1057,16 @@ export function DictationBar({ dictation, compact = false }: { dictation: Dictat
 					className={
 						compact
 							? error
-								? "flex h-7 min-w-0 max-w-72 items-center gap-1.5 rounded-md px-2 text-xs text-destructive transition-colors hover:bg-muted"
+								? "flex min-h-7 min-w-0 max-w-96 items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs text-destructive transition-colors hover:bg-muted"
 								: "lh-touch flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 							: // Same blurring as the floating chrome (owner, fix wave round 3),
 								// but lower opacity — the mic stays quieter than the model pills.
-								"flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-border/50 bg-card/50 text-xs text-muted-foreground/70 shadow-lg backdrop-blur transition-colors hover:border-border hover:text-muted-foreground"
+								"flex min-h-7 w-full items-center justify-center gap-1.5 rounded-md border border-border/50 bg-card/50 px-2 py-1 text-xs text-muted-foreground/70 shadow-lg backdrop-blur transition-colors hover:border-border hover:text-muted-foreground"
 					}
 				>
-					<MicIcon className={compact && !error ? "size-4" : "size-3.5"} />
-					{(!compact || error) && <span className="max-w-full truncate">{error ?? "Dictate"}</span>}
+					<MicIcon className={compact && !error ? "size-4" : "size-3.5 shrink-0"} />
+					{/* an error wraps (a long one, like the offline-pack pointer to Settings, must be readable on a touch screen, where there is no hover tooltip) */}
+					{(!compact || error) && <span className={error ? "min-w-0" : "max-w-full truncate"}>{error ?? "Dictate"}</span>}
 				</button>
 			</Hint>
 		);
@@ -1074,6 +1089,11 @@ export function DictationBar({ dictation, compact = false }: { dictation: Dictat
 	return (
 		<div className="flex w-full min-w-0 items-center gap-2" data-testid="dictation-bar">
 			<span className="size-1.5 shrink-0 animate-pulse rounded-full bg-destructive" aria-hidden />
+			{dictation.online && (
+				<span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground" data-testid="dictation-online" title="This run uses Google's online recognizer: audio leaves the device">
+					Online
+				</span>
+			)}
 			{/* Fixed width while recording — nothing ever appends text beside it
 			    (no interims, owner round 1). Cells carry no minimum width; the
 			    COUNT adapts to the measured row space (owner round 2). */}

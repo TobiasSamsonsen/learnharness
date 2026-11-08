@@ -411,7 +411,7 @@ function mergeSections(i: MergeInput & { local: string; remote: string }, depth:
 
 /** Top-level sections that travel whole. */
 const PORTABLE_SECTIONS = ["version", "agent", "models", "graph", "compaction"] as const;
-/** `general` travels only these; the rest of it (dictationEngine, autoUpdate) is per device. */
+/** `general` travels only these; the rest of it (dictationEngine, dictationOnline, autoUpdate) is per device. */
 const PORTABLE_GENERAL = ["language", "pace", "difficulty"] as const;
 
 /** Sorted keys, tab-indented: two devices holding the same settings produce the same bytes. */

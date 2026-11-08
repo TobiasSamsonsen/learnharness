@@ -11,7 +11,8 @@ import {
 	type GeneralSettings,
 	type LocalSttStatus,
 } from "@/src/core";
-import { SettingsGroup, SettingsRow, ThinSelect } from "@/components/settings/controls";
+import { SettingsGroup, SettingsRow, ThinSelect, Toggle } from "@/components/settings/controls";
+import { nativeSpeechReady } from "@/components/dictation-native";
 
 /**
  * Settings → General: the default lesson language (fork addition, 2026-10-24):
@@ -57,11 +58,15 @@ function modelState(status: LocalSttStatus): string {
 export function DictationEngineRows({
 	general,
 	onChange,
+	onlineRow,
 }: {
 	general: GeneralSettings | undefined;
 	/** Writes the WHOLE general section (replace-whole). */
 	onChange: (next: GeneralSettings) => void;
+	/** Show the Android shell's online-dictation opt-in (default: the shell answered the speech probe). */
+	onlineRow?: boolean;
 }) {
+	const showOnline = onlineRow ?? nativeSpeechReady();
 	const [models, setModels] = useState<LocalSttStatus[] | null>(null);
 	const read = useCallback(() => {
 		fetch("/api/stt/local")
@@ -110,6 +115,19 @@ export function DictationEngineRows({
 				<option value="deepgram">Deepgram (cloud)</option>
 			</ThinSelect>
 		</SettingsRow>
+		{showOnline && (
+			<SettingsRow
+				label="Online dictation when no offline pack"
+				hint="Android app. Dictation stays on this device. If it has no offline speech pack for a language (Norwegian, for example), this lets the app use Google's online recognizer for that language, so its audio is sent to Google. English stays on the device."
+				testid="row-dictation-online"
+			>
+				<Toggle
+					checked={general?.dictationOnline ?? false}
+					label="online dictation when no offline pack"
+					onChange={(on) => onChange({ ...general, dictationOnline: on })}
+				/>
+			</SettingsRow>
+		)}
 		{engine === "local" &&
 			(models ?? []).map((m) => (
 				<SettingsRow

@@ -12,6 +12,8 @@ import { decodeSpeechLine, encodeSpeechOp, SPEECH_ERROR_CODES, SPEECH_ERROR_MESS
 test("page operations encode to one speech line each", () => {
 	assert.equal(encodeSpeechOp({ op: "probe" }), "speech probe");
 	assert.equal(encodeSpeechOp({ op: "start", language: "nb" }), "speech start nb");
+	assert.equal(encodeSpeechOp({ op: "start", language: "nb", online: false }), "speech start nb", "no opt-in = the old line");
+	assert.equal(encodeSpeechOp({ op: "start", language: "nb", online: true }), "speech start nb online", "the opt-in rides the start line");
 	assert.equal(encodeSpeechOp({ op: "stop" }), "speech stop");
 	assert.equal(encodeSpeechOp({ op: "cancel" }), "speech cancel");
 });
@@ -23,8 +25,12 @@ test("shell lines decode, and anything else is ignored without throwing", () => 
 	assert.deepEqual(decodeSpeechLine("speech partial  hello the "), { kind: "partial", text: "hello the" });
 	assert.deepEqual(decodeSpeechLine("speech final  hello there, world "), { kind: "final", text: "hello there, world" });
 	assert.deepEqual(decodeSpeechLine("speech error language pack missing"), { kind: "error", code: "language", detail: "pack missing" });
+	assert.deepEqual(decodeSpeechLine("speech error unsupported nb"), { kind: "error", code: "unsupported", detail: "nb" });
 	assert.deepEqual(decodeSpeechLine("speech error busy"), { kind: "error", code: "busy", detail: "" });
 	assert.deepEqual(decodeSpeechLine("speech level 0.42"), { kind: "level", level: 0.42 });
+	assert.deepEqual(decodeSpeechLine("speech mode online"), { kind: "mode", online: true });
+	assert.deepEqual(decodeSpeechLine("speech mode offline"), { kind: "mode", online: false });
+	assert.equal(decodeSpeechLine("speech mode cloudy"), null);
 	assert.deepEqual(decodeSpeechLine("speech level 7"), { kind: "level", level: 1 }, "clamped");
 	for (const bad of ["", "ready", "speech", "speech state hmm", "speech partial", "speech final", "speech error nope x", "speech level", "speech level loud", "stroke {}", "pan 3"]) {
 		assert.equal(decodeSpeechLine(bad), null, bad);

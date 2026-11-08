@@ -188,6 +188,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			autoUpdate: record?.general?.autoUpdate ?? FACTORY_SETTINGS.general.autoUpdate,
 			language: record?.general?.language ?? FACTORY_SETTINGS.general.language,
 			dictationEngine: record?.general?.dictationEngine ?? FACTORY_SETTINGS.general.dictationEngine,
+			dictationOnline: record?.general?.dictationOnline ?? FACTORY_SETTINGS.general.dictationOnline,
 				pace: record?.general?.pace ?? FACTORY_SETTINGS.general.pace,
 			difficulty: record?.general?.difficulty ?? FACTORY_SETTINGS.general.difficulty,
 		},

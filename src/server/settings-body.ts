@@ -134,7 +134,7 @@ function asRecord(body: unknown): Record<string, unknown> | null {
 	return body as Record<string, unknown>;
 }
 
-/** general: { autoUpdate?: boolean, language?: LessonLanguage, dictationEngine?: DictationEngine } */
+/** general: { autoUpdate?: boolean, language?: LessonLanguage, dictationEngine?: DictationEngine, dictationOnline?: boolean } */
 export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<GeneralSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
@@ -166,6 +166,12 @@ export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<Gene
 			return { ok: false, error: "dictationEngine must be one of: local, deepgram" };
 		}
 		settings.dictationEngine = raw.dictationEngine;
+	}
+	if (raw.dictationOnline !== undefined) {
+		if (typeof raw.dictationOnline !== "boolean") {
+			return { ok: false, error: "dictationOnline must be a boolean" };
+		}
+		settings.dictationOnline = raw.dictationOnline;
 	}
 	return { ok: true, settings };
 }
