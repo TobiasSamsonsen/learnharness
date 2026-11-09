@@ -1,6 +1,6 @@
 /**
  * Is the server busy? (src/server/busy.ts, GET /api/busy.) The Android app rests an unused server on this: the wake lock goes after
- * 10 idle minutes and the service stops after 45. Pinned: an idle server says so; each kind of work in progress makes it busy and
+ * 10 idle minutes and the service stops after 30. Pinned: an idle server says so; each kind of work in progress makes it busy and
  * stops doing so when it ends; a leaked turn entry stops counting after its limit; a steer parked until a learner run is not work;
  * a process kept warm is not work. The data dir is isolated before any server module loads.
  */

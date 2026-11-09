@@ -27,7 +27,7 @@ import java.security.SecureRandom
  * partial wake lock while it runs and restarts the server if it dies. proot is started directly, never through a shell,
  * so the guest costs as few of Android's phantom-process slots as possible.
  *
- * An unused server rests (IdlePolicy, owner decision 2026-11-03): nothing in use for 10 minutes drops the wake lock, 45 minutes
+ * An unused server rests (IdlePolicy, owner decision 2026-11-03): nothing in use for 10 minutes drops the wake lock, 30 minutes
  * stops the service. "In use" is the app on screen, or the server reporting work in progress (GET /api/busy), so a long turn or a
  * long problem is never cut. The app starts the server again on its next open (MainActivity.onResume checks it is up).
  */

@@ -9,9 +9,9 @@ import org.junit.Test
 class IdlePolicyTest {
 	private val minute = 60_000L
 
-	@Test fun limitsAreTenAndFortyFiveMinutes() {
+	@Test fun limitsAreTenAndThirtyMinutes() {
 		assertEquals(10 * minute, IdlePolicy.RELEASE_WAKE_LOCK_MS)
-		assertEquals(45 * minute, IdlePolicy.STOP_SERVER_MS)
+		assertEquals(30 * minute, IdlePolicy.STOP_SERVER_MS)
 	}
 
 	@Test fun nothingHappensBeforeTenMinutes() {
@@ -21,11 +21,11 @@ class IdlePolicyTest {
 
 	@Test fun theWakeLockGoesAtTenMinutesAndTheServerStaysLoaded() {
 		assertEquals(IdlePolicy.Step.RELEASE_WAKE_LOCK, IdlePolicy.step(10 * minute))
-		assertEquals(IdlePolicy.Step.RELEASE_WAKE_LOCK, IdlePolicy.step(45 * minute - 1))
+		assertEquals(IdlePolicy.Step.RELEASE_WAKE_LOCK, IdlePolicy.step(30 * minute - 1))
 	}
 
-	@Test fun theServerStopsAtFortyFiveMinutes() {
-		assertEquals(IdlePolicy.Step.STOP, IdlePolicy.step(45 * minute))
+	@Test fun theServerStopsAtThirtyMinutes() {
+		assertEquals(IdlePolicy.Step.STOP, IdlePolicy.step(30 * minute))
 		assertEquals(IdlePolicy.Step.STOP, IdlePolicy.step(24 * 60 * minute))
 	}
 

@@ -10,7 +10,7 @@ import { turnsInFlight } from "./turn-liveness.ts";
 
 /**
  * Is the server doing work nobody is watching? (fork addition, 2026-11-03.) The Android app asks this (GET /api/busy) to decide
- * when an unused server may drop its wake lock (10 minutes) and stop (45): see android/.../ServerService.kt and IdlePolicy.
+ * when an unused server may drop its wake lock (10 minutes) and stop (30): see android/.../ServerService.kt and IdlePolicy.
  *
  * Busy means WORK IN PROGRESS: a chat turn, a compaction, a background job or the delivery of its result, graph extraction, a course
  * being drafted, a material being read, any background model call, a sync round. It is deliberately NOT "someone has the page

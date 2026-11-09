@@ -240,14 +240,14 @@ object PhotoCapture {
 }
 
 /**
- * When an unused server may rest (owner decision, 2026-11-03: 10 and 45 minutes). "Unused" means the app is not on screen AND the
+ * When an unused server may rest (owner decision, 2026-11-03: 10 and 45 minutes; the stop limit changed to 30 on 2026-11-09). "Unused" means the app is not on screen AND the
  * server reports no work in progress (a turn, a job, a sync round ...), so a long problem or a long model turn is never cut: the
  * clock only runs while nothing is happening. The first step drops the wake lock (the CPU may sleep, the server stays loaded, coming
  * back is instant); the second stops the server and its notification (the app starts it again on the next open).
  */
 object IdlePolicy {
 	const val RELEASE_WAKE_LOCK_MS = 10 * 60_000L
-	const val STOP_SERVER_MS = 45 * 60_000L
+	const val STOP_SERVER_MS = 30 * 60_000L
 
 	/** How often the service looks. Finer than a minute buys nothing: both limits are minutes long. */
 	const val POLL_MS = 30_000L
@@ -273,7 +273,7 @@ object IdlePolicy {
 
 	/**
 	 * Test seam: the optional file `idle-limits` in the app's private storage holds "release stop poll" in SECONDS, so a device check
-	 * does not have to wait 45 minutes. Absent, malformed, or not release < stop with a poll of at least a second: the real limits.
+	 * does not have to wait 30 minutes. Absent, malformed, or not release < stop with a poll of at least a second: the real limits.
 	 */
 	fun limitsFrom(text: String?): Limits {
 		val n = text?.trim()?.split(Regex("\\s+"))?.map { it.toLongOrNull() ?: return Limits.DEFAULT } ?: return Limits.DEFAULT
