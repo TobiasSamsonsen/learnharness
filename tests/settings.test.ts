@@ -221,6 +221,7 @@ describe("sanitizeUserSettings", () => {
 			"pdfReader",
 			"coursePlanner",
 			"checker",
+			"grader",
 		]);
 	});
 });

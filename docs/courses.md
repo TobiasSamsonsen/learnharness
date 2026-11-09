@@ -151,17 +151,23 @@ is the chance of recall `t` days after the last review. Background:
 <https://github.com/open-spaced-repetition/awesome-fsrs/wiki/ABC-of-FSRS>.
 
 **Events** (`skillEventsOf`, per course chat):
-- practice / review → every concluded problem with `skills` → `{ skillId, at: conclude timestamp, outcome, grade? }`; `grade` is the tutor's per-skill grade from the `conclude` call's `grades` (`gradesOf`);
+- practice / review → every concluded problem with `skills` → `{ skillId, at: conclude timestamp, outcome, grade? }`; `grade` is the grader's per-skill grade from the `conclude` RESULT's `details.grades` (`concludeGradesOf`; records from before the grader keep the tutor's own `grades` argument);
 - Learn → its finish (`sessionFinishOf`: the `lesson-finished` marker or a clean `finish_lesson` call, the first one) → `finished`;
 - placement test → every answered placement `probe` (its `skill` arg + the answer's `correct`/`confidence`/`dontKnow`) → `placementKnown` / `placementUnsure` / `placementMiss`;
 - legacy placement checks (problems, before 2026-10-25) keep `placement: true`.
 
 **Grades** are the Anki scale, least to most learned: `again`, `hard`, `good`, `easy`.
-The **tutor** grades each tagged skill of a problem at `conclude` (`grades`, one entry
-per tagged skill, validated against the problem's `skills`): what the learner
-demonstrated on that skill, never more. The guideline is
-`src/agent/prompts/practice/20-grading.md`; it is a guideline, not a rule. A record
-without grades (older chats) takes the outcome's default grade.
+A separate **grader** model grades each tagged skill of a problem (owner, 2026-11-09: the tutor
+graded a hint-assisted, 30%-confident review `good`). When a `conclude` succeeds in a course
+session, the practice agent's `afterToolCall` hook (`src/agent/practice-grade.ts`) slices the
+problem out of the live turn (pose to conclusion: statement, committed solution, the learner's
+work with stated confidence, tutor replies, sketch read-backs, the tutor's own conclusion;
+`src/core/practice-grading.ts`), runs the `grader` role (strong slot, Settings override;
+`src/agent/subagents/grader.ts`, whose owner-approved rubric is code, not an editable fragment)
+and writes the grades into the result's `details`. The tutor no longer grades: `conclude` has no
+`grades` field and drops one sent anyway. A grader failure or timeout (120 s) fails open to
+`details.grades = []`, so the outcome's default applies; a skill the grader skipped likewise.
+A record without grader grades (older chats) takes the tutor's own, then the outcome's default.
 
 Each event is one FSRS review:
 
@@ -221,8 +227,7 @@ in the listed order; a problem may group several skills at a higher difficulty.
 skills ~6, Long 3-4 ~12, Exam 4-6 ~20 and exam-level (calibrated to past exams in the course
 sources when there are any). The level's skill cap is enforced by the `problem` tool; minutes
 and "size by the work, not only the skill count" are prompt-only (`<difficulty>` section,
-practice agent only). Practice prompt fragments added: `20-grading.md` (the tutor's grading
-guideline) and `30-short-sessions.md` (short feedback, the tutor decides when to show the
+practice agent only). Practice prompt fragment added: `30-short-sessions.md` (short feedback, the tutor decides when to show the
 correction and teach it, ending as `taught`, at most one retest after a taught problem).
 A concluded problem that ended taught / moved on / surrendered shows a "Learn <skill>" button
 per again-graded skill: it opens a Learn session on that skill, and Next problem continues

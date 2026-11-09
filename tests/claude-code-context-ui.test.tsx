@@ -19,7 +19,7 @@ afterEach(async () => { await act(async () => root?.unmount()); host?.remove(); 
 test("compact CLI context is numeric only; effective-window explanation appears only in expanded session metadata", async () => {
 	const catalog: ModelCatalogResponse = { models: CLAUDE_CODE_MODELS.map(toModelDto), providers: [],
 		slots: { strong: null, cheap: null, vision: null }, defaults: null,
-		rolePins: { researcher: null, demoBuilder: null, visualMaker: null, extractor: null, auditor: null, planner: null, pdfReader: null, coursePlanner: null, checker: null } };
+		rolePins: { researcher: null, demoBuilder: null, visualMaker: null, extractor: null, auditor: null, planner: null, pdfReader: null, coursePlanner: null, checker: null, grader: null } };
 	globalThis.fetch = (async (url) => {
 		if (url === "/api/models") return Response.json(catalog);
 		if (url === "/api/settings") return Response.json({ settings: { models: {} } });

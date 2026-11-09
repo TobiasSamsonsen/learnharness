@@ -12,9 +12,11 @@
  *   difficulty D     how fast S grows after a review (1–10)
  *
  * Each piece of evidence is ONE review with an Anki grade, again < hard <
- * good < easy. The TUTOR grades a problem skill by skill (the conclude
- * tool's `grades`: what the learner demonstrated, never more); when a record
- * has no grades (older chats) the outcome gives the default grade.
+ * good < easy. A separate GRADER model grades a problem skill by skill from
+ * its whole transcript (agent/practice-grade.ts; the grades ride the conclude
+ * RESULT's details: what the learner demonstrated, never more); records from
+ * before it carry the tutor's own conclude `grades`; with neither, the
+ * outcome gives the default grade.
  *
  *   Learn session finished        good
  *   placement test, correct, ≥ 70 the skill easy AND seeded to
@@ -190,6 +192,15 @@ export function gradesOf(raw: unknown): Map<string, Grade> {
 	return out;
 }
 
+/** The per-skill grades of one concluded problem. A conclude RESULT whose details carry `grades` is the practice
+ *  grader's verdict (agent/practice-grade.ts; an empty list = the grader failed or skipped a skill, so the
+ *  outcome's default applies, and a tutor's stray `grades` argument is never consulted). Records from before the
+ *  grader (details null) fall back to the tutor's own `grades` argument. */
+export function concludeGradesOf(args: { grades?: unknown } | undefined, details: unknown): Map<string, Grade> {
+	if (details && typeof details === "object" && Array.isArray((details as { grades?: unknown }).grades)) return gradesOf((details as { grades: unknown }).grades);
+	return gradesOf(args?.grades);
+}
+
 /** The skill events of ONE course session:
  *  - Learn: its finish (sessionFinishOf), once, on the session's skill.
  *  - placement: every answered placement `probe` that carried `skill`
@@ -202,9 +213,11 @@ export function skillEventsOf(messages: readonly LhMessage[], link: ChatCourseLi
 		return finish ? link.skillIds.map((skillId) => ({ skillId, at: finish.at, outcome: "finished" as const, placement: false })) : [];
 	}
 	const clean = new Set<string>();
+	const detailsOf = new Map<string, unknown>();
 	for (const m of messages) {
 		if ((m as { role?: string }).role === "toolResult" && !(m as ToolResultMessage).isError) {
 			clean.add((m as ToolResultMessage).toolCallId);
+			detailsOf.set((m as ToolResultMessage).toolCallId, (m as ToolResultMessage).details);
 		}
 	}
 	const events: SkillEvent[] = [];
@@ -247,7 +260,7 @@ export function skillEventsOf(messages: readonly LhMessage[], link: ChatCourseLi
 				const args = block.arguments as { outcome?: unknown; grades?: unknown } | undefined;
 				const outcome = args?.outcome;
 				if (active && typeof outcome === "string" && OUTCOMES.has(outcome)) {
-					const graded = gradesOf(args?.grades);
+					const graded = concludeGradesOf(args, detailsOf.get(block.id));
 					for (const skillId of new Set(active)) {
 						const grade = graded.get(skillId);
 						events.push({ skillId, at: assistant.timestamp, outcome: outcome as ProblemOutcome, ...(grade ? { grade } : {}), placement: link.mode === "placement" });

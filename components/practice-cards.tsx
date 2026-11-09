@@ -112,6 +112,9 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 	// Nothing collapsible. Legacy inputs (pre-slim records) that carry
 	// their own solutionReveal fall back to it.
 	const input = (part.input ?? {}) as { outcome?: string; verdict?: string; solutionReveal?: string; grades?: unknown };
+	// the grader's grades ride the result's details (agent/practice-grade.ts); older records kept the tutor's own on the call
+	const output = part.output as { grades?: unknown } | null | undefined;
+	const grades = Array.isArray(output?.grades) ? output.grades : input.grades;
 	const outcome = typeof input.outcome === "string" ? input.outcome : "";
 	const verdict = typeof input.verdict === "string" ? input.verdict : "";
 	const reveal =
@@ -161,7 +164,7 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 					</div>
 				</>
 			)}
-			{chat && <LearnSkillButtons chatId={chat.chatId} skillIds={learnableSkillIds(input)} />}
+			{chat && <LearnSkillButtons chatId={chat.chatId} skillIds={learnableSkillIds({ outcome: input.outcome, grades })} />}
 			<MetadataPopover
 				concludeInput={input}
 				problemInput={(part.problemInput ?? {}) as { mode?: unknown; target?: unknown }}
@@ -170,10 +173,10 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 	);
 }
 
-/** The outcomes that leave room to learn a skill the tutor graded `again`. */
+/** The outcomes that leave room to learn a skill graded `again`. */
 const LEARNABLE_OUTCOMES = ["taught", "movedOn", "surrendered"];
 
-/** The skill ids the tutor graded `again` on a concluded problem, when the
+/** The skill ids graded `again` on a concluded problem, when the
  *  outcome leaves room to learn them. Pure; malformed grades are skipped. */
 export function learnableSkillIds(input: { outcome?: unknown; grades?: unknown }): string[] {
 	if (typeof input.outcome !== "string" || !LEARNABLE_OUTCOMES.includes(input.outcome)) return [];

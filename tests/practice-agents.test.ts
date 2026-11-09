@@ -114,59 +114,24 @@ describe("the practice tool gating law", () => {
 		]);
 	});
 
-	describe("grades — one per tagged skill, in a course session", () => {
+	describe("grades — the tutor no longer grades (a separate grader does, agent/practice-grade.ts)", () => {
 		const courseRecord = (): LhMessage[] => {
 			const [pose, ack] = activeProblemRecord() as [LhMessage & AssistantMessage, LhMessage];
-			(pose.content[0] as { arguments: unknown }).arguments = { statement: "Show\u2026", skills: ["sk_a", "sk_b"] };
+			(pose.content[0] as { arguments: unknown }).arguments = { statement: "Show…", skills: ["sk_a", "sk_b"] };
 			return [pose, ack];
 		};
-		const skills = () => [
-			{ id: "sk_a", name: "Alpha" },
-			{ id: "sk_b", name: "Beta" },
-		];
-		const conclude = (grades?: unknown) => {
-			const tool = concludeTool(createPracticeGate(ctxOf(courseRecord())), skills);
-			const input = { ...CONCLUDE_INPUT, ...(grades === undefined ? {} : { grades }) };
-			return tool.execute("call_g", (tool.prepareArguments ? tool.prepareArguments(input) : input) as never);
-		};
 
-		it("a problem tagged with skills needs a grade for each, exactly", async () => {
-			const none = await conclude();
-			assert.equal(none.isError, true);
-			assert.match((none.details as { problems: string[] }).problems.join(" "), /grades is required in a course session.*sk_a, sk_b/);
-			const partial = await conclude([{ skill: "sk_a", grade: "good" }]);
-			assert.match((partial.details as { problems: string[] }).problems.join(" "), /missing \["sk_b"\]/);
-			const stray = await conclude([
-				{ skill: "sk_a", grade: "good" },
-				{ skill: "sk_b", grade: "hard" },
-				{ skill: "sk_z", grade: "easy" },
-			]);
-			assert.match((stray.details as { problems: string[] }).problems.join(" "), /did not tag/);
-			const ok = await conclude([
-				{ skill: "sk_a", grade: "good" },
-				{ skill: "sk_b", grade: "hard" },
-			]);
-			assert.equal(ok.isError, undefined);
-		});
-
-		it("a record that kept skill NAMES still concludes with grades by id (no rejection loop)", async () => {
-			const [pose, ack] = activeProblemRecord() as [LhMessage & AssistantMessage, LhMessage];
-			(pose.content[0] as { arguments: unknown }).arguments = { statement: "Show…", skills: ["Alpha", "sk_b"] };
-			const ctx = { ...ctxOf([pose, ack]), courseSkills: skills };
-			const tool = concludeTool(createPracticeGate(ctx), skills);
-			const input = { ...CONCLUDE_INPUT, grades: [{ skill: "sk_a", grade: "good" }, { skill: "Beta", grade: "hard" }] };
-			const result = await tool.execute("call_n", (tool.prepareArguments ? tool.prepareArguments(input) : input) as never);
+		it("a course-session conclude needs no grades", async () => {
+			const tool = concludeTool(createPracticeGate(ctxOf(courseRecord())));
+			const result = await tool.execute("call_g", (tool.prepareArguments ? tool.prepareArguments(CONCLUDE_INPUT) : CONCLUDE_INPUT) as never);
 			assert.equal(result.isError, undefined);
 		});
 
-		it("skill names normalize to ids; an untagged (non-course) problem needs no grades", async () => {
-			const byName = await conclude([
-				{ skill: "alpha", grade: "easy" },
-				{ skill: "Beta", grade: "again" },
-			]);
-			assert.equal(byName.isError, undefined, "names resolve to ids at the seam");
-			const plain = await concludeTool(createPracticeGate(ctxOf(activeProblemRecord()))).execute("call_p", CONCLUDE_INPUT as never);
-			assert.equal(plain.isError, undefined);
+		it("a grades field sent out of habit is dropped at the seam, never recorded", () => {
+			const tool = concludeTool(createPracticeGate(ctxOf(courseRecord())));
+			const prepared = tool.prepareArguments!({ ...CONCLUDE_INPUT, grades: [{ skill: "sk_a", grade: "easy" }] }) as Record<string, unknown>;
+			assert.equal("grades" in prepared, false);
+			assert.equal(prepared.outcome, CONCLUDE_INPUT.outcome);
 		});
 	});
 

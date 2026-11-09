@@ -207,7 +207,7 @@ export function courseFirstMessage(
 	}
 }
 
-const TAGGING_LAW = `Every problem you pose tests one or more of the session's skills (the session context lists them with their ids), and the problem call's \`skills\` field MUST name them. That tag is how the course tracks what the learner knows: concluding grades each tagged skill (the \`grades\` field, one entry per skill, on the again/hard/good/easy scale — the practice prompt's grading guideline says how) and that grade moves the skill's understanding. Tag only the skills solving the problem genuinely requires, and grade honestly: never more than the learner demonstrated.`;
+const TAGGING_LAW = `Every problem you pose tests one or more of the session's skills (the session context lists them with their ids), and the problem call's \`skills\` field MUST name them. That tag is how the course tracks what the learner knows: when the problem concludes, a separate grader reads the whole problem and grades each tagged skill on the again/hard/good/easy scale, and that grade moves the skill's understanding (you never grade; your conclusion's outcome, hint rung and verdict are one account it weighs). Tag only the skills solving the problem genuinely requires.`;
 
 /** The per-turn system-prompt section of a course session. */
 export function coursePromptSection(mode: CourseMode, courseTitle: string, skills: readonly SessionSkill[]): string {

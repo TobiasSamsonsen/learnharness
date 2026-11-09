@@ -33,6 +33,7 @@ import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } from "../core/language.ts";
 import { paceSection, type Pace } from "../core/pace.ts";
 import { difficultySection, type Difficulty } from "../core/difficulty.ts";
+import { practiceGradeHook } from "./practice-grade.ts";
 
 /**
  * The two teaching-side agents (docs/archive/probe-teach-split.md): the PROBER and
@@ -251,7 +252,7 @@ export function agentSystemPrompt(
 	);
 }
 
-function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: AgentTool<any, any>[]) {
+function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: AgentTool<any, any>[], afterToolCall?: ReturnType<typeof practiceGradeHook>) {
 	// Practice never reaches the role fallback (the handler ALWAYS injects
 	// the session's conversation engine — practice rides the same
 	// conversation-spec resolution as teaching); the cast keeps AgentKind
@@ -319,6 +320,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 					};
 				})()
 			: {}),
+		...(afterToolCall ? { afterToolCall } : {}),
 		// 0.87.1: shouldStopAfterTurn → finishTurn. Same call point (after
 		// tool results attach, before turn_end) and `{ action: "end" }` still
 		// exits BEFORE the steering poll — the parked-marker stranding our
@@ -472,7 +474,9 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
  */
 export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOptions = {}) {
 	const tools = opts.tools ?? practiceTools(ctx);
-	return baseAgentOptions("practice", opts, Object.values(tools));
+	// The practice grader (owner, 2026-11-09): a concluded problem's per-skill grades come from a second model, written into the conclude result.
+	const gradeHook = ctx.courseSkills ? practiceGradeHook({ courseSkills: ctx.courseSkills, ...(ctx.difficulty ? { difficulty: ctx.difficulty } : {}) }) : undefined;
+	return baseAgentOptions("practice", opts, Object.values(tools), gradeHook);
 }
 
 /**

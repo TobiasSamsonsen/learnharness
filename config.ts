@@ -77,7 +77,11 @@ export type ModelRole =
 	/** The answer checker (fork addition, 2026-10-25): a second model
 	 *  that solves every multiple-choice question blind before it is
 	 *  posed (src/server/question-check.ts). */
-	| "checker";
+	| "checker"
+	/** The practice grader (fork addition, 2026-11-09): a second model that
+	 *  grades each tagged skill of a concluded problem from its whole
+	 *  transcript (src/agent/subagents/grader.ts). */
+	| "grader";
 
 /**
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction

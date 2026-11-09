@@ -36,7 +36,7 @@ const b: ModelCatalogEntry = { ...a, id: "claude-opus-5-5", name: "Claude Opus 5
 function catalog(connected = true): ModelCatalogResponse {
 	return {
 		models: connected ? [a, b] : [], defaults: null,
-		rolePins: { researcher: null, demoBuilder: null, visualMaker: null, extractor: null, auditor: null, planner: null, pdfReader: null, coursePlanner: null, checker: null },
+		rolePins: { researcher: null, demoBuilder: null, visualMaker: null, extractor: null, auditor: null, planner: null, pdfReader: null, coursePlanner: null, checker: null, grader: null },
 		slots: { strong: { model: { provider: a.provider, id: a.id }, thinkingLevel: "low" }, cheap: { model: { provider: a.provider, id: a.id }, thinkingLevel: "high" }, vision: { model: { provider: a.provider, id: a.id }, thinkingLevel: "low" } },
 		providers: [{ ...provider, keyPresent: connected }],
 	};

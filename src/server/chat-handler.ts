@@ -74,11 +74,16 @@ import { steerDelivered } from "../core/contracts.ts";
 import type {CallUsage, SteerMessage} from "../core/contracts.ts";
 import { installQuestionVerifier } from "../agent/question-verify.ts";
 import { checkQuizKey } from "./question-check.ts";
+import { installPracticeGrader } from "../agent/practice-grade.ts";
+import { gradeConcludedProblem } from "./practice-grade.ts";
 
 // The answer-key check (owner, 2026-10-25): every multiple-choice question
 // is run / solved by a second model before it is posed. Tests drive the
 // tools against scripted engines — no Python, no second model there.
 if (process.env.NODE_ENV !== "test") installQuestionVerifier(checkQuizKey);
+// The practice grader (owner, 2026-11-09): a second model grades each skill of
+// a concluded problem; without it (tests) a conclude carries no grades.
+if (process.env.NODE_ENV !== "test") installPracticeGrader(gradeConcludedProblem);
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain

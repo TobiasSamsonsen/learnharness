@@ -77,6 +77,9 @@ export const BACKGROUND_MODEL_ROLES = [
 	// Fork addition (2026-10-25): the answer checker — solves every
 	// multiple-choice question blind before it is posed.
 	"checker",
+	// Fork addition (2026-11-09): the practice grader — grades each tagged
+	// skill of a concluded problem from its whole transcript.
+	"grader",
 ] as const;
 
 export type BackgroundModelRole = (typeof BACKGROUND_MODEL_ROLES)[number];
@@ -357,6 +360,7 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	planner: "strong",
 	coursePlanner: "strong",
 	checker: "strong",
+	grader: "strong",
 };
 
 /** General settings — app-level behavior. Version DISPLAY and plans login
