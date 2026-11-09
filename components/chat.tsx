@@ -1911,7 +1911,7 @@ export function Chat({
 							onChange={recordComposerText}
 							inputRef={composerInputRef}
 							onSend={onSend}
-							onStop={abortInFlightTurn}
+							onStop={() => setAbortAsk("turn")}
 							sendAllowed={sendAllowed}
 							dictationActive={dictation.active}
 							onEscape={dictation.active ? dictation.cancel : undefined}
