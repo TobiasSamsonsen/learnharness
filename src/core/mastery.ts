@@ -126,7 +126,7 @@ export function defaultGrade(outcome: SkillOutcome): Grade | null {
 }
 
 /** Chance of recall at `now` (ms): 1 right after a review, 0.9 one stability later. */
-export function retrievability(state: SkillState, now: number): number {
+export function retrievability(state: Pick<SkillState, "stability" | "lastReview">, now: number): number {
 	return algorithm.forgetting_curve(Math.max(0, (now - state.lastReview) / DAY_MS), state.stability);
 }
 

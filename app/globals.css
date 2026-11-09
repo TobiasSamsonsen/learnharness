@@ -61,6 +61,21 @@
 	--border: #4a433b;
 	--input: #4a433b;
 	--ring: #e0b45a;
+	/* Skill understanding ramp (owner, 2026-11-09: color on the course page): steps 1-10 are the 0-10 understanding scale,
+	   orange (just started) through brass to green (known = 6 and up). Lightness rises monotonically with the step (OKLCH L .66 to .78, chroma .15, hue 38 to 150) and each step is at least 3:1 on the raised #1D1916 (dataviz validator, dark mode). Color
+	   never stands alone: the number and the word sit beside every bar. --lh-due marks a skill whose recall fell below
+	   90% (sky, apart from the ramp). Mirrored in .dark below. */
+	--lh-understanding-1: #dd6d49;
+	--lh-understanding-2: #dd7733;
+	--lh-understanding-3: #da8219;
+	--lh-understanding-4: #d28f08;
+	--lh-understanding-5: #c89c0b;
+	--lh-understanding-6: #bda807;
+	--lh-understanding-7: #adb42d;
+	--lh-understanding-8: #99bf4b;
+	--lh-understanding-9: #82c967;
+	--lh-understanding-10: #67d283;
+	--lh-due: #6fb3e0;
 	/* Emphasis inks default to the REGULAR TEXT COLOR (owner ruling,
 	   appearance wave 2026-09-26 — the old #ee928c/#6fa9d6 factory
 	   emphasis colors are gone). Explicit overrides land via the
@@ -100,6 +115,17 @@
 	--border: #4a433b;
 	--input: #4a433b;
 	--ring: #e0b45a;
+	--lh-understanding-1: #dd6d49;
+	--lh-understanding-2: #dd7733;
+	--lh-understanding-3: #da8219;
+	--lh-understanding-4: #d28f08;
+	--lh-understanding-5: #c89c0b;
+	--lh-understanding-6: #bda807;
+	--lh-understanding-7: #adb42d;
+	--lh-understanding-8: #99bf4b;
+	--lh-understanding-9: #82c967;
+	--lh-understanding-10: #67d283;
+	--lh-due: #6fb3e0;
 	/* Same emphasis ruling as the block above: unset = text color. */
 	--lh-ink-strong: var(--foreground);
 	--lh-ink-italic: var(--foreground);

@@ -1144,6 +1144,8 @@ describe("the UI", () => {
 		known: false,
 		needsReview: true,
 		reviewAt: null,
+		stability: null,
+		lastReview: null,
 		missing: [] as string[],
 		propositions: [],
 		...over,
@@ -1206,12 +1208,66 @@ describe("the UI", () => {
 		const few = payload({ skills: ids.slice(0, 3).map((id) => skillView(id, { understanding: 2, learned: true })), review: ids.slice(0, 3), reviewBatch: 3, nextUp: [], known: [], learning: ids.slice(0, 3) });
 		const fewHtml = body(few);
 		assert.match(fewHtml, /Due for review · 3/);
-		assert.doesNotMatch(fewHtml, / of 3</);
+		assert.doesNotMatch(fewHtml, /Review · \d+ of 3</, "the button carries no count at the cap (the strip's 'N due of N' is not the button)");
 		assert.match(fewHtml, />Review</);
 		// the header button's label is the same pure function
 		assert.equal(reviewLabel(many), "Review · 6 of 8");
 		assert.equal(reviewLabel(few), "Review · 3");
 		assert.equal(reviewLabel(payload()), "Review", "nothing to review: no count");
+	});
+
+	it("the visual layer: a learned skill's bar is a meter with its number and words beside it (color never alone)", () => {
+		const html = body(payload());
+		assert.match(html, /role="meter"/);
+		assert.match(html, /data-testid="skill-bar"/);
+		assert.match(html, /aria-valuenow="6"/);
+		assert.match(html, /Known · understanding 6\/10/, "the text line still reads the state");
+		assert.doesNotMatch(html, /data-due="true"/, "a known skill not due has no due marker");
+	});
+
+	it("the visual layer: a due skill (flagged or past its reviewAt) carries the due word chip and its bar is marked", () => {
+		const data = payload({
+			skills: [
+				skillView("a", { understanding: 2, learned: true, needsReview: true, reviewAt: "2099-01-01T00:00:00Z" }),
+				skillView("b", { understanding: 3, learned: true, needsReview: false, reviewAt: "2001-01-01T00:00:00Z" }),
+				skillView("c", { understanding: 6, learned: true, known: true, needsReview: false, reviewAt: "2099-01-01T00:00:00Z" }),
+			],
+			learning: ["a", "b"],
+			known: ["c"],
+			nextUp: [],
+		});
+		const html = body(data);
+		assert.equal(html.match(/data-testid="skill-due-chip"[^>]*>due</g)?.length, 2, "both due skills carry the word 'due'");
+		assert.equal(html.match(/data-testid="skill-bar" data-due="true"/g)?.length, 2, "their bars are marked due");
+		assert.equal(html.match(/data-due="true"/g)?.length, 2, "the not-due known skill is not marked");
+	});
+
+	it("the visual layer: the header strip shows each band's label and count", () => {
+		const data = payload({
+			skills: [
+				skillView("a", { understanding: 6, learned: true, known: true, needsReview: false, reviewAt: "2099-01-01T00:00:00Z" }),
+				skillView("b", { requires: ["a"], missing: ["a"] }),
+				skillView("c", { understanding: 2, learned: true, needsReview: false, reviewAt: "2099-01-01T00:00:00Z" }),
+				skillView("d", { understanding: 4, learned: true, needsReview: false, reviewAt: "2099-01-01T00:00:00Z" }),
+			],
+			learning: ["c", "d"],
+			known: ["a"],
+			nextUp: [],
+		});
+		const html = body(data);
+		assert.match(html, /data-testid="skill-strip"/);
+		assert.match(html, />Not learned · 1</);
+		assert.match(html, />Under 3 · 1</);
+		assert.match(html, />3 to 6 · 1</);
+		assert.match(html, />6 and up · 1</);
+	});
+
+	it("the visual layer: Sections is the first view, with the By understanding switch and no flat list until chosen", () => {
+		// the flat view and its clicks are client state (a tap or the saved view after mount); static markup shows the default
+		const html = body(payload());
+		assert.match(html, /data-testid="view-understanding"/);
+		assert.match(html, /aria-pressed="true"[^>]*data-testid="view-sections"/);
+		assert.doesNotMatch(html, /data-testid="course-flat"/);
 	});
 
 	it("learned skills sit in Learning with Practice and Learn again; a finished lesson is marked", () => {

@@ -238,6 +238,8 @@ export function courseView(courseId: string): CourseView | null {
 			known: s.known,
 			needsReview: s.needsReview,
 			reviewAt: s.state ? new Date(reviewAt(s.state)).toISOString() : null,
+			stability: s.state ? s.state.stability : null,
+			lastReview: s.state ? new Date(s.state.lastReview).toISOString() : null,
 			missing: s.missing,
 			propositions: skillPropositionIds(skill, ctx, learnChats).map((nid) => {
 				const node = nodes.get(nid)!;

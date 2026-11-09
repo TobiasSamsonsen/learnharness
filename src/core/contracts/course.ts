@@ -164,6 +164,11 @@ export interface CourseSkillView {
 	needsReview: boolean;
 	/** ISO — when recall reaches the target; null = not learned. */
 	reviewAt: string | null;
+	/** FSRS stability in days (recall falls to 90% this long after `lastReview`); null = not learned. Lets the page
+	 *  compute recall now without a refetch (core/mastery.ts recallAt). */
+	stability: number | null;
+	/** ISO — the last review; null = not learned. */
+	lastReview: string | null;
 	/** The prerequisites not learned yet (locked skills). */
 	missing: string[];
 	/** The propositions it rests on: stored links ∪ derived from Learn sessions. */
