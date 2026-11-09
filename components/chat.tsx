@@ -846,6 +846,7 @@ export function Chat({
 	 * the move-on). Enter-on-empty and the Next chip both key on it. */
 	const nextReady =
 		kind === "practice" &&
+		!sessionFinished &&
 		!pending &&
 		!activeProblem &&
 		!compacting &&
