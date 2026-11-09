@@ -63,4 +63,17 @@ describe("probeArrivalExpanded — how a probe question lands", () => {
 	it("queued behind another question, scrolled up in history: collapsed (owner ruling)", () => {
 		assert.equal(probeArrivalExpanded(false, true), false);
 	});
+
+	it("a probe or recall question opens on arrival, first one too, even scrolled up (owner 2026-11-09)", () => {
+		for (const tool of ["probe", "recall"]) {
+			assert.equal(probeArrivalExpanded(true, false, tool), true);
+			assert.equal(probeArrivalExpanded(false, false, tool), true);
+			assert.equal(probeArrivalExpanded(false, true, tool), true);
+		}
+	});
+
+	it("other non-reveal questions keep the standing rule", () => {
+		assert.equal(probeArrivalExpanded(true, false, "quiz"), false);
+		assert.equal(probeArrivalExpanded(true, false, "ask_user_question"), false);
+	});
 });

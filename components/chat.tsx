@@ -2078,7 +2078,12 @@ export function revealArrival(wasQuestion: boolean): { expanded: boolean; reveal
  * teach seam above — the old after-paint effect painted one stale-open frame
  * first. Pure for tests.
  */
-export function probeArrivalExpanded(isAtBottom: boolean, wasQuestion: boolean): boolean {
+export function probeArrivalExpanded(isAtBottom: boolean, wasQuestion: boolean, tool?: string): boolean {
+	// Owner ruling 2026-11-09: probe-phase questions (the probe quiz, the
+	// recall free-recall — placement-test questions included) open on arrival,
+	// the first one too. They carry no teaching to read first. Predictions
+	// and ask_user_question keep the 2026-11-01 rule above.
+	if (tool === "probe" || tool === "recall") return true;
 	return wasQuestion && isAtBottom;
 }
 
@@ -2234,7 +2239,7 @@ function DockOverlay({
 			// Probe arrival: collapsed after the composer, open when queued
 			// behind a question and following at the bottom. Painted in THIS
 			// render — no stale-open frame, no after-paint flip.
-			setExpanded(probeArrivalExpanded(atBottomRef.current, wasQuestion));
+			setExpanded(probeArrivalExpanded(atBottomRef.current, wasQuestion, pending?.tool));
 		}
 	}
 
