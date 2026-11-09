@@ -61,6 +61,8 @@ export function ChatSessionComposer({
 	placeholder,
 	nextProblem,
 	onNext,
+	planContinue,
+	onPlanContinue,
 	edge,
 }: {
 	busy: boolean;
@@ -77,6 +79,9 @@ export function ChatSessionComposer({
 	placeholder?: string;
 	nextProblem?: boolean;
 	onNext?: () => void;
+	/** The plan stands and teaching has not begun: the Continue chip. */
+	planContinue?: boolean;
+	onPlanContinue?: () => void;
 	/** The fork's composer edge (see Composer). */
 	edge?: { chatId?: string; mic?: React.ReactNode };
 }) {
@@ -104,6 +109,8 @@ export function ChatSessionComposer({
 			placeholder={reachable ? placeholder : "Starting the server…"}
 			nextProblem={nextProblem}
 			onNext={onNext}
+			planContinue={planContinue}
+			onPlanContinue={onPlanContinue}
 			edge={edge}
 		/>
 	);
@@ -122,6 +129,8 @@ export function Composer({
 	placeholder = "Ask, answer, or steer the lesson…",
 	nextProblem = false,
 	onNext,
+	planContinue = false,
+	onPlanContinue,
 	edge,
 }: {
 	busy: boolean;
@@ -148,6 +157,10 @@ export function Composer({
 	/** The signal's dispatcher (send({type:"next"})) — the chip and the
 	 *  empty-Enter share it. */
 	onNext?: () => void;
+	/** The plan stands and teaching has not begun: an empty composer morphs
+	 *  the button into Continue, which sends the learner's go-ahead. */
+	planContinue?: boolean;
+	onPlanContinue?: () => void;
 	/** The shell's bottom edge (owner, 2026-10-25 — composer-edge.tsx):
 	 *  present → the textarea takes the full width and the edge row below
 	 *  it carries sources, language, the mic, and the send button. */
@@ -159,7 +172,19 @@ export function Composer({
 		else if (action === "send") onSend();
 		else if (action === "next") onNext?.();
 	};
-	const submit = nextProblem && !busy && !canSend ? (
+	const planChip = planContinue && !nextProblem && !busy && !canSend;
+	const submit = planChip ? (
+		<button
+			type="button"
+			data-testid="plan-continue-button"
+			aria-label="Continue"
+			onClick={() => onPlanContinue?.()}
+			className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-green-600 px-4 font-ui text-xs font-medium uppercase tracking-wide text-white transition-colors hover:bg-green-500"
+		>
+			Continue
+			<ArrowRightIcon className="size-4" />
+		</button>
+	) : nextProblem && !busy && !canSend ? (
 		<button
 			type="submit"
 			data-testid="next-problem-button"

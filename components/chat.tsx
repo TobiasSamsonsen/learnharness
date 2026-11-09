@@ -1031,6 +1031,21 @@ export function Chat({
 	// The session's live plan (drives the top-bar chip; the marginalia
 	// derives its own from the same transcript).
 	const planTree = useMemo(() => latestTree(messages), [messages]);
+	// The Continue chip under the plan: probing is done and a plan stands, but
+	// teaching has not begun (phase "plan"), and nothing is in flight. It sends
+	// the learner's go-ahead as an ordinary text message.
+	const planContinueReady =
+		kind !== "practice" &&
+		!sessionFinished &&
+		planTree !== null &&
+		!pending &&
+		!compacting &&
+		!busy &&
+		phaseAt3(messages) === "plan";
+	const sendPlanContinue = useCallback(() => {
+		if (!planContinueReady) return;
+		void send({ type: "text", text: "Looks good, let's start." });
+	}, [planContinueReady, send]);
 
 	// ── Session usage (wave-4 stats bar) ──
 	// The money channel: the record's turns log and read-time server Pi
@@ -1920,6 +1935,8 @@ export function Chat({
 							// applies.
 							nextProblem={nextReady}
 							onNext={sendNext}
+							planContinue={planContinueReady}
+							onPlanContinue={sendPlanContinue}
 							placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
 							// The shell's bottom edge (owner, 2026-10-25): sources,
 							// language and the mic ride the composer itself.
