@@ -41,7 +41,7 @@ import {
 } from "../core/mastery.ts";
 import { DEFAULT_LESSON_LANGUAGE, type LessonLanguage } from "../core/language.ts";
 import { materialBlock } from "../core/materials.ts";
-import { normalizePaceNote } from "../core/pace.ts";
+import { normalizePaceNote, type Pace } from "../core/pace.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { mergeSkillLines } from "../core/skills.ts";
 import { piEngineForSpec } from "../agent/models.ts";
@@ -303,6 +303,11 @@ export function renameCourse(courseId: string, title: string): CourseRecord | nu
 	return stores.courseStore.updateCourse(courseId, { title: title.trim() || "Untitled course" });
 }
 
+/** Set or clear (undefined) a course's default pace (fork addition, 2026-11-09 — core/pace.ts). Cleared = the global default. */
+export function setCoursePace(courseId: string, pace: Pace | undefined): CourseRecord | null {
+	return stores.courseStore.updateCourse(courseId, { pace });
+}
+
 /** Set or clear a course's time note (fork addition, 2026-11-01 — core/pace.ts). Blank clears it. */
 export function setCourseNote(courseId: string, note: string | undefined): CourseRecord | null {
 	return stores.courseStore.updateCourse(courseId, { note: normalizePaceNote(note) });
@@ -483,6 +488,8 @@ export function createCourseSession(
 	courseId: string,
 	mode: CourseMode,
 	skillId?: string,
+	/** The Learn dialog's pick (fork addition, 2026-11-09): this session's pace. Else the course's, else the global default. */
+	pace?: Pace,
 ): Result<{ id: string; title: string; prompt: string }> {
 	const course = stores.courseStore.getCourse(courseId);
 	if (!course) return { ok: false, status: 404, error: "Unknown course" };
@@ -532,7 +539,9 @@ export function createCourseSession(
 	// Learn and the placement test are conversation sessions (the teacher;
 	// the placement tester); practice and review are practice sessions.
 	const chat = stores.chatStore.createChat(title, mode === "learn" || mode === "placement" ? undefined : "practice", link);
-	stampNewSession(chat.id, { language: courseLanguage(course) });
+	// pace: the dialog's pick, else the course's default; absent, stampNewSession falls back to the global default
+	const sessionPace = pace ?? course.pace;
+	stampNewSession(chat.id, { language: courseLanguage(course), ...(sessionPace ? { pace: sessionPace } : {}) });
 	stores.chatStore.saveMessages(chat.id, [
 		newCourseContextMessage({
 			courseTitle: course.title,

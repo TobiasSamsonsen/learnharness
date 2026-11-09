@@ -75,6 +75,7 @@ export {
 	renameCourse,
 	setCourseLanguage,
 	setCourseNote,
+	setCoursePace,
 	graphSkillLayer,
 	startCourseDraft,
 } from "./courses.ts";

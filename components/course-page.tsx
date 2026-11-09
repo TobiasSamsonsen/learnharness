@@ -16,11 +16,14 @@ import {
 	type CourseView,
 	type DraftSkill,
 	type LessonMaterial,
+	type Pace,
 	type PlanNodeStatus,
 } from "@/src/core";
 import { LanguageControl } from "@/components/language-control";
 import { MaterialsControl } from "@/components/materials-control";
 import { CourseTimeNote } from "@/components/course-time-note";
+import { CoursePace } from "@/components/course-pace";
+import { LearnPaceDialog } from "@/components/learn-pace-dialog";
 import { SkillMap } from "@/components/skill-map";
 import { SidebarToggle } from "@/components/sidebar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
@@ -596,12 +599,14 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 
 	const onDraft = (feedback?: string) => void call(`/api/courses/${courseId}/draft`, feedback ? { feedback } : {});
 	const onApprove = () => void call(`/api/courses/${courseId}/approve`, {});
-	const onStart = async (mode: CourseMode, skillId?: string) => {
-		const res = await call(`/api/courses/${courseId}/sessions`, { mode, ...(skillId ? { skillId } : {}) });
+	const onStart = async (mode: CourseMode, skillId?: string, pace?: Pace) => {
+		const res = await call(`/api/courses/${courseId}/sessions`, { mode, ...(skillId ? { skillId } : {}), ...(pace ? { pace } : {}) });
 		if (!res) return;
 		const { id, prompt } = (await res.json()) as { id: string; prompt: string };
 		router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}`);
 	};
+	// A Learn start asks for its pace first (fork addition, 2026-11-09); every other mode starts straight away.
+	const [learnSkill, setLearnSkill] = useState<string | null>(null);
 	const onMaterials = useCallback((materials: LessonMaterial[]) => setMaterialCount(materials.length), []);
 
 	const commitTitle = async () => {
@@ -668,14 +673,30 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 				)}
 			</header>
 			<div className="mx-auto max-w-3xl px-6 pb-16 pt-4">
+				<CoursePace courseId={courseId} pace={data.course.pace} onSaved={() => void refresh()} />
 				<CourseTimeNote courseId={courseId} note={data.course.note} onSaved={() => void refresh()} />
+				{learnSkill && (
+					<LearnPaceDialog
+						courseId={courseId}
+						busy={busy}
+						onClose={() => setLearnSkill(null)}
+						onStart={(pace) => {
+							const skillId = learnSkill;
+							setLearnSkill(null);
+							void onStart("learn", skillId, pace);
+						}}
+					/>
+				)}
 				<CourseBody
 data={data}
 					busy={busy}
 					error={error}
 					onDraft={onDraft}
 					onApprove={onApprove}
-					onStart={(mode, skillId) => void onStart(mode, skillId)}
+					onStart={(mode, skillId) => {
+						if (mode === "learn" && skillId) setLearnSkill(skillId);
+						else void onStart(mode, skillId);
+					}}
 					onMaterials={onMaterials}
 					materialCount={materialCount}
 					placementSkipped={placementSkipped}

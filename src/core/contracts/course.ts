@@ -11,6 +11,7 @@
  */
 
 import type { LessonLanguage } from "../language.ts";
+import type { Pace } from "../pace.ts";
 import type { ExtractionStageUsage } from "./chat.ts";
 
 // ─── Skills (the graph's second node kind) ──────────────────────────────────
@@ -99,6 +100,9 @@ export interface CourseRecord {
 	/** The learner's time note for this course ("exam Thursday, 4 concepts", fork addition 2026-11-01).
 	 *  Read every turn by the course's sessions as data about the learner (core/pace.ts). */
 	note?: string;
+	/** The course's default pace (fork addition, 2026-11-09, core/pace.ts): stamped on sessions started from
+	 *  the course (a Learn start's own pick wins). Absent = the global default (general.pace). */
+	pace?: Pace;
 	/** Why the last drafting run failed. */
 	error?: string;
 	/** Append-only planner usage log. */

@@ -4,7 +4,8 @@ import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
 import { SketchReadingBody } from "@/components/artifacts/read-sketch-card";
 import { SketchThumbnail } from "@/components/sketch/sketch-thumbnail";
-import { repairMathForDisplay, type ArtifactPartProps, type SketchRef } from "@/src/core";
+import { repairMathForDisplay, type ArtifactPartProps, type Pace, type SketchRef } from "@/src/core";
+import { LearnPaceDialog } from "@/components/learn-pace-dialog";
 
 /**
  * The practice transcript cards (practice sessions, owner design
@@ -228,14 +229,16 @@ function LearnSkillRow({ courseId, skills }: { courseId: string; skills: Array<{
 	const router = useRouter();
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const learn = async (skillId: string) => {
+	// A Learn start asks for its pace first (fork addition, 2026-11-09): the button opens the dialog, Start calls learn().
+	const [pending, setPending] = useState<string | null>(null);
+	const learn = async (skillId: string, pace: Pace) => {
 		setBusy(skillId);
 		setError(null);
 		try {
 			const res = await fetch(`/api/courses/${courseId}/sessions`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ mode: "learn", skillId }),
+				body: JSON.stringify({ mode: "learn", skillId, pace }),
 			});
 			if (!res.ok) {
 				const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
@@ -259,7 +262,7 @@ function LearnSkillRow({ courseId, skills }: { courseId: string; skills: Array<{
 						type="button"
 						data-testid={`learn-skill-${s.id}`}
 						disabled={busy !== null}
-						onClick={() => void learn(s.id)}
+						onClick={() => setPending(s.id)}
 						className={LEARN_BTN}
 					>
 						{`Learn ${s.name}`}
@@ -267,6 +270,18 @@ function LearnSkillRow({ courseId, skills }: { courseId: string; skills: Array<{
 				))}
 			</div>
 			{error && <div className="mt-2 text-xs text-red-500">{error}</div>}
+			{pending !== null && (
+				<LearnPaceDialog
+					courseId={courseId}
+					busy={busy !== null}
+					onClose={() => setPending(null)}
+					onStart={(pace) => {
+						const skillId = pending;
+						setPending(null);
+						void learn(skillId, pace);
+					}}
+				/>
+			)}
 		</div>
 	);
 }

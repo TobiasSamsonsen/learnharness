@@ -2,6 +2,33 @@
 
 import { PACES, PACE_NOTE_MAX, type Pace } from "@/src/core";
 
+/** The three pace choices as a radio group (shared by the setup panel and the course Learn dialog). */
+export function PaceRadios({ pace, onPace }: { pace: Pace | null; onPace: (pace: Pace) => void }) {
+	return (
+		<div role="radiogroup" aria-label="Pace" className="flex flex-col gap-1">
+			{PACES.map((p) => (
+				<button
+					key={p.id}
+					type="button"
+					role="radio"
+					aria-checked={p.id === pace}
+					data-testid={`setup-pace-${p.id}`}
+					onClick={() => onPace(p.id)}
+					className={`flex items-start justify-between gap-2 rounded-lg border px-3 py-2 text-left transition-colors hover:bg-muted ${
+						p.id === pace ? "border-foreground/40 bg-muted/60 text-foreground" : "border-transparent text-muted-foreground"
+					}`}
+				>
+					<span className="flex flex-col">
+						<span className="text-sm">{p.label}</span>
+						<span className="text-xs text-muted-foreground/80">{p.blurb}</span>
+					</span>
+					{p.id === pace && <span aria-hidden>✓</span>}
+				</button>
+			))}
+		</div>
+	);
+}
+
 /**
  * The new-session screen's centered setup panel (fork addition, 2026-11-01):
  * how fast to go, and an optional time note. The pace pick is also the
@@ -24,27 +51,7 @@ export function SessionSetup({
 		<section data-testid="session-setup" aria-label="Session setup" className="flex w-full max-w-md flex-col gap-3 rounded-2xl border bg-card p-4 text-left shadow-lg">
 			<div className="flex flex-col gap-1.5">
 				<h4 className="text-xs font-medium text-muted-foreground">How fast do you want to go?</h4>
-				<div role="radiogroup" aria-label="Pace" className="flex flex-col gap-1">
-					{PACES.map((p) => (
-						<button
-							key={p.id}
-							type="button"
-							role="radio"
-							aria-checked={p.id === pace}
-							data-testid={`setup-pace-${p.id}`}
-							onClick={() => onPace(p.id)}
-							className={`flex items-start justify-between gap-2 rounded-lg border px-3 py-2 text-left transition-colors hover:bg-muted ${
-								p.id === pace ? "border-foreground/40 bg-muted/60 text-foreground" : "border-transparent text-muted-foreground"
-							}`}
-						>
-							<span className="flex flex-col">
-								<span className="text-sm">{p.label}</span>
-								<span className="text-xs text-muted-foreground/80">{p.blurb}</span>
-							</span>
-							{p.id === pace && <span aria-hidden>✓</span>}
-						</button>
-					))}
-				</div>
+				<PaceRadios pace={pace} onPace={onPace} />
 			</div>
 			<label className="flex flex-col gap-1 text-xs text-muted-foreground">
 				Time note (optional)

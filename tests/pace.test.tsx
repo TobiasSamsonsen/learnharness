@@ -35,6 +35,10 @@ const { SessionSetup } = await import("../components/session-setup.tsx");
 const { PaceControl } = await import("../components/pace-control.tsx");
 const { ComposerEdgeTools } = await import("../components/composer-edge.tsx");
 const { CourseTimeNote } = await import("../components/course-time-note.tsx");
+const courses = await import("../src/server/courses.ts");
+const { POST: sessionsPOST } = await import("../app/api/courses/[id]/sessions/route.ts");
+const { LearnPaceBody } = await import("../components/learn-pace-dialog.tsx");
+const { CoursePace } = await import("../components/course-pace.tsx");
 
 after(() => {
 	fs.rmSync(TMP_DATA, { recursive: true, force: true });
@@ -251,5 +255,103 @@ describe("the UI surfaces", () => {
 	it("the course note field shows the saved note", () => {
 		const html = renderToStaticMarkup(<CourseTimeNote courseId="course_x" note="exam Thursday" onSaved={() => {}} />);
 		assert.match(html, /data-testid="course-time-note-input"[^>]*>exam Thursday<\/textarea>/);
+	});
+});
+
+describe("a course's default pace and the Learn start", () => {
+	const patch = (id: string, body: unknown) =>
+		PATCH(new Request(`http://test/api/courses/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }), {
+			params: Promise.resolve({ id }),
+		});
+	const postSession = (id: string, body: unknown) =>
+		sessionsPOST(new Request(`http://test/api/courses/${id}/sessions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }), {
+			params: Promise.resolve({ id }),
+		});
+	/** A course with one approved skill, ready for a Learn session. */
+	const learnableCourse = (title: string) => {
+		const course = stores.courseStore.createCourse(title);
+		stores.courseStore.updateCourse(course.id, {
+			status: "draft",
+			draft: { createdAt: "t", summary: "s", skills: [{ key: "s1", name: `Skill ${title}`, statement: "Do it", requires: [], restsOn: [] }] },
+		});
+		const approved = courses.approveCourse(course.id);
+		assert.ok(approved.ok);
+		return { courseId: course.id, skillId: approved.value.skills[0]! };
+	};
+
+	it("PATCH sets the course's pace and returns it; null clears it; a bad pace is a 400", async () => {
+		const course = stores.courseStore.createCourse("Pace course");
+		const set = await patch(course.id, { pace: "crash" });
+		assert.equal(set.status, 200);
+		assert.equal(((await set.json()) as { pace?: string }).pace, "crash");
+		assert.equal(stores.courseStore.getCourse(course.id)?.pace, "crash");
+		const cleared = await patch(course.id, { pace: null });
+		assert.equal(cleared.status, 200);
+		assert.equal(((await cleared.json()) as { pace?: string }).pace, undefined);
+		assert.equal(stores.courseStore.getCourse(course.id)?.pace, undefined, "null clears it");
+		assert.equal((await patch(course.id, { pace: "warp" })).status, 400);
+		assert.equal(stores.courseStore.getCourse(course.id)?.pace, undefined, "a bad pace changes nothing");
+	});
+
+	it("a Learn session takes the explicit pace argument first", () => {
+		writeSettings({ version: 1, general: { pace: "thorough" } });
+		const { courseId, skillId } = learnableCourse("Explicit wins");
+		stores.courseStore.updateCourse(courseId, { pace: "efficient" });
+		const out = courses.createCourseSession(courseId, "learn", skillId, "crash");
+		assert.ok(out.ok);
+		assert.equal(chatStore.getChat(out.value.id)?.settings?.pace, "crash");
+	});
+
+	it("a Learn session with no explicit pace takes the course's pace", () => {
+		writeSettings({ version: 1, general: { pace: "crash" } });
+		const { courseId, skillId } = learnableCourse("Course wins");
+		stores.courseStore.updateCourse(courseId, { pace: "efficient" });
+		const out = courses.createCourseSession(courseId, "learn", skillId);
+		assert.ok(out.ok);
+		assert.equal(chatStore.getChat(out.value.id)?.settings?.pace, "efficient");
+	});
+
+	it("with no course pace, a Learn session takes the global default", () => {
+		writeSettings({ version: 1, general: { pace: "crash" } });
+		const { courseId, skillId } = learnableCourse("Global wins");
+		const out = courses.createCourseSession(courseId, "learn", skillId);
+		assert.ok(out.ok);
+		assert.equal(chatStore.getChat(out.value.id)?.settings?.pace, "crash");
+	});
+
+	it("with no course pace and no default, a Learn session is Thorough", () => {
+		writeSettings({ version: 1 });
+		const { courseId, skillId } = learnableCourse("Factory thorough");
+		const out = courses.createCourseSession(courseId, "learn", skillId);
+		assert.ok(out.ok);
+		assert.equal(chatStore.getChat(out.value.id)?.settings?.pace, "thorough");
+	});
+
+	it("POST sessions with a bad pace is a 400", async () => {
+		const { courseId, skillId } = learnableCourse("Bad pace post");
+		const res = await postSession(courseId, { mode: "learn", skillId, pace: "warp" });
+		assert.equal(res.status, 400);
+	});
+});
+
+describe("the pace UI, rendered", () => {
+	it("the Learn dialog body: the picked pace is checked and Start is live", () => {
+		const html = renderToStaticMarkup(<LearnPaceBody pace="efficient" onPace={() => {}} onClose={() => {}} onStart={() => {}} />);
+		assert.match(html, /role="radio"[^>]*aria-checked="true"[^>]*data-testid="setup-pace-efficient"/);
+		const start = html.match(/<button[^>]*data-testid="learn-pace-start"[^>]*>/)?.[0] ?? "";
+		assert.ok(start.length > 0, "the Start button is present");
+		assert.doesNotMatch(start, /\sdisabled=""/);
+	});
+
+	it("the Learn dialog body waits while the defaults load: Start is disabled", () => {
+		const html = renderToStaticMarkup(<LearnPaceBody pace={null} onPace={() => {}} onClose={() => {}} onStart={() => {}} />);
+		const start = html.match(/<button[^>]*data-testid="learn-pace-start"[^>]*>/)?.[0] ?? "";
+		assert.match(start, /\sdisabled=""/);
+	});
+
+	it("the course's pace select shows the saved pace", () => {
+		const html = renderToStaticMarkup(<CoursePace courseId="c" pace="crash" onSaved={() => {}} />);
+		assert.match(html, /data-testid="course-pace-select"/);
+		assert.match(html, /<option value="crash"[^>]*selected[^>]*>Crash course<\/option>/);
 	});
 });

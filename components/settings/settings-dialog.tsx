@@ -23,6 +23,7 @@
 
 import { LanguageSection } from "@/components/settings/language-section";
 import { PracticeSection } from "@/components/settings/practice-section";
+import { PaceSection } from "@/components/settings/pace-section";
 import {
 	createContext,
 	useCallback,
@@ -468,6 +469,10 @@ export function SettingsDialogBody({
 										}
 									/>
 									<LanguageSection
+										general={record.general}
+										onChange={(next) => void write("general", next)}
+									/>
+									<PaceSection
 										general={record.general}
 										onChange={(next) => void write("general", next)}
 									/>

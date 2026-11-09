@@ -251,7 +251,7 @@ function mergeCourse(i: MergeInput & { local: string; remote: string }): MergeRe
 		notes.push(`the course's ${what} was changed on both devices; kept the newer`);
 	};
 
-	for (const key of ["title", "language", "note"]) {
+	for (const key of ["title", "language", "note", "pace"]) {
 		const m = threeWay(b?.[key], l[key], r[key], newer, b !== null);
 		if (m.value === undefined) delete out[key];
 		else out[key] = m.value;

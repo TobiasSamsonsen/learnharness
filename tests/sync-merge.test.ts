@@ -143,6 +143,15 @@ describe("mergeFile: courses", () => {
 		assert.equal(r.loser, j(local));
 	});
 
+	it("keeps a default pace set on one device only, when the base had none", () => {
+		const base = course({});
+		const local = course({ pace: "crash", updatedAt: "2026-01-02T00:00:00Z" });
+		const remote = course({ status: "active", skills: ["sk_1"], updatedAt: "2026-01-03T00:00:00Z" });
+		const out = parse(merge("courses/course_1.json", { base: j(base), local: j(local), remote: j(remote) }).content);
+		assert.equal(out.pace, "crash");
+		assert.equal(out.status, "active");
+	});
+
 	it("unions draft usage by startedAt", () => {
 		const local = course({ drafts: [{ startedAt: "1" }] });
 		const remote = course({ drafts: [{ startedAt: "1" }, { startedAt: "2" }] });
