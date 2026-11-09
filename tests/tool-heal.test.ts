@@ -289,3 +289,65 @@ describe("the leaked JSON boundary (Matte 1 review, 2026-11-07)", () => {
 		assert.equal(healEncodedArguments(mention, schema), mention, "an unparseable tail is not a leak");
 	});
 });
+
+describe("a leaked tail that duplicates fields the call already carries (Matte 1 lesson, 2026-11-09)", () => {
+	const schema = {
+		properties: {
+			lead: { type: "string" },
+			question: { type: "string" },
+			explanation: { type: "string" },
+		},
+	};
+	// The real shapes: `, ` with a space, and no closing brace (the string ended there).
+	const head = String.raw`**Sammenligningstesten.** For eksempel $\\int_1^\\infty \\frac{1}{x^2}\\,dx$.\n\n- Hvis $g$ konvergerer, gjør $f$ det også.`;
+	const question = String.raw`Hva kan du slutte om $\displaystyle\int_1^\infty \frac{1}{\sqrt{x}+x}\,dx$?`;
+	const leakedQuestion = String.raw`", "question": "Hva kan du slutte om $\\displaystyle\\int_1^\\infty \\frac{1}{\\sqrt{x}+x}\\,dx$?"`;
+
+	it("cuts the tail, keeps the head exactly as written and lets the real field win", () => {
+		const healed = healEncodedArguments({ lead: head + leakedQuestion, question }, schema) as Record<string, unknown>;
+		assert.equal(healed.lead, head, "the head keeps its source escapes; the display layer repairs them");
+		assert.equal(healed.question, question);
+	});
+
+	it("cuts it even when the tail's text differs from the real field, and with a closing brace", () => {
+		const differing = healEncodedArguments({ lead: head + '", "question": "x"', question: "Hvilket?" }, schema) as Record<string, unknown>;
+		assert.equal(differing.lead, head);
+		assert.equal(differing.question, "Hvilket?");
+		const braced = healEncodedArguments({ lead: head + '","question":"x"}', question: "Hvilket?" }, schema) as Record<string, unknown>;
+		assert.equal(braced.lead, head);
+	});
+
+	it("cuts a tail of several duplicated fields, but not one that names a field the call lacks", () => {
+		const both = healEncodedArguments({ lead: head + '", "question": "a", "explanation": "b"', question: "Q?", explanation: "E." }, schema) as Record<string, unknown>;
+		assert.equal(both.lead, head);
+		const partial = { lead: head + '", "question": "a", "explanation": "b"', question: "Q?" };
+		assert.equal(healEncodedArguments(partial, schema), partial, "mixed present/absent stays for validation");
+	});
+
+	it("leaves ordinary quoted prose and unknown or unparseable tails alone", () => {
+		const prose = { lead: 'Si "ja", "question": ikke et felt.', question: "Q?" };
+		assert.equal(healEncodedArguments(prose, schema), prose, "an unparseable tail is not a leak");
+		const unknown = { lead: head + '", "bogus": "x"', question: "Q?" };
+		assert.equal(healEncodedArguments(unknown, schema), unknown, "an unknown field is not a leak");
+		const fine = { lead: head, question };
+		assert.equal(healEncodedArguments(fine, schema), fine);
+	});
+
+	it("is idempotent, and the display parse cuts the tail too (the tool-parts law)", () => {
+		const once = healEncodedArguments({ lead: head + leakedQuestion, question }, schema);
+		assert.equal(healEncodedArguments(once, schema), once);
+		const parsed = parseQuizInput({
+			type: "check",
+			nodeId: "n1",
+			lead: "Forste avsnitt." + '", "question": "Q?"',
+			question: "Q?",
+			explanation: "E.",
+			options: [
+				{ label: "A", value: "a" },
+				{ label: "B", value: "b" },
+			],
+			correctAnswer: "a",
+		});
+		assert.equal(parsed?.lead, "Forste avsnitt.");
+	});
+});

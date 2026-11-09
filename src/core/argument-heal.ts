@@ -88,7 +88,7 @@ function healLeakedParameters(args: Record<string, unknown>, properties: Record<
  *  of the call (`","mode":"recall","modelSolution":"…","skills":[…]}`) rode
  *  inside that one string and every other required field was missing. The
  *  validation rejected it and the model had to send the call again. */
-const LEAKED_JSON_FIELD = /","([A-Za-z_]\w*)"\s*:/;
+const LEAKED_JSON_FIELD = /",\s*"([A-Za-z_]\w*)"\s*:/;
 
 /** LaTeX commands that begin with `n`: a literal backslash-n before one of
  *  these is LaTeX, not a newline. */
@@ -108,23 +108,34 @@ function unescapeNewlines(text: string): string {
 }
 
 /** Re-split a string whose tail is the rest of the call's JSON object —
- *  only when the tail parses, every field it names is a schema property
- *  absent from the args and named once; anything else stays for validation
- *  to reject honestly. The string fields are unescaped (see above). */
+ *  only when the tail parses (a missing closing brace is allowed: the real
+ *  tails ended at the string's end), every field it names is a schema
+ *  property named once, and the fields are either ALL absent from the args
+ *  (they are filled in, and the strings unescaped, see above) or ALL already
+ *  present (2026-11-09, a Matte 1 lesson: a quiz `lead` ended in
+ *  `", "question": "…"` beside a proper `question`, so the learner read the
+ *  question twice, as JSON debris). In that duplicate case the tail is cut,
+ *  the existing fields win and the head is kept exactly as written (the
+ *  display layer repairs its escapes); anything else stays for validation to
+ *  reject honestly. */
 function healLeakedJsonFields(args: Record<string, unknown>, properties: Record<string, PropSchema>): Record<string, unknown> {
 	for (const [key, value] of Object.entries(args)) {
 		if (typeof value !== "string") continue;
 		const match = LEAKED_JSON_FIELD.exec(value);
-		if (!match || !(match[1]! in properties) || match[1]! in args) continue;
+		if (!match || !(match[1]! in properties)) continue;
 		const head = value.slice(0, match.index);
-		const tail = tryParse("{" + value.slice(match.index + 2).trim());
+		const text = "{" + value.slice(match.index + match[0].indexOf('"', 1)).trim();
+		const tail = tryParse(text) ?? tryParse(text + "}");
 		if (typeof tail !== "object" || tail === null || Array.isArray(tail)) continue;
 		const fields = tail as Record<string, unknown>;
 		const names = Object.keys(fields);
-		if (!names.every((name) => name in properties && !(name in args) && name !== key)) continue;
-		const healed: Record<string, unknown> = { ...args, [key]: unescapeNewlines(head) };
-		for (const [name, field] of Object.entries(fields)) healed[name] = typeof field === "string" ? unescapeNewlines(field) : field;
-		return healed;
+		if (!names.every((name) => name in properties && name !== key)) continue;
+		if (names.every((name) => !(name in args))) {
+			const healed: Record<string, unknown> = { ...args, [key]: unescapeNewlines(head) };
+			for (const [name, field] of Object.entries(fields)) healed[name] = typeof field === "string" ? unescapeNewlines(field) : field;
+			return healed;
+		}
+		if (names.every((name) => name in args)) return { ...args, [key]: head };
 	}
 	return args;
 }
