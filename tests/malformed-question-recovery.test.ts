@@ -29,7 +29,7 @@ const { parseQuestionInput } = await import("../src/core/tool-parts.ts");
 const { inputAppends, parseChatInput, questionRecoveryAppends, endsInFailedTurn } = await import("../src/core/input-events.ts");
 
 // lead: the fork requires it on every quiz (the bridging line before the question)
-const valid = { type: "check", lead: "Next, which number is even.", nodeId: "fixture", question: "Which is even?", options: [{ label: "2", value: "a" }, { label: "3", value: "b" }], correctAnswer: "a", explanation: "2 is divisible by 2." };
+const valid = { type: "check", lead: "Next, which number is even. A number is even exactly when it is divisible by two, so check each option by asking whether it splits into two equal whole parts, and pick the one that does.", nodeId: "fixture", question: "Which is even?", options: [{ label: "2", value: "a" }, { label: "3", value: "b" }], correctAnswer: "a", explanation: "2 is divisible by 2." };
 const partial = { type: "check", nodeId: "fixture", question: "What follows from $\\frac" };
 function assistant(input: unknown = partial, stopReason = "toolUse", id = "fixture-assistant", callId = "bad", tool = "quiz"): AssistantMessage & { id: string } {
 	return { ...fauxAssistantMessage([fauxToolCall(tool, input as JsonObject, { id: callId })], { stopReason: stopReason as AssistantMessage["stopReason"] }), id };

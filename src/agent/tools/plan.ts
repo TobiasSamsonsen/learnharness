@@ -14,6 +14,13 @@ import { parseMermaidPlan } from "./mermaid-plan.ts";
 const PLAN_NODE_IDS_REMINDER =
 	"These are the plan's node ids — the only valid nodeId values for every quiz and explain call from here on. Reference them exactly.";
 
+/** The follow-up the plan_init result carries for the `visual` decision (owner,
+ *  2026-11-10 — core/visual-gate.ts enforces the first of the two). The tutor
+ *  never used `visual`/`demo` unprompted: across 14 chats, one demo, on request. */
+const VISUAL_DISPATCH_REMINDER =
+	"Your plan calls for a picture: dispatch it now with `visual` (a static figure) or `demo` (something to sweep or animate), before your first quiz or explain — those calls are refused until a job is dispatched. Say in a sentence that it is on its way, and keep teaching.";
+const VISUAL_NONE_REMINDER = "You chose no picture for this plan; if a concept turns out to need one, dispatch `visual` or `demo` anyway.";
+
 /** What the plan tools close over (the plan-tree half of the tool context). */
 export interface PlanToolContext {
 	chatId: string;
@@ -57,6 +64,24 @@ const planInitInput = Type.Object({
 			"The only strict rule: ids are permanent lowercase slugs (a-z, 0-9, hyphens/underscores) — checks reference them via nodeId. " +
 			"Titles are free single-line text; `-->` means 'from = prerequisite' (chains fine); no subgraphs, styles, or classes.",
 	}),
+	visual: Type.Object(
+		{
+			use: Type.Union([Type.Literal("visual"), Type.Literal("demo"), Type.Literal("none")], {
+				description:
+					'"visual" = a static figure (a function graph with its bands, a tangent line, an area, a geometry layout); "demo" = something the learner should sweep or animate; "none" = no picture helps this lesson.',
+			}),
+			reason: Type.String({
+				minLength: 1,
+				description:
+					"One line: what the picture must show and at which node (visual/demo), or why no picture helps (none). Judge it by the concept: many ideas (limits, slopes, areas, vectors, distributions) are far easier to grasp seen than described.",
+			}),
+		},
+		{
+			description:
+				"REQUIRED decision, made every time you write the plan: does this lesson have a visual core? Consider it honestly, since a picture often turns a long explanation into a glance. " +
+				'`{"use":"visual","reason":"…"}`, `{"use":"demo","reason":"…"}` or `{"use":"none","reason":"…"}`. With visual/demo you must dispatch it before your first quiz or explain.',
+		},
+	),
 });
 
 export function planTools(ctx: PlanToolContext): Record<string, AgentTool<any>> {
@@ -69,9 +94,10 @@ export function planTools(ctx: PlanToolContext): Record<string, AgentTool<any>> 
 				"Call once right after the probe concludes, to present the map; re-call whenever the map is wrong (the new block replaces the old tree). " +
 				"A mermaid graph block (any direction): one node per line (`slug[Short Title]` — slugs are permanent lowercase ids: a-z, 0-9, hyphens/underscores), " +
 				"`-->` edges meaning 'from must be understood before to' (chains fine). 5–15 nodes: a map, not a syllabus — one reasoning step per node, compress. " +
-				"Every check you fire names the node it assesses via `nodeId`; where the lesson stands derives from those tags.",
+				"Every check you fire names the node it assesses via `nodeId`; where the lesson stands derives from those tags. " +
+				"Every plan also carries a `visual` decision (visual / demo / none, with a reason): consider honestly whether a picture would make the concept easier.",
 			parameters: planInitInput,
-			execute: serverExecute("plan_init", planInitInput, async ({ mermaid }) => {
+			execute: serverExecute("plan_init", planInitInput, async ({ mermaid, visual }) => {
 				const { chatId, chatStore } = ctx;
 				const record = chatStore.getChat(chatId);
 				if (!record) return { ok: false, error: `Chat not found: ${chatId}` };
@@ -97,6 +123,11 @@ export function planTools(ctx: PlanToolContext): Record<string, AgentTool<any>> 
 							ok: true,
 							nodeIds: next.nodes.map((n) => n.id),
 							reminder: PLAN_NODE_IDS_REMINDER,
+							...(visual?.use === "visual" || visual?.use === "demo"
+								? { visualReminder: VISUAL_DISPATCH_REMINDER }
+								: visual?.use === "none"
+									? { visualReminder: VISUAL_NONE_REMINDER }
+									: {}),
 						}),
 						details: { ok: true, tree: next },
 					};

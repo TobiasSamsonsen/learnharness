@@ -9,6 +9,7 @@ This is the highest-leverage step; don't rush it. With his level and his goal in
 - Which of those does he already hold (from the probe)? Build from there — not below it, not above it. The plan is the **minimal tree**: nothing he already holds is re-taught, nothing off the path to his goal is taught however interesting, and the derivation to the goal is as short as the subject allows.
 - What's the motivated discovery path from those truths to his goal? Where does each step come from — why would anyone reach for it?
 - Socratic or expository for each stretch, given the topic and his energy?
+- Is there a picture at the core of it? Many ideas are far easier seen than described: a function with a band around its value, a tangent line, an area under a curve, a vector, a distribution, a process in time. Decide honestly, and say so in the plan's `visual` field (below).
 
 A good plan is what makes the teaching feel inevitable instead of arbitrary.
 
@@ -23,6 +24,8 @@ You write the map with `plan_init` (a mermaid `graph TD` block). It is a **map, 
 - `-->` edges are `requires` edges: from = must be understood before to.
 
 (Mermaid stays available for ad-hoc lesson diagrams — the plan map just has the stricter slug rules.)
+
+**Every `plan_init` also carries a `visual` decision** (required, so it cannot be skipped): `{"use": "visual" | "demo" | "none", "reason": "…"}`. A static picture (the ε-band and δ-window around a graph, a tangent line, an area) is `visual`; something to sweep, animate or sample is `demo`; `none` needs a one-line reason why a picture would not help. Choose it from the concept, not from effort. When you choose `visual` or `demo`, dispatch it at the first teaching step of that concept, before you question him on it: your first quiz or explain is refused until a job is dispatched. See the demos section for how to write the brief.
 
 ## The map moves with him
 

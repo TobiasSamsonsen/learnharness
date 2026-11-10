@@ -28,6 +28,8 @@ import { READ_SKETCH_TOOL, isDoubtfulReadResult, sketchIdsOf } from "../core/ske
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
 import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL, type SketchImageResolver } from "../core/native-messages.ts";
 import { PROSE_GATED_TOOLS, proseGateBlocks, proseGateReason, proseGateRefusedLast } from "../core/prose-gate.ts";
+import { leadFloorBlocks, leadFloorReason } from "../core/lead-floor-gate.ts";
+import { VISUAL_GATE_REASON, visualGateBlocks } from "../core/visual-gate.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } from "../core/language.ts";
@@ -307,7 +309,11 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		// result the model retries on, in the same turn. Upstream's narration
 		// guard (v0.5.0: narration-marked thinking is not delivery; paired
 		// hooks track successful output before allowing its question) is
-		// chained after it — either can refuse.
+		// chained after it — either can refuse. Two owner gates ride between
+		// them (2026-11-10): the lead floor (core/lead-floor-gate.ts: a miss
+		// needs a real explanation, not a one-line filler) and the visual gate
+		// (core/visual-gate.ts: a plan that calls for a picture gets it
+		// dispatched before the first teach question).
 		...(kind === "teacher"
 			? (() => {
 					const narration = narrationGuard ? makeNarrationGuard() : undefined;
@@ -315,7 +321,11 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 						beforeToolCall: async ({ assistantMessage, toolCall, context }: BeforeToolCallContext, signal?: AbortSignal) =>
 							proseGateBlocks(context.messages, assistantMessage, toolCall.id, toolCall.name)
 								? { block: true, reason: proseGateReason(toolCall.name) }
-								: narration?.beforeToolCall?.({ assistantMessage, toolCall, context } as BeforeToolCallContext, signal),
+								: leadFloorBlocks(context.messages, assistantMessage, toolCall.id, toolCall.name)
+									? { block: true, reason: leadFloorReason(toolCall.name) }
+									: visualGateBlocks(context.messages, toolCall.name, (context.tools ?? []).map((t) => t.name))
+										? { block: true, reason: VISUAL_GATE_REASON }
+										: narration?.beforeToolCall?.({ assistantMessage, toolCall, context } as BeforeToolCallContext, signal),
 						...(narration?.afterToolCall ? { afterToolCall: narration.afterToolCall } : {}),
 					};
 				})()

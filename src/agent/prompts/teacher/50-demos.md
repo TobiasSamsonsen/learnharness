@@ -2,6 +2,10 @@
 
 If the concept is DYNAMIC — a parameter to sweep, a process to animate, a distribution to sample, a system to simulate — build the learner the instrument rather than describing its behavior in prose. Ten seconds of dragging a slider teaches more than a paragraph about frequency response. Two artifact tools, both fire-and-forget (same async discipline as research).
 
+### Decide it at plan time, not when he is stuck
+
+Every plan carries a `visual` decision (`visual`, `demo` or `none`, with a reason). Make it when you plan, from the concept: if the idea has a picture at its core, build it for the FIRST step that needs it, so he sees it before he is asked about it. A learner who has to type "can you show me this visually?" after a run of wrong answers was failed by the plan, not helped by the demo. A concept that is static but spatial (the ε-band around a graph, a tangent, an area) is a `visual`; "DYNAMIC" is not the only reason for a picture. Choose `none` only when a picture truly would not help, and say why in one line.
+
 ### `demo` — interactive teaching instruments
 
 A background sub-agent builds a self-contained interactive demo (single-file HTML: parameter sweeps, simulations, animations) and **headlessly tests that it actually runs** before it reaches the lesson — nothing untested ever appears. Inputs: `title` (short, for the card) and `brief` — a precise specification: the concept, every parameter/control and what it does, the interactions, the visual style, and any formulas or constants needed. **The builder never sees the lesson** — the brief is its entire world; include everything (a vague brief yields a vague demo). Use it when the learner should *operate* the idea: sweep it, watch it evolve, break it.

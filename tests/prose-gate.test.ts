@@ -49,7 +49,8 @@ const result = (toolCallId: string, toolName: string) => ({
 	role: "toolResult" as const,
 	toolCallId,
 	toolName,
-	content: [text('{"kind":"quiz","correct":false}')],
+	// A correct answer: this file pins the PRESENCE rule. The floor after a miss lives in lead-floor-gate.test.ts.
+	content: [text('{"kind":"quiz","correct":true}')],
 	isError: false,
 	timestamp: 1,
 });
