@@ -14,7 +14,8 @@ export type SketchProducer = "web-canvas" | "android-ink" | "photo";
 /** One pen stroke. `points` is flat [x, y, pressure, x, y, pressure, …]:
  *  x/y in canvas CSS pixels (any origin), pressure 0..1 (0.5 when the
  *  device reports none). `size` is the base diameter in the same units (world
- *  units = CSS px at zoom 1; the pen is a fixed size on the page at any zoom). */
+ *  units = CSS px at zoom 1; the pen is a size on the page, 80% of the chosen
+ *  width at the top zoom of 3x). */
 export interface SketchStroke {
 	size: number;
 	/** "#rrggbb"; absent = the default ink. */

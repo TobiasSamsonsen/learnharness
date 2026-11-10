@@ -77,13 +77,21 @@ describe("the infinite canvas's view", () => {
 		const small = [[10, 10, 0.5, 200, 100, 0.5]];
 		assert.deepEqual(fitInk(small, 800, 600), HOME_VIEW);
 		assert.deepEqual(fitInk([], 800, 600), HOME_VIEW);
-		const big = [[-2000, -1000, 0.5, 3000, 2000, 0.5]];
+		const big = [[-300, -200, 0.5, 700, 500, 0.5]];
 		const v = fitInk(big, 800, 600);
 		assert.ok(v.zoom < 1 && v.zoom >= MIN_ZOOM);
 		// both ends of the ink land inside the canvas
-		const a = toScreen(v, -2000, -1000);
-		const b = toScreen(v, 3000, 2000);
+		const a = toScreen(v, -300, -200);
+		const b = toScreen(v, 700, 500);
 		assert.ok(a.x >= 0 && a.y >= 0 && b.x <= 800 && b.y <= 600, `${JSON.stringify([a, b])}`);
+	});
+
+	it("ink too big to fit at the minimum zoom opens at the minimum zoom, with its top-left corner in view", () => {
+		const huge = [[-2000, -1000, 0.5, 3000, 2000, 0.5]];
+		const v = fitInk(huge, 800, 600);
+		assert.equal(v.zoom, MIN_ZOOM);
+		const a = toScreen(v, -2000, -1000);
+		assert.ok(a.x >= 0 && a.y >= 0, `${JSON.stringify(a)}`);
 	});
 
 	it("a pinch zooms about the fingers and follows them", () => {

@@ -19,7 +19,7 @@
  *                                     marks `"fresh":false` is SENT ink it copied into the working page (the eraser touched it): the
  *                                     shell draws it dimmed, like `kept`, so only new ink and cut pieces are in full
  *   kept <json>                       strokes already sent to the tutor (drawn faint)
- *   view <zoom> <x> <y>               the infinite canvas's view (M13c): zoom (0.1-8) and the world position of the layer's
+ *   view <zoom> <x> <y>               the infinite canvas's view (M13c): zoom (0.5-3, the shell drops any other) and the world position of the layer's
  *                                     top-left corner; the web owns it, the shell draws and converts touch points through it
  *   ack                               the stroke the shell just reported is in the store: keep it as drawn; after an `erased`
  *                                     line, the erase is in the store: keep the strokes the shell already removed
@@ -117,7 +117,7 @@ export function encodeInkOp(op: NativeInkOp): string {
 		case "kept":
 			return `${op.op} ${strokesJson(op.strokes)}`;
 		case "view":
-			if (!(op.zoom >= 0.1 && op.zoom <= 8) || !Number.isFinite(op.x) || !Number.isFinite(op.y)) throw new Error("view needs a zoom of 0.1-8 and finite coordinates");
+			if (!(op.zoom >= 0.5 && op.zoom <= 3) || !Number.isFinite(op.x) || !Number.isFinite(op.y)) throw new Error("view needs a zoom of 0.5-3 and finite coordinates");
 			return `view ${op.zoom.toFixed(4)} ${num(op.x)} ${num(op.y)}`;
 		case "caps":
 			return "caps hits";

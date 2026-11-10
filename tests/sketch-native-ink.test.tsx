@@ -341,7 +341,7 @@ describe("native ink is on", () => {
 		assert.ok(views().at(-1)!.startsWith("view 1.6000 "), views().at(-1));
 		assert.equal(byId("sketch-zoom-level")!.textContent, "160%");
 		await shell.say("gesture 0 0 1000 5 5");
-		assert.ok(views().at(-1)!.startsWith("view 8.0000 "), "the zoom stops at 8x");
+		assert.ok(views().at(-1)!.startsWith("view 3.0000 "), "the zoom stops at 3x");
 	});
 
 	it("touches that reach the page pinch the view only as two settled fingertips: a resting palm does not zoom it (owner, 2026-10-31)", async () => {

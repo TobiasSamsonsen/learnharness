@@ -17,8 +17,9 @@ test("encodeInkOp: one short line per operation, numbers rounded to 2 decimals",
 	assert.equal(encodeInkOp({ op: "sheet", tone: "dark" }), "sheet dark");
 	assert.equal(encodeInkOp({ op: "sheet", tone: "light" }), "sheet light");
 	assert.equal(encodeInkOp({ op: "view", zoom: 2.5, x: -300.456, y: 120 }), "view 2.5000 -300.46 120");
-	assert.equal(encodeInkOp({ op: "view", zoom: 0.1, x: 0, y: 0 }), "view 0.1000 0 0");
-	for (const zoom of [0.05, 9, Number.NaN]) assert.throws(() => encodeInkOp({ op: "view", zoom, x: 0, y: 0 }), String(zoom));
+	assert.equal(encodeInkOp({ op: "view", zoom: 0.5, x: 0, y: 0 }), "view 0.5000 0 0");
+	assert.equal(encodeInkOp({ op: "view", zoom: 3, x: 0, y: 0 }), "view 3.0000 0 0");
+	for (const zoom of [0.1, 0.45, 3.5, 8, Number.NaN]) assert.throws(() => encodeInkOp({ op: "view", zoom, x: 0, y: 0 }), String(zoom));
 	assert.throws(() => encodeInkOp({ op: "view", zoom: 1, x: Number.POSITIVE_INFINITY, y: 0 }));
 	for (const op of ["ack", "close"] as const) assert.equal(encodeInkOp({ op }), op);
 });
