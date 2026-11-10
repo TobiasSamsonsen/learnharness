@@ -107,6 +107,14 @@ npx tsx scripts/tutor-baseline.ts --base http://127.0.0.1:3111 --topic "the epsi
 
 It spends real model turns (about 14 questions per run). `next dev` rewrites `AGENTS.md`; restore it from a copy afterwards.
 
+`--language nb` plays a Norwegian learner (the lines live in `scripts/baseline-lang.ts`; `en` is the original English text) against a lesson taught in Norwegian. Besides the metrics above, every report counts praise/filler in the tutor's prose (`fillerHits`, `fillerByTerm`, `fillerPer1kChars`; the word lists are in `baseline-lang.ts`) and, for nb, estimates how much of that prose reads as English (`englishLeak`: a function-word heuristic over sentences of five or more words, with code and math ignored, so treat it as an estimate and read the `samples`). Reports record `language` and `thinking`. Compare two reports without a server:
+
+```bash
+npx tsx scripts/tutor-baseline.ts --compare before.json after.json
+```
+
+The table's delta column is after − before. Compare like with like (nb before and after a change): Norwegian prose runs longer in characters than English, so en against nb is a sanity check, not a measurement.
+
 ## Debugging
 
 - `LH_PROVIDER_EVENTS=1` saves raw provider events under the selected data root. They may contain private lesson/provider content.

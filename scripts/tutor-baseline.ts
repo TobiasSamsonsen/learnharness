@@ -8,16 +8,22 @@
  * picture jobs, and the wall time per turn. Run it before and after a prompt or gate change and compare.
  *
  *   npx tsx scripts/tutor-baseline.ts --base http://127.0.0.1:3111 --topic "the epsilon-delta definition of a limit" \
- *     [--model claude-code/sonnet] [--thinking medium] [--language en] [--questions 14] [--out report.json]
+ *     [--model claude-code/sonnet] [--thinking medium] [--language en|nb] [--questions 14] [--out report.json]
+ *   npx tsx scripts/tutor-baseline.ts --compare before.json after.json
+ *
+ * --language nb plays a Norwegian learner (scripts/baseline-lang.ts) and, besides the metrics above, counts praise/filler
+ * and estimates how much of the tutor's prose reads as English. --compare prints two --out reports side by side (b − a).
  *
  * The server is a throwaway `next dev -p 3111` with its own LH_DATA_DIR (a copy of data/settings.json with
  * {"claudeCode":{"enabled":true}}); see docs/development.md. It spends real model turns: ~14 questions is one lesson.
  * The script only talks HTTP; it never touches the data directory.
  */
 
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { basename } from "node:path";
 import { questionCallsOf, type LhMessage } from "../src/core/native-messages.ts";
 import { parseQuestionInput } from "../src/core/tool-parts.ts";
+import { countFiller, englishLeak, formatComparison, learnerLines, tutorProse } from "./baseline-lang.ts";
 
 const arg = (name: string, fallback?: string): string | undefined => {
 	const i = process.argv.indexOf(`--${name}`);
@@ -25,10 +31,12 @@ const arg = (name: string, fallback?: string): string | undefined => {
 };
 
 const BASE = (arg("base", "http://127.0.0.1:3111") as string).replace(/\/$/, "");
-const TOPIC = arg("topic", "the epsilon-delta definition of a limit") as string;
+const LANGUAGE = arg("language", "en") as string;
+/** The scripted learner's lines in the lesson language (the `en` table is the original hard-coded text). */
+const LINES = learnerLines(LANGUAGE);
+const TOPIC = arg("topic", LINES.defaultTopic) as string;
 const [PROVIDER, MODEL_ID] = (arg("model", "claude-code/sonnet") as string).split("/") as [string, string];
 const THINKING = arg("thinking", "medium") as string;
-const LANGUAGE = arg("language", "en") as string;
 const MAX_QUESTIONS = Number(arg("questions", "14"));
 const OUT = arg("out");
 const TURN_TIMEOUT_MS = 8 * 60_000;
@@ -76,19 +84,19 @@ async function send(id: string, input: unknown): Promise<void> {
 function answerFor(tool: string, raw: unknown, move: Move, planPending: boolean): Record<string, unknown> {
 	const parsed = parseQuestionInput(tool, raw) as Record<string, any> | undefined;
 	if (!parsed) throw new Error(`unparseable ${tool} call`);
-	const confusedText = "I picked it, but honestly I do not understand why it is true. I am not sure what this means.";
-	const thinking = move === "confused" ? confusedText : move === "wrong" ? "I am guessing here." : "That follows from what was said.";
+	const confusedText = LINES.confused;
+	const thinking = move === "confused" ? confusedText : move === "wrong" ? LINES.guessing : LINES.followsFromSaid;
 	if (tool === "ask_user_question") {
 		const options = (parsed.options ?? []) as Array<{ label: string; value: string }>;
 		return options.length > 0
-			? { kind: "ask", tool, questionText: parsed.question, dontKnow: false, answers: [{ label: options[0]!.label, value: options[0]!.value, index: 1 }], thinking: planPending ? "ok" : thinking }
-			: { kind: "ask", tool, questionText: parsed.question, dontKnow: false, answers: [], other: "Yes, go on.", text: "Yes, go on." };
+			? { kind: "ask", tool, questionText: parsed.question, dontKnow: false, answers: [{ label: options[0]!.label, value: options[0]!.value, index: 1 }], thinking: planPending ? LINES.planOk : thinking }
+			: { kind: "ask", tool, questionText: parsed.question, dontKnow: false, answers: [], other: LINES.yesGoOn, text: LINES.yesGoOn };
 	}
 	if (tool === "explain" || tool === "recall") {
 		const base = { kind: "explain", tool, ...(parsed.type ? { questionType: parsed.type } : {}), questionText: parsed.question, thinking };
 		if (move === "dontknow") return { ...base, dontKnow: true, answers: [] };
 		const committed = String(parsed.correctAnswer ?? parsed.committedAnswer ?? "");
-		return { ...base, dontKnow: false, answers: [], text: move === "wrong" ? "I think it is the other way round, but I cannot say why." : committed.slice(0, 400) || "My best attempt." };
+		return { ...base, dontKnow: false, answers: [], text: move === "wrong" ? LINES.wrongExplain : committed.slice(0, 400) || LINES.bestAttempt };
 	}
 	// quiz / probe: multiple choice
 	const options = (parsed.options ?? []) as Array<{ label: string; value: string }>;
@@ -115,7 +123,7 @@ const GATES: Array<[string, RegExp]> = [
 	["lead-floor", /^Refused: the learner's last answer was/],
 	["visual", /^Refused: your plan says this lesson needs a picture/],
 	["narration", /^This response contains narration/],
-	["key-check", /second model solved this question independently|printed output/],
+	["key-check", /second model solved this question independently|printed output|second model checked this question before the learner sees it and flagged/],
 ];
 
 const textOf = (content: unknown): string =>
@@ -194,7 +202,7 @@ async function main() {
 
 	const rows: Row[] = [];
 	let t0 = Date.now();
-	await send(id, { type: "text", text: `I want to learn ${TOPIC}.` });
+	await send(id, { type: "text", text: LINES.opening(TOPIC) });
 	let questionNo = 0;
 	let probeNo = 0;
 	let teachNo = 0;
@@ -206,7 +214,7 @@ async function main() {
 		t0 = Date.now();
 		if (pending.length === 0) {
 			// a turn that ended on text (the plan, a closing line): the learner goes on
-			await send(id, { type: "text", text: "Looks good, let's start." });
+			await send(id, { type: "text", text: LINES.start });
 			continue;
 		}
 		const q = pending[0]!;
@@ -220,7 +228,11 @@ async function main() {
 		questionNo++;
 	}
 	const finalChat = await settle(id);
-	const summary = { chatId: id, topic: TOPIC, model: `${PROVIDER}/${MODEL_ID}`, questions: questionNo, ...measure(finalChat.messages), rows };
+	const summary = { chatId: id, topic: TOPIC, model: `${PROVIDER}/${MODEL_ID}`, thinking: THINKING, language: LANGUAGE, questions: questionNo, ...measure(finalChat.messages), rows };
+	// what the tutor said to him, over the whole lesson: how much, how much of it is praise/filler, and (nb) how much reads as English
+	const prose = tutorProse(finalChat.messages);
+	const proseCharsTotal = prose.reduce((n, t) => n + t.length, 0);
+	const filler = countFiller(prose, LANGUAGE);
 
 	// the reply that followed each miss / confused answer is the number that matters
 	// teach-phase rows only (a probe question carries no lead), and the prose that reached him, not just `lead`:
@@ -234,12 +246,25 @@ async function main() {
 		avgProseCharsAfterConfused: avg(after(["confused"])),
 		avgProseCharsAfterRight: avg(after(["right"])),
 		avgSecondsPerTurn: avg(rows.map((r) => Math.round(r.ms / 1000))),
+		proseCharsTotal,
+		fillerHits: filler.total,
+		fillerPer1kChars: proseCharsTotal > 0 ? Math.round((filler.total / proseCharsTotal) * 100_000) / 100 : null,
+		fillerByTerm: filler.byTerm,
+		englishLeak: englishLeak(prose, LANGUAGE),
 	};
 	console.log(JSON.stringify(report, null, 2));
 	if (OUT) writeFileSync(OUT, JSON.stringify(report, null, 2));
 }
 
-main().catch((err) => {
+/** --compare a.json b.json: no server, no model turns; prints the two --out reports side by side. */
+function compare(): void {
+	const i = process.argv.indexOf("--compare");
+	const [fileA, fileB] = [process.argv[i + 1], process.argv[i + 2]];
+	if (!fileA || !fileB) throw new Error("usage: --compare a.json b.json");
+	console.log(formatComparison(JSON.parse(readFileSync(fileA, "utf8")), JSON.parse(readFileSync(fileB, "utf8")), basename(fileA), basename(fileB)));
+}
+
+(process.argv.includes("--compare") ? Promise.resolve().then(compare) : main()).catch((err) => {
 	console.error("[baseline] FAIL:", err);
 	process.exit(1);
 });
