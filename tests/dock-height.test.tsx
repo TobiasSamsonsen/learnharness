@@ -75,13 +75,18 @@ describe("dockHeightBudget — whole dock, not just its question", () => {
 // These mocked dimensions test the DOM/lifecycle seam, not real CSS layout.
 // Live-browser checks separately exercise actual field sizing and WAAPI.
 const sizes: Record<string, number> = {};
+/** Where a part starts inside the dock (default 0): the content sits below the shell's drag handle. */
+const tops: Record<string, number> = {};
 let animating = false;
 dom.window.HTMLElement.prototype.getAnimations = () => animating ? [{} as Animation] : [];
-const resetSizes = () => Object.assign(sizes, { column: 700, block: 862, viewport: 802, body: 802, shell: 802, content: 800, question: 600 });
+const resetSizes = () => {
+	for (const k of Object.keys(tops)) delete tops[k];
+	Object.assign(sizes, { column: 700, block: 862, viewport: 802, body: 802, shell: 802, content: 800, question: 600, edge: 0 });
+};
 const originalRect = dom.window.HTMLElement.prototype.getBoundingClientRect;
 dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
 	const part = this.hasAttribute("data-dock-scroll-area") ? "question" : this.dataset.part;
-	if (part && part in sizes) return { height: sizes[part]!, width: 700, x: 0, y: 0, top: 0, left: 0, bottom: sizes[part]!, right: 700, toJSON() {} };
+	if (part && part in sizes) { const top = tops[part] ?? 0; return { height: sizes[part]!, width: 700, x: 0, y: top, top, left: 0, bottom: top + sizes[part]!, right: 700, toJSON() {} }; }
 	return originalRect.call(this);
 };
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get() { return this.dataset.part === "column" ? sizes.column : Number(this.dataset.clientHeight ?? 0); } });
@@ -111,7 +116,7 @@ function Fixture({ expanded = true, practice = false, enabled = true, inspected,
 			<div ref={shellRef} data-part="shell"><div ref={contentRef} data-part="content" key={practice ? "practice" : "question"}>
 				{practice ? <PracticeDock chatId="c1" problemCallId="p1" input={{ statement: "Long practice problem" }} expanded={expanded} onExpand={() => {}} onSubmit={() => {}} />
 					: <QuestionDock toolName="probe" toolCallId="q1" input={{ question: "Long teaching question", options: [{ label: "A" }, { label: "B" }], correctAnswer: "A", explanation: "A is correct." }} expanded={expanded} dictationClaim={false} onExpand={() => {}} onSubmit={() => {}} />}
-			</div></div>
+			</div><div data-part="edge" /></div>
 		</div></div><div data-testid="toolbar" />
 	</div></>;
 }
@@ -141,6 +146,27 @@ describe("measured question/practice DOM and observer lifecycle", () => {
 			Object.assign(sizes, { block: 160, viewport: 100, body: 100, shell: 100 });
 			await act(async () => observers.at(-1)!.callback());
 			assert.equal(part(host, "block").style.getPropertyValue("--dock-max-h"), "406px");
+		});
+	});
+	it("counts the chrome above the content (the drag handle) in the shell, so the content cannot overrun its cap", async () => {
+		await withFixture(async (host, render) => {
+			await render();
+			const without = Number.parseFloat(part(host, "block").style.getPropertyValue("--dock-max-h"));
+			const border = Number.parseFloat(getComputedStyle(part(host, "shell")).borderTopWidth) || 0;
+			tops.content = border + 32; // the content starts below the shell's border and a 32px drag handle
+			await act(async () => observers.at(-1)!.callback());
+			const withHandle = Number.parseFloat(part(host, "block").style.getPropertyValue("--dock-max-h"));
+			assert.equal(without - withHandle, 32, "the question gets exactly the handle's height less");
+		});
+	});
+	it("counts the row below the content (sources, language, mic) in the shell too", async () => {
+		await withFixture(async (host, render) => {
+			await render();
+			const without = Number.parseFloat(part(host, "block").style.getPropertyValue("--dock-max-h"));
+			sizes.edge = 50;
+			await act(async () => observers.at(-1)!.callback());
+			const withEdge = Number.parseFloat(part(host, "block").style.getPropertyValue("--dock-max-h"));
+			assert.equal(without - withEdge, 50, "the question gets exactly the edge row's height less");
 		});
 	});
 	it("ignores the still-mounted hidden teaching form and sizes it synchronously on reveal", async () => {

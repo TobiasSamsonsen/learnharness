@@ -12,6 +12,7 @@ import { MalformedQuestion } from "@/components/malformed-question";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { FigureScope } from "@/components/figures/figure-scope";
 import { ClarifyWording } from "@/components/clarify-wording";
+import { teaserText } from "@/components/teaser-text";
 import { SketchChoices } from "@/components/sketch/sketch-choices";
 import { SketchView } from "@/components/sketch/sketch-view";
 import { cn } from "@/lib/utils";
@@ -194,19 +195,6 @@ export function QuestionDock({
 			</div>
 		</>
 	);
-}
-
-/** A plain-text teaser of a question for the collapsed bar: unwrap math, flatten common LaTeX. */
-function teaserText(q: string): string {
-	return repairMathForDisplay(q)
-		.replace(/\\\(([\s\S]*?)\\\)/g, "$1") // \(...\) inline math
-		.replace(/\\\[([\s\S]*?)\\\]/g, "$1") // \[...\] display math
-		.replace(/\$\$?([^$]*)\$\$?/g, "$1") // standard $...$/$$...$$ math
-		.replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, "$1/$2")
-		.replace(/\\([a-zA-Z]+)/g, "$1")
-		.replace(/[{}]/g, "")
-		.replace(/\s+/g, " ")
-		.trim();
 }
 
 /** The collapsed strip. Two species (W5): "collapsed" is the scroll minimization
@@ -661,11 +649,22 @@ function QuestionDockForm({
 		// one figure scope for the whole question: an option's plot may
 		// reference the stem's diagram (figures, 2026-10-26)
 		<FigureScope texts={[qd.question, qd.context, ...qd.options.flatMap((o) => [o.label, o.description])]}>
-		<div ref={rootRef} data-testid="question-dock">
+		<div ref={rootRef} data-testid="question-dock" className="@container/dock">
 			{/* Question area — scrolls internally if very tall; the bottom row stays put.
 			    Capped by the measured column (--dock-max-h; the old fixed 55dvh cut
 			    long questions short — owner round, 2026-10-05). */}
-			<div data-dock-scroll-area="" data-session-find-root="" className={cn("max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3", wordingOnly && "pb-3")}>
+			<div
+				data-dock-scroll-area=""
+				data-session-find-root=""
+				className={cn(
+					"max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3",
+					wordingOnly && "pb-3",
+					// A wide dock (a landscape touch screen, chat.tsx WIDE_DOCK_QUERY) puts the question and its options side by
+					// side, each scrolling on its own, so a tall question can never push the options out of sight (owner, 2026-11-10).
+					qd.mode !== "text" && !wordingOnly && "@3xl/dock:grid @3xl/dock:max-h-none @3xl/dock:grid-cols-2 @3xl/dock:gap-x-5 @3xl/dock:overflow-visible",
+				)}
+			>
+				<div data-dock-pane="question" className="@3xl/dock:max-h-[var(--dock-max-h,55dvh)] @3xl/dock:overflow-y-auto @3xl/dock:pb-2">
 				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					{toolName === "probe"
 						? "Probe"
@@ -691,8 +690,10 @@ function QuestionDockForm({
 						</div>
 					)}
 				</ClarifyWording>
+				</div>
 
 				{qd.mode !== "text" && (
+					<div data-dock-pane="options" className="@3xl/dock:max-h-[var(--dock-max-h,55dvh)] @3xl/dock:overflow-y-auto @3xl/dock:pb-2">
 					<div className={cn("flex flex-col gap-2 pb-2", wordingOnly && "hidden")} role={qd.mode === "multi-select" ? "group" : "radiogroup"}>
 						{qd.options.map((opt, i) => {
 							const isSel = sel.selected.has(i);
@@ -812,6 +813,7 @@ function QuestionDockForm({
 							</div>
 						)}
 					</div>
+					</div>
 				)}
 			</div>
 
@@ -911,7 +913,9 @@ function QuestionDockForm({
 								"field-sizing-content lh-input max-h-48 w-full resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground/70",
 								// Phase-scaled prominence: teaching invites depth,
 								// probing stays quick.
-								phase === "teach" ? "min-h-[4.5rem]" : "min-h-10",
+								// One line until focused (owner, 2026-11-10): the empty field took ~130px of a tablet's height; it opens up
+								// to the taught-phase depth when tapped, and grows with what is typed.
+								phase === "teach" ? "min-h-10 focus:min-h-[4.5rem]" : "min-h-10",
 							)}
 						/>
 					)}

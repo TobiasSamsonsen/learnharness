@@ -19,7 +19,7 @@ import { PathInput } from "@/components/path-input";
 import { AttachFilesButton } from "@/components/attach-files-button";
 import { SessionStarter } from "@/components/start-session";
 import type { TurnUsage } from "@/src/core";
-import { enterSends } from "@/components/enter-submits";
+import { enterSends, isCoarsePointer } from "@/components/enter-submits";
 import { useServerReachable } from "@/components/server-events";
 
 /**
@@ -285,7 +285,8 @@ export function Home({
 							}
 						}}
 						placeholder={!reachable ? "Starting the server\u2026" : mode === "practice" ? "What do you want to practice?" : "What do you want to learn?"}
-						autoFocus
+						// not on a touch screen (owner, 2026-11-10): the keyboard would open by itself and cover half the tablet
+						autoFocus={!isCoarsePointer()}
 						className="field-sizing-content lh-input max-h-48 min-h-10 touch:min-h-12 w-full resize-none bg-transparent px-2.5 py-2 outline-none placeholder:text-muted-foreground"
 					/>
 					{/* The shell's bottom edge (owner, 2026-10-25 — composer-edge.tsx):

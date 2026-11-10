@@ -57,12 +57,24 @@ export function syncDockHeight(elements: DockHeightElements, expanded: boolean) 
 	const question = expanded ? content.querySelector<HTMLElement>("[data-dock-scroll-area]") : null;
 	const height = (el: HTMLElement) => el.getBoundingClientRect().height;
 	const shellStyle = getComputedStyle(shell);
+	// Whatever else sits inside the shell is shell chrome too, and the shell's cap counts it: the drag handle above the content
+	// (about 32px) and the sources/language/mic row below it (about 50px). Leaving them out let the content overrun the cap, and
+	// the shell's overflow-hidden then clipped the bottom of the dock (the answer controls, the dictation row). The handle is read
+	// as a layout offset (it holds mid-morph); the rows after the content by their own height.
+	const aboveContent = Math.max(
+		content.getBoundingClientRect().top - shell.getBoundingClientRect().top - pixels(shellStyle.borderTopWidth),
+		0,
+	);
+	let belowContent = 0;
+	for (let sibling = content.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
+		belowContent += height(sibling as HTMLElement);
+	}
 	const questionStyle = question ? getComputedStyle(question) : null;
 	const budget = dockHeightBudget({
 		columnHeight: column.clientHeight,
 		outsideHeight: Math.max(height(block) - height(viewport), 0),
 		beforeShellHeight: Math.max(height(body) - height(shell), 0),
-		shellBorderHeight: pixels(shellStyle.borderTopWidth) + pixels(shellStyle.borderBottomWidth),
+		shellBorderHeight: pixels(shellStyle.borderTopWidth) + pixels(shellStyle.borderBottomWidth) + aboveContent + belowContent,
 		contentHeight: height(content),
 		questionHeight: question ? height(question) : null,
 		questionPaddingHeight: questionStyle

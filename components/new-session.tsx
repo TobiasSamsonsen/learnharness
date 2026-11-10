@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation";
 import { Conversation, ConversationContent, ConversationEmptyState } from "@/components/ai-elements/conversation";
 import { Composer } from "@/components/composer";
+import { isCoarsePointer } from "@/components/enter-submits";
 import { useServerReachable } from "@/components/server-events";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
@@ -229,7 +230,8 @@ export function DraftShell({
 										onStop={() => {}}
 										canSend={canSend}
 										inputRef={composerInputRef}
-										autoFocus
+										// not on a touch screen (owner, 2026-11-10): the keyboard would open by itself and cover half the tablet
+										autoFocus={!isCoarsePointer()}
 										onEscape={dictation.active ? dictation.cancel : undefined}
 										// The opening question, same as the graph view's new-session
 										// input (owner refinement round, 2026-09-24) — no lesson has

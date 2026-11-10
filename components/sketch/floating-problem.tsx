@@ -175,7 +175,9 @@ export function FloatingProblem({
 			</button>
 			{!box.collapsed && (
 				<div data-testid="sketch-problem-box" className="mt-2 rounded-xl border bg-card shadow-lg">
-					<div className="lh-prose max-h-[45vh] overflow-y-auto px-3 py-3 text-[15px]">
+					{/* 45vh is short on a landscape tablet (the quiz's options below a long question stayed out of sight), and the
+					    canvas is wide there: a touch screen in landscape gets 68vh (owner request 2026-11-10, "improve the UI on tablets"). */}
+					<div className="lh-prose max-h-[45vh] overflow-y-auto px-3 py-3 text-[15px] [@media(pointer:coarse)_and_(orientation:landscape)]:max-h-[68vh]">
 						<MessageResponse>{repairMathForDisplay(statement)}</MessageResponse>
 						{children}
 					</div>

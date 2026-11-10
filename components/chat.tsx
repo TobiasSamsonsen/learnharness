@@ -111,7 +111,10 @@ import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/th
 const COLUMN = "mx-auto w-full max-w-none px-6";
 /** The transcript's column: the right side is wider (48px) for the margin bubbles of the learner's questions (clarify-layer.tsx). */
 const TRANSCRIPT_COLUMN = "mx-auto w-full max-w-none pl-6 pr-12";
-const DOCK = "mx-auto w-full max-w-[46rem] px-4";
+// A landscape touch screen (the tablet) gets a WIDE dock, 60rem, so a question and its options can sit side by side
+// (question-dock.tsx, owner 2026-11-10). The query is repeated in the DOCK class (Tailwind needs it spelled out) and in dockWidth().
+const WIDE_DOCK_QUERY = "(pointer: coarse) and (orientation: landscape) and (min-width: 1100px)";
+const DOCK = "mx-auto w-full max-w-[46rem] px-4 [@media(pointer:coarse)_and_(orientation:landscape)_and_(min-width:1100px)]:max-w-[60rem]";
 // The DOCK container's fixed width (46rem) and the plan marginalia's
 // geometry (owner, plan-placement round): the bare diagram sits in the
 // dock band's RIGHT flank — MARGIN_GAP from the DOCK container's edge and
@@ -121,6 +124,15 @@ const DOCK = "mx-auto w-full max-w-[46rem] px-4";
 // out over the normal transition instead of popping away, and it stays
 // mounted while the question owns the band so widening fades it back.
 const DOCK_W = 46 * 16;
+const WIDE_DOCK_W = 60 * 16;
+/** The dock container's width now: the wide one on a landscape touch screen. */
+function dockWidth(): number {
+	try {
+		return typeof window !== "undefined" && window.matchMedia(WIDE_DOCK_QUERY).matches ? WIDE_DOCK_W : DOCK_W;
+	} catch {
+		return DOCK_W;
+	}
+}
 const MARGIN_GAP = 16;
 const MARGIN_MIN_W = 220;
 // The dock overlay's gradient band (h-24) — part of the reserved tail.
@@ -2310,6 +2322,7 @@ function DockOverlay({
 	// render-time measurement went stale during drag-resizes and the mount
 	// decision popped late).
 	const [flankW, setFlankW] = useState(0);
+	const [dockW, setDockW] = useState(DOCK_W);
 	const flankWRef = useRef(0);
 	// Part A of the same round (the resize mute): any block size change
 	// stamps this — the fold machine ignores scroll events for a beat after,
@@ -2326,7 +2339,9 @@ function DockOverlay({
 		const block = blockRef.current;
 		if (!block) return;
 		const measure = () => {
-			const next = Math.round(block.offsetWidth / 2 - DOCK_W / 2 - 2 * MARGIN_GAP);
+			const width = dockWidth();
+			setDockW(width);
+			const next = Math.round(block.offsetWidth / 2 - width / 2 - 2 * MARGIN_GAP);
 			if (Math.abs(next - flankWRef.current) > 1) {
 				flankWRef.current = next;
 				setFlankW(next);
@@ -2706,7 +2721,7 @@ function DockOverlay({
 						type="button"
 						data-testid="plan-marginalia"
 						onClick={onOpenPlan}
-						style={{ left: `calc(50% + ${DOCK_W / 2 + MARGIN_GAP}px)` }}
+						style={{ left: `calc(50% + ${dockW / 2 + MARGIN_GAP}px)` }}
 						className={`absolute bottom-5 right-4 top-0 cursor-pointer transition-[filter,opacity] duration-300 ease-out ${
 							expanded && flankW >= MARGIN_MIN_W
 								? "pointer-events-auto opacity-100 blur-0"
