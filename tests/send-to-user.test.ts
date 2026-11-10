@@ -38,6 +38,7 @@ after(() => {
 const { sendToUserTool } = await import("../src/agent/tools/send-to-user.ts");
 const { practiceTools } = await import("../src/agent/tools/practice.ts");
 const { NARRATION_BLOCK_REASON, NARRATION_GUARD_MAX_BLOCKS, SEND_TO_USER_DELIVERY_RULE } = await import("../src/agent/narration-guard.ts");
+const { CLAUDE_CODE_TOOL_NAMES_RULE } = await import("../src/agent/claude-code/tool-names-rule.ts");
 const { bareQuestionTools, createProberAgent, createTeacherAgent, createPracticeAgent, composeInstructions } = await import("../src/agent/teacher-agent.ts");
 const { SEND_TO_USER_TOOL, activeProblemOf, asAgentMessages, danglingQuestionOf, newUserMessage, sendToUserText, toLlmMessages, userFacingTextOf } = await import("../src/core/native-messages.ts");
 const { coverageOf, messageFingerprint, messageViewLines, teacherProseBlocks } = await import("../src/core/coverage.ts");
@@ -153,7 +154,9 @@ describe("send_to_user model gate", () => {
 				}
 				// the fork appends the lesson-language directive to every conversation prompt; upstream's delivery rule follows it
 				const composed = withLanguageDirective(composeInstructions(kind as keyof typeof factories), DEFAULT_LESSON_LANGUAGE, "conversation");
-				assert.equal(agent.state.systemPrompt, guarded ? `${composed}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composed);
+				// then the claude-code provider's tool-name rule, for every kind (practice included)
+				const suffixes = [guarded ? SEND_TO_USER_DELIVERY_RULE : undefined, provider === "claude-code" ? CLAUDE_CODE_TOOL_NAMES_RULE : undefined].filter(Boolean);
+				assert.equal(agent.state.systemPrompt, [composed, ...suffixes].join("\n\n---\n\n"));
 			}
 		});
 	}

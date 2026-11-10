@@ -19,6 +19,8 @@ import { placementProbeTool } from "./tools/course.ts";
 import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
 import { sendToUserApplies, sendToUserTool } from "./tools/send-to-user.ts";
 import { makeNarrationGuard, narrationGuardApplies, SEND_TO_USER_DELIVERY_RULE } from "./narration-guard.ts";
+import { CLAUDE_CODE_PROVIDER } from "./claude-code/constants.ts";
+import { CLAUDE_CODE_TOOL_NAMES_RULE } from "./claude-code/tool-names-rule.ts";
 import { createReadTool, readTool } from "./tools/read.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { figureInputProblems } from "../core/figures/index.ts";
@@ -280,7 +282,12 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	// appended to the conversation prompt when it applies, its hooks are chained below.
 	const narrationGuard = narrationGuardApplies(kind, engine.model, opts.tools !== undefined);
 	const composedPrompt = agentSystemPrompt(kind, opts);
-	const systemPrompt = narrationGuard ? `${composedPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composedPrompt;
+	// Appended in order: the narration rule (teacher), then the claude-code tool-name rule (every kind, claude-code only).
+	const systemPrompt = [
+		composedPrompt,
+		narrationGuard ? SEND_TO_USER_DELIVERY_RULE : undefined,
+		engine.model.provider === CLAUDE_CODE_PROVIDER ? CLAUDE_CODE_TOOL_NAMES_RULE : undefined,
+	].filter((part): part is string => part !== undefined).join("\n\n---\n\n");
 	// read_sketch (Android plan M2) rides EVERY agent, always — practice
 	// builds its own (it shares the conclude gate). A caller-owned registry
 	// (opts.tools — the tests') is never touched.
