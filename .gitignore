@@ -19,5 +19,5 @@ xai-credentials.json*
 
 # dev-fresh launcher scratch (fresh-user sim): disposable per launch
 .fresh-data/
-# Claude Code per-machine settings
-.claude/settings.local.json
+# Claude Code per-machine config; permission rules and env can hold secrets, so ignore the whole directory
+.claude/
