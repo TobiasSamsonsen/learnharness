@@ -26,7 +26,7 @@ import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, penWorldSize, pinchStep, t
  *
  * The view (components/sketch/view-transform.ts) says which part of the plane
  * the canvas shows. The pen has a width on the PAGE (world units), nearly fixed
- * (80% at the top zoom, for subscripts), so zoomed in it looks fatter and the
+ * (90% at the top zoom, for subscripts), so zoomed in it looks fatter and the
  * learner keeps writing at about one size.
  *
  * Input (owner, M13c; modelled on how note apps do it — GoodNotes and

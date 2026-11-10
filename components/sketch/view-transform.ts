@@ -45,14 +45,14 @@ export function panBy(view: SketchView, dsx: number, dsy: number): SketchView {
 	return { zoom: view.zoom, x: view.x - dsx / view.zoom, y: view.y - dsy / view.zoom };
 }
 
-/** The pen's width on the page at the top zoom, as a fraction of the chosen width (owner, 2026-11-10: 80% at 3x). */
-const PEN_FACTOR_AT_MAX_ZOOM = 0.8;
+/** The pen's width on the page at the top zoom, as a fraction of the chosen width (owner, 2026-11-10: 90% at 3x; 80% was too small). */
+const PEN_FACTOR_AT_MAX_ZOOM = 0.9;
 
 /**
  * The pen's width in WORLD units (owner, 2026-11-10): a size on the PAGE, not on screen, so zoomed in the pen looks
  * fatter and the learner keeps writing at one size from the first stroke to the last (the zoom range is narrowed for
  * the same reason). Only a little finer when zoomed in, for subscripts: the chosen width up to 1x, then linear down to
- * 80% of it at MAX_ZOOM. Kept inside what the validator accepts.
+ * 90% of it at MAX_ZOOM. Kept inside what the validator accepts.
  */
 export function penWorldSize(size: number, zoom: number): number {
 	const t = Math.min(1, Math.max(0, (zoom - 1) / (MAX_ZOOM - 1)));

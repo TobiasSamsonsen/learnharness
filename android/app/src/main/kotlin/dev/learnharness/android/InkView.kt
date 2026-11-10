@@ -33,7 +33,7 @@ data class InkView(val zoom: Float = 1f, val x: Float = 0f, val y: Float = 0f) {
 		/** Narrow on purpose (the web's MIN_ZOOM / MAX_ZOOM): the writing size can drift at most 6x between two strokes. */
 		const val MIN_ZOOM = 0.5f
 		const val MAX_ZOOM = 3f
-		private const val PEN_FACTOR_AT_MAX_ZOOM = 0.8f
+		private const val PEN_FACTOR_AT_MAX_ZOOM = 0.9f
 		private const val MIN_WORLD_SIZE = 0.5f
 		private const val MAX_WORLD_SIZE = 64f
 
