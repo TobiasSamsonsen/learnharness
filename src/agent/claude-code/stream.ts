@@ -208,6 +208,20 @@ class ClaudeTurn {
 				return;
 			}
 
+			case "signatureDelta": {
+				const found = this.getBlock(event.index);
+				if (!found) return;
+
+				const { block } = found;
+				if (block.type !== "thinking") return;
+
+				// The CLI streams a thinking block's signature apart from its text. Its header says what kind of block this is:
+				// the narration guard (narration-guard.ts) reads "narration" there, which marks the tutor's ordinary reply text
+				// that the API turned into summarized thinking. Dropping it left the guard blind for this provider (2026-11-10).
+				block.thinkingSignature = (block.thinkingSignature ?? "") + event.signature;
+				return;
+			}
+
 			case "toolInputDelta": {
 				const found = this.getBlock(event.index);
 				if (!found) return;

@@ -33,6 +33,7 @@ import { Agent } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
 
 import { parseCliLine } from "../src/agent/claude-code/cli-events.ts";
+import { isNarrationBlock } from "../src/agent/narration-guard.ts";
 import { ClaudeCodeError } from "../src/agent/claude-code/constants.ts";
 import { LIVE_PROCESS_IDLE_TIMEOUT_MS, liveProcessIdleTimeoutMs } from "../src/agent/claude-code/live-processes.ts";
 import { CLAUDE_CODE_MODELS } from "../src/agent/claude-code/provider.ts";
@@ -371,6 +372,47 @@ test("thinking deltas map to thinking_*", async (t) => {
 		{ type: "thinking", thinking: "Sockets are endpoints." },
 		{ type: "text", text: "An endpoint." },
 	]);
+});
+
+test("signature deltas stay on their thinking block, so the narration guard can tell narration from thinking", async (t) => {
+	// The CLI sends a thinking block's signature apart from its text; a "narration" header marks the tutor's reply text that the
+	// API turned into summarized thinking (seen 9 times in 85 thinking blocks, 2026-11-10). Synthetic header, as in narration-guard.test.ts.
+	const signature = (kind: string) => Buffer.from(`\x08\x04\x12\x10\n\x11\x08\x13\x18\x028\x01B\t${kind}\x12\x0cpayload`).toString("base64");
+	const narration = signature("narration");
+	const { events } = await runScenario(t, [
+		streamEvent({ type: "message_start", message: { usage: { input_tokens: 3, output_tokens: 1 } } }),
+		streamEvent({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "", signature: "" } }),
+		streamEvent({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "" } }),
+		streamEvent({ type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: signature("thinking") } }),
+		streamEvent({ type: "content_block_stop", index: 0 }),
+		streamEvent({ type: "content_block_start", index: 1, content_block: { type: "thinking", thinking: "", signature: "" } }),
+		streamEvent({ type: "content_block_delta", index: 1, delta: { type: "thinking_delta", thinking: "Riktig. " } }),
+		streamEvent({ type: "content_block_delta", index: 1, delta: { type: "signature_delta", signature: narration.slice(0, 30) } }),
+		streamEvent({ type: "content_block_delta", index: 1, delta: { type: "signature_delta", signature: narration.slice(30) } }),
+		streamEvent({ type: "content_block_stop", index: 1 }),
+		streamEvent({ type: "content_block_start", index: 2, content_block: { type: "text", text: "" } }),
+		streamEvent({ type: "content_block_delta", index: 2, delta: { type: "text_delta", text: "An endpoint." } }),
+		streamEvent({ type: "content_block_stop", index: 2 }),
+		streamEvent({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 9 } }),
+		streamEvent({ type: "message_stop" }),
+	]);
+
+	// A signature adds no stream event of its own
+	assert.deepEqual(
+		events.map((event) => event.type),
+		["start", "thinking_start", "thinking_delta", "thinking_end", "thinking_start", "thinking_delta", "thinking_end", "text_start", "text_delta", "text_end", "done"],
+	);
+
+	const done = getLastEvent(events);
+	assert.ok(done.type === "done");
+	assert.deepEqual(done.message.content, [
+		{ type: "thinking", thinking: "", thinkingSignature: signature("thinking") },
+		{ type: "thinking", thinking: "Riktig. ", thinkingSignature: narration },
+		{ type: "text", text: "An endpoint." },
+	]);
+	const [ordinary, narrating] = done.message.content as unknown as Array<{ type: string; thinkingSignature?: string }>;
+	assert.equal(isNarrationBlock(ordinary!), false);
+	assert.equal(isNarrationBlock(narrating!), true);
 });
 
 test("tool scenario ends with toolcall_end (Claude's tool_use id, unprefixed name) and done(toolUse)", async (t) => {
@@ -875,6 +917,13 @@ test("writes one user prompt after local-only control initialization and summary
 	assert(lines.slice(3).every((line) => JSON.parse(line).request.detail === "summary"));
 });
 
+test("parseCliLine reads a signature delta and ignores one without a signature", () => {
+	const delta = (d: object) => parseCliLine(streamEvent({ type: "content_block_delta", index: 1, delta: d }));
+	assert.deepEqual(delta({ type: "signature_delta", signature: "abc" }), { type: "signatureDelta", index: 1, signature: "abc" });
+	assert.equal(delta({ type: "signature_delta" }), null);
+	assert.equal(delta({ type: "signature_delta", signature: 5 }), null);
+});
+
 test("parseCliLine ignores non-JSON, system, rate-limit and successful result lines", () => {
 	assert.equal(parseCliLine("not json"), null);
 	assert.equal(parseCliLine("null"), null);
@@ -895,6 +944,29 @@ test("trailing toolResults matching a live process continue it: held calls answe
 	assert.equal(toolMessage.stopReason, "toolUse");
 	assert.equal(getText(reply), "contents of a");
 	await assertCleanedUp(getOnlyCall(calls));
+});
+
+test("a signed thinking block that went through persistence (JSON) still lets a live process continue", async (t) => {
+	// The reuse check compares assistant content, thinking blocks included, so a stored signature must come back equal.
+	const readA: ToolUse = { id: "toolu_signed_a", name: "read", arguments: { path: "a" } };
+	const source = toToolUseMessage([readA]);
+	source.splice(
+		1,
+		0,
+		streamEvent({ type: "content_block_start", index: 7, content_block: { type: "thinking", thinking: "", signature: "" } }),
+		streamEvent({ type: "content_block_delta", index: 7, delta: { type: "signature_delta", signature: "c2lnbmVk" } }),
+		streamEvent({ type: "content_block_stop", index: 7 }),
+	);
+	const { runClaude, calls } = createFakeRun(t, [...source, callTool(readA), REPLY]);
+	const streamFunction = createClaudeCodeStreamFunction(runClaude);
+	const toolMessage = await runTurn(streamFunction, [HI]);
+	assert.deepEqual(toolMessage.content[0], { type: "thinking", thinking: "", thinkingSignature: "c2lnbmVk" });
+
+	const stored = JSON.parse(JSON.stringify(toolMessage)) as typeof toolMessage;
+	const reply = await runTurn(streamFunction, [HI, stored, toToolResult(readA, "contents of a")]);
+
+	assert.equal(getText(reply), "contents of a");
+	assert.equal(calls.length, 1, "no fresh process, so no full replay and cache rewrite");
 });
 
 test("sequential identical calls split one response and correlate results by id, not arguments", async (t) => {
