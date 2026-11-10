@@ -12,10 +12,8 @@ import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.os.IBinder
-import android.os.Build
 import android.os.PowerManager
 import android.os.SystemClock
-import android.system.OsConstants
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -184,7 +182,12 @@ class ServerService : Service() {
 			starts.addLast(now)
 			while (starts.isNotEmpty() && now - starts.first() > RESTART_WINDOW_MS) starts.removeFirst()
 			if (starts.size > MAX_RESTARTS) break
-			guest.refreshDns()
+			try {
+				guest.refreshDns()
+			} catch (e: Exception) {
+				// an unwritable resolv.conf must not end the supervisor (and with it the server): start with the one already there
+				log.appendText("dns refresh failed: " + e + System.lineSeparator())
+			}
 			val p = guest.command(listOf("node", "server.js"), ServerEnv.of(port, token, demo.port, bridgeToken), workdir = "/opt/lh/server")
 				.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(log)).start()
 			p.outputStream.close()
@@ -192,73 +195,18 @@ class ServerService : Service() {
 			p.waitFor()
 			if (!stopping) Thread.sleep(1000L shl (starts.size - 1).coerceIn(0, 4))
 		}
-		if (!stopping) stopSelf()
+		if (!stopping) {
+			// say so where the status screen reads: the app finds out the server is gone from its health check, not from here
+			log.appendText("the server stopped $MAX_RESTARTS times within ${RESTART_WINDOW_MS / 1000} seconds: giving up" + System.lineSeparator())
+			stopSelf()
+		}
 	}
 
-	/**
-	 * Stops the server for real. proot ignores SIGTERM and does not take its tracees with it when it is killed (seen on a Pixel 7 Pro,
-	 * 2026-11-03: the Node server kept serving, orphaned), so the guest's whole process tree is signalled: TERM first so Node can
-	 * finish, then KILL for what is still there, and proot last.
-	 */
+	/** Stops the server for real: the guest's whole process tree, not just proot ([GuestProcesses.killTree]). */
 	private fun stopServer() {
 		stopping = true
 		val p = process ?: return
-		val tree = ProcessTree.descendants(pidOf(p) ?: return p.destroyForcibly().let { Unit }, procParents())
-		tree.forEach { signal(it, OsConstants.SIGTERM) }
-		p.destroy()
-		val deadline = System.currentTimeMillis() + 4000
-		while (System.currentTimeMillis() < deadline && tree.any { alive(it) }) Thread.sleep(100)
-		tree.filter { alive(it) }.forEach { signal(it, OsConstants.SIGKILL) }
-		if (p.isAlive) p.destroyForcibly()
-	}
-
-	/** The proot process's pid: Process.pid() from Android 13; before that, the app's child whose command line runs the server. */
-	private fun pidOf(p: Process): Int? {
-		if (Build.VERSION.SDK_INT >= 33) {
-			try {
-				return (Process::class.java.getMethod("pid").invoke(p) as Long).toInt()
-			} catch (_: Exception) {
-				// fall through to the scan
-			}
-		}
-		val me = android.os.Process.myPid()
-		return procParents().filterValues { it == me }.keys.firstOrNull { pid ->
-			try {
-				File("/proc/$pid/cmdline").readText().contains("server.js")
-			} catch (_: Exception) {
-				false
-			}
-		}
-	}
-
-	/** pid -> parent pid for every process this app may see (its own uid's: the app and its guest). */
-	private fun procParents(): Map<Int, Int> {
-		val out = HashMap<Int, Int>()
-		File("/proc").list()?.forEach { name ->
-			val pid = name.toIntOrNull() ?: return@forEach
-			try {
-				ProcessTree.parentOf(File("/proc/$pid/stat").readText())?.let { out[pid] = it }
-			} catch (_: Exception) {
-				// gone, or not ours to read
-			}
-		}
-		return out
-	}
-
-	/** Still running (a zombie is gone as far as the server is concerned: it holds no port). */
-	private fun alive(pid: Int): Boolean = try {
-		val stat = File("/proc/$pid/stat").readText()
-		stat.substring(stat.lastIndexOf(')') + 1).trim().firstOrNull().let { it != null && it != 'Z' && it != 'X' }
-	} catch (_: Exception) {
-		false
-	}
-
-	private fun signal(pid: Int, sig: Int) {
-		try {
-			android.os.Process.sendSignal(pid, sig)
-		} catch (_: Exception) {
-			// already gone
-		}
+		GuestProcesses.killTree(p, 4000)
 	}
 
 	override fun onDestroy() {

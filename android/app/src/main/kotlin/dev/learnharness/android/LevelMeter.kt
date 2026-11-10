@@ -18,7 +18,7 @@ import kotlin.math.sqrt
  * the loudness of every 50 ms for the meter, and hands the same audio to the recognizer through
  * `RecognizerIntent.EXTRA_AUDIO_SOURCE`. The samples live only in this pipe; nothing is stored or sent anywhere.
  */
-class LevelMeter(private val onLevel: (Float) -> Unit) {
+class LevelMeter(private val onLevel: (Float) -> Unit, private val onFailure: () -> Unit = {}) {
 	@Volatile private var running = false
 	@Volatile private var sink: OutputStream? = null
 	private var readEnd: ParcelFileDescriptor? = null
@@ -53,14 +53,34 @@ class LevelMeter(private val onLevel: (Float) -> Unit) {
 			record.release()
 			return false
 		}
+		// started here, not on the capture thread: a microphone that cannot be recorded (another app holds it, a call) must make start() say
+		// false, so the caller does not hand the recognizer an empty pipe and show "listening" over silence
+		try {
+			record.startRecording()
+		} catch (_: Exception) {
+			record.release()
+			return false
+		}
+		if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+			record.release()
+			return false
+		}
 		running = true
 		capture = Thread({
 			val samples = ShortArray(CHUNK)
+			var failed = false
+			var bad = 0
 			try {
-				record.startRecording()
 				while (running) {
 					val n = record.read(samples, 0, CHUNK)
-					if (n <= 0) continue
+					if (n <= 0) {
+						// 0 or an error code (a dead or taken-over microphone): wait a moment, and give up after a run of them rather
+						// than spinning a core for as long as dictation stays open
+						if (captureFailed(++bad)) { failed = true; break }
+						Thread.sleep(BAD_READ_PAUSE_MS)
+						continue
+					}
+					bad = 0
 					var sum = 0.0
 					val bytes = ByteArray(n * 2)
 					for (i in 0 until n) {
@@ -72,10 +92,16 @@ class LevelMeter(private val onLevel: (Float) -> Unit) {
 					if (!queue.offer(bytes)) { queue.poll(); queue.offer(bytes) } // the recognizer is behind: drop the oldest
 				}
 			} catch (_: Exception) {
-				// a failed capture ends the audio; the recognizer then reports no speech
+				// a failed capture ends the audio
+				failed = true
 			} finally {
 				try { record.stop() } catch (_: Exception) {}
 				record.release()
+			}
+			// the capture ended by itself (not by stop()): tell the owner, so the page is not left "listening" to nothing
+			if (failed && running) {
+				running = false
+				onFailure()
 			}
 		}, "lh-mic-capture").also { it.isDaemon = true; it.start() }
 		writer = Thread({
@@ -112,6 +138,12 @@ class LevelMeter(private val onLevel: (Float) -> Unit) {
 		/** 800 samples = 50 ms. */
 		const val CHUNK = 800
 		private const val QUEUE = 64
+		/** How many reads in a row may return nothing or an error before the capture counts as failed (about 0.2 s at the pause below). */
+		const val MAX_BAD_READS = 20
+		private const val BAD_READ_PAUSE_MS = 10L
+
+		/** Has the capture failed, after this many empty or failed reads in a row? */
+		fun captureFailed(consecutiveBadReads: Int): Boolean = consecutiveBadReads >= MAX_BAD_READS
 
 		/** A 16-bit sample RMS as a 0..1 level: -60 dBFS (a quiet room) to -20 dBFS (loud speech), linear in dB. */
 		fun levelOf(rms: Double): Float {

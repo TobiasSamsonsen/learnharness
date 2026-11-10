@@ -36,10 +36,14 @@ class SpeechBridge(private val context: Context, private val askMicrophone: (onR
 	private var lastLevel = ""
 	/** True while this app captures the microphone and feeds the recognizer (see [LevelMeter]). */
 	private var micOwned = false
-	private val meter = LevelMeter { level ->
-		val line = SpeechWire.level(level)
-		main.post { if (line != lastLevel) { lastLevel = line; if (recognizer != null) post(line) } }
-	}
+	private val meter = LevelMeter(
+		onLevel = { level ->
+			val line = SpeechWire.level(level)
+			main.post { if (line != lastLevel) { lastLevel = line; if (recognizer != null) post(line) } }
+		},
+		// the capture died while dictating (another app took the microphone, the device failed it): say so, instead of staying "listening"
+		onFailure = { main.post { if (recognizer != null && micOwned) fail("other", "microphone") } },
+	)
 
 	/** One line from the page (on the main thread). `reply` posts a line back. */
 	fun handle(line: String, reply: (String) -> Unit) {

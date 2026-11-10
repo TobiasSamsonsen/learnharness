@@ -60,12 +60,51 @@ class Guest(context: Context) {
 		if (!tmp.renameTo(File(rootfs, "etc/resolv.conf"))) throw java.io.IOException("could not replace resolv.conf")
 	}
 
-	/** Runs `argv` to the end and returns its exit code and output (stdout and stderr together). */
-	fun run(argv: List<String>, env: Map<String, String> = emptyMap(), workdir: String = "/root"): Pair<Int, String> {
+	/**
+	 * Runs `argv` to the end and returns its exit code and output (stdout and stderr together). With [timeoutMs] above 0 a command that
+	 * has not finished by then is killed and the code is [ProcessRun.TIMED_OUT] (the output so far is returned).
+	 */
+	fun run(argv: List<String>, env: Map<String, String> = emptyMap(), workdir: String = "/root", timeoutMs: Long = 0): Pair<Int, String> {
 		val p = command(argv, env, workdir).redirectErrorStream(true).start()
 		p.outputStream.close()
-		val text = p.inputStream.bufferedReader().use { it.readText() }
-		return p.waitFor() to text
+		// proot does not take the guest command with it when killed, so a timeout kills the whole tree
+		return ProcessRun.collect(p, timeoutMs) { GuestProcesses.killTree(it, 1000) }
+	}
+}
+
+/** Reading a process to its end, with an optional time limit; pure of Android, so the unit tests cover it. */
+object ProcessRun {
+	/** The exit code reported for a command that was killed for taking too long. */
+	const val TIMED_OUT = -9999
+
+	/**
+	 * The process's output and exit code. The output is read on a thread of its own so the wait can give up: a guest child that keeps the
+	 * pipe open (proot does not take its tracees with it when killed) must not hold the caller forever. After a timeout [kill] ends the
+	 * process and the reader is left to end by itself.
+	 */
+	fun collect(p: Process, timeoutMs: Long, kill: (Process) -> Unit = { it.destroyForcibly() }): Pair<Int, String> {
+		val out = StringBuffer()
+		val reader = Thread({
+			try {
+				p.inputStream.bufferedReader().use { r ->
+					val buffer = CharArray(4096)
+					while (true) {
+						val n = r.read(buffer)
+						if (n < 0) break
+						out.append(buffer, 0, n)
+					}
+				}
+			} catch (_: java.io.IOException) {
+				// the process was killed under the reader: what was read stands
+			}
+		}, "guest-output").also { it.isDaemon = true; it.start() }
+		if (timeoutMs > 0 && !p.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+			kill(p)
+			return TIMED_OUT to out.toString()
+		}
+		val code = p.waitFor()
+		reader.join(2000) // the rest of the output is already in the pipe
+		return code to out.toString()
 	}
 }
 

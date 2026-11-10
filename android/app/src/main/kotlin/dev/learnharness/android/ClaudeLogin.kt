@@ -11,8 +11,11 @@ class ClaudeLogin(private val guest: Guest) {
 	private var process: Process? = null
 	private var stdin: OutputStream? = null
 
-	/** Blocking: asks `claude auth status` (a second or two). */
-	fun loggedIn(): Boolean = LoginOutput.loggedIn(guest.run(listOf("claude", "auth", "status")).second)
+	/** Blocking: asks `claude auth status` (a second or two). Null when it did not answer within [STATUS_TIMEOUT_MS]: the sign-in is then unknown. */
+	fun loggedIn(): Boolean? {
+		val (code, output) = guest.run(listOf("claude", "auth", "status"), timeoutMs = STATUS_TIMEOUT_MS)
+		return if (code == ProcessRun.TIMED_OUT) null else LoginOutput.loggedIn(output)
+	}
 
 	/**
 	 * Starts the login on a background thread. `onUrl` gets the sign-in link once; `onDone` gets whether it worked.
@@ -78,5 +81,10 @@ class ClaudeLogin(private val guest: Guest) {
 		process?.destroyForcibly()
 		process = null
 		stdin = null
+	}
+
+	companion object {
+		/** `claude auth status` normally answers in a second or two; a hung guest or a stalled network must not leave "Connecting" showing forever. */
+		const val STATUS_TIMEOUT_MS = 30_000L
 	}
 }

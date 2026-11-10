@@ -120,9 +120,9 @@ class MainActivity : ComponentActivity() {
 	private lateinit var root: FrameLayout
 
 	/** A page is up (or loading); the status screen is hidden. */
-	private var pageShown = false
+	@Volatile private var pageShown = false
 	/** A connect attempt is running; a second one waits for it. */
-	private var busy = false
+	@Volatile private var busy = false
 	private var attempt = 0
 	/** After a 403 "Not paired" we re-read the token once; this stops a loop when that does not help. */
 	private var rePaired = false
@@ -189,6 +189,7 @@ class MainActivity : ComponentActivity() {
 	override fun onPause() {
 		DemoBridge.host = null
 		ServerService.onAppVisible(false)
+		root.removeCallbacks(serverWatch)
 		super.onPause()
 	}
 
@@ -198,33 +199,55 @@ class MainActivity : ComponentActivity() {
 		ServerService.onAppVisible(true)
 		if (!pageShown && !busy && !loginActive) {
 			begin()
-		} else if (pageShown && !busy && !loginActive && !dev) {
-			// The server rests by itself when unused (IdlePolicy), so a page left showing may now face a stopped one. Keep the page and
-			// start the server under it: the page's live channel reconnects by itself and its Send waits meanwhile ("Starting the
-			// server..."), so what is half typed or drawn survives. Only if the server never comes back does the usual screen appear.
-			if (reviving) return
-			reviving = true
-			val p = port
-			thread {
+		} else {
+			reviveServerIfDown()
+		}
+		// While the app is on screen the same check repeats: a server that dies (or whose supervisor gave up) under a visible page
+		// would otherwise leave "Starting the server..." showing until the learner leaves and comes back.
+		root.removeCallbacks(serverWatch)
+		root.postDelayed(serverWatch, SERVER_WATCH_MS)
+	}
+
+	/** Every [SERVER_WATCH_MS] while the activity is resumed: is the server still up under the page? */
+	private val serverWatch = object : Runnable {
+		override fun run() {
+			reviveServerIfDown()
+			root.postDelayed(this, SERVER_WATCH_MS)
+		}
+	}
+
+	/**
+	 * The server rests by itself when unused (IdlePolicy), and may die or be given up on, so a page left showing may face a stopped one.
+	 * Keep the page and start the server under it: the page's live channel reconnects by itself and its Send waits meanwhile ("Starting
+	 * the server..."), so what is half typed or drawn survives. Only if the server never comes back does the usual screen appear.
+	 * Does nothing unless a page is showing and nothing else (a start, an update, a sign-in) is in progress.
+	 */
+	private fun reviveServerIfDown() {
+		if (!pageShown || busy || loginActive || dev) return
+		if (reviving) return
+		reviving = true
+		val p = port
+		thread {
+			try {
+				if (checkHealth(p)) return@thread
+				// the health request took a moment: an update, a pairing reset or a start may have begun (each stops the server on purpose)
+				if (busy || !pageShown) return@thread
 				try {
-					if (checkHealth(p)) return@thread
-					try {
-						ServerService.start(this, p)
-					} catch (_: Exception) {
-						// not allowed to start a foreground service right now (the app has just left the screen): the next resume tries again
-						return@thread
-					}
-					val deadline = System.currentTimeMillis() + START_TIMEOUT_MS
-					while (System.currentTimeMillis() < deadline && !checkHealth(p)) Thread.sleep(150)
-					if (!checkHealth(p)) runOnUiThread {
-						if (pageShown && !busy && !loginActive) {
-							pageShown = false
-							begin()
-						}
-					}
-				} finally {
-					reviving = false
+					ServerService.start(this, p)
+				} catch (_: Exception) {
+					// not allowed to start a foreground service right now (the app has just left the screen): the next check tries again
+					return@thread
 				}
+				val deadline = System.currentTimeMillis() + START_TIMEOUT_MS
+				while (System.currentTimeMillis() < deadline && !checkHealth(p)) Thread.sleep(150)
+				if (!checkHealth(p)) runOnUiThread {
+					if (pageShown && !busy && !loginActive) {
+						pageShown = false
+						begin()
+					}
+				}
+			} finally {
+				reviving = false
 			}
 		}
 	}
@@ -473,10 +496,19 @@ class MainActivity : ComponentActivity() {
 					// not allowed right now: startServer() does it when it is
 				}
 			}
-			val signedIn = !down || !installed || login.loggedIn()
+			// null: the check did not answer in time (ClaudeLogin.STATUS_TIMEOUT_MS), so the sign-in is unknown
+			val signedIn: Boolean? = if (!down || !installed) true else login.loggedIn()
 			runOnUiThread {
 				if (my != attempt) return@runOnUiThread
 				busy = false
+				if (signedIn == null) {
+					show(
+						"Could not check the Claude sign-in",
+						"The check did not answer in ${ClaudeLogin.STATUS_TIMEOUT_MS / 1000} seconds. Try again, or reopen the app.",
+						"Try again", ::retry,
+					)
+					return@runOnUiThread
+				}
 				// an update is not a step of its own: the app opens first and the page's card offers it (checkForUpdate)
 				when (Flow.decide(dev, healthy, installed, signedIn)) {
 					Next.Load -> load()
@@ -1013,6 +1045,8 @@ base64` here; the system picker picks where the
 		const val BACKGROUND = 0xFF151210.toInt()
 		/** How long a freshly started server may take before the shell reads its log and reports. */
 		const val START_TIMEOUT_MS = 90_000L
+		/** How often the visible page's server is checked (a health request to the loopback, off the UI thread). */
+		const val SERVER_WATCH_MS = 20_000L
 		/** After the check found an update: how long the page may stay silent before the shell offers it on its own screen. */
 		const val NO_CARD_AFTER_MS = 8_000L
 
