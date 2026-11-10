@@ -30,12 +30,14 @@ export const VISUAL_GATE_REASON =
 	"tell the learner in a sentence that it is on its way, and keep teaching, then call the question again. " +
 	"If no picture would help after all, call plan_init again with `visual.use` set to `none` and a one-line reason.";
 
-/** What the newest successful plan_init chose for `visual.use`, or undefined (no plan, an old plan without the field). */
+/** What the newest successful plan_init chose for `visual.use`, or undefined (no plan, an old plan without the field).
+ *  A plan_init that was refused (`isError`) or answered `{ok:false}` (a mermaid or tree error: the old map stays live)
+ *  chose nothing, so it never re-arms the gate. */
 function plannedVisual(history: readonly unknown[]): string | undefined {
 	const failed = new Set<string>();
 	for (const m of history) {
 		const r = m as ToolResultMessage;
-		if (r.role === "toolResult" && r.isError) failed.add(r.toolCallId);
+		if (r.role === "toolResult" && (r.isError || (r.details as { ok?: unknown } | null | undefined)?.ok === false)) failed.add(r.toolCallId);
 	}
 	for (let i = history.length - 1; i >= 0; i--) {
 		const m = history[i] as { role?: string };
@@ -59,14 +61,35 @@ function dispatched(history: readonly unknown[]): boolean {
 	});
 }
 
+/** Did the calling message itself dispatch a picture before this call? Its results are not in `history` yet. */
+function dispatchedEarlier(message: AssistantMessage | undefined, toolCallId: string | undefined): boolean {
+	if (!message || toolCallId === undefined) return false;
+	for (const block of message.content) {
+		if (block.type !== "toolCall") continue;
+		if (block.id === toolCallId) return false;
+		if (VISUAL_TOOLS.includes(block.name)) return true;
+	}
+	return false;
+}
+
 /**
  * Should this teach question be refused until the planned picture is
  * dispatched? `available` = the names of the tools the tutor has this turn.
+ * `message` / `toolCallId` (the calling message and call) let a `visual` or
+ * `demo` call written earlier in the SAME message count: the executor appends
+ * its result only after the batch, so history alone would refuse the question
+ * the prompt tells the tutor to send beside the picture.
  */
-export function visualGateBlocks(history: readonly unknown[], toolName: string, available: readonly string[]): boolean {
+export function visualGateBlocks(
+	history: readonly unknown[],
+	toolName: string,
+	available: readonly string[],
+	message?: AssistantMessage,
+	toolCallId?: string,
+): boolean {
 	if (!LEAD_TOOLS.includes(toolName)) return false;
 	const use = plannedVisual(history);
 	if (use !== "visual" && use !== "demo") return false;
 	if (!VISUAL_TOOLS.some((tool) => available.includes(tool))) return false;
-	return !dispatched(history);
+	return !dispatched(history) && !dispatchedEarlier(message, toolCallId);
 }

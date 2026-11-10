@@ -260,9 +260,14 @@ export function skillEventsOf(messages: readonly LhMessage[], link: ChatCourseLi
 				const args = block.arguments as { outcome?: unknown; grades?: unknown } | undefined;
 				const outcome = args?.outcome;
 				if (active && typeof outcome === "string" && OUTCOMES.has(outcome)) {
-					const graded = concludeGradesOf(args, detailsOf.get(block.id));
+					const details = detailsOf.get(block.id);
+					const graded = concludeGradesOf(args, details);
+					// The grader ran (its verdict rides the result) but gave this skill no grade: it failed, timed out or
+					// skipped the skill. A solve must not then default to `good` (owner, 2026-11-10): rate it `hard`, so
+					// an outage can never inflate understanding. The other outcomes' defaults are already at or below it.
+					const graderRan = !!details && typeof details === "object" && Array.isArray((details as { grades?: unknown }).grades);
 					for (const skillId of new Set(active)) {
-						const grade = graded.get(skillId);
+						const grade = graded.get(skillId) ?? (graderRan && outcome === "solved" ? "hard" : undefined);
 						events.push({ skillId, at: assistant.timestamp, outcome: outcome as ProblemOutcome, ...(grade ? { grade } : {}), placement: link.mode === "placement" });
 					}
 				}

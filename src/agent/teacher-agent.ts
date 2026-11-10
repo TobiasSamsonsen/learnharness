@@ -215,6 +215,20 @@ function makeQuestionStopper(kind: AgentKind) {
 	};
 }
 
+/** How many times one teacher gate (prose, lead floor, visual) may refuse within one run before it lets the call through. */
+export const GATE_REFUSAL_CAP = 3;
+
+/** A refusal counter for one run: `refuse(gate, blocks, reason)` is the block result while `gate` has refused at most
+ *  GATE_REFUSAL_CAP times, then undefined (the gate lets the call through). A gate that does not block is not counted. */
+export function makeGateRefusals(cap = GATE_REFUSAL_CAP) {
+	const refusals: Record<string, number> = {};
+	return (gate: string, blocks: boolean, reason: string): { block: true; reason: string } | undefined => {
+		if (!blocks) return undefined;
+		refusals[gate] = (refusals[gate] ?? 0) + 1;
+		return refusals[gate]! > cap ? undefined : { block: true, reason };
+	};
+}
+
 /** The force-text step (owner, 2026-10-27): after the prose gate refuses a
  *  question, the next request is sent without the gated tools, so only text
  *  can come back; the one after it gets them back. Not on Claude Code, for
@@ -317,15 +331,20 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		...(kind === "teacher"
 			? (() => {
 					const narration = narrationGuard ? makeNarrationGuard() : undefined;
+					// A refusal cap (owner, 2026-11-10): after GATE_REFUSAL_CAP refusals by one gate in this
+					// run, that gate lets the call through, so a model that keeps failing it cannot loop.
+					// Run-local: the agent is built once per turn.
+					const refuse = makeGateRefusals();
 					return {
 						beforeToolCall: async ({ assistantMessage, toolCall, context }: BeforeToolCallContext, signal?: AbortSignal) =>
-							proseGateBlocks(context.messages, assistantMessage, toolCall.id, toolCall.name)
-								? { block: true, reason: proseGateReason(toolCall.name) }
-								: leadFloorBlocks(context.messages, assistantMessage, toolCall.id, toolCall.name)
-									? { block: true, reason: leadFloorReason(toolCall.name) }
-									: visualGateBlocks(context.messages, toolCall.name, (context.tools ?? []).map((t) => t.name))
-										? { block: true, reason: VISUAL_GATE_REASON }
-										: narration?.beforeToolCall?.({ assistantMessage, toolCall, context } as BeforeToolCallContext, signal),
+							refuse("prose", proseGateBlocks(context.messages, assistantMessage, toolCall.id, toolCall.name), proseGateReason(toolCall.name))
+							?? refuse("lead-floor", leadFloorBlocks(context.messages, assistantMessage, toolCall.id, toolCall.name), leadFloorReason(toolCall.name))
+							?? refuse(
+								"visual",
+								visualGateBlocks(context.messages, toolCall.name, (context.tools ?? []).map((t) => t.name), assistantMessage, toolCall.id),
+								VISUAL_GATE_REASON,
+							)
+							?? narration?.beforeToolCall?.({ assistantMessage, toolCall, context } as BeforeToolCallContext, signal),
 						...(narration?.afterToolCall ? { afterToolCall: narration.afterToolCall } : {}),
 					};
 				})()

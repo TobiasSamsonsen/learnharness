@@ -10,7 +10,8 @@
  * Like the answer-key check (question-verify.ts) the grader is installed by
  * the server; nothing installed — unit tests, the bare registry — leaves the
  * result untouched, so a record carries no grades and the outcome's default
- * applies. A grader failure fails open the same way and never blocks the turn.
+ * applies. A grader failure writes an empty list instead: a solve then falls to `hard` (core/mastery.ts) and the
+ * failure never blocks the turn.
  */
 
 import type { AfterToolCallContext, AfterToolCallResult } from "@earendil-works/pi-agent-core";

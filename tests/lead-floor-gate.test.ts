@@ -10,7 +10,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createFauxCore, fauxAssistantMessage, fauxToolCall, type AssistantMessage, type ToolCall } from "@earendil-works/pi-ai";
 import { LEAD_FLOOR_CHARS, LEAD_FLOOR_REASON, LEAD_FLOOR_REASON_NO_LEAD, leadFloorBlocks, leadFloorReason } from "../src/core/lead-floor-gate.ts";
-import { bareQuestionTools, createTeacherAgent } from "../src/agent/teacher-agent.ts";
+import { bareQuestionTools, createTeacherAgent, GATE_REFUSAL_CAP, makeGateRefusals } from "../src/agent/teacher-agent.ts";
 
 const quizArgs = {
 	type: "check",
@@ -65,6 +65,18 @@ describe("leadFloorBlocks (the pure rule)", () => {
 		assert.equal(leadFloorBlocks(missed, next, "q2", "quiz"), true);
 		assert.equal(leadFloorBlocks(dontKnow, next, "q2", "quiz"), true);
 		assert.equal(leadFloorBlocks(missed, assistant([call("q2", "explain", lead(40))]), "q2", "explain"), true);
+	});
+
+	it("every free-recall (explain) answer needs the floor: it has no verdict the code can read", () => {
+		const explainResult = (verdict: Record<string, unknown>) => [user, assistant([call("q1", "explain", lead(300))]), answerResult("q1", "explain", verdict)];
+		const next = assistant([call("q2", "quiz", lead(40))]);
+		assert.equal(leadFloorBlocks(explainResult({}), next, "q2", "quiz"), true);
+		assert.equal(leadFloorBlocks(explainResult({ correct: true }), next, "q2", "quiz"), true);
+		assert.equal(leadFloorBlocks(explainResult({}), assistant([call("q2", "quiz", lead(LEAD_FLOOR_CHARS))]), "q2", "quiz"), false);
+	});
+
+	it("the no-lead refusal has a plain-text fallback for a tutor without send_to_user", () => {
+		assert.match(LEAD_FLOOR_REASON_NO_LEAD, /plain text before the call only if you have no send_to_user/);
 	});
 
 	it("the floor is exactly LEAD_FLOOR_CHARS", () => {
@@ -191,5 +203,15 @@ describe("the floor is live in the teacher", () => {
 		await agent.continue();
 		const results = agent.state.messages.filter((m) => (m as { role?: string }).role === "toolResult") as ToolResultLike[];
 		assert.equal(results.find((r) => r.toolCallId === "q2")!.isError, false);
+	});
+});
+
+describe("the refusal cap", () => {
+	it("a gate refuses GATE_REFUSAL_CAP times in a run, then lets the call through; each gate counts alone", () => {
+		const refuse = makeGateRefusals();
+		for (let i = 0; i < GATE_REFUSAL_CAP; i++) assert.deepEqual(refuse("lead-floor", true, "r"), { block: true, reason: "r" });
+		assert.equal(refuse("lead-floor", true, "r"), undefined);
+		assert.deepEqual(refuse("visual", true, "v"), { block: true, reason: "v" }, "another gate is unaffected");
+		assert.equal(refuse("prose", false, "p"), undefined, "a gate that does not block is not counted");
 	});
 });

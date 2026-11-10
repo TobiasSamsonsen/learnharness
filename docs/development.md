@@ -96,6 +96,17 @@ Run the PC's code in the Android app, with a throwaway data root (see above), in
 
 The dev server and the installed app share the origin `http://127.0.0.1:3000`, so a device with real data keeps its settings and unsent ink in the same `localStorage`: never clear it there; remove only keys you created. `next dev` rewrites a heading in `AGENTS.md` when it starts: `git checkout AGENTS.md` before committing.
 
+## Measuring the tutor
+
+`scripts/tutor-baseline.ts` plays a scripted learner (right, wrong, "don't know", right-but-confused, ...) through one real lesson and reports how often each gate refused, the tutor's reply length after a miss and after a confused answer, visible characters against thinking and output tokens, picture-before-first-question, duplicate picture jobs and seconds per turn. Run it before and after a prompt or gate change:
+
+```bash
+LH_DATA_DIR=<temp dir with a settings.json copy and {"claudeCode":{"enabled":true}}> npx next dev -p 3111
+npx tsx scripts/tutor-baseline.ts --base http://127.0.0.1:3111 --topic "the epsilon-delta definition of a limit" --out before.json
+```
+
+It spends real model turns (about 14 questions per run). `next dev` rewrites `AGENTS.md`; restore it from a copy afterwards.
+
 ## Debugging
 
 - `LH_PROVIDER_EVENTS=1` saves raw provider events under the selected data root. They may contain private lesson/provider content.

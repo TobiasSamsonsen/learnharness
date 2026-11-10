@@ -150,6 +150,19 @@ describe("the fold reads the grader's grades", () => {
 		assert.equal(concludeGradesOf(args, null).get("sk_a"), "easy", "records from before the grader keep the tutor's grades");
 	});
 
+	it("a solve whose grader ran but gave the skill no grade falls to hard, never good; other outcomes keep their defaults", () => {
+		const link = { courseId: "c", mode: "review", skillIds: ["sk_a"] } as never;
+		const grade = (outcome: string, details: unknown) => {
+			const messages = [...pose("p1", ["sk_a"]), concludeCall("c1", { outcome }), result("c1", "conclude", details)];
+			return skillEventsOf(messages, link)[0]!.grade;
+		};
+		assert.equal(grade("solved", { grades: [] }), "hard", "a failed grader");
+		assert.equal(grade("solved", { grades: [{ skill: "sk_other", grade: "good" }] }), "hard", "a skipped skill");
+		assert.equal(grade("solved", { grades: [{ skill: "sk_a", grade: "good" }] }), "good", "a real grade stands");
+		assert.equal(grade("solved", null), undefined, "no grader at all: the outcome default (good) applies");
+		assert.equal(grade("taught", { grades: [] }), undefined, "taught keeps its default (again)");
+	});
+
 	it("a hint-assisted solve graded hard moves understanding less than the tutor's good", () => {
 		const link = { courseId: "c", mode: "review", skillIds: ["sk_a", "sk_b"] } as never;
 		const fold = (grade: string) => {

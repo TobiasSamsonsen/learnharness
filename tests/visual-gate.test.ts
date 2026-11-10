@@ -64,6 +64,21 @@ describe("visualGateBlocks (the pure rule)", () => {
 		assert.equal(visualGateBlocks(history, "quiz", WITH_TOOLS), true);
 	});
 
+	it("a visual or demo call earlier in the SAME message counts as dispatched (its result is not in history yet)", () => {
+		const quizCall = toolCall("q1", "quiz", {});
+		const same = assistant([demoCall("v1"), quizCall]);
+		assert.equal(visualGateBlocks(planned(DEMO), "quiz", WITH_TOOLS, same, "q1"), false);
+		const after = assistant([quizCall, demoCall("v1")]);
+		assert.equal(visualGateBlocks(planned(DEMO), "quiz", WITH_TOOLS, after, "q1"), true, "a picture dispatched AFTER the question does not count");
+		assert.equal(visualGateBlocks(planned(DEMO), "quiz", WITH_TOOLS, assistant([quizCall]), "q1"), true);
+	});
+
+	it("a plan_init that answered {ok:false} (a mermaid or tree error) chose nothing and never re-arms the gate", () => {
+		const rejected = { ...ok("p2", "plan_init"), details: { ok: false } };
+		const history = [...planned(NONE), assistant([planCall("p2", VISUAL)]), rejected];
+		assert.equal(visualGateBlocks(history, "quiz", WITH_TOOLS), false, "the live plan is still the `none` one");
+	});
+
 	it("`none` (with its reason), a plan without the field, and no plan at all are never gated", () => {
 		assert.equal(visualGateBlocks(planned(NONE), "quiz", WITH_TOOLS), false);
 		assert.equal(visualGateBlocks(planned(), "quiz", WITH_TOOLS), false, "an old plan_init call has no `visual`");

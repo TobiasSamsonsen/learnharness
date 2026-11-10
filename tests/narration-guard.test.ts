@@ -45,7 +45,17 @@ describe("narrationGuardApplies", () => {
 	}
 	it("pins the approved delivery and retry wording", () => {
 		assert.equal(SEND_TO_USER_DELIVERY_RULE, "## Delivering your prose\n\nDeliver learner-facing prose through `send_to_user`; ordinary response text may be converted into summarized thinking instead of reaching the learner. Send the complete explanation, example, or commentary before calling the accompanying question tool. Question-only turns do not require an extra message. A question whose response contains narration but no delivered prose may be rejected so you can deliver the missing explanation and retry.");
-		assert.equal(NARRATION_BLOCK_REASON, "This response contains narration but no delivered learner-facing prose. Write the explanation or commentary the learner needs through `send_to_user`, then retry this question. Deliver learner-facing content, not internal reasoning.");
+		assert.equal(NARRATION_BLOCK_REASON, "This response contains narration but no delivered learner-facing prose. Put the explanation or commentary the learner needs in the question's `lead` (or send it through `send_to_user`), then retry this question. Deliver learner-facing content, not internal reasoning.");
+	});
+});
+
+describe("a substantial question lead is delivered prose", () => {
+	it("a narration-only message whose question call carries a real lead is not blocked; a filler lead still is", async () => {
+		const g = makeNarrationGuard();
+		const real = "Her er forklaringen på hva svaret ditt viser og hvorfor det ikke holder. ".repeat(3);
+		assert.equal(await ask(g, msg(thinking("narration"), { ...quiz, arguments: { lead: real } })), undefined);
+		assert.notEqual(await ask(g, msg(thinking("narration"), { ...quiz, arguments: { lead: "Check it:" } })), undefined, "a one-line filler lead is not delivery");
+		assert.notEqual(await ask(g, msg(thinking("narration"), quiz)), undefined, "no lead, no text: still blocked");
 	});
 });
 

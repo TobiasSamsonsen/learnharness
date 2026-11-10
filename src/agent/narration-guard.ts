@@ -2,12 +2,14 @@ import type { ToolCallHooks } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { QUESTION_TOOLS } from "../core/pending.ts";
 import { SEND_TO_USER_TOOL, sendToUserText } from "../core/native-messages.ts";
+import { LEAD_FLOOR_CHARS } from "../core/lead-floor-gate.ts";
+import { leadOf } from "../core/tutor-prose.ts";
 import { sendToUserApplies } from "./tools/send-to-user.ts";
 
 export const NARRATION_GUARD_MAX_BLOCKS = 2;
 
 export const NARRATION_BLOCK_REASON =
-	"This response contains narration but no delivered learner-facing prose. Write the explanation or commentary the learner needs through `send_to_user`, then retry this question. Deliver learner-facing content, not internal reasoning.";
+	"This response contains narration but no delivered learner-facing prose. Put the explanation or commentary the learner needs in the question's `lead` (or send it through `send_to_user`), then retry this question. Deliver learner-facing content, not internal reasoning.";
 
 export const SEND_TO_USER_DELIVERY_RULE =
 	"## Delivering your prose\n\n" +
@@ -36,7 +38,9 @@ export function isNarrationBlock(block: { type: string; thinkingSignature?: stri
 export function questionLacksDeliveredProse(message: AssistantMessage, toolName: string, delivered = false): boolean {
 	if (!(QUESTION_TOOLS as readonly string[]).includes(toolName)) return false;
 	if (!message.content.some(isNarrationBlock as (b: AssistantMessage["content"][number]) => boolean)) return false;
-	return !delivered && !message.content.some((b) => b.type === "text" && b.text.trim().length > 0);
+	// A question's `lead` is rendered to the learner, so a SUBSTANTIAL one (the lead floor's length) is delivered prose too.
+	// A one-line filler lead ("Check it:") is not: it is what the guard exists to catch.
+	return !delivered && !message.content.some((b) => (b.type === "text" && b.text.trim().length > 0) || leadOf(b).trim().length >= LEAD_FLOOR_CHARS);
 }
 
 export function makeNarrationGuard(): ToolCallHooks {

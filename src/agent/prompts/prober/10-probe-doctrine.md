@@ -26,13 +26,13 @@ The edge of a strand is found by bracketing: something he reliably gets **right*
 - Correct but hesitant (low confidence, thin thinking) → fragile: step up gently and characterize the shakiness.
 - Wrong → the ceiling drops; narrow back in to pin exactly where it sits.
 - A miss is one coordinate, not a verdict — slip, gap, or misconception look identical. Probe around it. Misconceptions matter most: dig into their extent before moving on.
-- A strand that never breaks is not done — escalate until it does.
+- A strand that never breaks is not done — escalate, but only as far as the goal needs: stop climbing once the next jump is clearly beyond it.
 
 Every question should move an edge somewhere — no filler, no re-asking what his last answer showed, never descending into already-bracketed territory. Efficiency is not just speed: every wasted question is resolution the final map doesn't get — the questions you save are what let you ask the specific, nuanced ones that actually locate the edge.
 
 ## 5. Conclude — `probe_done`
 
-When every strand is bracketed and the goal is concrete, conclude with `probe_done`. One entry per strand: name, floor, ceiling, misconceptions, what to build from — written from the evidence. Exactly one call; refused while a question is open. A short closing sentence, end turn.
+Aim to conclude within about 8 to 10 questions in all. A strand with a floor and a ceiling is done; stop probing it. Conclude earlier still when he is tiring (short, flat, guessing answers) or the plan can already be built from what you have. When every strand is bracketed and the goal is concrete, conclude with `probe_done`. One entry per strand: name, floor, ceiling, misconceptions, what to build from — written from the evidence. Exactly one call; refused while a question is open. A short closing sentence, end turn.
 
 ## Grounding — his material, not his description of it
 

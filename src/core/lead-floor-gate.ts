@@ -28,7 +28,7 @@ export const LEAD_FLOOR_CHARS = 150;
 /** Tool results that carry the learner's graded answer (same set as the prose gate). */
 const GRADED_ANSWER_TOOLS: ReadonlySet<string> = new Set(["quiz", "explain", "probe", "recall"]);
 
-const REASON_HEAD = `Refused: the learner's last answer was wrong or "don't know", and what has reached him since is under ${LEAD_FLOOR_CHARS} characters. `;
+const REASON_HEAD = `Refused: the learner's last answer was wrong, "don't know" or a free-recall answer, and what has reached him since is under ${LEAD_FLOOR_CHARS} characters. `;
 const REASON_TAIL =
 	"Say what his answer shows and repair it: the step he is missing, worked out in words and symbols, not a nudge or a hint at what to do. " +
 	"A call that repeats a one-line filler will be refused again.";
@@ -37,15 +37,26 @@ const REASON_TAIL =
 export const LEAD_FLOOR_REASON = REASON_HEAD + "Put the repair in `lead`, then call the question again with it. " + REASON_TAIL;
 
 /** The refusal for a question without a `lead` (ask_user_question): the reply goes through send_to_user. */
-export const LEAD_FLOOR_REASON_NO_LEAD = REASON_HEAD + "Send the repair with send_to_user first, then call the question again. " + REASON_TAIL;
+export const LEAD_FLOOR_REASON_NO_LEAD =
+	REASON_HEAD +
+	"Send the repair first, with send_to_user (plain text before the call only if you have no send_to_user), then call the question again. " +
+	REASON_TAIL;
 
 /** The refusal text for a gated tool. */
 export function leadFloorReason(toolName: string): string {
 	return NO_LEAD_GATED_TOOLS.includes(toolName) ? LEAD_FLOOR_REASON_NO_LEAD : LEAD_FLOOR_REASON;
 }
 
-/** Was this graded answer wrong, or a "don't know"? Reads the compact result the model sees, then the full record. */
+/**
+ * Does this graded answer need a real response (the floor applies)? A wrong
+ * answer or a "don't know", read from the compact result the model sees, then
+ * the full record. A free-recall (`explain`) answer always does (owner,
+ * 2026-11-10): it carries no verdict, the model grades it in its reply, so the
+ * code cannot tell a wrong one from a right one and a reply to open-ended
+ * recall is owed a real response either way.
+ */
 function isMiss(result: ToolResultMessage): boolean {
+	if (result.toolName === "explain") return true;
 	const readable = (value: unknown): boolean | undefined => {
 		if (!value || typeof value !== "object") return undefined;
 		const answer = value as { correct?: unknown; dontKnow?: unknown };
