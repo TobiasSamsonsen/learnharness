@@ -19,15 +19,21 @@ data class InkView(val zoom: Float = 1f, val x: Float = 0f, val y: Float = 0f) {
 	fun pxX(wx: Float, density: Float): Float = (wx - x) * density * zoom
 	fun pxY(wy: Float, density: Float): Float = (wy - y) * density * zoom
 
-	/** The pen's width in world units for a width chosen as how it should FEEL on screen (the web's penWorldSize). */
-	fun penWorldSize(screenSize: Float): Float {
-		val v = (screenSize / zoom).coerceIn(MIN_WORLD_SIZE, MAX_WORLD_SIZE)
+	/**
+	 * The pen's width in world units (the web's penWorldSize): a size on the page, the chosen width up to 1x zoom, then
+	 * linear down to [PEN_FACTOR_AT_MAX_ZOOM] of it at [MAX_ZOOM] (a little finer zoomed in, for subscripts).
+	 */
+	fun penWorldSize(size: Float): Float {
+		val t = ((zoom - 1f) / (MAX_ZOOM - 1f)).coerceIn(0f, 1f)
+		val v = (size * (1f - (1f - PEN_FACTOR_AT_MAX_ZOOM) * t)).coerceIn(MIN_WORLD_SIZE, MAX_WORLD_SIZE)
 		return (v * 100f).roundToInt() / 100f
 	}
 
 	companion object {
-		const val MIN_ZOOM = 0.1f
-		const val MAX_ZOOM = 8f
+		/** Narrow on purpose (the web's MIN_ZOOM / MAX_ZOOM): the writing size can drift at most 6x between two strokes. */
+		const val MIN_ZOOM = 0.5f
+		const val MAX_ZOOM = 3f
+		private const val PEN_FACTOR_AT_MAX_ZOOM = 0.8f
 		private const val MIN_WORLD_SIZE = 0.5f
 		private const val MAX_WORLD_SIZE = 64f
 

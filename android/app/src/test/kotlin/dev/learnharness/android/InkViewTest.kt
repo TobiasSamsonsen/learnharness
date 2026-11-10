@@ -16,18 +16,21 @@ class InkViewTest {
 		assertEquals(-40f, v.worldY(60f, density), 0.001f)
 	}
 
-	@Test fun thePenKeepsItsWidthOnScreen_clampedToWhatTheValidatorAccepts() {
-		assertEquals(4f, InkView(1f).penWorldSize(4f), 0f)
-		assertEquals(2f, InkView(2f).penWorldSize(4f), 0f)
-		assertEquals("thin at the top zoom is the floor, not 0.25", 0.5f, InkView(8f).penWorldSize(2f), 0f)
-		assertEquals("thick at the bottom zoom is the ceiling, not 80", 64f, InkView(0.1f).penWorldSize(8f), 0f)
+	@Test fun thePenIsASizeOnThePage_only80PercentAtTheTopZoom() {
+		assertEquals("the chosen width at 1x", 4f, InkView(1f).penWorldSize(4f), 0.001f)
+		assertEquals("zoomed out it stays the chosen width", 4f, InkView(0.5f).penWorldSize(4f), 0.001f)
+		assertEquals("linear: 90% at 2x", 3.6f, InkView(2f).penWorldSize(4f), 0.001f)
+		assertEquals("80% at 3x", 3.2f, InkView(3f).penWorldSize(4f), 0.001f)
+		assertEquals("thin at 3x", 1.6f, InkView(3f).penWorldSize(2f), 0.001f)
+		assertEquals("past the top zoom it stays at 80%", 3.2f, InkView(8f).penWorldSize(4f), 0.001f)
 	}
 
 	@Test fun theViewLineAcceptsOnlyUsableViews() {
 		assertNotNull(InkView.parse(1f, 0f, 0f))
-		assertNotNull(InkView.parse(8f, -1e5f, 1e5f))
-		assertNull(InkView.parse(0.05f, 0f, 0f))
-		assertNull(InkView.parse(8.5f, 0f, 0f))
+		assertNotNull(InkView.parse(3f, -1e5f, 1e5f))
+		assertNotNull(InkView.parse(0.5f, 0f, 0f))
+		assertNull(InkView.parse(0.45f, 0f, 0f))
+		assertNull(InkView.parse(3.5f, 0f, 0f))
 		assertNull(InkView.parse(Float.NaN, 0f, 0f))
 		assertNull(InkView.parse(1f, Float.POSITIVE_INFINITY, 0f))
 		assertNull(InkView.parse(null, 0f, 0f))

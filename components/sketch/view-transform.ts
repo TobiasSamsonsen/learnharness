@@ -12,8 +12,9 @@ export interface SketchView {
 	y: number;
 }
 
-export const MIN_ZOOM = 0.1;
-export const MAX_ZOOM = 8;
+/** Narrow on purpose: with a fixed pen the writing size can drift at most MAX_ZOOM / MIN_ZOOM (6x) between two strokes. */
+export const MIN_ZOOM = 0.5;
+export const MAX_ZOOM = 3;
 export const HOME_VIEW: SketchView = { zoom: 1, x: 0, y: 0 };
 
 /** Stroke widths the validator accepts (core/sketch.ts: 0.5 to 64). */
@@ -44,16 +45,19 @@ export function panBy(view: SketchView, dsx: number, dsy: number): SketchView {
 	return { zoom: view.zoom, x: view.x - dsx / view.zoom, y: view.y - dsy / view.zoom };
 }
 
+/** The pen's width on the page at the top zoom, as a fraction of the chosen width (owner, 2026-11-10: 80% at 3x). */
+const PEN_FACTOR_AT_MAX_ZOOM = 0.8;
+
 /**
- * The pen's width in WORLD units for a width chosen as how it should FEEL on
- * screen (owner, M13c, adapting the one app measured to behave this way:
- * Infinite Canvas keeps the apparent width at any zoom): zoomed in the same
- * pen writes finer in world terms. Kept inside what the validator accepts;
- * the model's render normalises by writing size, so tiny world ink stays
- * readable (core/sketch.ts, glyph-adaptive scale).
+ * The pen's width in WORLD units (owner, 2026-11-10): a size on the PAGE, not on screen, so zoomed in the pen looks
+ * fatter and the learner keeps writing at one size from the first stroke to the last (the zoom range is narrowed for
+ * the same reason). Only a little finer when zoomed in, for subscripts: the chosen width up to 1x, then linear down to
+ * 80% of it at MAX_ZOOM. Kept inside what the validator accepts.
  */
-export function penWorldSize(screenSize: number, zoom: number): number {
-	return Math.round(Math.min(MAX_WORLD_SIZE, Math.max(MIN_WORLD_SIZE, screenSize / zoom)) * 100) / 100;
+export function penWorldSize(size: number, zoom: number): number {
+	const t = Math.min(1, Math.max(0, (zoom - 1) / (MAX_ZOOM - 1)));
+	const factor = 1 - (1 - PEN_FACTOR_AT_MAX_ZOOM) * t;
+	return Math.round(Math.min(MAX_WORLD_SIZE, Math.max(MIN_WORLD_SIZE, size * factor)) * 100) / 100;
 }
 
 /**

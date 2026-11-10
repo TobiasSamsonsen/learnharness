@@ -125,7 +125,8 @@ class InkLayer(context: Context) : FrameLayout(context) {
 
 	private fun brush(): Brush {
 		val argb = InkSheet.displayColor(penColor, dark)
-		return Brush.createWithColorIntArgb(StockBrushes.pressurePen(), argb, penSize * density, 0.1f)
+		// the pen is a fixed size on the page, so on screen it follows the zoom (what is committed is penWorldSize)
+		return Brush.createWithColorIntArgb(StockBrushes.pressurePen(), argb, view.penWorldSize(penSize) * view.zoom * density, 0.1f)
 	}
 
 	init {
@@ -167,7 +168,7 @@ class InkLayer(context: Context) : FrameLayout(context) {
 
 	/** A hovering stylus at (x, y) in this layer's px (null: gone): a ring the size of the pen's width, or the eraser's reach. */
 	fun hover(x: Float?, y: Float?) {
-		val r = if (eraser) eraserRadius * density else maxOf(1.5f * density, penSize * density / 2f)
+		val r = if (eraser) eraserRadius * density else maxOf(1.5f * density, view.penWorldSize(penSize) * view.zoom * density / 2f)
 		hoverRing.show(x, y, r)
 	}
 

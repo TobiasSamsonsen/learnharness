@@ -27,7 +27,7 @@ sealed interface InkOp {
 	data class Eraser(val strokeMode: Boolean, val radius: Float) : InkOp
 	/** The sheet's tone (M13): a dark sheet shows ink in lighter variants. A display choice; the strokes are unchanged. */
 	data class Sheet(val dark: Boolean) : InkOp
-	/** The pen's colour (#rrggbb) and base size in CSS px: the strokes drawn from now on use it. */
+	/** The pen's colour (#rrggbb) and base size in world units (CSS px at zoom 1; the pen is a size on the page): the strokes drawn from now on use it. */
 	data class Brush(val color: String, val size: Float) : InkOp
 	/** The finished strokes of the page being written (page CSS px). */
 	data class Strokes(val strokes: List<InkWire.Stroke>) : InkOp
@@ -108,7 +108,7 @@ object InkWire {
 		return if (n.size == 4) InkRect(n[0], n[1], n[2], n[3]) else null
 	}
 
-	/** A stroke: base size in CSS px, an optional #rrggbb, flat [x, y, pressure, …] in the canvas' page CSS px. [sent]: it was already
+	/** A stroke: base size in world units (CSS px at zoom 1), an optional #rrggbb, flat [x, y, pressure, …] in the canvas' page CSS px. [sent]: it was already
 	 *  sent to the tutor (the page's `fresh: false`): drawn dimmed even inside the working page, where the eraser put it. */
 	class Stroke(val size: Float, val color: String?, val points: FloatArray, val sent: Boolean = false) {
 		/** The bounding box of the points, [minX, minY, maxX, maxY], found once (a stroke is never edited): the eraser skips a stroke

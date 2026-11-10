@@ -58,11 +58,13 @@ describe("the infinite canvas's view", () => {
 		near(s.y, 80);
 	});
 
-	it("the pen feels the same on screen at any zoom, inside what the validator accepts", () => {
+	it("the pen is a size on the page: the chosen width up to 1x, then linear down to 80% at the top zoom", () => {
 		assert.equal(penWorldSize(4, 1), 4);
-		assert.equal(penWorldSize(4, 2), 2);
-		assert.equal(penWorldSize(2, 8), 0.5, "thin at the top zoom is clamped to the validator's floor, not 0.25");
-		assert.equal(penWorldSize(8, 0.1), 64, "thick at the bottom zoom is clamped to the ceiling, not 80");
+		assert.equal(penWorldSize(4, MIN_ZOOM), 4, "zoomed out it stays the chosen width");
+		assert.equal(penWorldSize(4, 2), 3.6, "90% at 2x");
+		assert.equal(penWorldSize(4, MAX_ZOOM), 3.2, "80% at 3x");
+		assert.equal(penWorldSize(2, MAX_ZOOM), 1.6);
+		assert.equal(penWorldSize(4, 100), 3.2, "past the top zoom it stays at 80%");
 	});
 
 	it("the eraser's screen radius is a smaller world radius when zoomed in", () => {
