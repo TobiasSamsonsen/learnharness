@@ -414,16 +414,16 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 		onDone(models);
 	}
 
-	/** The Claude-subscription preset (fork addition): all three tiers plus
-	 *  the planner/demo-builder overrides and the volume settings at once. */
+	/** The built-in "Claude subscription" profile (fork addition): all three tiers plus
+	 *  the planner/demo-builder overrides at once. */
 	async function applyClaudePreset() {
 		if (saving) return;
 		setSaving(true);
 		setError(null);
-		const res = await fetch("/api/settings/preset", {
+		const res = await fetch("/api/settings/profiles", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ name: "claude-subscription" }),
+			body: JSON.stringify({ action: "switch", name: "Claude subscription" }),
 		}).catch(() => null);
 		const stored = res?.ok ? ((await res.json().catch(() => null)) as { settings?: { models?: ModelsSettings } } | null)?.settings : null;
 		if (!stored?.models) {
@@ -431,7 +431,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 			setError("Could not apply the preset. Check that Claude Code is installed and try again.");
 			return;
 		}
-		for (const section of ["models", "agent", "graph", "compaction"] as const) notifySettingsSaved(section);
+		for (const section of ["models", "agent"] as const) notifySettingsSaved(section);
 		onDone(stored.models);
 	}
 	const keysBody = <SetupKeysBody

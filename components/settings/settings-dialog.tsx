@@ -362,16 +362,16 @@ export function SettingsDialogBody({
 		[onAppearanceChange, writeOrder],
 	);
 
-	/** The Claude-subscription preset (fork addition): one server write over several sections. Like `write`, it takes a
-	 *  write-order ticket, so a slower earlier save cannot roll the preset back and the preset cannot clobber a newer ACK. */
-	const applyClaudePreset = useCallback(async (): Promise<string | null> => {
+	/** A model-profile action (fork addition): one server write over the models, agent and profiles sections. Like `write`, it takes a
+	 *  write-order ticket, so a slower earlier save cannot roll it back and it cannot clobber a newer ACK. */
+	const profileAction = useCallback(async (action: { action: string; name: string; newName?: string }): Promise<string | null> => {
 		const ticket = ++writeOrder.current.issued;
-		const res = await fetch("/api/settings/preset", {
+		const res = await fetch("/api/settings/profiles", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ name: "claude-subscription" }),
+			body: JSON.stringify(action),
 		}).catch(() => null);
-		if (!res?.ok) return ((await res?.json().catch(() => ({}))) as { error?: string } | undefined)?.error ?? "Could not apply the preset";
+		if (!res?.ok) return ((await res?.json().catch(() => ({}))) as { error?: string } | undefined)?.error ?? "Could not change the profile";
 		const reply = (await res.json().catch(() => null)) as { settings?: UserSettings; fileAccessError?: string } | null;
 		const stored = reply?.settings;
 		if (stored && ticket >= writeOrder.current.acknowledged) {
@@ -380,7 +380,7 @@ export function SettingsDialogBody({
 			writeOrder.current.fileAccessError = reply?.fileAccessError ?? null;
 			for (const apply of writeOrder.current.listeners) apply(stored, writeOrder.current.fileAccessError);
 		}
-		for (const section of ["models", "agent", "graph", "compaction"] as const) notifySettingsSaved(section);
+		for (const section of ["models", "agent"] as const) notifySettingsSaved(section);
 		return null;
 	}, [writeOrder]);
 
@@ -618,6 +618,7 @@ export function SettingsDialogBody({
 										agent={record.agent}
 										fileAccessError={fileAccessError}
 										models={record.models}
+										profiles={record.profiles}
 										graph={record.graph}
 										compaction={record.compaction}
 										onModelsChange={(next: ModelsSettings) =>
@@ -629,7 +630,7 @@ export function SettingsDialogBody({
 										onCompactionChange={(next: CompactionSettings) =>
 											write("compaction", next)
 										}
-										onApplyClaudePreset={applyClaudePreset}
+										onProfileAction={profileAction}
 									/>
 								</SettingsSection>
 							)}

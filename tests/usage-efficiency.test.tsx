@@ -8,8 +8,16 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import { CLAUDE_SUBSCRIPTION_PRESET, withClaudeSubscriptionPreset } from "../src/core/presets.ts";
+import { BUILTIN_PROFILES, CLAUDE_PROFILE_NAME, applyProfile } from "../src/core/profiles.ts";
+
+type Pick = { model: { provider: string; id: string }; thinkingLevel: ThinkingLevel };
+const CLAUDE_SUBSCRIPTION_PRESET = {
+	models: BUILTIN_PROFILES[CLAUDE_PROFILE_NAME]!.models as Record<"strong" | "cheap" | "vision", Pick>,
+	roles: BUILTIN_PROFILES[CLAUDE_PROFILE_NAME]!.roles as Record<"planner" | "demoBuilder", Pick>,
+};
+const withClaudeSubscriptionPreset = (r: Parameters<typeof applyProfile>[0]) => { const out = applyProfile(r, CLAUDE_PROFILE_NAME); if (!out.ok) throw new Error(out.error); return out.record; };
 import { CLAUDE_CODE_MODELS } from "../src/agent/claude-code/provider.ts";
 import { pct, planUsageHint } from "../components/plan-usage.tsx";
 
@@ -32,7 +40,7 @@ test("the routing: Sonnet teaches, Opus only plans, Haiku does the cheap tier", 
 	assert.equal(opusUses.length, 1, "Opus appears exactly once: the planning turn");
 });
 
-test("applying the preset keeps every other setting", () => {
+test("applying the built-in profile keeps every other setting, and replaces the models", () => {
 	const merged = withClaudeSubscriptionPreset({
 		version: 1,
 		general: { language: "nb" },
@@ -41,11 +49,11 @@ test("applying the preset keeps every other setting", () => {
 	});
 	assert.equal(merged.general?.language, "nb");
 	assert.deepEqual(merged.agent?.tools, { demo: false });
-	assert.equal(merged.agent?.models?.researcher?.thinkingLevel, "high", "a role the preset doesn't set is kept");
+	assert.equal(merged.agent?.models?.researcher, undefined, "roles are replaced by the profile's");
 	assert.equal(merged.agent?.models?.planner?.model?.id, "opus");
 	assert.equal(merged.graph?.enabled, false);
-	assert.equal(merged.graph?.extractionChunkTokens, 12_288);
-	assert.equal(merged.compaction?.thresholdTokens, 100_000);
+	assert.equal(merged.graph?.extractionChunkTokens, undefined, "tuning is not part of a profile");
+	assert.equal(merged.profiles?.active, CLAUDE_PROFILE_NAME);
 	assert.equal(withClaudeSubscriptionPreset(null).models?.strong?.model?.id, "sonnet", "a first-boot record works too");
 });
 

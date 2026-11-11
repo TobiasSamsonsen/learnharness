@@ -30,7 +30,7 @@
  * lands here.
  */
 
-import { isBuiltinThemeId, type AgentSettings, type AppearanceSettings, type ChatSettings, type ModelsSettings } from "@/src/core";
+import { isBuiltinThemeId, syncActiveProfile, type AgentSettings, type AppearanceSettings, type ChatSettings, type ModelsSettings } from "@/src/core";
 import {
 	SETTINGS_SECTIONS,
 	allSegmentPaths,
@@ -143,7 +143,10 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 
 	// Read-modify-write ONE section of the record; everything else rides
 	// along untouched (other sections, unknown keys — sanitize preserves).
-	const next = { ...record, [section]: sectionOut };
+	// Model profiles: a models / agent.models change lands in the active profile too
+	// (a built-in active profile forks into a user copy) — core/profiles.ts.
+	const written = { ...record, [section]: sectionOut };
+	const next = section === "models" || section === "agent" ? syncActiveProfile(record, written) : written;
 	const stored = writeSettingsRecord(next);
 	// Only a successful durable write changes admission. Increasing the
 	// limit immediately drains queued requests; decreasing never cancels active work.

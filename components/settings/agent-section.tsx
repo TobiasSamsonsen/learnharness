@@ -23,6 +23,13 @@
  * trigger showing "Default" over a live override would lie about the
  * record.
  *
+ * Profiles (fork addition, 2026-11): a profile row at the top of the Models
+ * group switches between named sets of the slots + per-role overrides
+ * (core/profiles.ts; models only). The active profile auto-saves - the
+ * server mirrors every models / agent.models write into it. Editing under the
+ * built-in "Claude subscription" profile forks it into a user copy. A profile
+ * naming an unconnected provider still applies, with a warning on its row.
+ *
  * Search engine (search wave, 2026-09-20, owner: no default — an engine
  * is live iff its key is present; with a key the engine AUTO-activates,
  * the explicit choice is only a preference between live engines): a row
@@ -72,6 +79,12 @@ import {
 	type GraphSettings,
 	type ModelSlotName,
 	type ModelsSettings,
+	type ProfilesSettings,
+	activeProfileName,
+	getProfile,
+	isBuiltinProfile,
+	profileList,
+	profileMissingProviders,
 	type BackgroundModelRole,
 	type RoleModelOverride,
 	type SearchEngineId,
@@ -381,25 +394,26 @@ function MenuTrigger({
  * viewport cap and auto-flip. data-lh-menu rides the shell — the
  * outside-click contract's exemption mark. */
 
-/** The preset row's description (fork addition) — src/core/presets.ts. */
-export const CLAUDE_PRESET_HINT =
-	"Usage-efficient routing for a Claude plan: Sonnet teaches, Opus plans each lesson, Haiku extracts and researches; bigger extraction batches, compaction at 100k tokens";
+type ProfileAction = { action: "switch" | "create" | "rename" | "delete"; name: string; newName?: string };
 
 export function AgentSection({
 	agent,
 	fileAccessError,
 	models,
+	profiles,
 	graph,
 	compaction,
 	onSectionChange,
 	onModelsChange,
 	onCompactionChange,
-	onApplyClaudePreset,
+	onProfileAction,
 }: {
 	agent: AgentSettings | undefined;
 	fileAccessError?: string | null;
 	/** The `models` section (slot pins — engine-level, PUT /api/settings/models). */
 	models: ModelsSettings | undefined;
+	/** The `profiles` section (saved model profiles; written only by onProfileAction). */
+	profiles?: ProfilesSettings;
 	/** The `graph` section — READ ONLY here: the graphTools row composes its
 	 *  master switch (graph.enabled off dims + disables the row; the
 	 *  effective gate is server-side, per-turn fresh). */
@@ -413,9 +427,9 @@ export function AgentSection({
 	onModelsChange: (next: ModelsSettings) => void;
 	/** Writes the whole compaction section (replace-PUT discipline). */
 	onCompactionChange: (next: CompactionSettings) => boolean | Promise<boolean>;
-	/** Apply the Claude-subscription preset (fork addition): resolves to an
-	 *  error message, or null once the dialog holds the new record. */
-	onApplyClaudePreset?: () => Promise<string | null>;
+	/** A profile action (POST /api/settings/profiles): resolves to an error
+	 *  message, or null once the dialog holds the new record. */
+	onProfileAction?: (action: ProfileAction) => Promise<string | null>;
 }) {
 	const { catalog: body, failed: catalogFailed, refresh: refreshCatalog } = useModelCatalog();
 	const catalog = body?.models;
@@ -427,16 +441,16 @@ export function AgentSection({
 	/** Which search engines have a key (/api/keys) — the no-keys-anywhere
 	 *  state grays the row; per-engine marks ride the menu rows. */
 	const [engineKeys, setEngineKeys] = useState<Partial<Record<SearchEngineId, boolean>>>({});
-	/** The claude CLI is installed: the subscription preset row shows. */
-	const [claudeCode, setClaudeCode] = useState(false);
-	const [presetNote, setPresetNote] = useState<string | null>(null);
+	/** Profile row: an inline name editor (new / rename) and the last error. */
+	const [profileEdit, setProfileEdit] = useState<{ mode: "new" | "rename"; draft: string } | null>(null);
+	const [profileError, setProfileError] = useState<string | null>(null);
 	const [prompts, setPrompts] = useState<PromptView | null>(null);
 	const [openSegment, setOpenSegment] = useState<string | null>(null);
 	const [segmentDraft, setSegmentDraft] = useState<Record<string, string>>({});
 	const [segmentStatus, setSegmentStatus] = useState<string | null>(null);
 	/** One open dropdown for the whole section: which slot (or the search
 	 *  row), which kind. */
-	const [openMenu, setOpenMenu] = useState<{ target: ModelSlotName | BackgroundModelRole | "search"; kind: "model" | "thinking" | "engine" | "cache" } | null>(null);
+	const [openMenu, setOpenMenu] = useState<{ target: ModelSlotName | BackgroundModelRole | "search" | "profile"; kind: "model" | "thinking" | "engine" | "cache" | "profile" } | null>(null);
 	const [advancedModels, setAdvancedModels] = useState(false);
 	const [workerConcurrencyError, setWorkerConcurrencyError] = useState<string | null>(null);
 	const menuAnchorRef = useRef<HTMLSpanElement>(null);
@@ -480,7 +494,6 @@ export function AgentSection({
 		fetch("/api/keys")
 			.then((r) => r.json())
 			.then((body: { keys: { id: string; present: boolean }[]; claudeCode?: boolean }) => {
-				setClaudeCode(body.claudeCode === true);
 				const present: Partial<Record<SearchEngineId, boolean>> = {};
 				for (const { id, envVar } of SEARCH_ENGINES) {
 					present[id] = body.keys.some((k) => k.id === envVar && k.present);
@@ -506,7 +519,7 @@ export function AgentSection({
 	useEffect(() => {
 		if (openMenu === null) return;
 		const onPointerDown = (e: PointerEvent) => {
-			const testid = openMenu.target === "search" ? "search-engine-menu" : `slot-${openMenu.kind}-menu-${openMenu.target}`;
+			const testid = openMenu.target === "search" ? "search-engine-menu" : openMenu.target === "profile" ? "profile-menu" : `slot-${openMenu.kind}-menu-${openMenu.target}`;
 			if (!interactions.isElementEligible(document.querySelector<HTMLElement>(`[data-testid="${testid}"]`))) return;
 			const target = e.target as Node;
 			if (menuAnchorRef.current?.contains(target)) return;
@@ -707,26 +720,108 @@ export function AgentSection({
 	return (
 		<>
 			<SettingsGroup label="Models" testid="group-models">
-				{claudeCode && onApplyClaudePreset && (
-					<SettingsRow
-						label="Claude subscription preset"
-						hint={presetNote ?? CLAUDE_PRESET_HINT}
-						testid="row-claude-preset"
-					>
-						<button
-							type="button"
-							data-testid="apply-claude-preset"
-							onClick={async () => {
-								setPresetNote("Applying…");
-								const err = await onApplyClaudePreset();
-								setPresetNote(err ?? "Applied — new lessons use it; running lessons keep their model");
-							}}
-							className="shrink-0 rounded-md border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
+				{onProfileAction && (() => {
+					const rec = { version: 1, models, agent, profiles };
+					const list = profileList(rec);
+					const active = activeProfileName(rec);
+					const open = openMenu?.target === "profile";
+					const connected = new Set((body?.providers ?? []).filter((p) => p.keyPresent).map((p) => p.id));
+					const missing = (name: string) => {
+						const profile = getProfile(rec, name);
+						return profile && body ? profileMissingProviders(profile, connected) : [];
+					};
+					const run = async (action: ProfileAction) => {
+						setProfileError(null);
+						const err = await onProfileAction(action);
+						if (err) setProfileError(err);
+						return err === null;
+					};
+					const activeMissing = missing(active);
+					return (
+						<SettingsRow
+							label="Profile"
+							hint={profileError ?? (activeMissing.length ? `Not connected: ${activeMissing.join(", ")}` : isBuiltinProfile(active) ? "Built-in — changing a model saves it as a copy" : "Changes save to this profile")}
+							testid="row-profile"
 						>
-							Apply
-						</button>
-					</SettingsRow>
-				)}
+							{profileEdit ? (
+								<span className="flex items-center gap-2">
+									<input
+										type="text"
+										autoFocus
+										data-testid="profile-name-input"
+										aria-label="Profile name"
+										value={profileEdit.draft}
+										placeholder="Profile name"
+										onChange={(e) => setProfileEdit({ ...profileEdit, draft: e.target.value })}
+										onKeyDown={async (e) => {
+											if (e.key === "Escape") { e.stopPropagation(); setProfileEdit(null); setProfileError(null); }
+											if (e.key !== "Enter") return;
+											const ok = await run(profileEdit.mode === "new"
+												? { action: "create", name: profileEdit.draft }
+												: { action: "rename", name: active, newName: profileEdit.draft });
+											if (ok) setProfileEdit(null);
+										}}
+										className="h-7 w-40 rounded-sm border border-border bg-background px-1.5 text-xs"
+									/>
+									<button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => { setProfileEdit(null); setProfileError(null); }}>Cancel</button>
+								</span>
+							) : (
+								<span ref={open ? menuAnchorRef : undefined} className="relative flex items-center gap-2">
+									<MenuTrigger
+										value={active}
+										emptyLabel={active}
+										ariaLabel="Profile"
+										testid="profile-trigger"
+										open={open}
+										onClick={() => setOpenMenu(open ? null : { target: "profile", kind: "profile" })}
+										widthClass="min-w-32"
+									/>
+									{!isBuiltinProfile(active) && (
+										<>
+											<button type="button" data-testid="profile-rename" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => { setProfileError(null); setProfileEdit({ mode: "rename", draft: active }); }}>Rename</button>
+											<button type="button" data-testid="profile-delete" disabled={list.filter((e) => !e.builtin).length <= 1} className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-40" onClick={() => void run({ action: "delete", name: active })}>Delete</button>
+										</>
+									)}
+									{open && (
+										<MenuShell
+											preferredSide="down"
+											anchorTestid="profile-trigger"
+											testid="profile-menu"
+											onClose={() => { setOpenMenu(null); return "closed"; }}
+											menuClass="flex w-64 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
+										>
+											{list.map(({ name, builtin }) => {
+												const gone = missing(name);
+												return (
+													<button
+														key={name}
+														type="button"
+														data-testid={`profile-option-${name}`}
+														onClick={async () => { setOpenMenu(null); if (name !== active) await run({ action: "switch", name }); }}
+														className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted ${name === active ? "bg-muted/60" : ""}`}
+													>
+														<span className="truncate">{name}{builtin && <span className="text-muted-foreground"> · built-in</span>}</span>
+														<span className="shrink-0 text-muted-foreground" title={gone.length ? `Not connected: ${gone.join(", ")}` : undefined}>
+															{gone.length ? <span aria-label="Not connected">⚠</span> : name === active ? <span aria-hidden>✓</span> : null}
+														</span>
+													</button>
+												);
+											})}
+											<button
+												type="button"
+												data-testid="profile-new"
+												onClick={() => { setOpenMenu(null); setProfileError(null); setProfileEdit({ mode: "new", draft: "" }); }}
+												className="w-full rounded-lg px-2 py-1.5 text-left text-muted-foreground transition-colors hover:bg-muted"
+											>
+												New profile…
+											</button>
+										</MenuShell>
+									)}
+								</span>
+							)}
+						</SettingsRow>
+					);
+				})()}
 				<button
 					type="button"
 					data-testid="models-advanced"

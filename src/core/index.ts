@@ -99,7 +99,7 @@ export * from "./skill-visual.ts";
 export * from "./course-draft.ts";
 export * from "./course-session.ts";
 // The Claude-subscription preset (fork addition, 2026-10-24).
-export * from "./presets.ts";
+export * from "./profiles.ts";
 export * from "./file-access.ts";
 // themes.ts (theme wave, 2026-11-04): the 12-color theme vocabulary, the
 // presets and the theme → CSS-token adapter — pure, shared by the layout,

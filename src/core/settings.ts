@@ -249,6 +249,25 @@ export interface ModelsSettings {
 	vision?: ModelSlot;
 }
 
+// ─── Model profiles ──────────────────────────────────────────────────────────
+
+/** One saved model profile: the three slots plus the per-role overrides —
+ *  nothing else (owner, 2026-11: models only). Applying a profile REPLACES the
+ *  live `models` section and `agent.models` with these. */
+export interface ModelProfile {
+	models?: ModelsSettings;
+	roles?: Partial<Record<BackgroundModelRole, RoleModelOverride>>;
+}
+
+/** The `profiles` section: the user's saved profiles by name, and which one is
+ *  active. The built-in "Claude subscription" profile (core/profiles.ts) is not
+ *  stored in `items`, but `active` may name it. Absent = no profile ever saved:
+ *  readers treat the live models as a "Default" profile. */
+export interface ProfilesSettings {
+	active?: string;
+	items?: Record<string, ModelProfile>;
+}
+
 // ─── Custom OpenAI-compatible endpoint ───────────────────────────────────────
 // ONE user-configured OpenAI-compatible server (vLLM / Ollama / a proxy). It is
 // one more provider in the Keys list, keyed by a base URL instead of an env var.
@@ -554,6 +573,8 @@ export interface UserSettings {
 	agent?: AgentSettings;
 	/** The strong/cheap/vision model slots (model slots wave, 2026-09-20). */
 	models?: ModelsSettings;
+	/** Saved model profiles (core/profiles.ts). Mirrors the live `models` + `agent.models` for the active profile. */
+	profiles?: ProfilesSettings;
 	/** The custom OpenAI-compatible endpoint (non-secret config only). */
 	customProvider?: CustomProviderSettings;
 	appearance?: AppearanceSettings;
@@ -792,22 +813,50 @@ function sanitizeBooleanMap(raw: unknown): Record<string, boolean> | undefined {
 	return Object.keys(out).length ? out : undefined;
 }
 
+/** The per-role override map: known roles with well-formed overrides only. */
+function sanitizeRoleMap(raw: unknown): Partial<Record<BackgroundModelRole, RoleModelOverride>> | undefined {
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+	const roles: Partial<Record<BackgroundModelRole, RoleModelOverride>> = {};
+	for (const [role, override] of Object.entries(raw as Record<string, unknown>)) {
+		if ((BACKGROUND_MODEL_ROLES as readonly string[]).includes(role)) {
+			const cleaned = sanitizeRoleOverride(override);
+			if (cleaned) roles[role as BackgroundModelRole] = cleaned;
+		}
+	}
+	return Object.keys(roles).length ? roles : undefined;
+}
+
+/** The profiles section: well-formed, non-empty-named profiles only. */
+function sanitizeProfiles(raw: Record<string, unknown>): ProfilesSettings {
+	const out: ProfilesSettings = {};
+	if (typeof raw.active === "string" && raw.active.trim()) out.active = raw.active;
+	if (raw.items !== null && typeof raw.items === "object" && !Array.isArray(raw.items)) {
+		const items: Record<string, ModelProfile> = {};
+		for (const [name, value] of Object.entries(raw.items as Record<string, unknown>)) {
+			if (!name.trim() || value === null || typeof value !== "object" || Array.isArray(value)) continue;
+			const v = value as Record<string, unknown>;
+			const profile: ModelProfile = {};
+			if (v.models !== null && typeof v.models === "object" && !Array.isArray(v.models)) {
+				const models = sanitizeModels(v.models as Record<string, unknown>);
+				if (Object.keys(models).length) profile.models = models;
+			}
+			const roles = sanitizeRoleMap(v.roles);
+			if (roles) profile.roles = roles;
+			Object.defineProperty(items, name, { value: profile, enumerable: true, configurable: true, writable: true });
+		}
+		if (Object.keys(items).length) out.items = items;
+	}
+	return out;
+}
+
 function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 	const out: AgentSettings = {};
 	// Invalid disk values drop: absence resolves to 8, never a silent clamp.
 	if (typeof raw.workerRequestConcurrency === "number" && Number.isSafeInteger(raw.workerRequestConcurrency) && raw.workerRequestConcurrency > 0) {
 		out.workerRequestConcurrency = raw.workerRequestConcurrency;
 	}
-	if (raw.models !== null && typeof raw.models === "object" && !Array.isArray(raw.models)) {
-		const models: Partial<Record<BackgroundModelRole, RoleModelOverride>> = {};
-		for (const [role, override] of Object.entries(raw.models as Record<string, unknown>)) {
-			if ((BACKGROUND_MODEL_ROLES as readonly string[]).includes(role)) {
-				const cleaned = sanitizeRoleOverride(override);
-				if (cleaned) models[role as BackgroundModelRole] = cleaned;
-			}
-		}
-		if (Object.keys(models).length) out.models = models;
-	}
+	const roles = sanitizeRoleMap(raw.models);
+	if (roles) out.models = roles;
 	const tools = sanitizeBooleanMap(raw.tools);
 	if (tools) out.tools = tools;
 	const prompts = sanitizeBooleanMap(raw.prompts);
@@ -963,6 +1012,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	if (r.models !== null && typeof r.models === "object" && !Array.isArray(r.models)) {
 		const models = sanitizeModels(r.models as Record<string, unknown>);
 		if (Object.keys(models).length) out.models = models;
+	}
+	if (r.profiles !== null && typeof r.profiles === "object" && !Array.isArray(r.profiles)) {
+		out.profiles = sanitizeProfiles(r.profiles as Record<string, unknown>);
 	}
 	if (r.notices !== null && typeof r.notices === "object" && !Array.isArray(r.notices)) {
 		const dismissed = (r.notices as Record<string, unknown>).dismissedUpstreamVersion;
