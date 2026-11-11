@@ -38,9 +38,9 @@ function* walk(dir: string, rel: string): Generator<string> {
 /** A drawn sketch's page PNG is a render of its SVG (rebuilt on the other
  *  device); a photo sketch's is the camera's original and must travel. */
 function isPhotoSketch(dataDir: string, pngRel: string): boolean {
-	const strokes = path.join(dataDir, path.posix.dirname(pngRel), "strokes.json");
+	const strokes = path.join(/* turbopackIgnore: true */ dataDir, path.posix.dirname(pngRel), "strokes.json");
 	try {
-		return (JSON.parse(fs.readFileSync(strokes, "utf8")) as { producer?: unknown }).producer === "photo";
+		return (JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ strokes, "utf8")) as { producer?: unknown }).producer === "photo";
 	} catch {
 		return false;
 	}

@@ -53,7 +53,7 @@ export function forkBaseVersion(): string {
 
 /** The fork's git checkout, when it can still be found on this machine. */
 export function forkRepoPath(): string | null {
-	const isRepo = (dir: string | undefined | null) => !!dir && fs.existsSync(path.join(dir, ".git"));
+	const isRepo = (dir: string | undefined | null) => !!dir && fs.existsSync(path.join(/* turbopackIgnore: true */ dir, ".git"));
 	if (isRepo(process.env.LH_FORK_REPO)) return process.env.LH_FORK_REPO!;
 	try {
 		const baked = JSON.parse(fs.readFileSync(path.join(PATHS.root, "fork-build.json"), "utf8")) as { repoPath?: string };

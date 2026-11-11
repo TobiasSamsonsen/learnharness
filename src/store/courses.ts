@@ -16,18 +16,18 @@ import type { CourseStore } from "../core/ports.ts";
 
 function courseFile(id: string): string {
 	if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Invalid course id: ${id}`);
-	return path.join(PATHS.courses, `${id}.json`);
+	return path.join(/* turbopackIgnore: true */ PATHS.courses, `${id}.json`);
 }
 
 function writeCourse(record: CourseRecord): void {
-	fs.mkdirSync(PATHS.courses, { recursive: true });
-	fs.writeFileSync(courseFile(record.id), JSON.stringify({ ...record, version: CURRENT_COURSE_VERSION }, null, "\t"), "utf-8");
+	fs.mkdirSync(/* turbopackIgnore: true */ PATHS.courses, { recursive: true });
+	fs.writeFileSync(/* turbopackIgnore: true */ courseFile(record.id), JSON.stringify({ ...record, version: CURRENT_COURSE_VERSION }, null, "\t"), "utf-8");
 }
 
 function getCourse(id: string): CourseRecord | null {
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(fs.readFileSync(courseFile(id), "utf-8"));
+		parsed = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ courseFile(id), "utf-8"));
 	} catch {
 		return null;
 	}
@@ -59,9 +59,9 @@ export const courseStore: CourseStore = {
 
 	listCourses(): CourseRecord[] {
 		try {
-			fs.mkdirSync(PATHS.courses, { recursive: true });
+			fs.mkdirSync(/* turbopackIgnore: true */ PATHS.courses, { recursive: true });
 			return fs
-				.readdirSync(PATHS.courses)
+				.readdirSync(/* turbopackIgnore: true */ PATHS.courses)
 				.filter((f) => f.endsWith(".json"))
 				.map((f) => getCourse(f.slice(0, -5)))
 				.filter((r): r is CourseRecord => r !== null)
@@ -84,7 +84,7 @@ export const courseStore: CourseStore = {
 
 	deleteCourse(id: string): boolean {
 		try {
-			fs.unlinkSync(courseFile(id));
+			fs.unlinkSync(/* turbopackIgnore: true */ courseFile(id));
 			emit("courses-changed", {});
 			return true;
 		} catch {
