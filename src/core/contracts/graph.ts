@@ -323,7 +323,7 @@ export interface GraphSnapshot {
 	 *  exists (core/layout.ts settle writes it). Absent on a fresh graph —
 	 *  the view then falls back to its own one-shot forceAtlas2 pass. */
 	positions?: Record<string, Position>;
-	/** The skills the learner holds (owner, 2026-10-25 — "the skills I
+	/** The skills the learner holds (owner — "the skills I
 	 *  know should be visible in the knowledge graph"): the graph's SECOND
 	 *  node kind, drawn beside the propositions. Absent when none is held
 	 *  (or no course exists). */

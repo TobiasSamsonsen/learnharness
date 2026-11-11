@@ -1,5 +1,5 @@
 /**
- * Lesson pace (fork addition, 2026-11-01). PURE, browser-safe.
+ * Lesson pace. PURE, browser-safe.
  *
  * A learner with an exam close cannot afford a long mastery session per
  * concept. Every session carries a pace (ChatSettings.pace), stamped at birth

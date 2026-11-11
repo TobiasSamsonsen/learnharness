@@ -44,7 +44,7 @@ else
 fi
 
 # keep node_modules and .next between runs; everything else is replaced by the commit
-rsync -a --delete --exclude node_modules --exclude .next "$EXPORT/" "$SRC/"
+rsync -a --delete --exclude node_modules --exclude .next --exclude .sdk "$EXPORT/" "$SRC/"
 rm -rf "$EXPORT"
 
 cd "$SRC"
@@ -78,7 +78,7 @@ fi
 
 # the source plugins' own dependencies and SDKs (upstream v0.6.0: CI runs this before typecheck), again only when a plugin lockfile changed
 plugin_sum="$(cat plugins/*/package-lock.json | sha256sum | cut -d' ' -f1)"
-if [ ! -d plugins/ui-showcase/node_modules ] || [ "$(cat "$WORK/plugins.sha" 2>/dev/null)" != "$plugin_sum" ]; then
+if [ ! -d plugins/ui-showcase/node_modules ] || [ ! -d plugins/coding-questions/.sdk ] || [ "$(cat "$WORK/plugins.sha" 2>/dev/null)" != "$plugin_sum" ]; then
 	if step "plugins:setup" npm run plugins:setup; then echo "$plugin_sum" >"$WORK/plugins.sha"; else rm -f "$WORK/plugins.sha"; fi
 else
 	echo "== plugins:setup ... skipped (plugin lockfiles unchanged since the last run)"

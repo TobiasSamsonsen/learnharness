@@ -1,5 +1,5 @@
 /**
- * Lesson languages (fork addition, 2026-10-24). PURE, browser-safe.
+ * Lesson languages. PURE, browser-safe.
  *
  * Every lesson carries a language (ChatSettings.language), stamped at
  * birth from the default (GeneralSettings.language). It steers two
@@ -9,7 +9,7 @@
  *
  * Every language, English included, gets a directive: a lesson can switch
  * language midway, and without an explicit English line the model just
- * follows the transcript's earlier language (caught live, 2026-10-24).
+ * follows the transcript's earlier language (caught live).
  */
 
 export type LessonLanguage = "en" | "nb";

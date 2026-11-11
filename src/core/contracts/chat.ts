@@ -50,11 +50,11 @@ export interface ChatRecord {
 	extractions?: ExtractionRunUsage[];
 	/** Per-chat model/thinking overrides for the conversation agents. */
 	settings?: ChatSettings;
-	/** The learner's margin threads (owner design, 2026-11-02): a bubble on a line of the learning text, with the
+	/** The learner's margin threads (owner design): a bubble on a line of the learning text, with the
 	 *  questions asked about it and the tutor's answers. A side channel beside the transcript: never part of
 	 *  `messages`, so the tutor's turns do not see it. Absent = none (an optional field — no schema bump). */
 	clarifyThreads?: ClarifyThread[];
-	/** LEGACY (2026-11-01 panel in the quiz dock, keyed by the pending question): no longer written or shown. Kept so
+	/** LEGACY (panel in the quiz dock, keyed by the pending question): no longer written or shown. Kept so
 	 *  an old record round-trips untouched. */
 	clarifications?: Record<string, LegacyClarification[]>;
 	/** Durable clarification threads. Each explanation and associated check
@@ -125,20 +125,20 @@ export interface ChatSettings {
 	/** pi thinking level — must be in the chosen model's supported list
 	 *  (getSupportedThinkingLevels; enforced by the settings route). */
 	thinkingLevel?: ThinkingLevel;
-	/** The lesson's language (fork addition, 2026-10-24): what the agents
+	/** The lesson's language (fork addition): what the agents
 	 *  write and dictation transcribes. Stamped at birth from the default
 	 *  (GeneralSettings.language); absent = English (core/language.ts). */
 	language?: LessonLanguage;
-	/** The session's pace (fork addition, 2026-11-01 — core/pace.ts): stamped at birth
+	/** The session's pace (fork addition — core/pace.ts): stamped at birth
 	 *  from the default (GeneralSettings.pace); absent = Thorough. */
 	pace?: Pace;
 	/** The learner's time note for a session with no course ("exam Thursday, 4
 	 *  concepts"); a course session reads the course's note instead. */
 	paceNote?: string;
-	/** The session's problem difficulty (fork addition, 2026-11-07 — core/difficulty.ts): stamped at
+	/** The session's problem difficulty (fork addition — core/difficulty.ts): stamped at
 	 *  birth from the default (GeneralSettings.difficulty); absent = Short. Practice sessions only. */
 	difficulty?: Difficulty;
-	/** The rendered `<learner>` prompt block (fork addition, 2026-11-11 — core/learner-profile.ts), FROZEN at birth like the
+	/** The rendered `<learner>` prompt block (fork addition — core/learner-profile.ts), FROZEN at birth like the
 	 *  pace: the mistake fold changes after every conclude, and a per-turn recompute would change the system prompt, break
 	 *  the cache and respawn the claude process. Server-owned: never client-writable (the per-chat settings route keeps it).
 	 *  Absent = no profile (an empty one, an older session, a placement test). */

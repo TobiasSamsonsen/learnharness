@@ -55,7 +55,7 @@ Supporting declaration used by a public type. This is not an additional runtime 
 
 learn: a teach session aimed at one skill · practice/review/placement:
 practice sessions whose concluded problems move the skills' boxes ·
-check: the context check (owner, 2026-10-25) — a SHORT practice session
+check: the context check (owner) — a SHORT practice session
 on a skill the learner already has from another course, confirming it
 works in this one.
 

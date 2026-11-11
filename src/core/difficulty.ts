@@ -1,5 +1,5 @@
 /**
- * Problem difficulty (fork addition, 2026-11-07). PURE, browser-safe.
+ * Problem difficulty. PURE, browser-safe.
  *
  * How much one practice problem asks of the learner: how many skills it
  * combines, and the minutes of work it should take. Every practice session

@@ -650,7 +650,7 @@ positions?: Record<string, Position>;
 
 ### GraphSnapshot skills
 
-The skills the learner holds (owner, 2026-10-25 — "the skills I
+The skills the learner holds (owner — "the skills I
 know should be visible in the knowledge graph"): the graph's SECOND
 node kind, drawn beside the propositions. Absent when none is held
 (or no course exists).
