@@ -10,9 +10,13 @@
 - [ChatRecord](#chatrecord)
 - [ChatSettings](#chatsettings) — supporting declaration
 - [ChatSummary](#chatsummary) — supporting declaration
+- [ClarifyAnchor](#clarifyanchor) — supporting declaration
+- [ClarifyEntry](#clarifyentry) — supporting declaration
+- [ClarifyThread](#clarifythread) — supporting declaration
 - [ExtractionRunUsage](#extractionrunusage) — supporting declaration
 - [ExtractionStageUsage](#extractionstageusage) — supporting declaration
 - [ImageSnapshot](#imagesnapshot) — supporting declaration
+- [LegacyClarification](#legacyclarification) — supporting declaration
 - [SideChatAnchor](#sidechatanchor) — supporting declaration
 - [SideChatMessage](#sidechatmessage) — supporting declaration
 - [SideChatThread](#sidechatthread) — supporting declaration
@@ -158,16 +162,19 @@ export interface ChatRecord {
     messages: LhMessage[];
     imageSnapshots?: Record<string, ImageSnapshot>;
     kind?: ChatKind;
+    course?: ChatCourseLink;
     tree?: PlanTree;
     turns?: TurnUsage[];
     extractions?: ExtractionRunUsage[];
     settings?: ChatSettings;
+    clarifyThreads?: ClarifyThread[];
+    clarifications?: Record<string, LegacyClarification[]>;
     sideChats?: SideChatThread[];
     version?: number;
 }
 ```
 
-**Related types:** [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
+**Related types:** [ChatCourseLink](contracts-course.md#chatcourselink), [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ClarifyThread](contracts-chat.md#clarifythread), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LegacyClarification](contracts-chat.md#legacyclarification), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -178,10 +185,13 @@ export interface ChatRecord {
 - [messages](#chatrecord-messages)
 - [imageSnapshots](#chatrecord-imagesnapshots)
 - [kind](#chatrecord-kind)
+- [course](#chatrecord-course)
 - [tree](#chatrecord-tree)
 - [turns](#chatrecord-turns)
 - [extractions](#chatrecord-extractions)
 - [settings](#chatrecord-settings)
+- [clarifyThreads](#chatrecord-clarifythreads)
+- [clarifications](#chatrecord-clarifications)
 - [sideChats](#chatrecord-sidechats)
 - [version](#chatrecord-version)
 
@@ -231,9 +241,18 @@ The session's kind; an absent field reads as teach.
 kind?: ChatKind;
 ```
 
+### ChatRecord course
+
+The session's course link (fork addition — docs/courses.md):
+stamped at creation by the course-session route, never changed.
+
+```ts
+course?: ChatCourseLink;
+```
+
 ### ChatRecord tree
 
-The session's plan tree, written by the native plan tools.
+The session's plan tree (vision §2) — written by plan tools via saveTree.
 
 ```ts
 tree?: PlanTree;
@@ -265,6 +284,25 @@ Per-chat model/thinking overrides for the conversation agents.
 
 ```ts
 settings?: ChatSettings;
+```
+
+### ChatRecord clarifyThreads
+
+The learner's margin threads (owner design, 2026-11-02): a bubble on a line of the learning text, with the
+questions asked about it and the tutor's answers. A side channel beside the transcript: never part of
+`messages`, so the tutor's turns do not see it. Absent = none (an optional field — no schema bump).
+
+```ts
+clarifyThreads?: ClarifyThread[];
+```
+
+### ChatRecord clarifications
+
+LEGACY (2026-11-01 panel in the quiz dock, keyed by the pending question): no longer written or shown. Kept so
+an old record round-trips untouched.
+
+```ts
+clarifications?: Record<string, LegacyClarification[]>;
 ```
 
 ### ChatRecord sideChats
@@ -304,8 +342,15 @@ export interface ChatSettings {
         id: string;
     };
     thinkingLevel?: ThinkingLevel;
+    language?: LessonLanguage;
+    pace?: Pace;
+    paceNote?: string;
+    difficulty?: Difficulty;
+    learnerProfile?: string;
 }
 ```
+
+**Related types:** [Difficulty](difficulty.md#difficulty), [LessonLanguage](language.md#lessonlanguage), [Pace](pace.md#pace).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -313,6 +358,11 @@ export interface ChatSettings {
 - [model.provider](#chatsettings-modelprovider)
 - [model.id](#chatsettings-modelid)
 - [thinkingLevel](#chatsettings-thinkinglevel)
+- [language](#chatsettings-language)
+- [pace](#chatsettings-pace)
+- [paceNote](#chatsettings-pacenote)
+- [difficulty](#chatsettings-difficulty)
+- [learnerProfile](#chatsettings-learnerprofile)
 
 ### ChatSettings model
 
@@ -346,6 +396,54 @@ pi thinking level — must be in the chosen model's supported list
 thinkingLevel?: ThinkingLevel;
 ```
 
+### ChatSettings language
+
+The lesson's language (fork addition, 2026-10-24): what the agents
+write and dictation transcribes. Stamped at birth from the default
+(GeneralSettings.language); absent = English (core/language.ts).
+
+```ts
+language?: LessonLanguage;
+```
+
+### ChatSettings pace
+
+The session's pace (fork addition, 2026-11-01 — core/pace.ts): stamped at birth
+from the default (GeneralSettings.pace); absent = Thorough.
+
+```ts
+pace?: Pace;
+```
+
+### ChatSettings paceNote
+
+The learner's time note for a session with no course ("exam Thursday, 4
+concepts"); a course session reads the course's note instead.
+
+```ts
+paceNote?: string;
+```
+
+### ChatSettings difficulty
+
+The session's problem difficulty (fork addition, 2026-11-07 — core/difficulty.ts): stamped at
+birth from the default (GeneralSettings.difficulty); absent = Short. Practice sessions only.
+
+```ts
+difficulty?: Difficulty;
+```
+
+### ChatSettings learnerProfile
+
+The rendered `<learner>` prompt block (fork addition, 2026-11-11 — core/learner-profile.ts), FROZEN at birth like the
+pace: the mistake fold changes after every conclude, and a per-turn recompute would change the system prompt, break
+the cache and respawn the claude process. Server-owned: never client-writable (the per-chat settings route keeps it).
+Absent = no profile (an empty one, an older session, a placement test).
+
+```ts
+learnerProfile?: string;
+```
+
 ## ChatSummary
 
 Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
@@ -366,11 +464,13 @@ export interface ChatSummary {
     phase: Phase3;
     pendingQuestion: boolean;
     pendingProblem: boolean;
+    course?: ChatCourseLink;
+    finished?: boolean;
     settings?: ChatSettings;
 }
 ```
 
-**Related types:** [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [Phase3](phases.md#phase3).
+**Related types:** [ChatCourseLink](contracts-course.md#chatcourselink), [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [Phase3](phases.md#phase3).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -383,6 +483,8 @@ export interface ChatSummary {
 - [phase](#chatsummary-phase)
 - [pendingQuestion](#chatsummary-pendingquestion)
 - [pendingProblem](#chatsummary-pendingproblem)
+- [course](#chatsummary-course)
+- [finished](#chatsummary-finished)
 - [settings](#chatsummary-settings)
 
 ### ChatSummary id
@@ -448,12 +550,186 @@ A practice problem is posed but not concluded. False on teaching sessions.
 pendingProblem: boolean;
 ```
 
+### ChatSummary course
+
+The course link (fork addition): rides the list payload via the
+summary spread — the sidebar labels course sessions with it.
+
+```ts
+course?: ChatCourseLink;
+```
+
+### ChatSummary finished
+
+A course session that was finished (core/course-session.ts
+sessionFinishOf). Absent on open and non-course sessions.
+
+```ts
+finished?: boolean;
+```
+
 ### ChatSummary settings
 
-Saved per-session model/thinking choices included in the list payload.
+The record's model-control settings — rides the list payload via the
+summary spread (the picker never needs it from here; the full record
+is its source).
 
 ```ts
 settings?: ChatSettings;
+```
+
+## ClarifyAnchor
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+Where a thread hangs on the learning text: the native message, the first line of the marked text as displayed (what the
+page re-finds after a reload) and which occurrence of that text within the message it is.
+
+```ts
+export interface ClarifyAnchor {
+    messageId: string;
+    text: string;
+    occurrence: number;
+    callId?: string;
+}
+```
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [messageId](#clarifyanchor-messageid)
+- [text](#clarifyanchor-text)
+- [occurrence](#clarifyanchor-occurrence)
+- [callId](#clarifyanchor-callid)
+
+### ClarifyAnchor messageId
+
+```ts
+messageId: string;
+```
+
+### ClarifyAnchor text
+
+```ts
+text: string;
+```
+
+### ClarifyAnchor occurrence
+
+```ts
+occurrence: number;
+```
+
+### ClarifyAnchor callId
+
+The question or practice problem (its tool call id inside `messageId`) whose own wording the text is marked in; absent =
+the message's lesson prose, as every thread stored before questions became markable.
+
+```ts
+callId?: string;
+```
+
+## ClarifyEntry
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+One question to the tutor about the marked text, and its answer.
+
+```ts
+export interface ClarifyEntry {
+    id: string;
+    question: string;
+    reply: string;
+    at: string;
+}
+```
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [id](#clarifyentry-id)
+- [question](#clarifyentry-question)
+- [reply](#clarifyentry-reply)
+- [at](#clarifyentry-at)
+
+### ClarifyEntry id
+
+```ts
+id: string;
+```
+
+### ClarifyEntry question
+
+```ts
+question: string;
+```
+
+### ClarifyEntry reply
+
+```ts
+reply: string;
+```
+
+### ClarifyEntry at
+
+```ts
+at: string;
+```
+
+## ClarifyThread
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+A margin bubble: the marked passage and the conversation about it (follow-ups extend `entries`).
+
+```ts
+export interface ClarifyThread {
+    id: string;
+    anchor: ClarifyAnchor;
+    quote: string;
+    startedAt: string;
+    entries: ClarifyEntry[];
+}
+```
+
+**Related types:** [ClarifyAnchor](contracts-chat.md#clarifyanchor), [ClarifyEntry](contracts-chat.md#clarifyentry).
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [id](#clarifythread-id)
+- [anchor](#clarifythread-anchor)
+- [quote](#clarifythread-quote)
+- [startedAt](#clarifythread-startedat)
+- [entries](#clarifythread-entries)
+
+### ClarifyThread id
+
+```ts
+id: string;
+```
+
+### ClarifyThread anchor
+
+```ts
+anchor: ClarifyAnchor;
+```
+
+### ClarifyThread quote
+
+The whole marked text as displayed (the tutor reads this, not just the anchor line).
+
+```ts
+quote: string;
+```
+
+### ClarifyThread startedAt
+
+```ts
+startedAt: string;
+```
+
+### ClarifyThread entries
+
+```ts
+entries: ClarifyEntry[];
 ```
 
 ## ExtractionRunUsage
@@ -623,6 +899,60 @@ width: number;
 
 ```ts
 height: number;
+```
+
+## LegacyClarification
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+The pair shape of the first (dock panel) version, keyed by question; see ChatRecord.clarifications.
+
+```ts
+export interface LegacyClarification {
+    id: string;
+    quote: string;
+    question: string;
+    reply: string;
+    at: string;
+}
+```
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [id](#legacyclarification-id)
+- [quote](#legacyclarification-quote)
+- [question](#legacyclarification-question)
+- [reply](#legacyclarification-reply)
+- [at](#legacyclarification-at)
+
+### LegacyClarification id
+
+```ts
+id: string;
+```
+
+### LegacyClarification quote
+
+```ts
+quote: string;
+```
+
+### LegacyClarification question
+
+```ts
+question: string;
+```
+
+### LegacyClarification reply
+
+```ts
+reply: string;
+```
+
+### LegacyClarification at
+
+```ts
+at: string;
 ```
 
 ## SideChatAnchor

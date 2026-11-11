@@ -10,6 +10,7 @@ import React, { act } from "react";
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
+import { InteractionLayersProvider } from "../components/interaction-layers";
 import { parseHTML } from "linkedom";
 import { CourseBody, type CoursePayload } from "../components/course-page.tsx";
 
@@ -96,7 +97,7 @@ async function mount(): Promise<void> {
 	root = createRoot(host);
 	await act(async () => {
 		root!.render(
-			<CourseBody
+			<InteractionLayersProvider><CourseBody
 				data={data}
 				busy={false}
 				error={null}
@@ -104,7 +105,7 @@ async function mount(): Promise<void> {
 				onApprove={() => {}}
 				onStart={() => {}}
 				materialCount={1}
-			/>,
+			/></InteractionLayersProvider>,
 		);
 	});
 }
@@ -243,7 +244,7 @@ test("the flat view's row buttons: next up gets Learn and Practice, learned-not-
 	root = createRoot(host);
 	await act(async () => {
 		root!.render(
-			<CourseBody
+			<InteractionLayersProvider><CourseBody
 				data={extra}
 				busy={false}
 				error={null}
@@ -253,7 +254,7 @@ test("the flat view's row buttons: next up gets Learn and Practice, learned-not-
 					calls.push([mode, skillId]);
 				}}
 				materialCount={1}
-			/>,
+			/></InteractionLayersProvider>,
 		);
 	});
 	await click("view-understanding");

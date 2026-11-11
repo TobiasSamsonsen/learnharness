@@ -24,12 +24,16 @@ The SDK is **type-only**. Call the contexts supplied by LearnHarness, not runtim
 ## Modules
 
 - [contracts-chat](contracts-chat.md)
+- [contracts-course](contracts-course.md)
 - [contracts-graph](contracts-graph.md)
 - [contracts-jobs](contracts-jobs.md)
 - [contracts-models](contracts-models.md)
 - [contracts-plan](contracts-plan.md)
+- [difficulty](difficulty.md)
 - [events](events.md)
+- [language](language.md)
 - [native-messages](native-messages.md)
+- [pace](pace.md)
 - [phases](phases.md)
 - [plugin-agents](plugin-agents.md)
 - [plugin-problems](plugin-problems.md)
@@ -198,16 +202,24 @@ These are reachable through public data, event, inheritance or helper-type relat
 - [ChatKind](contracts-chat.md#chatkind) — `contracts-chat`
 - [ChatSettings](contracts-chat.md#chatsettings) — `contracts-chat`
 - [ChatSummary](contracts-chat.md#chatsummary) — `contracts-chat`
+- [ClarifyAnchor](contracts-chat.md#clarifyanchor) — `contracts-chat`
+- [ClarifyEntry](contracts-chat.md#clarifyentry) — `contracts-chat`
+- [ClarifyThread](contracts-chat.md#clarifythread) — `contracts-chat`
 - [ExtractionRunUsage](contracts-chat.md#extractionrunusage) — `contracts-chat`
 - [ExtractionStageUsage](contracts-chat.md#extractionstageusage) — `contracts-chat`
 - [ImageSnapshot](contracts-chat.md#imagesnapshot) — `contracts-chat`
+- [LegacyClarification](contracts-chat.md#legacyclarification) — `contracts-chat`
 - [SideChatAnchor](contracts-chat.md#sidechatanchor) — `contracts-chat`
 - [SideChatMessage](contracts-chat.md#sidechatmessage) — `contracts-chat`
 - [SideChatThread](contracts-chat.md#sidechatthread) — `contracts-chat`
 - [TurnUsage](contracts-chat.md#turnusage) — `contracts-chat`
+- [ChatCourseLink](contracts-course.md#chatcourselink) — `contracts-course`
+- [CourseMode](contracts-course.md#coursemode) — `contracts-course`
 - [Cluster](contracts-graph.md#cluster) — `contracts-graph`
 - [EmissionStats](contracts-graph.md#emissionstats) — `contracts-graph`
 - [GraphEdge](contracts-graph.md#graphedge) — `contracts-graph`
+- [GraphSkillLayer](contracts-graph.md#graphskilllayer) — `contracts-graph`
+- [GraphSkillNode](contracts-graph.md#graphskillnode) — `contracts-graph`
 - [ProvenancePoint](contracts-graph.md#provenancepoint) — `contracts-graph`
 - [JobUsage](contracts-jobs.md#jobusage) — `contracts-jobs`
 - [CatalogDefaults](contracts-models.md#catalogdefaults) — `contracts-models`
@@ -218,11 +230,14 @@ These are reachable through public data, event, inheritance or helper-type relat
 - [PlanEdge](contracts-plan.md#planedge) — `contracts-plan`
 - [PlanNode](contracts-plan.md#plannode) — `contracts-plan`
 - [PlanTree](contracts-plan.md#plantree) — `contracts-plan`
+- [Difficulty](difficulty.md#difficulty) — `difficulty`
 - [ServerEvent](events.md#serverevent) — `events`
 - [ServerEvents](events.md#serverevents) — `events`
 - [ServerEventType](events.md#servereventtype) — `events`
+- [LessonLanguage](language.md#lessonlanguage) — `language`
 - [LhMarkerMessage](native-messages.md#lhmarkermessage) — `native-messages`
 - [LhMessage](native-messages.md#lhmessage) — `native-messages`
+- [Pace](pace.md#pace) — `pace`
 - [Phase3](phases.md#phase3) — `phases`
 - [Immutable](plugin-submissions.md#immutable) — `plugin-submissions`
 - [ImmutableJson](plugin-submissions.md#immutablejson) — `plugin-submissions`
@@ -256,4 +271,4 @@ These are reachable through public data, event, inheritance or helper-type relat
 
 Standard JavaScript/DOM types (`Promise`, `AbortSignal`, `File`, `HTMLElement`, and utility types) use their standard contracts. Pi model/messages/tools and TypeBox schemas use the exact peer versions declared by the bundled SDK's `package.json`. Supply those peers when typechecking; they are development types, not permission to import private LearnHarness runtime modules.
 
-Coverage: **140 public types**, **57 supporting declarations**, **894 declared member signatures/variants**. Generation contains no build timestamps or absolute source paths.
+Coverage: **140 public types**, **68 supporting declarations**, **938 declared member signatures/variants**. Generation contains no build timestamps or absolute source paths.

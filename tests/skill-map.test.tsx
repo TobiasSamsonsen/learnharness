@@ -6,7 +6,10 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup as renderBare } from "react-dom/server";
+import { InteractionLayersProvider } from "../components/interaction-layers";
+// the shared layers need their provider (AppShell mounts it; renders here have no shell)
+const renderToStaticMarkup = (node: React.ReactElement) => renderBare(<InteractionLayersProvider>{node}</InteractionLayersProvider>);
 import { initialMapView, MAP_MAX_H, mapFloor, mapViewportHeight, READABLE_ZOOM, SkillMap } from "../components/skill-map.tsx";
 import { SessionRow } from "../components/sidebar.tsx";
 import type { ChatListItem } from "../src/core/contracts.ts";

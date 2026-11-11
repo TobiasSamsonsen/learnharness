@@ -48,6 +48,10 @@ rsync -a --delete --exclude node_modules --exclude .next "$EXPORT/" "$SRC/"
 rm -rf "$EXPORT"
 
 cd "$SRC"
+# Upstream's tests ask git about the tree (git ls-files / git grep, as in a real checkout): give the copy a throwaway
+# repository of exactly these files, so "no .git" is not a failure CI would not have. (.git itself is never synced out.)
+rm -rf .git
+git init -q . && git add -A >/dev/null 2>&1 && git -c user.email=ci@local -c user.name=ci-local commit -qm "ci-local snapshot" >/dev/null 2>&1 || true
 failed=()
 step() { # step <name> <command...>
 	local name="$1"

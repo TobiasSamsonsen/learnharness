@@ -59,6 +59,7 @@ export interface ServerEvents {
         chatId: string;
         running: boolean;
     };
+    "courses-changed": Record<string, never>;
     "side-chats-changed": {
         chatId: string;
     };
@@ -88,6 +89,7 @@ export interface ServerEvents {
 - ["compaction-changed"](#serverevents-compaction-changed)
 - ["compaction-changed".chatId](#serverevents-compaction-changedchatid)
 - ["compaction-changed".running](#serverevents-compaction-changedrunning)
+- ["courses-changed"](#serverevents-courses-changed)
 - ["side-chats-changed"](#serverevents-side-chats-changed)
 - ["side-chats-changed".chatId](#serverevents-side-chats-changedchatid)
 - ["plugins-changed"](#serverevents-plugins-changed)
@@ -220,6 +222,16 @@ chatId: string;
 
 ```ts
 running: boolean;
+```
+
+### ServerEvents "courses-changed"
+
+A course record changed (create, rename, drafting, approval,
+delete) — fork addition, docs/courses.md §5. Course pages and the
+sidebar's Courses section refetch.
+
+```ts
+"courses-changed": Record<string, never>;
 ```
 
 ### ServerEvents "side-chats-changed"

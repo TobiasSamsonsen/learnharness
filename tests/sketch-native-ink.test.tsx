@@ -44,6 +44,7 @@ Object.assign(globalThis, {
 });
 
 const { SketchView } = await import("../components/sketch/sketch-view.tsx");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 const { readInk, writeInk, flushInk, inkFromStrokes, writeKept, readKept, pagePayload } = await import("../components/sketch/ink-memory.ts");
 const { planSketch } = await import("../src/core/index.ts");
 import type { SketchPayload, SketchStroke } from "../src/core";
@@ -79,7 +80,7 @@ async function mount(inkKey: string, onSubmit: (s: SketchPayload) => Promise<boo
 	host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
-	await act(async () => root!.render(<SketchView label="Problem" statement="Draw it." inkKey={inkKey} onSubmit={onSubmit} onClose={() => {}} />));
+	await act(async () => root!.render(<InteractionLayersProvider><SketchView label="Problem" statement="Draw it." inkKey={inkKey} onSubmit={onSubmit} onClose={() => {}} /></InteractionLayersProvider>));
 }
 const byId = (id: string) => document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 const click = (id: string) => act(async () => void byId(id)!.dispatchEvent(new dom.window.Event("click", { bubbles: true })));

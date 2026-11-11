@@ -10,6 +10,8 @@
 - [GraphChain](#graphchain)
 - [GraphEdge](#graphedge) — supporting declaration
 - [GraphNode](#graphnode)
+- [GraphSkillLayer](#graphskilllayer) — supporting declaration
+- [GraphSkillNode](#graphskillnode) — supporting declaration
 - [GraphSnapshot](#graphsnapshot)
 - [NotesSource](#notessource)
 - [Position](#position)
@@ -349,6 +351,148 @@ Every (chat, message) point where this proposition came up.
 provenance: ProvenancePoint[];
 ```
 
+## GraphSkillLayer
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+The skills layer: its nodes, its arrows — prerequisite skill → skill,
+and proposition → the skill resting on it — and one region per course
+(each skill in its first course's region).
+
+```ts
+export interface GraphSkillLayer {
+    nodes: GraphSkillNode[];
+    edges: GraphEdge[];
+    regions: Array<{
+        id: string;
+        label: string;
+        members: string[];
+    }>;
+}
+```
+
+**Related types:** [GraphEdge](contracts-graph.md#graphedge), [GraphSkillNode](contracts-graph.md#graphskillnode).
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [nodes](#graphskilllayer-nodes)
+- [edges](#graphskilllayer-edges)
+- [regions](#graphskilllayer-regions)
+
+### GraphSkillLayer nodes
+
+```ts
+nodes: GraphSkillNode[];
+```
+
+### GraphSkillLayer edges
+
+```ts
+edges: GraphEdge[];
+```
+
+### GraphSkillLayer regions
+
+```ts
+regions: Array<{
+    id: string;
+    label: string;
+    members: string[];
+}>;
+```
+
+## GraphSkillNode
+
+Supporting declaration used by a public type. This is not an additional runtime API or SDK helper.
+
+One held skill (learned or known) as the graph shows it.
+
+```ts
+export interface GraphSkillNode {
+    id: string;
+    name: string;
+    statement: string;
+    understanding: number;
+    known: boolean;
+    needsReview: boolean;
+    courses: Array<{
+        id: string;
+        title: string;
+    }>;
+    propositions: string[];
+}
+```
+
+**Member index** (including nested object members; inherited members are defined in the linked base types):
+
+- [id](#graphskillnode-id)
+- [name](#graphskillnode-name)
+- [statement](#graphskillnode-statement)
+- [understanding](#graphskillnode-understanding)
+- [known](#graphskillnode-known)
+- [needsReview](#graphskillnode-needsreview)
+- [courses](#graphskillnode-courses)
+- [propositions](#graphskillnode-propositions)
+
+### GraphSkillNode id
+
+```ts
+id: string;
+```
+
+### GraphSkillNode name
+
+```ts
+name: string;
+```
+
+### GraphSkillNode statement
+
+```ts
+statement: string;
+```
+
+### GraphSkillNode understanding
+
+0–10, how long the skill lasts (core/mastery.ts).
+
+```ts
+understanding: number;
+```
+
+### GraphSkillNode known
+
+```ts
+known: boolean;
+```
+
+### GraphSkillNode needsReview
+
+Recall now is below the FSRS target (90%).
+
+```ts
+needsReview: boolean;
+```
+
+### GraphSkillNode courses
+
+The courses whose skill maps hold it.
+
+```ts
+courses: Array<{
+    id: string;
+    title: string;
+}>;
+```
+
+### GraphSkillNode propositions
+
+Graph propositions it rests on (live node ids only).
+
+```ts
+propositions: string[];
+```
+
 ## GraphSnapshot
 
 Public SDK type, exported as `GraphSnapshot`. Import with `import type`; the SDK has no runtime exports.
@@ -373,10 +517,11 @@ export interface GraphSnapshot {
     nodeSessions: Record<string, string[]>;
     clusters: Cluster[];
     positions?: Record<string, Position>;
+    skills?: GraphSkillLayer;
 }
 ```
 
-**Related types:** [Cluster](contracts-graph.md#cluster), [GraphChain](contracts-graph.md#graphchain), [GraphEdge](contracts-graph.md#graphedge), [GraphNode](contracts-graph.md#graphnode), [Position](contracts-graph.md#position).
+**Related types:** [Cluster](contracts-graph.md#cluster), [GraphChain](contracts-graph.md#graphchain), [GraphEdge](contracts-graph.md#graphedge), [GraphNode](contracts-graph.md#graphnode), [GraphSkillLayer](contracts-graph.md#graphskilllayer), [Position](contracts-graph.md#position).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -391,6 +536,7 @@ export interface GraphSnapshot {
 - [nodeSessions](#graphsnapshot-nodesessions)
 - [clusters](#graphsnapshot-clusters)
 - [positions](#graphsnapshot-positions)
+- [skills](#graphsnapshot-skills)
 
 ### GraphSnapshot nodes
 
@@ -500,6 +646,17 @@ the view then falls back to its own one-shot forceAtlas2 pass.
 
 ```ts
 positions?: Record<string, Position>;
+```
+
+### GraphSnapshot skills
+
+The skills the learner holds (owner, 2026-10-25 — "the skills I
+know should be visible in the knowledge graph"): the graph's SECOND
+node kind, drawn beside the propositions. Absent when none is held
+(or no course exists).
+
+```ts
+skills?: GraphSkillLayer;
 ```
 
 ## NotesSource
