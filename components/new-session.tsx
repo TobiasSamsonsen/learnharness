@@ -2,13 +2,16 @@
 
 import { uploadDraftMaterials } from "@/components/materials-client";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { SurfaceRegion, usePageSurfaceBoundary, useSurfaceChromeStyle } from "./plugin-surfaces";
 import { Conversation, ConversationContent, ConversationEmptyState } from "@/components/ai-elements/conversation";
 import { Composer } from "@/components/composer";
 import { isCoarsePointer } from "@/components/enter-submits";
 import { useServerReachable } from "@/components/server-events";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
+import { useOptionalInteractionLayers } from "./interaction-layers";
+import { isInteractionScopeEligible } from "./plugin-input-focus";
 import { SidebarToggle } from "@/components/sidebar";
 import { SetupDialog } from "@/components/setup-dialog";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
@@ -122,6 +125,11 @@ export function DraftShell({
 	/** The centered setup panel (fork addition, 2026-11-01): pace + time note, under the empty-state title. */
 	setup?: ReactNode;
 }) {
+	const controller = useOptionalInteractionLayers();
+	const pathname = usePathname();
+	const bodyRef = useRef<HTMLDivElement>(null);
+	const surfaceTarget = usePageSurfaceBoundary({ active: pathname === "/chat/new", viewKey: "/chat/new", bodyRef });
+	const chromeStyle = useSurfaceChromeStyle(surfaceTarget);
 	// Voice dictation (STT wave, 2026-09-17): finals append at the end of the
 	// draft text (via the parent's onChange — the truth lives there); the
 	// strip lives in the stats bar's middle slot.
@@ -174,9 +182,9 @@ export function DraftShell({
 			dictationWasActiveRef.current = true;
 		} else if (dictationWasActiveRef.current) {
 			dictationWasActiveRef.current = false;
-			composerInputRef.current?.focus();
+			if (isInteractionScopeEligible(composerInputRef.current, controller)) composerInputRef.current!.focus();
 		}
-	}, [dictation.active]);
+	}, [dictation.active, controller]);
 	return (
 		/* CHROME-LESS CREATION SURFACE (owner round 11, 2026-10-05): the
 		 * drafts join home's register — no TopBar, no title (the serif title
@@ -191,7 +199,7 @@ export function DraftShell({
 			    carved control later in the tree subtracts correctly). */}
 			<div className="lh-drag absolute inset-x-0 top-0 h-13" aria-hidden="true" />
 			<div className="flex min-w-0 flex-1 flex-col">
-				<div className="relative flex min-h-0 flex-1">
+				<div ref={bodyRef} className="relative flex min-h-0 flex-1">
 					{/* The pointer-events pattern (953b22b): the sticky wrapper is
 					    pointer-events-none so nothing here blocks the empty-state
 					    area; the blob and the stats row re-enable it themselves. */}
@@ -245,13 +253,15 @@ export function DraftShell({
 							</div>
 						</div>
 					</div>
-					{overlay}
+					<SurfaceRegion target={surfaceTarget}>
+						<div className="contents pointer-events-auto">{overlay}</div>
+					</SurfaceRegion>
 				</div>
 			</div>
 			{/* The floating reopen toggle — pointer-events-none except the
 			    toggle itself (home's pattern), painted AFTER the overlay's
 			    column so nothing of it blocks the canvas area. */}
-			<header className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 px-3 pb-2 pt-[calc(0.5rem+var(--lh-safe-top))]">
+			<header style={chromeStyle} className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 px-3 pb-2 pt-[calc(0.5rem+var(--lh-safe-top))]">
 				<div className="pointer-events-auto">
 					<SidebarToggle />
 				</div>

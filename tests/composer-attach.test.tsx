@@ -15,6 +15,7 @@ import { Composer } from "../components/composer.tsx";
 import { attachmentPopupPlacement, pathsForFiles } from "../components/attach-files-button.tsx";
 import { restorePathSelection } from "../components/path-input-dom.ts";
 import { quoteFilePath } from "../src/core/file-paths.ts";
+import { InteractionLayersProvider, useInteractionLayers, type InteractionLayersController } from "../components/interaction-layers.tsx";
 
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => { await cleanup?.(); cleanup = undefined; });
@@ -57,9 +58,12 @@ async function fixture({ desktop = true, android = false } = {}) {
 	if (android) Object.defineProperty(win, "lhAndroid", { configurable: true, value: { postMessage() {} } });
 	const { createRoot } = await import("react-dom/client");
 	const root = createRoot(doc.getElementById("root")!);
-	function draw() {
-		root.render(<div data-testid="clipping-dock" data-attachment-composer="" style={{ overflow: "hidden" }}><Composer busy={false} value={value} onChange={(next) => { value = next; draw(); }} onSend={() => { sends++; }} onStop={() => {}} canSend /></div>);
+	let controller!: InteractionLayersController;
+	function Harness() {
+		controller = useInteractionLayers();
+		return <div data-testid="clipping-dock" data-attachment-composer="" style={{ overflow: "hidden" }}><Composer busy={false} value={value} onChange={(next) => { value = next; draw(); }} onSend={() => { sends++; }} onStop={() => {}} canSend /></div>;
 	}
+	function draw() { root.render(<InteractionLayersProvider><Harness /></InteractionLayersProvider>); }
 	await act(async () => { draw(); });
 	const picker = doc.querySelector<HTMLInputElement>('[data-testid="attach-files-input"]')!;
 	if (picker) picker.click = () => { pickerClicks++; };
@@ -76,6 +80,7 @@ async function fixture({ desktop = true, android = false } = {}) {
 		button: doc.querySelector<HTMLButtonElement>('[data-testid="attach-files"]')!,
 		get value() { return value; },
 		doc,
+		controller,
 		get pickerClicks() { return pickerClicks; },
 		get folderCalls() { return folderCalls; },
 		get sends() { return sends; },
@@ -86,7 +91,7 @@ async function fixture({ desktop = true, android = false } = {}) {
 		async resize() { await act(async () => { win.dispatchEvent(new win.Event("resize")); }); },
 		async key(key: string) {
 			const event = Object.assign(new win.Event("keydown", { bubbles: true, cancelable: true }), { key });
-			await act(async () => { doc.activeElement!.dispatchEvent(event); });
+			await act(async () => { controller.captureKeyDown(event as KeyboardEvent); doc.activeElement!.dispatchEvent(event); });
 			return event;
 		},
 		get byteReads() { return byteReads; },
@@ -135,6 +140,29 @@ describe("attachment popup placement", () => {
 });
 
 describe("composer attach button", () => {
+	it("the choice menu owns one Escape; a newer modal covers it without dismissing it or submitting the composer", async () => {
+		const f = await fixture();
+		await act(async () => f.button.click());
+		assert.equal(f.controller.getTopLayer()?.kind, "popup");
+		const menu = f.doc.querySelector<HTMLElement>('[role="menu"]')!;
+		const modal = f.doc.createElement("div"); f.doc.body.append(modal);
+		let closed = 0;
+		let retire!: () => void;
+		await act(async () => { retire = f.controller.register({ id: "newer-modal", kind: "modal", ownerId: null, rootRef: { current: modal }, onClose: () => { closed++; retire(); return "closed"; } }); });
+		assert.equal(f.controller.isElementEligible(menu), false);
+		await act(async () => modal.dispatchEvent(new window.Event("pointerdown", { bubbles: true })));
+		assert.equal(f.doc.querySelector('[role="menu"]') !== null, true, "outside events belonging to a covering modal leave the lower popup intact");
+		await f.key("Escape");
+		assert.equal(closed, 1);
+		assert.equal(f.doc.querySelector('[role="menu"]') !== null, true, "the same Escape cannot close both owners");
+		const escape = await f.key("Escape");
+		assert.equal(escape.defaultPrevented, true);
+		assert.equal(f.doc.querySelector('[role="menu"]'), null);
+		assert.equal(f.doc.activeElement === f.button, true);
+		assert.equal(f.sends, 0);
+		modal.remove();
+	});
+
 	it("pathsForFiles keeps rooted paths and skips files the bridge can't place", () => {
 		const a = new File([""], "a.pdf");
 		const b = new File([""], "b.png");

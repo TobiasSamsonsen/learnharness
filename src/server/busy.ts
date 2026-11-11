@@ -1,5 +1,6 @@
 import { liveJobCount } from "../agent/subagents/aborts.ts";
 import { bgLlmSlots } from "../agent/subagents/bg-llm-semaphore.ts";
+import { workerRequestLoad } from "../agent/worker-request-admission.ts";
 import { extractionStatuses } from "../agent/subagents/extraction.ts";
 import { compactionsInFlight } from "./compaction.ts";
 import { courseDraftCount } from "./courses.ts";
@@ -35,7 +36,7 @@ export function serverBusy(): BusyReport {
 		["graph extraction is running", extractionStatuses().length],
 		["a course is being drafted", courseDraftCount()],
 		["a material is being read", materialRunCount()],
-		["a background model call is running", slots.active + slots.queue.length],
+		["a background model call is running", slots.active + slots.queue.length + workerRequestLoad()],
 		["a sync round is running", syncStatus().running ? 1 : 0],
 	];
 	const reasons = work.filter(([, n]) => n > 0).map(([why]) => why);

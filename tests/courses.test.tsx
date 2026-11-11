@@ -1379,7 +1379,7 @@ describe("the UI", () => {
 	});
 
 	it("dictation: a failed local clip offers Retry; the compact idle mic is an icon", () => {
-		const base = { phase: "idle" as const, stopLabel: null, online: false, levelRef: { current: 0 }, active: false, toggle() {}, stop() {}, finish: async () => {}, cancel() {}, clearError() {} };
+		const base = { phase: "idle" as const, destinationId: "main", toggleFor() {}, finishFor: async () => {}, stopLabel: null, online: false, levelRef: { current: 0 }, active: false, toggle() {}, stop() {}, finish: async () => {}, cancel() {}, clearError() {} };
 		const failed = renderToStaticMarkup(<DictationBar dictation={{ ...base, error: "Local dictation failed: x", retry: () => {} }} compact />);
 		assert.match(failed, /Local dictation failed: x[\s\S]*data-testid="dictation-retry"[^>]*>Retry/);
 		const idle = renderToStaticMarkup(<DictationBar dictation={{ ...base, error: null, retry: null }} compact />);

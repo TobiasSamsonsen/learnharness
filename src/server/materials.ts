@@ -12,7 +12,6 @@ import {
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { piEngineForSpec } from "../agent/models.ts";
 import { profileMaterial } from "../agent/subagents/material-profiler.ts";
-import { withBgLlmSlot } from "../agent/subagents/bg-llm-semaphore.ts";
 import { fetchAndExtract } from "../agent/tools/web.ts";
 import { materialTools } from "../agent/tools/materials.ts";
 import type { MaterialStore } from "../core/ports.ts";
@@ -81,16 +80,15 @@ function startProfile(chatId: string, material: LessonMaterial): Promise<void> {
 			return;
 		}
 		try {
-			const result = await withBgLlmSlot(controller.signal, () =>
-				profileMaterial(
-					{
-						kind: material.kind,
-						name: material.name,
-						path: materialStore.filePath(chatId, material),
-						mimeType: material.mimeType,
-					},
-					{ engine: piEngineForSpec(spec), abortSignal: controller.signal, chatId },
-				),
+			// The profiler's model requests pass the process-wide worker-request admission (the one background-LLM pool).
+			const result = await profileMaterial(
+				{
+					kind: material.kind,
+					name: material.name,
+					path: materialStore.filePath(chatId, material),
+					mimeType: material.mimeType,
+				},
+				{ engine: piEngineForSpec(spec), abortSignal: controller.signal, chatId },
 			);
 			if (result.transcript !== undefined) {
 				fs.writeFileSync(materialStore.auxPath(chatId, material.id, "content.md"), result.transcript, "utf8");

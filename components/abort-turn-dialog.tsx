@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
-import { createPortal } from "react-dom";
+import type { ReactElement, ReactNode } from "react";
+import { HostDialog } from "@/components/host-dialog";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
-import { useBackLayer } from "./back-layers.ts";
 
 /**
  * The ESC-abort guard (owner, 2026-10-02): the global Esc → abort chain
@@ -53,6 +52,7 @@ export function AbortTurnBody({
 	onClose,
 	onConfirm,
 	busy = false,
+	renderFrame,
 }: {
 	mode: AbortMode;
 	onClose: () => void;
@@ -60,19 +60,11 @@ export function AbortTurnBody({
 	/** The dismiss doubles as the abort when a turn is still running
 	 * (owner, 2026-10-04): the line says so. */
 	busy?: boolean;
+	renderFrame?: (frame: ReactElement<{ children: ReactNode }>) => ReactNode;
 }) {
 	const backdropDismiss = useBackdropDismiss(onClose);
 	const copy = COPY[mode];
-	return (
-		<div
-			role="dialog"
-			aria-modal="true"
-			aria-label={copy.title}
-			data-testid="abort-turn-dialog"
-			className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
-			// A genuine click on the scrim cancels — the cautious default, like Esc.
-			{...backdropDismiss}
-		>
+	const frame = (
 			<div
 				className="mx-4 w-full max-w-sm rounded-xl border bg-card p-5 shadow-lg"
 				onClick={(e) => e.stopPropagation()}
@@ -104,8 +96,11 @@ export function AbortTurnBody({
 					</button>
 				</div>
 			</div>
-		</div>
 	);
+	if (renderFrame) return renderFrame(frame);
+	return <div role="dialog" aria-modal="true" aria-label={copy.title} data-testid="abort-turn-dialog"
+		className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
+		{...backdropDismiss}>{frame}</div>;
 }
 
 export function AbortTurnDialog({
@@ -120,28 +115,11 @@ export function AbortTurnDialog({
 	onConfirm: (mode: AbortMode) => void;
 	busy?: boolean;
 }) {
-	// Back cancels the popup too (same as Esc) — never aborts the turn.
-	useBackLayer(mode !== null, onClose);
-	// Esc cancels the popup (claimed — never a chained abort).
-	useEffect(() => {
-		if (mode === null) return;
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				// THE ONE-ESC LAW (keyboard round 2026-10-06): claim at the
-				// document level — a window-level stopPropagation cannot stop
-				// the earlier-registered global window listener.
-				e.preventDefault();
-				e.stopPropagation();
-				onClose();
-			}
-		};
-		document.addEventListener("keydown", onKeyDown);
-		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [mode, onClose]);
-
-	if (mode === null || typeof document === "undefined") return null;
-	return createPortal(
-		<AbortTurnBody mode={mode} onClose={onClose} onConfirm={() => onConfirm(mode)} busy={busy} />,
-		document.body,
-	);
+	if (mode === null) return null;
+	return <AbortTurnBody mode={mode} onClose={onClose} onConfirm={() => onConfirm(mode)} busy={busy}
+		renderFrame={(frame) => <HostDialog open frame={frame} aria-label={COPY[mode].title}
+			onClose={() => { onClose(); return "closed"; }}
+			backdropProps={{ className: "fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm", "data-testid": "abort-turn-dialog" }}>
+			{frame.props.children}
+		</HostDialog>} />;
 }

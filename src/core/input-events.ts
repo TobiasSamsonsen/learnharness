@@ -29,11 +29,15 @@
  */
 
 import { CONFIDENCE_LEVELS, type QuestionAnswerData } from "./question-core.ts";
+import type { ImageContent } from "@earendil-works/pi-ai";
+import { validatePluginSubmissionImageArray, validatePluginSubmissionImages, type PluginSubmissionImages, type PluginSubmissionOccurrence } from "./plugin-submissions.ts";
 import type { LhMessage } from "./native-messages.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
 	activeProblemOf,
+	activeProblemOccurrenceOf,
 	concludedByDismissalPair,
+	isSideQuestionMarker,
 	danglingQuestionOf,
 	newAnswerResult,
 	newNextMessage,
@@ -43,21 +47,30 @@ import {
 	newUserMessage,
 	newMessageId,
 	questionCallsOf,
+	pluginQuestionCallsOf,
 	pendingProblemDismissalOf,
 } from "./native-messages.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "./pending.ts";
+import { isPluginQuestionJson, type JsonValue, type PluginQuestionOccurrence } from "./plugin-questions.ts";
+import { preparePluginProblemSubmissionImages, type PluginProblemSubmissionImages } from "./plugin-submissions.ts";
 import { sessionFinishOf, newLessonFinishedMarker } from "./course-session.ts";
 import type { CourseMode } from "./contracts/course.ts";
 import type { SketchPayload } from "./contracts/sketch.ts";
 import { isSketchId, parseSketchPayload, SketchPayloadError, sketchRefOf } from "./sketch.ts";
 import { sketchStatesOf } from "./sketch-gate.ts";
 
+export type PluginQuestionAnswerInput = { type: "plugin-question-answer"; questionId: string; occurrence: PluginQuestionOccurrence; answer: JsonValue; thinking?: string; readingThinking?: string; images?: PluginSubmissionImages };
+export type PluginProblemSubmissionInput = { type: "plugin-problem-submission"; problemId: string; occurrence: PluginSubmissionOccurrence; submission: JsonValue; thinking?: string; images?: PluginProblemSubmissionImages };
+export type DismissPluginQuestionInput = { type: "dismiss-plugin-question"; questionId?: string; occurrence: PluginQuestionOccurrence };
+
 /** One client-originated input event (the POST body's `input`). */
 export type ChatInput =
-	| { type: "text"; text: string }
-	/** `sketch` (fork addition, 2026-10-26): the learner's handwriting as
-	 *  strokes — the server stores it and stamps its own ref on the answer. */
-	| { type: "answer"; toolCallId: string; answer: QuestionAnswerData; sketch?: SketchPayload }
+	| PluginQuestionAnswerInput
+	| PluginProblemSubmissionInput
+	| { type: "text"; text: string; images?: ImageContent[] }
+	/** `sketch` (fork addition, 2026-10-26): the learner's handwriting as strokes — the server stores it and stamps its
+	 *  own ref on the answer. An answer carries a sketch OR inline images (answer.images), never both. */
+	| { type: "answer"; toolCallId: string; answer: QuestionAnswerData; sketch?: SketchPayload; occurrence?: PluginSubmissionOccurrence }
 	| { type: "continue" }
 	/** The failed-turn retry (issue #110): the banner's Retry button. */
 	| { type: "retry" }
@@ -71,12 +84,16 @@ export type ChatInput =
 			type: "thinking";
 			problemCallId: string;
 			text: string;
+			/** Handwriting (fork): new strokes, or a kept page re-sent by id. A thinking carries a sketch OR images, never both. */
 			sketch?: SketchPayload;
 			sketchRef?: string;
 			/** How sure the learner is of this answer, one of the confidence buttons' stops (owner, 2026-10-28). */
 			confidence?: number;
 			/** The learner pressed "I don't know": no answer is claimed, and no confidence goes with it. */
 			dontKnow?: true;
+			/** Inline images (upstream: camera / plugin editors). */
+			images?: ImageContent[];
+			occurrence?: PluginSubmissionOccurrence;
 	  }
 	/** The practice move-on signal (owner round 16): the learner's
 	 *  explicit go-ahead during the between-problems pause — the Next
@@ -109,6 +126,7 @@ export type TurnInput = ChatInput | SteerInput;
  *  wake-free. Parallel question calls each get their own dismiss event;
  *  results reference their calls by id, so the appends stay independent. */
 export type DismissInput =
+	| DismissPluginQuestionInput
 	| { type: "dismiss"; toolCallId: string; answer: QuestionAnswerData }
 	/** The problem discard (practice, owner 2026-10-04): ask-style — the
 	 *  silent route appends the UI-only marker and wakes nothing; the
@@ -119,6 +137,10 @@ export type DismissInput =
 export function parseDismissInput(input: unknown): DismissInput {
 	if (typeof input !== "object" || input === null) throw new ChatInputError("input must be an object");
 	const i = input as Record<string, unknown>;
+	if (i.type === "dismiss-plugin-question") {
+		if (i.questionId !== undefined && (typeof i.questionId !== "string" || !i.questionId)) throw new ChatInputError("dismiss-plugin-question requires a valid questionId");
+		return { type: "dismiss-plugin-question", ...(i.questionId !== undefined ? { questionId: i.questionId as string } : {}), occurrence: parsePluginQuestionOccurrence(i.occurrence) };
+	}
 	if (i.type === "dismiss-problem") {
 		if (typeof i.problemCallId !== "string" || i.problemCallId.length === 0) {
 			throw new ChatInputError("dismiss-problem input requires problemCallId");
@@ -146,7 +168,7 @@ export function parseDismissInput(input: unknown): DismissInput {
  *  (a send with no live turn is a plain text send, which already exists).
  *  The id is client-minted (steer_<localid>): the queued indicator keys on
  *  it, and the drain's message events upsert the real card by the same id. */
-export type UserSteerInput = { type: "steer"; id: string; text: string };
+export type UserSteerInput = { type: "steer"; id: string; text: string; images?: ImageContent[] };
 
 /** Parse and validate a steer event off a request body. */
 export function parseUserSteerInput(input: unknown): UserSteerInput {
@@ -156,16 +178,19 @@ export function parseUserSteerInput(input: unknown): UserSteerInput {
 	if (typeof i.id !== "string" || i.id.length === 0) {
 		throw new ChatInputError("steer input requires a client-minted id");
 	}
-	if (typeof i.text !== "string" || i.text.trim().length === 0) {
-		throw new ChatInputError("steer input requires non-empty text");
+	const images = parseImages(i.images);
+	if (typeof i.text !== "string" || (!i.text.trim() && !images)) {
+		throw new ChatInputError("steer input requires non-empty text or images");
 	}
-	return { type: "steer", id: i.id, text: i.text };
+	return { type: "steer", id: i.id, text: i.text, ...(images ? { images } : {}) };
 }
 
 /** The native appends a dismissal makes (pure — same orphan discipline
  *  as answers: the call must be a DANGLING question call, or — the
  *  practice variant — the ACTIVE problem). */
 export function dismissAppends(record: { messages: LhMessage[] }, input: DismissInput): LhMessage[] {
+	assertPluginQuestionInputAllowed(record.messages, input);
+	if (input.type === "dismiss-plugin-question") throw new ChatInputError("Plugin question dismissal requires canonical server validation");
 	if (input.type === "dismiss-problem") {
 		const active = activeProblemOf(record.messages);
 		if (!active || active.toolCallId !== input.problemCallId) {
@@ -200,31 +225,94 @@ function sketchOf(value: unknown): SketchPayload | undefined {
 	}
 }
 
+/** New-question gate only: builtin semantics/settings are unchanged. Call
+ * before effects and again against saved truth. New protocol requests still
+ * require canonical server validation; this guard is not answer validation. */
+export function assertPluginQuestionInputAllowed(messages: readonly LhMessage[], input: unknown): void {
+	const type = input && typeof input === "object" ? (input as { type?: unknown }).type : undefined;
+	if (type === "plugin-question-answer" || type === "dismiss-plugin-question") return;
+	if (pluginQuestionCallsOf(messages).some(call => call.status === "answerable" || call.status === "unreadable")) {
+		throw new ChatInputError("Answer or dismiss the pending plugin question first");
+	}
+}
+
+function parsePluginQuestionOccurrence(value: unknown): PluginQuestionOccurrence {
+	if (!value || typeof value !== "object") throw new ChatInputError("Plugin question input requires an exact occurrence");
+	const o = value as Record<string, unknown>;
+	if (typeof o.messageId !== "string" || !o.messageId || typeof o.toolCallId !== "string" || !o.toolCallId || typeof o.toolName !== "string" || !o.toolName || typeof o.contentIndex !== "number" || !Number.isSafeInteger(o.contentIndex) || o.contentIndex < 0) throw new ChatInputError("Plugin question input requires an exact occurrence");
+	return { messageId: o.messageId, contentIndex: o.contentIndex, toolCallId: o.toolCallId, toolName: o.toolName };
+}
+
+function parseImages(value: unknown): ImageContent[] | undefined {
+	if (value === undefined) return undefined;
+	try {
+		const images = validatePluginSubmissionImageArray(value);
+		return images.length ? images : undefined;
+	} catch (error) { throw new ChatInputError(error instanceof Error ? error.message : "Invalid submission images"); }
+}
+function parseImageChannels(value: unknown): PluginSubmissionImages | undefined {
+	if (value === undefined) return undefined;
+	try {
+		const images = validatePluginSubmissionImages(value);
+		return Object.keys(images).length ? images : undefined;
+	} catch (error) { throw new ChatInputError(error instanceof Error ? error.message : "Invalid submission image channels"); }
+}
+function parseOptionalOccurrence(value: unknown, images: unknown): PluginSubmissionOccurrence | undefined {
+	if (value !== undefined) return parsePluginQuestionOccurrence(value);
+	if (images) throw new ChatInputError("Image-bearing submissions require an exact occurrence");
+	return undefined;
+}
+
 /** Parse and validate an input event off a request body. */
 export function parseChatInput(input: unknown): ChatInput {
 	if (typeof input !== "object" || input === null) throw new ChatInputError("input must be an object");
 	const i = input as Record<string, unknown>;
 	switch (i.type) {
-		case "text":
-			if (typeof i.text !== "string" || (i.text as string).trim().length === 0) {
-				throw new ChatInputError("text input requires non-empty text");
+		case "plugin-problem-submission": {
+			if (typeof i.problemId !== "string" || !i.problemId) throw new ChatInputError("plugin-problem-submission requires problemId");
+			if (!isPluginQuestionJson(i.submission)) throw new ChatInputError("plugin-problem-submission requires finite JSON submission");
+			if (i.thinking !== undefined && typeof i.thinking !== "string") throw new ChatInputError("Problem thinking must be text");
+			let images;
+			try { images = i.images === undefined ? undefined : preparePluginProblemSubmissionImages(i.images); }
+			catch { throw new ChatInputError("Invalid problem submission images"); }
+			return { type: "plugin-problem-submission", problemId: i.problemId, occurrence: parsePluginQuestionOccurrence(i.occurrence), submission: i.submission, ...(i.thinking !== undefined ? { thinking: i.thinking as string } : {}), ...(images ? { images } : {}) };
+		}
+		case "plugin-question-answer": {
+			if (typeof i.questionId !== "string" || !i.questionId) throw new ChatInputError("plugin-question-answer requires questionId");
+			if (!isPluginQuestionJson(i.answer)) throw new ChatInputError("plugin-question-answer requires finite JSON answer");
+			if ((i.thinking !== undefined && typeof i.thinking !== "string") || (i.readingThinking !== undefined && typeof i.readingThinking !== "string")) throw new ChatInputError("Plugin question thinking must be text");
+			const images = parseImageChannels(i.images);
+			return { type: "plugin-question-answer", questionId: i.questionId, occurrence: parsePluginQuestionOccurrence(i.occurrence), answer: i.answer, ...(i.thinking !== undefined ? { thinking: i.thinking as string } : {}), ...(i.readingThinking !== undefined ? { readingThinking: i.readingThinking as string } : {}), ...(images ? { images } : {}) };
+		}
+		case "text": {
+			const images = parseImages(i.images);
+			if (typeof i.text !== "string" || (!i.text.trim() && !images)) {
+				throw new ChatInputError("text input requires non-empty text or images");
 			}
-			return { type: "text", text: i.text };
-		case "answer":
+			return { type: "text", text: i.text, ...(images ? { images } : {}) };
+		}
+		case "answer": {
 			if (typeof i.toolCallId !== "string" || i.toolCallId.length === 0) {
 				throw new ChatInputError("answer input requires toolCallId");
 			}
 			if (typeof i.answer !== "object" || i.answer === null) {
 				throw new ChatInputError("answer input requires the graded answer object");
 			}
-			{
-				const sketch = sketchOf(i.sketch);
-				// The ref is the server's to derive, never the client's say.
-				const { sketch: _clientRef, ...answer } = i.answer as QuestionAnswerData;
-				return sketch
-					? { type: "answer", toolCallId: i.toolCallId, answer: { ...answer, sketch: sketchRefOf(sketch) }, sketch }
-					: { type: "answer", toolCallId: i.toolCallId, answer };
-			}
+			const sketch = sketchOf(i.sketch);
+			const answer = i.answer as QuestionAnswerData;
+			const images = parseImageChannels(answer.images);
+			if (sketch && images) throw new ChatInputError("an answer carries either a sketch or images, not both");
+			const occurrence = parseOptionalOccurrence(i.occurrence, images);
+			// The ref is the server's to derive, never the client's say.
+			const { sketch: _clientRef, images: _images, ...fields } = answer;
+			return {
+				type: "answer",
+				toolCallId: i.toolCallId,
+				answer: { ...fields, ...(images ? { images } : {}), ...(sketch ? { sketch: sketchRefOf(sketch) } : {}) },
+				...(sketch ? { sketch } : {}),
+				...(occurrence ? { occurrence } : {}),
+			};
+		}
 		case "continue":
 			return { type: "continue" };
 		case "retry":
@@ -235,38 +323,39 @@ export function parseChatInput(input: unknown): ChatInput {
 				throw new ChatInputError("retry-question input requires an exact question occurrence");
 			}
 			return { type: "retry-question", messageId: i.messageId, contentIndex: i.contentIndex, toolCallId: i.toolCallId };
-		case "thinking":
+		case "thinking": {
 			if (typeof i.problemCallId !== "string" || i.problemCallId.length === 0) {
 				throw new ChatInputError("thinking input requires problemCallId");
 			}
-			{
-				const sketch = sketchOf(i.sketch);
-				// A sketch may stand alone; without one the text is required.
-				if (typeof i.text !== "string" || (!sketch && i.text.trim().length === 0)) {
-					throw new ChatInputError("thinking input requires non-empty text");
-				}
-				if (i.sketchRef !== undefined && (sketch || !isSketchId(i.sketchRef))) {
-					throw new ChatInputError("thinking sketchRef must be a sketch id and cannot ride with a sketch");
-				}
-				if (i.confidence !== undefined && !CONFIDENCE_LEVELS.some((l) => l.stop === i.confidence)) {
-					throw new ChatInputError("thinking confidence must be one of the confidence levels");
-				}
-				if (i.dontKnow !== undefined && (i.dontKnow !== true || i.confidence !== undefined)) {
-					throw new ChatInputError("thinking dontKnow must be true and cannot ride with a confidence");
-				}
-				const mark = {
-					...(i.confidence !== undefined ? { confidence: i.confidence as number } : {}),
-					...(i.dontKnow ? { dontKnow: true as const } : {}),
-				};
-				// A kept page re-sent with no new ink (M3): only its id travels;
-				// the server resolves it against the stored strokes.
-				if (typeof i.sketchRef === "string") {
-					return { type: "thinking", problemCallId: i.problemCallId, text: i.text, sketchRef: i.sketchRef, ...mark };
-				}
-				return sketch
-					? { type: "thinking", problemCallId: i.problemCallId, text: i.text, sketch, ...mark }
-					: { type: "thinking", problemCallId: i.problemCallId, text: i.text, ...mark };
+			const sketch = sketchOf(i.sketch);
+			const images = parseImages(i.images);
+			if (images && (sketch || i.sketchRef !== undefined)) throw new ChatInputError("thinking carries either a sketch or images, not both");
+			const occurrence = parseOptionalOccurrence(i.occurrence, images);
+			// A sketch or images may stand alone; without either the text is required.
+			if (typeof i.text !== "string" || (!sketch && !images && i.text.trim().length === 0)) {
+				throw new ChatInputError("thinking input requires non-empty text or images");
 			}
+			if (i.sketchRef !== undefined && (sketch || !isSketchId(i.sketchRef))) {
+				throw new ChatInputError("thinking sketchRef must be a sketch id and cannot ride with a sketch");
+			}
+			if (i.confidence !== undefined && !CONFIDENCE_LEVELS.some((l) => l.stop === i.confidence)) {
+				throw new ChatInputError("thinking confidence must be one of the confidence levels");
+			}
+			if (i.dontKnow !== undefined && (i.dontKnow !== true || i.confidence !== undefined)) {
+				throw new ChatInputError("thinking dontKnow must be true and cannot ride with a confidence");
+			}
+			const mark = {
+				...(i.confidence !== undefined ? { confidence: i.confidence as number } : {}),
+				...(i.dontKnow ? { dontKnow: true as const } : {}),
+			};
+			// A kept page re-sent with no new ink (M3): only its id travels; the server resolves it against the stored strokes.
+			const carried = {
+				...(typeof i.sketchRef === "string" ? { sketchRef: i.sketchRef } : sketch ? { sketch } : {}),
+				...(images ? { images } : {}),
+				...(occurrence ? { occurrence } : {}),
+			};
+			return { type: "thinking", problemCallId: i.problemCallId, text: i.text, ...carried, ...mark };
+		}
 		case "next":
 			return { type: "next" };
 		case "dispute":
@@ -297,9 +386,15 @@ export function inputAppends(
 	record: { messages: LhMessage[]; kind?: string; course?: { mode: string } },
 	input: ChatInput,
 ): LhMessage[] {
+	assertPluginQuestionInputAllowed(record.messages, input);
+	assertNativeSubmissionTarget(record.messages, input);
 	switch (input.type) {
+		case "plugin-problem-submission":
+			throw new ChatInputError("Plugin problem submissions require canonical server validation");
+		case "plugin-question-answer":
+			throw new ChatInputError("Plugin question answers require canonical server validation");
 		case "text":
-			return [...dismissalConclusion(record), newUserMessage(input.text)];
+			return [...dismissalConclusion(record), newUserMessage(input.text, input.images)];
 		case "answer": {
 			const pending = danglingQuestionOf(record.messages);
 			if (!pending || pending.toolCallId !== input.toolCallId) {
@@ -320,10 +415,11 @@ export function inputAppends(
 			if (!active || active.toolCallId !== input.problemCallId) {
 				throw new ChatInputError("thinking input targets no active problem");
 			}
+			if (active.pluginProblem) throw new ChatInputError("This problem requires its registered submission editor");
 			const ref = input.sketch ? sketchRefOf(input.sketch) : undefined;
 			return [
 				...dismissalConclusion(record),
-				newThinkingMessage(input.problemCallId, input.text, ref, { confidence: input.confidence, dontKnow: input.dontKnow }),
+				newThinkingMessage(input.problemCallId, input.text, ref, { confidence: input.confidence, dontKnow: input.dontKnow }, input.images),
 			];
 		}
 		case "next": {
@@ -362,6 +458,32 @@ export function inputAppends(
 	}
 }
 
+/** Reusable post-await guard against canonical saved truth. Legacy text-only
+ * callers retain their existing ID-based contract; fresh images require binding. */
+export function assertNativeSubmissionTarget(messages: readonly LhMessage[], input: ChatInput): void {
+	if (input.type !== "answer" && input.type !== "thinking") return;
+	const hasImages = input.type === "answer"
+		? Object.values(input.answer.images ?? {}).some(images => images?.length)
+		: !!input.images?.length;
+	if (!input.occurrence) {
+		if (hasImages) throw new ChatInputError("Image-bearing submissions require an exact occurrence");
+		return;
+	}
+	let occurrence: PluginSubmissionOccurrence | undefined;
+	if (input.type === "answer") {
+		const pending = questionCallsOf(messages).find(call => call.status === "answerable");
+		if (pending && pending.toolCallId === input.toolCallId) occurrence = {
+			messageId: pending.messageId, contentIndex: pending.contentIndex, toolCallId: pending.toolCallId, toolName: pending.tool,
+		};
+	} else {
+		const active = activeProblemOccurrenceOf(messages);
+		if (active?.toolCallId === input.problemCallId) occurrence = active;
+	}
+	if (!occurrence || occurrence.messageId !== input.occurrence.messageId || occurrence.contentIndex !== input.occurrence.contentIndex || occurrence.toolCallId !== input.occurrence.toolCallId || occurrence.toolName !== input.occurrence.toolName) {
+		throw new ChatInputError("Submission target is no longer active. Refresh the session.");
+	}
+}
+
 /** Validate before any turn effects, then again against current saved truth.
  * Never accepts a failed/aborted generation (the existing Retry/new-message
  * paths own those), a stale occurrence, or an answerable sibling. */
@@ -369,6 +491,7 @@ export function questionRecoveryAppends(
 	messages: readonly LhMessage[],
 	input: Extract<ChatInput, { type: "retry-question" }>,
 ): LhMessage[] {
+	assertPluginQuestionInputAllowed(messages, input);
 	const calls = questionCallsOf(messages);
 	const target = calls.find(call => call.messageId === input.messageId && call.contentIndex === input.contentIndex && call.toolCallId === input.toolCallId);
 	if (!target || target.status !== "malformed") throw new ChatInputError("This malformed question is no longer available to retry. Refresh the session.");
@@ -386,7 +509,7 @@ export function questionRecoveryAppends(
 export function failedResponseAtEnd(messages: readonly LhMessage[]): Extract<LhMessage, { role: "assistant" }> | undefined {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const m = messages[i]!;
-		if (m.role === "custom" && (m.customType === "plan-block" || m.customType === "compaction")) continue;
+		if (m.role === "custom" && (m.customType === "plan-block" || m.customType === "compaction" || isSideQuestionMarker(m))) continue;
 		return m.role === "assistant" && m.stopReason === "error" ? m : undefined;
 	}
 	return undefined;
@@ -430,7 +553,7 @@ function failedTail(messages: readonly LhMessage[]): { ids: Set<string>; before:
 	for (; i >= 0; i--) {
 		const m = messages[i]!;
 		if (m.role === "assistant" && m.stopReason === "error") ids.add(m.id);
-		else if (!(m.role === "custom" && m.customType === "plan-block")) break;
+		else if (!(m.role === "custom" && (m.customType === "plan-block" || isSideQuestionMarker(m)))) break;
 	}
 	return { ids, before: messages[i] };
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useActivity } from "@/components/activity-dock";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
+import { INTERACTION_LAYER_Z_BASE } from "@/components/host-dialog";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { formatTokens } from "@/components/usage-format";
 import { Hint } from "@/components/ui/hint";
@@ -247,8 +248,9 @@ export function CoverageRing({ chatId, refreshKey = 0 }: { chatId: string; refre
 	const [open, setOpen] = useState(false);
 	const [nonce, setNonce] = useState(0);
 	const rootRef = useRef<HTMLDivElement>(null);
-	const popoverRef = useKeepInViewport<HTMLDivElement>(open);
-	usePopoverDismiss(rootRef, open, () => setOpen(false));
+	const panelRef = useRef<HTMLDivElement>(null);
+	useKeepInViewport<HTMLDivElement>(open, panelRef);
+	const popupLayer = usePopoverDismiss(rootRef, open && graph !== null && graph.enabled && coverage !== null, () => setOpen(false), { layerRootRef: panelRef });
 
 	// The activity/refresh chain (the dispatch's seam): runs can fire from
 	// OTHER surfaces (the sidebar menu's Extract, the turn pipeline, another
@@ -320,9 +322,10 @@ export function CoverageRing({ chatId, refreshKey = 0 }: { chatId: string; refre
 			</Hint>
 			{open && (
 				<div
-					ref={popoverRef}
+					ref={panelRef}
 					data-testid="coverage-ring-popover"
-					className="absolute top-full right-0 z-40 mt-1.5 w-64 max-w-[calc(100vw-1rem)] rounded-xl border bg-card p-3 text-xs shadow-xl"
+					style={{ zIndex: INTERACTION_LAYER_Z_BASE + popupLayer.order }}
+					className="absolute top-full right-0 mt-1.5 w-64 max-w-[calc(100vw-1rem)] rounded-xl border bg-card p-3 text-xs shadow-xl"
 				>
 					<CoverageRingDetail coverage={coverage} chunkTokens={graph.chunkTokens} />
 				</div>

@@ -18,9 +18,11 @@ export function horizontalShift(rect: { left: number; right: number }, viewportW
 	return 0;
 }
 
-/** Attach the returned ref to the popover; it re-fits on mount and on every resize (rotation, the keyboard). */
-export function useKeepInViewport<T extends HTMLElement>(active: boolean): RefObject<T | null> {
-	const ref = useRef<T>(null);
+/** Attach the returned ref to the popover; it re-fits on mount and on every resize (rotation, the keyboard). A popover that
+ *  already owns a ref (its interaction layer's root) passes it in, so one element serves both. */
+export function useKeepInViewport<T extends HTMLElement>(active: boolean, external?: RefObject<T | null>): RefObject<T | null> {
+	const own = useRef<T>(null);
+	const ref = external ?? own;
 	useLayoutEffect(() => {
 		const el = ref.current;
 		if (!active || !el) return;

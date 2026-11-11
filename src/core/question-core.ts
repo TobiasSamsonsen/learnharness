@@ -20,6 +20,8 @@
 import { Type, type Static } from "typebox";
 import { stripModelValueDebris } from "./value-debris.ts";
 import type { SketchRef } from "./contracts/sketch.ts";
+import { expandCitationsForModel } from "./citations.ts";
+import type { PluginSubmissionImages } from "./plugin-submissions.ts";
 
 // ─── shared types ───────────────────────────────────────────────────────────
 
@@ -520,6 +522,8 @@ export interface QuestionAnswerData {
 	 *  2026-10-03) — a separate channel from `thinking`, captured by the
 	 *  reading field and riding the check answer. Absent when empty. */
 	readingThinking?: string;
+	/** Host-owned explicit image channels; never inferred from text or paths. */
+	images?: PluginSubmissionImages;
 	confidence?: number; // quiz only: the learner's stated probability (0-100, raw) that his selected answer is correct — never sent on "I don't know" (owner, 2026-10-01)
 	correct?: boolean; // quiz only
 	correctIndices?: number[]; // quiz only (rendering)
@@ -900,16 +904,16 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 	// fixtures, foreign records) — degrade to omission, never crash.
 	if (Array.isArray(ad.answers) && ad.answers.length > 0)
 		out.answers = ad.answers.map((a) => ({ index: a.index, label: a.label }));
-	if (ad.text) out.text = ad.text;
-	if (ad.other) out.other = ad.other;
+	if (ad.text) out.text = expandCitationsForModel(ad.text);
+	if (ad.other) out.other = expandCitationsForModel(ad.other);
 	if (ad.confidence !== undefined) out.confidence = ad.confidence;
 	// Two DISTINCT thinking channels, clearly keyed so the model never
 	// conflates them (owner 2026-10-03): reasoning on the question vs
 	// thinking while reading the teaching. `note` is the pre-rename key —
 	// old records replay through here too, so both feed `thinking`.
 	const thinking = ad.thinking ?? ad.note;
-	if (thinking) out.thinking = thinking;
-	if (ad.readingThinking) out.thinkingWhileReading = ad.readingThinking;
+	if (thinking) out.thinking = expandCitationsForModel(thinking);
+	if (ad.readingThinking) out.thinkingWhileReading = expandCitationsForModel(ad.readingThinking);
 	// The handwriting LAST (verdict-first order): its pages ride as images
 	// right after this JSON, each labeled with the id.
 	if (ad.sketch) {

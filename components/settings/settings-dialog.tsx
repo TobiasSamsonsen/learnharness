@@ -9,9 +9,9 @@
  *   appearance edits restyle the chat LIVE behind the dialog). Escape,
  *   backdrop, and ✕ all close. Modal-only — /settings redirects, so
  *   nothing links into a dead surface.
- * - Left section nav in the app's mono chrome (text-only, session-list
- *   language — active = bg-accent), no icons, matching the minimal-color
- *   doctrine.
+ * - Left section nav in the app's mono chrome, with small decorative
+ *   Lucide icons for the built-in sections; active = bg-accent. Icons
+ *   inherit the row's color, without a separate palette.
  * - The dialog is surface-agnostic by construction: the sections talk to
  *   /api/settings* and localStorage only, so this shell can be re-mounted
  *   as a true OS window in the Electron round with near-zero churn.
@@ -30,11 +30,16 @@ import {
 	useCallback,
 	useContext,
 	useEffect,
+	useId,
 	useRef,
 	useState,
+	type ReactElement,
+	type ReactNode,
+	type RefObject,
 } from "react";
-import { createPortal } from "react-dom";
-import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { BotIcon, GraduationCapIcon, KeyIcon, KeyboardIcon, MicIcon, PaletteIcon, PlugIcon, PuzzleIcon, RefreshCwIcon, SettingsIcon, WaypointsIcon, type LucideIcon } from "lucide-react";
+import { HostDialog } from "@/components/host-dialog";
+import { useInteractionLayers, type CloseOutcome, type CloseReason } from "@/components/interaction-layers";
 import {
 	CURRENT_SETTINGS_VERSION,
 	type AgentSettings,
@@ -55,25 +60,27 @@ import { SyncSection } from "./sync-section.tsx";
 import { Hint } from "@/components/ui/hint";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
+import { PluginsSection } from "./plugins-section.tsx";
+import { PluginSettingsPage } from "./plugin-settings-page.tsx";
+import { usePlugins } from "@/components/plugins";
 import { ChatGPTUIProvider } from "./chatgpt-connection.tsx";
-import { useBackLayer } from "../back-layers.ts";
 import { NativeSubscriptionUIProvider } from "./subscription-connections.tsx";
 
 /** Owner (2026-09-20): hints earn their place — mechanics-explaining
  *  prose is out; only the keyboard note stays (storage location is a
  *  real question users ask). */
 const SECTIONS = [
-	{ id: "keys", label: "Providers", summary: "API keys, subscriptions, Claude CLI, search keys" },
-	{ id: "agent", label: "Agent", summary: "Models, roles, tools, prompts" },
-	{ id: "dictation", label: "Dictation", summary: "Engine, language, speech models" },
-	{ id: "appearance", label: "Appearance", summary: "Background, reading font, colours" },
-	{ id: "graph", label: "Graph", summary: "Extraction and rendering" },
-	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device", summary: "Shortcuts, stored on this device" },
-	{ id: "sync", label: "Sync", summary: "Keep devices in step through a private GitHub repo" },
-	{ id: "learner", label: "Learner", summary: "How you learn best and your mistake patterns" },
-	{ id: "general", label: "General", summary: "Updates and default lesson language" },
+	{ id: "keys", label: "Providers", icon: KeyIcon, summary: "API keys, subscriptions, Claude CLI, search keys" },
+	{ id: "agent", label: "Agent", icon: BotIcon, summary: "Models, roles, tools, prompts" },
+	{ id: "dictation", label: "Dictation", icon: MicIcon, summary: "Engine, language, speech models" },
+	{ id: "appearance", label: "Appearance", icon: PaletteIcon, summary: "Background, reading font, colours" },
+	{ id: "graph", label: "Graph", icon: WaypointsIcon, summary: "Extraction and rendering" },
+	{ id: "keyboard", label: "Keyboard", icon: KeyboardIcon, hint: "Stored on this device", summary: "Shortcuts, stored on this device" },
+	{ id: "sync", label: "Sync", icon: RefreshCwIcon, summary: "Keep devices in step through a private GitHub repo" },
+	{ id: "learner", label: "Learner", icon: GraduationCapIcon, summary: "How you learn best and your mistake patterns" },
+	{ id: "general", label: "General", icon: SettingsIcon, summary: "Updates and default lesson language" },
 ] as const;
-type SectionId = (typeof SECTIONS)[number]["id"];
+type SectionId = (typeof SECTIONS)[number]["id"] | "plugins" | "core-plugins" | `plugin:${string}`;
 
 /** `open(section?, row?)` — the optional ROW deep-links into the Keys
  *  section with that row unfolded (zero-keys wave: the dictation error's
@@ -81,6 +88,16 @@ type SectionId = (typeof SECTIONS)[number]["id"];
  *  name, e.g. DEEPGRAM_API_KEY — KeysSection's openRow state), not the
  *  row's testid. */
 const DialogContext = createContext<{ open: (section?: string, row?: string) => void }>({ open: () => {} });
+// Authority belongs to the persistent Settings host, not a particular field or
+// open/close lifetime: a delayed response must not roll back a newer ACK.
+interface SettingsWriteOrder {
+	issued: number;
+	acknowledged: number;
+	record?: UserSettings;
+	fileAccessError?: string | null;
+	listeners: Set<(record: UserSettings, fileAccessError: string | null) => void>;
+}
+const WriteOrderContext = createContext<RefObject<SettingsWriteOrder> | null>(null);
 
 /** AppShell-level mount: the sidebar row and the mod+, chord call this.
  *  `open(section)` lands the dialog on a specific section (the first-run
@@ -90,25 +107,43 @@ export function SettingsDialogProvider({
 }: {
 	children: React.ReactNode;
 }) {
+	const interactions = useInteractionLayers();
+	const layerId = useId();
+	const writeOrder = useRef<SettingsWriteOrder>({ issued: 0, acknowledged: 0, listeners: new Set() });
 	const [show, setShow] = useState(false);
 	const [landOn, setLandOn] = useState<SectionId>("keys");
 	/** Below 1024px the dialog opens on the category list; a deep link (a section was named) lands on its page. */
 	const [landOnPage, setLandOnPage] = useState(false);
 	const [landOnRow, setLandOnRow] = useState<string | null>(null);
+	const [navigationRequest, setNavigationRequest] = useState(0);
 	const open = useCallback((section?: string, row?: string) => {
+		// Returning to this singleton is a bounded request, not a forced pop.
+		// Controlled layers may accept closure before React commits it.
+		if (interactions.getLayer(layerId) && interactions.popTo(layerId) !== "closed") return;
+		interactions.invalidateOpening();
+		setNavigationRequest(request => request + 1);
 		setLandOn(section ? section as SectionId : "keys");
 		setLandOnRow(row ?? null);
 		setLandOnPage(section !== undefined);
 		setShow(true);
-	}, []);
+	}, [interactions, layerId]);
+	const close = useCallback((): CloseOutcome => { setShow(false); return "closed"; }, []);
 	useEffect(() => window.lh?.onOpenSettings?.((section) => open(section)), [open]);
+	useEffect(() => {
+		const onPluginSettings = (event: Event) => {
+			const pluginId: unknown = (event as CustomEvent<unknown>).detail;
+			if (typeof pluginId === "string") open(`plugin:${pluginId}`);
+		};
+		window.addEventListener("lh:open-plugin-settings", onPluginSettings);
+		return () => window.removeEventListener("lh:open-plugin-settings", onPluginSettings);
+	}, [open]);
 	return (
-		<ChatGPTUIProvider><NativeSubscriptionUIProvider><DialogContext.Provider value={{ open }}>
+		<ChatGPTUIProvider><NativeSubscriptionUIProvider><WriteOrderContext.Provider value={writeOrder}><DialogContext.Provider value={{ open }}>
 			{children}
 			{show && (
-				<SettingsDialog onClose={() => setShow(false)} initialSection={landOn} initialRow={landOnRow} initialPage={landOnPage} />
+				<SettingsDialog onClose={close} initialSection={landOn} initialRow={landOnRow} initialPage={landOnPage} navigationRequest={navigationRequest} layerId={layerId} />
 			)}
-		</DialogContext.Provider></NativeSubscriptionUIProvider></ChatGPTUIProvider>
+		</DialogContext.Provider></WriteOrderContext.Provider></NativeSubscriptionUIProvider></ChatGPTUIProvider>
 	);
 }
 
@@ -121,27 +156,28 @@ function SettingsDialog({
 	initialSection,
 	initialRow,
 	initialPage = false,
+	navigationRequest,
+	layerId,
 }: {
-	onClose: () => void;
+	onClose: () => CloseOutcome;
 	initialSection: SectionId;
+	navigationRequest: number;
+	layerId: string;
 	/** The keys-section row to unfold (see DialogContext above). */
 	initialRow: string | null;
 	/** Phone layout: open on the section's page (a deep link) instead of the category list. */
 	initialPage?: boolean;
 }) {
-	const backdropDismiss = useBackdropDismiss(onClose);
-	// Plain dim backdrop (no blur — nothing decorative); a genuine
-	// backdrop click closes, the dialog body stops propagation.
-	return createPortal(
-		<div
-			className="fixed inset-0 z-50 flex items-center justify-center bg-background/80"
-			data-testid="settings-backdrop"
-			{...backdropDismiss}
-		>
-			<SettingsDialogBody onClose={onClose} initialSection={initialSection} initialRow={initialRow} initialPage={initialPage} />
-		</div>,
-		document.body,
-	);
+	// Keep the original visual frame and plain dim backdrop. The shared
+	// untransformed boundary also contains this modal's portaled menus.
+	return <SettingsDialogBody onClose={onClose} initialSection={initialSection}
+		initialRow={initialRow} initialPage={initialPage} navigationRequest={navigationRequest}
+		renderFrame={(frame, layerClose) => <HostDialog open layerId={layerId} ownerId={null}
+			onClose={layerClose} frame={frame} aria-label="Settings"
+			backdropProps={{
+				className: "fixed inset-0 z-50 flex items-center justify-center bg-background/80",
+				"data-testid": "settings-backdrop",
+			}}>{frame.props.children}</HostDialog>} />;
 }
 
 /** The dialog without the portal/backdrop — the SSR-testable frame
@@ -151,9 +187,16 @@ export function SettingsDialogBody({
 	initialSection = "keys",
 	initialRow = null,
 	initialPage = false,
+	navigationRequest = 0,
+	renderFrame,
 }: {
-	onClose: () => void;
+	onClose: () => CloseOutcome | void;
+	/** The runtime supplies the shared modal shell; standalone SSR retains the frame. */
+	/** `close` is the layer's own close: on a phone the Android back steps a category's page back to the list first. */
+	renderFrame?: (frame: ReactElement<{ children: ReactNode }>, close: (reason: CloseReason) => CloseOutcome) => ReactNode;
 	initialSection?: SectionId;
+	/** Repeated opens must retarget even when the requested section is unchanged. */
+	navigationRequest?: number;
 	/** The keys row to unfold on arrival (null = none). While-open
 	 *  retargets follow it exactly like initialSection below. */
 	initialRow?: string | null;
@@ -161,6 +204,10 @@ export function SettingsDialogBody({
 	initialPage?: boolean;
 }) {
 	const { onAppearanceChange } = useAppearance();
+	const inheritedWriteOrder = useContext(WriteOrderContext);
+	const standaloneWriteOrder = useRef<SettingsWriteOrder>({ issued: 0, acknowledged: 0, listeners: new Set() });
+	const writeOrder = inheritedWriteOrder ?? standaloneWriteOrder;
+	const { snapshot } = usePlugins();
 	const [record, setRecord] = useState<UserSettings | null | undefined>(
 		undefined,
 	);
@@ -209,62 +256,60 @@ export function SettingsDialogBody({
 	useEffect(() => {
 		setActive(initialSection);
 		if (initialPage) setView("page");
-	}, [initialSection, initialPage]);
+	}, [initialSection, initialPage, navigationRequest]);
 
-	// Fetch once per dialog mount. 200 {settings: null} is FIRST BOOT
-	// (no record = factory everything), not a failure — the error state is
-	// a non-200 or a network throw only.
+	const enabledPlugins = snapshot.plugins.filter(plugin => plugin.info.enabled);
+	const activePluginId = active.startsWith("plugin:") ? active.slice("plugin:".length) : null;
+	const activePlugin = enabledPlugins.find(plugin => plugin.info.id === activePluginId);
+	// Keep a deep link pending while discovery loads. Once discovery settles,
+	// disabled/uninstalled destinations return to management, never stale DOM.
+	const missingPlugin = activePluginId !== null && !activePlugin && !snapshot.loading;
+	const management = snapshot.plugins.find(plugin => plugin.info.id === activePluginId)?.info.origin === "core" ? "core-plugins" : "plugins";
 	useEffect(() => {
+		if (missingPlugin) setActive(management);
+	}, [missingPlugin, management]);
+	const selected = missingPlugin ? management : active;
+	const navSections: { id: SectionId; label: string; icon?: LucideIcon; summary?: string }[] = [
+		...SECTIONS,
+		{ id: "core-plugins", label: "Core plugins", icon: PlugIcon },
+		{ id: "plugins", label: "Community plugins", icon: PuzzleIcon },
+		...enabledPlugins.map(plugin => ({ id: `plugin:${plugin.info.id}` as const, label: plugin.info.manifest?.name ?? plugin.info.id })),
+	];
+
+	// A save may finish after its original dialog closes. Publish its
+	// acknowledged snapshot to whichever Settings instance is mounted now.
+	useEffect(() => {
+		const authority = writeOrder.current;
+		const apply = (record: UserSettings, fileAccessError: string | null) => {
+			setRecord(record);
+			setFileAccessError(fileAccessError);
+		};
+		authority.listeners.add(apply);
+		return () => { authority.listeners.delete(apply); };
+	}, [writeOrder]);
+
+	// Fetch once per dialog mount. 200 {settings: null} is FIRST BOOT.
+	// A GET started before a newer acknowledged save cannot roll it back.
+	useEffect(() => {
+		const authority = writeOrder.current;
+		const acknowledgedAtRead = authority.acknowledged;
+		let alive = true;
+		const applyLoaded = (loaded: UserSettings | null, fileAccessError: string | null = null) => {
+			if (!alive) return;
+			const unchanged = authority.acknowledged === acknowledgedAtRead;
+			setRecord(unchanged ? loaded : authority.record ?? loaded);
+			setFileAccessError(unchanged ? fileAccessError : authority.fileAccessError ?? null);
+		};
 		fetch("/api/settings")
 			.then((r) =>
 				r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`)),
 			)
-			.then((body: { settings: UserSettings | null; fileAccessError?: string }) => {
-				setRecord(body.settings ?? { version: CURRENT_SETTINGS_VERSION });
-				setFileAccessError(body.fileAccessError ?? null);
-			})
-			.catch(() => setRecord(null));
-	}, []);
-
-	// Escape closes — the layered-dismiss convention (Esc is dead for the
-	// sections' own editors while they hold focus; this listener is the
-	// dialog's outer layer).
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				// THE ONE-ESC LAW (owner, keyboard round 2026-10-06): claim
-				// at the document level — the window chain (dictation →
-				// abort) must not also act. One Esc, one action.
-				e.preventDefault();
-				e.stopPropagation();
-				onClose();
-			}
-		};
-		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
-	}, [onClose]);
-	// Android back closes the dialog too (mounted only while open).
-	// On a phone, back from a category's page returns to the list; from the list it closes.
-	useBackLayer(true, () => {
-		if (view === "page" && window.matchMedia("(max-width: 1023.98px)").matches) setView("list");
-		else onClose();
-	});
-
-	/** The Claude-subscription preset (fork addition): one server write over
-	 *  several sections; the dialog takes the stored record back and every
-	 *  affected surface hears about it. */
-	const applyClaudePreset = useCallback(async (): Promise<string | null> => {
-		const res = await fetch("/api/settings/preset", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ name: "claude-subscription" }),
-		}).catch(() => null);
-		if (!res?.ok) return ((await res?.json().catch(() => ({}))) as { error?: string } | undefined)?.error ?? "Could not apply the preset";
-		const stored = ((await res.json().catch(() => null)) as { settings?: UserSettings } | null)?.settings;
-		if (stored) setRecord(stored);
-		for (const section of ["models", "agent", "graph", "compaction"] as const) notifySettingsSaved(section);
-		return null;
-	}, []);
+			.then((body: { settings: UserSettings | null; fileAccessError?: string }) =>
+				applyLoaded(body.settings ?? { version: CURRENT_SETTINGS_VERSION }, body.fileAccessError ?? null),
+			)
+			.catch(() => applyLoaded(null));
+		return () => { alive = false; };
+	}, [writeOrder]);
 
 	/** ONE writer for the whole dialog: PUT the whole section, keep the
 	 *  record mirror in sync, surface route errors inline (a 400 is a
@@ -273,41 +318,85 @@ export function SettingsDialogBody({
 		async (
 			section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction" | "learner",
 			body: object,
-		) => {
+		): Promise<boolean> => {
+			const ticket = ++writeOrder.current.issued;
 			setError(null);
-			const res = await fetch(`/api/settings/${section}`, {
-				method: "PUT",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(body),
-			});
-			if (!res.ok) {
-				const detail = (await res.json().catch(() => ({}))) as {
-					error?: string;
-				};
-				setError(`${section}: ${detail.error ?? res.status}`);
-				return;
+			try {
+				const res = await fetch(`/api/settings/${section}`, {
+					method: "PUT",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(body),
+				});
+				if (!res.ok) {
+					const detail = (await res.json().catch(() => ({}))) as {
+						error?: string;
+					};
+					if (ticket === writeOrder.current.issued) setError(`${section}: ${detail.error ?? res.status}`);
+					return false;
+				}
+				// Only the acknowledged record is canonical: never substitute the
+				// request body, including when normalization leaves the old value.
+				const reply = (await res.json().catch(() => null)) as { settings?: UserSettings; fileAccessError?: string } | null;
+				const stored = reply?.settings;
+				if (!stored || typeof stored !== "object" || Array.isArray(stored) || stored.version !== 1 ||
+					!stored[section] || typeof stored[section] !== "object" || Array.isArray(stored[section])) {
+					if (ticket === writeOrder.current.issued) setError(`${section}: Could not confirm saved settings. Your input has been kept.`);
+					return false;
+				}
+				if (ticket >= writeOrder.current.acknowledged) {
+					writeOrder.current.acknowledged = ticket;
+					writeOrder.current.record = stored;
+					writeOrder.current.fileAccessError = reply?.fileAccessError ?? null;
+					for (const apply of writeOrder.current.listeners) apply(stored, writeOrder.current.fileAccessError);
+					// Every accepted response is a full canonical record, including
+					// appearance saved by an earlier, still-pending section request.
+					onAppearanceChange(stored.appearance);
+				}
+				notifySettingsSaved(section);
+				return true;
+			} catch (error) {
+				if (ticket === writeOrder.current.issued) setError(`${section}: ${error instanceof Error ? error.message : String(error)}`);
+				return false;
 			}
-			// Server truth, never the request body (fix wave, owner repro):
-			// the models section clamps pinned thinking levels on write
-			// (bd68486) — a swap that rides an unsupported level lands
-			// CLAMPED in the record, and the writing surface must show the
-			// stored value in this same interaction, not the optimistic one.
-			const reply = (await res.json().catch(() => null)) as { settings?: UserSettings; fileAccessError?: string } | null;
-			const stored = reply?.settings;
-			setFileAccessError(reply?.fileAccessError ?? null);
-			setRecord(
-				(prev) =>
-					stored ?? ({ ...(prev ?? {}), [section]: body }) as UserSettings,
-			);
-			notifySettingsSaved(section);
-			if (section === "appearance")
-				onAppearanceChange(body as AppearanceSettings);
 		},
-		[onAppearanceChange],
+		[onAppearanceChange, writeOrder],
 	);
 
-	return (
+	/** The Claude-subscription preset (fork addition): one server write over several sections. Like `write`, it takes a
+	 *  write-order ticket, so a slower earlier save cannot roll the preset back and the preset cannot clobber a newer ACK. */
+	const applyClaudePreset = useCallback(async (): Promise<string | null> => {
+		const ticket = ++writeOrder.current.issued;
+		const res = await fetch("/api/settings/preset", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ name: "claude-subscription" }),
+		}).catch(() => null);
+		if (!res?.ok) return ((await res?.json().catch(() => ({}))) as { error?: string } | undefined)?.error ?? "Could not apply the preset";
+		const reply = (await res.json().catch(() => null)) as { settings?: UserSettings; fileAccessError?: string } | null;
+		const stored = reply?.settings;
+		if (stored && ticket >= writeOrder.current.acknowledged) {
+			writeOrder.current.acknowledged = ticket;
+			writeOrder.current.record = stored;
+			writeOrder.current.fileAccessError = reply?.fileAccessError ?? null;
+			for (const apply of writeOrder.current.listeners) apply(stored, writeOrder.current.fileAccessError);
+		}
+		for (const section of ["models", "agent", "graph", "compaction"] as const) notifySettingsSaved(section);
+		return null;
+	}, [writeOrder]);
+
+	// Esc and the backdrop close the dialog; the Android back from a category's page returns to the category list first
+	// (below 1024px, where the list exists) and only from the list closes. The layer owner decides, not a per-dialog listener.
+	const layerClose = (reason: CloseReason): CloseOutcome => {
+		if (reason === "back" && view === "page" && window.matchMedia("(max-width: 1023.98px)").matches) {
+			setView("list");
+			return "handled-without-close";
+		}
+		return onClose() ?? "closed";
+	};
+
+	const frame = (
 		<div
+			tabIndex={-1}
 			role="dialog"
 			aria-modal="true"
 			aria-label="Settings"
@@ -339,7 +428,7 @@ export function SettingsDialogBody({
 				<h2 className="font-title text-2xl tracking-tight">
 					{view === "page" ? (
 						<>
-							<span className="lg:hidden">{SECTIONS.find((s) => s.id === active)?.label}</span>
+							<span className="lg:hidden">{navSections.find((s) => s.id === selected)?.label}</span>
 							<span className="max-lg:hidden">Settings</span>
 						</>
 					) : (
@@ -347,7 +436,7 @@ export function SettingsDialogBody({
 					)}
 				</h2>
 				<Hint
-						// Esc closes the dialog (its own listener) — surface it.
+						// Esc closes through the shared interaction owner.
 						label="Close"
 						binding="escape"
 						side="left"
@@ -373,29 +462,33 @@ export function SettingsDialogBody({
 			</header>
 
 			<div className="flex min-h-0 flex-1 max-lg:flex-col">
-				{/* Left nav — text-only, the session-list mono language,
+				{/* Left nav — mono labels and theme-inherited decorative icons,
 					    active = bg-accent. */}
 				<nav
 					aria-label="Settings sections"
 					data-testid="settings-nav"
 					// Below 1024px the left nav gives way to the category list (settings-list) and one category's page.
-					className="flex w-44 shrink-0 flex-col gap-1 border-r border-border p-2 max-lg:hidden"
+					className="flex min-h-0 w-48 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border p-2 max-lg:hidden"
 				>
-					{SECTIONS.map((s) => (
-						<button
-							key={s.id}
-							type="button"
-							data-testid={`settings-nav-${s.id}`}
-							aria-current={active === s.id}
-							className={`rounded-sm px-3 py-1.5 text-left font-ui text-sm transition-colors [@media(pointer:coarse)]:py-2.5 ${
-								active === s.id
-									? "bg-accent text-foreground"
-									: "text-muted-foreground hover:bg-accent hover:text-foreground"
-							}`}
-							onClick={() => setActive(s.id)}
-						>
-							{s.label}
-						</button>
+					{navSections.map((s, index) => (
+						<div key={s.id} className="shrink-0">
+							{index === SECTIONS.length && <hr className="my-2 border-border" />}
+							<button
+								type="button"
+								data-testid={`settings-nav-${s.id}`}
+								aria-current={selected === s.id}
+								className={`flex w-full items-center gap-2 break-words rounded-sm px-3 py-1.5 text-left font-ui text-sm transition-colors [@media(pointer:coarse)]:py-2.5 ${
+									selected === s.id
+										? "bg-accent text-foreground"
+										: "text-muted-foreground hover:bg-accent hover:text-foreground"
+								}`}
+								onClick={() => setActive(s.id)}
+							>
+								{s.icon && <s.icon aria-hidden="true" focusable="false" className="size-3.5 shrink-0" />}
+								<span className="min-w-0">{s.label}</span>
+							</button>
+							{s.id === "plugins" && <hr className="my-2 border-border" />}
+						</div>
 					))}
 				</nav>
 
@@ -404,7 +497,7 @@ export function SettingsDialogBody({
 				{view === "list" && (
 					<nav aria-label="Settings categories" data-testid="settings-list" className="min-h-0 flex-1 overflow-y-auto p-3 lg:hidden">
 						<ul className="flex flex-col gap-2">
-							{SECTIONS.map((s) => (
+							{navSections.map((s) => (
 								<li key={s.id}>
 									<button
 										type="button"
@@ -417,7 +510,7 @@ export function SettingsDialogBody({
 									>
 										<span className="min-w-0 flex-1">
 											<span className="block font-ui text-sm text-foreground">{s.label}</span>
-											<span className="block text-xs text-muted-foreground">{s.summary}</span>
+											{s.summary && <span className="block text-xs text-muted-foreground">{s.summary}</span>}
 										</span>
 										<svg viewBox="0 0 16 16" aria-hidden className="size-4 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
 											<path d="M6 3l5 5-5 5" />
@@ -440,16 +533,19 @@ export function SettingsDialogBody({
 					className={`min-h-0 min-w-0 flex-1 overflow-y-auto${view === "list" ? " max-lg:hidden" : ""}`}
 					data-testid="settings-content"
 				>
-					{error && (
+					{error && !activePluginId && selected !== "plugins" && selected !== "core-plugins" && (
 						<p
 							role="alert"
-							className="m-4 rounded-sm border border-red-500/40 px-3 py-2 text-xs text-red-500"
+							className="m-4 rounded-sm border border-error/40 px-3 py-2 text-xs text-error"
 							data-testid="settings-error"
 						>
 							{error}
 						</p>
 					)}
-					{record === undefined ? (
+					{selected === "plugins" || selected === "core-plugins" ? <PluginsSection origin={selected === "core-plugins" ? "core" : "community"} onOpenSettings={pluginId => setActive(`plugin:${pluginId}`)} />
+						: activePlugin ? <PluginSettingsPage key={`${activePlugin.info.id}/${activePlugin.info.revision}`} plugin={activePlugin} />
+							: activePluginId !== null ? <p role="status" className="px-6 py-5 text-xs text-muted-foreground">Loading plugins…</p>
+								: record === undefined ? (
 						<p className="px-6 py-5 text-xs text-muted-foreground/70">
 							Loading settings…
 						</p>
@@ -528,10 +624,10 @@ export function SettingsDialogBody({
 											void write("models", next)
 										}
 										onSectionChange={(next: AgentSettings) =>
-											void write("agent", next)
+											write("agent", next)
 										}
 										onCompactionChange={(next: CompactionSettings) =>
-											void write("compaction", next)
+											write("compaction", next)
 										}
 										onApplyClaudePreset={applyClaudePreset}
 									/>
@@ -545,7 +641,7 @@ export function SettingsDialogBody({
 									<AppearanceSection
 										appearance={record.appearance}
 										onSectionChange={(next: AppearanceSettings) =>
-											void write("appearance", next)
+											write("appearance", next)
 										}
 									/>
 								</SettingsSection>
@@ -558,7 +654,7 @@ export function SettingsDialogBody({
 									<GraphSection
 										graph={record.graph}
 										onSectionChange={(next: GraphSettings) =>
-											void write("graph", next)
+											write("graph", next)
 										}
 									/>
 								</SettingsSection>
@@ -578,4 +674,5 @@ export function SettingsDialogBody({
 			</div>
 		</div>
 	);
+	return renderFrame ? renderFrame(frame, layerClose) : frame;
 }

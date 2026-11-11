@@ -623,9 +623,9 @@ function runAuditor(
  *  2026-09-19) until wave 7 killed the embedder seam wholesale (this
  *  interlude) — birth-session clusters need no post-merge pass. The
  *  phases tell the truth about what the job is actually waiting on.
- *  "queued" (owner, 2026-09-28): the global extract semaphore — 3
- *  concurrent extractor calls process-wide; the job is waiting for an
- *  extract slot, not for the model.
+ *  "queued" (owner, 2026-09-28): the extract slot — 3 concurrent extractor
+ *  calls process-wide (the fork keeps this cap beside upstream's per-request
+ *  worker admission); the job is waiting for an extract slot, not for the model.
  *  "waiting" (owner 2026-09-28): the serialized-audit gate — the job's
  *  audit+merge critical section is queued behind another job's; the
  *  extractor is done but the auditor may not start until the graph is
@@ -679,10 +679,6 @@ interface LhExtractionGlobal {
 	 *  process-wide. globalThis for the same module-instance reason as
 	 *  the run registries. */
 	__lhAuditLock?: { tail: Promise<void> };
-	/** The EXTRACT SEMAPHORE (owner, 2026-09-28): 3 concurrent extractor
-	 *  calls process-wide — the provider-facing rate stance (the import
-	 *  route's old 3-wide pool doctrine, now global). Per-chunk jobs fan
-	 *  out in parallel but queue here. */
 }
 
 /** THE RUN REGISTRIES live on globalThis, not module level — the
@@ -921,7 +917,9 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			return await critical();
 		} finally {
 			if (onAbort && signal && !signal.aborted) signal.removeEventListener("abort", onAbort);
-			release();
+			// A cancelled waiter leaves promptly, but may not release its chain
+			// link before its predecessor: successors still owe that earlier hold.
+			void prev.then(release, release);
 		}
 	}
 
@@ -1015,13 +1013,10 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		return auditResult;
 	}
 
-
-	/** THE EXTRACT SLOT (unified 2026-09-29): extraction chunk jobs run
-	 *  under the SHARED background-LLM semaphore — one process-wide pool
-	 *  of 3 permits (see bg-llm-semaphore.ts). The
-	 *  job's registry-row signal kills a queued ticket (dead-ticket
-	 *  handoff). The audit side needs no slot: audits already serialize
-	 *  behind their own global lock. */
+	/** THE EXTRACT SLOT (fork, owner 2026-09-28/29): at most 3 concurrent extractor calls process-wide — the provider-facing
+	 *  rate stance — on top of the shared worker-request admission every model request passes (upstream v0.6.0, which dropped
+	 *  this cap; the fork keeps it, see bg-llm-semaphore.ts). The job's registry-row signal kills a queued ticket (dead-ticket
+	 *  handoff). The audit side needs no slot: audits already serialize behind their own global lock. */
 	async function withExtractSlot<T>(jobKey: string, critical: () => Promise<T>): Promise<T> {
 		const signal = runningExtractions.get(jobKey)?.controller.signal;
 		return withBgLlmSlot(signal, critical);
@@ -1153,9 +1148,9 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			// 2026-09-30 evening): every batch is its own job — registry row,
 			// because each batch's extractor continues the source's digest
 			// (everything the earlier batches merged). Cross-source runs stay
-			// parallel; the 3-slot extract semaphore still caps concurrent
-			// extracts process-wide ("queued"); audits serialize through the
-			// process-wide gate ("waiting"). A batch that fails is ISOLATED
+			// parallel; individual worker requests share process-wide admission.
+			// Audits serialize through the separate consistency gate ("waiting").
+			// A batch that fails is ISOLATED
 			// (its messages stay uncovered — honestly re-runnable); its
 			// siblings keep merging.
 			const settled: PromiseSettledResult<EmissionStats>[] = [];
@@ -1344,8 +1339,8 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			// 2026-09-30 evening): same law as the chat door — chunks run
 			// STRICTLY IN ORDER, each chunk's extractor continuing the
 			// source's digest (everything earlier chunks merged). Cross-source
-			// runs stay parallel; the semaphore caps concurrent extracts
-			// process-wide; audits serialize through the gate as before. The
+			// runs stay parallel; individual worker requests share admission,
+			// while audits serialize through the consistency gate. The
 			// part rides the registry entry (feed suffix "· i/N") only when
 			// the file actually chunked.
 			const settled: PromiseSettledResult<EmissionStats>[] = [];

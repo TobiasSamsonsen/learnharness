@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Source_Sans_3 } from "next/font/google";
+import { connection } from "next/server";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 import { AppShell, SidebarProvider } from "@/components/sidebar";
@@ -9,6 +10,8 @@ import { AppearanceProvider } from "@/components/settings/appearance";
 import UpdateBanner from "@/components/update-banner";
 import AndroidUpdateCard from "@/components/android-update-card";
 import UpstreamBanner from "@/components/upstream-banner";
+import { PluginsProvider } from "@/components/plugins";
+import { readThemeBoot } from "@/src/server";
 
 // Chrome = JetBrains Mono, teaching prose = Source Sans 3, titles = CMU
 // Serif (the bundled lh-cmu @font-face in globals.css — no CDN).
@@ -28,22 +31,35 @@ export const viewport: Viewport = {
 	viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+	// The theme is server-rendered — its class AND its color variables —
+	// so no first frame ever shows the wrong theme. connection(): the
+	// record and the theme files are per-machine disk state — without it a
+	// prerendered route (settings) would bake the BUILD machine's record.
+	await connection();
+	const { appearance, theme, vars } = readThemeBoot();
 	// suppressHydrationWarning on <html>: the Android shell injects its safe-area CSS variables onto it (an inline
 	// style) before React hydrates, and the server HTML cannot know them. Only this element's own attributes are exempt.
 	return (
-		<html lang="en" className={`dark ${ui.variable} ${prose.variable}`} suppressHydrationWarning>
+		<html
+			lang="en"
+			className={`${theme.mode} ${ui.variable} ${prose.variable}`}
+			style={vars as React.CSSProperties}
+			suppressHydrationWarning
+		>
 			<body className="min-h-dvh antialiased">
 			{/* The notification channel rides OUTSIDE everything: sidebar, dock,
 				 and pages all subscribe as the polls retire (push S3, 2026-10-02). */}
 			<ServerEventsProvider>
-				<AppearanceProvider>
-					<SidebarProvider>
-						<ActivityProvider>
-							<AppShell>{children}</AppShell>
-						</ActivityProvider>
-					</SidebarProvider>
-				</AppearanceProvider>
+				<PluginsProvider>
+					<AppearanceProvider initialAppearance={appearance} initialTheme={theme}>
+						<SidebarProvider>
+							<ActivityProvider>
+								<AppShell>{children}</AppShell>
+							</ActivityProvider>
+						</SidebarProvider>
+					</AppearanceProvider>
+				</PluginsProvider>
 			</ServerEventsProvider>
 			{/* The bottom-right notice stack: the auto-update banner (Wave C,
 			    Electron-only pushes) and the fork's upstream release notice

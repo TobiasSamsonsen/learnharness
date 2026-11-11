@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { CLAUDE_CODE_PROVIDER, sessionCacheHitRate, subscriptionLabels, subscriptionLabel, type cliContextWindowOf, type SessionPricing, type TurnUsage } from "@/src/core";
 import { formatTokens, formatUsd, planCostLabel, prettyModel } from "@/components/usage-format";
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
 import { PlanUsage } from "@/components/plan-usage";
-import { useBackLayer } from "./back-layers.ts";
 import { useKeepInViewport } from "./use-keep-in-viewport.ts";
+import { usePopoverDismiss } from "@/components/popover-dismiss";
+import { INTERACTION_LAYER_Z_BASE } from "@/components/host-dialog";
 
 export function formatContextMeasurement(tokens: number | null, limit: number | null): string {
 	const numerator = tokens === null ? "?" : formatTokens(tokens);
@@ -71,7 +72,6 @@ export function StatsBar({
 	onModelChange?: (model: string | undefined) => void;
 }) {
 	const [open, setOpen] = useState(false);
-	const detailRef = useKeepInViewport<HTMLDivElement>(open); // the summary popover sits at the bar's left; keep it on a phone screen
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
 	// Stable (ModelControl's report effect keys on it); the parent's
 	// callback is read through a ref.
@@ -81,31 +81,12 @@ export function StatsBar({
 		setSelectedModel(model);
 		onModelChangeRef.current?.(model);
 	}, []);
-	useBackLayer(open, () => setOpen(false));
 	// Same dropdown discipline as the model control (owner, df4433f treatment,
 	// stats round 1): close on any pointerdown outside the bar or on Escape.
 	const barRef = useRef<HTMLDivElement>(null);
-	useEffect(() => {
-		if (!open) return;
-		const onPointerDown = (e: PointerEvent) => {
-			if (barRef.current && !barRef.current.contains(e.target as Node)) setOpen(false);
-		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				// THE ONE-ESC LAW (keyboard round 2026-10-06): claim — the
-				// window chain must not also act under this popover.
-				e.preventDefault();
-				e.stopPropagation();
-				setOpen(false);
-			}
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
-	}, [open]);
+	const panelRef = useRef<HTMLDivElement>(null);
+	useKeepInViewport<HTMLDivElement>(open, panelRef); // the summary popover sits at the bar's left; keep it on a phone screen
+	const popupLayer = usePopoverDismiss(barRef, open && !!(chatId || turns.length), () => setOpen(false), { layerRootRef: panelRef });
 	// The picker reports its effective selection. CLI windows are session-
 	// scoped; unknown metadata always means usage-only, never a guessed maximum.
 	const { catalog } = useModelCatalog();
@@ -160,9 +141,10 @@ export function StatsBar({
 			</button>
 				{open && (
 					<div
-						ref={detailRef}
+						ref={panelRef}
 						data-testid="stats-detail"
-						className="absolute bottom-full left-1/2 z-40 mb-1.5 w-72 max-w-[calc(100vw-1rem)] -translate-x-1/2 rounded-xl border bg-card p-3 text-xs shadow-xl"
+						style={{ zIndex: INTERACTION_LAYER_Z_BASE + popupLayer.order }}
+						className="absolute bottom-full left-1/2 mb-1.5 w-72 max-w-[calc(100vw-1rem)] -translate-x-1/2 rounded-xl border bg-card p-3 text-xs shadow-xl"
 					>
 						<div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 							Session stats

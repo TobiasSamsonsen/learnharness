@@ -186,6 +186,7 @@ describe("the source-derived segment list", () => {
 				"shared/20-question-tools.md",
 				"shared/25-confidence.md",
 				"shared/30-learner-files.md",
+				"shared/35-side-conversations.md",
 				"shared/40-formatting.md",
 				"shared/45-figures.md",
 			],
@@ -423,7 +424,7 @@ describe("Practice settings API and effective prompt loading", () => {
 		assert.deepEqual(view.practice.map((s: { path: string }) => s.path), [
 			"practice/00-base.md", "practice/10-doctrine.md", "practice/30-short-sessions.md",
 			// the fork's own shared fragments (sketches, figures) ride Practice too
-			"shared/10-voice.md", "shared/15-accuracy.md", "shared/16-mental-model.md", "shared/18-sketches.md", "shared/40-formatting.md", "shared/45-figures.md",
+			"shared/10-voice.md", "shared/15-accuracy.md", "shared/16-mental-model.md", "shared/18-sketches.md", "shared/35-side-conversations.md", "shared/40-formatting.md", "shared/45-figures.md",
 		]);
 		assert.ok(!view.practice.some((s: { path: string }) => s.path === "system-prompt.md"));
 	});

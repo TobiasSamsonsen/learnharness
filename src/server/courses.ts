@@ -47,7 +47,6 @@ import { mergeSkillLines } from "../core/skills.ts";
 import { piEngineForSpec } from "../agent/models.ts";
 import { draftCourse } from "../agent/subagents/course-planner.ts";
 import { callUsage } from "../agent/subagents/extraction.ts";
-import { withBgLlmSlot } from "../agent/subagents/bg-llm-semaphore.ts";
 import { materialTools } from "../agent/tools/materials.ts";
 import { plannerGraphTools } from "../agent/tools/planner-graph.ts";
 import { stampNewSession } from "./chats.ts";
@@ -408,28 +407,28 @@ async function runDraft(courseId: string, feedback: string | undefined, controll
 			...materialTools({ chatId: courseId, store: stores.materialStore }),
 			...plannerGraphTools({ chatStore: stores.chatStore, graphStore: stores.graphStore }),
 		};
-		const result = await withBgLlmSlot(controller.signal, () =>
-			draftCourse(
-				{
-					title: course.title,
-					materials: materials.map((m) => ({ id: m.id, name: m.name })),
-					materialsSection,
-					...(feedback && course.draft ? { previous: { draft: course.draft, feedback } } : {}),
-					...(approved.length > 0 ? { approved } : {}),
-					language: courseLanguage(course),
+		// The planner's model requests pass the process-wide worker-request admission (agent/worker-request-admission.ts),
+		// the one background-LLM pool: no wrapper of its own.
+		const result = await draftCourse(
+			{
+				title: course.title,
+				materials: materials.map((m) => ({ id: m.id, name: m.name })),
+				materialsSection,
+				...(feedback && course.draft ? { previous: { draft: course.draft, feedback } } : {}),
+				...(approved.length > 0 ? { approved } : {}),
+				language: courseLanguage(course),
+			},
+			{
+				engine: piEngineForSpec(spec),
+				signal: controller.signal,
+				checkContext: () => checkContext(),
+				tools,
+				courseId,
+				onStep: (usage, m) => {
+					model = m;
+					steps.push(callUsage(usage));
 				},
-				{
-					engine: piEngineForSpec(spec),
-					signal: controller.signal,
-					checkContext: () => checkContext(),
-					tools,
-					courseId,
-					onStep: (usage, m) => {
-						model = m;
-						steps.push(callUsage(usage));
-					},
-				},
-			),
+			},
 		);
 		const draft: CourseDraft = {
 			createdAt: new Date().toISOString(),

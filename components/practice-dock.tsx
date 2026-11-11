@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import type { ViewReaderRef } from "./session-view-readers";
 import { CameraIcon, ChevronRightIcon, PenLineIcon, XIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { ClarifyWording } from "@/components/clarify-wording";
@@ -10,7 +11,10 @@ import { useCamera } from "@/components/use-camera";
 import { ConfidenceButtons } from "@/components/confidence-buttons";
 import { finishDictation, isDictationActive, joinDictation, useDictationTarget } from "@/components/dictation";
 import { enterSends, useEnterSubmits } from "@/components/enter-submits";
+import { useOptionalInteractionLayers } from "./interaction-layers";
+import { isInteractionScopeEligible } from "./plugin-input-focus";
 import { PathInput } from "@/components/path-input";
+import type { PrepareThinkingSubmission } from "./plugin-submission-adapters";
 import { pagePayload, sendPage, useInk } from "@/components/sketch/ink-memory";
 import { useKeptPage } from "@/components/sketch/kept-page";
 import { SketchView } from "@/components/sketch/sketch-view";
@@ -42,6 +46,7 @@ import { CONFIDENCE_STOPS, repairMathForDisplay, SketchPayloadError, type Sketch
 export type ThinkingMark = { confidence?: number; dontKnow?: true };
 
 export interface PracticeDockProps {
+	viewReader?: ViewReaderRef<string>;
 	/** The active problem's tool-call id (submissions target it). */
 	problemCallId: string;
 	/** The native message the problem sits in: with it the statement is markable for "Ask about this" (owner, 2026-11-06). */
@@ -57,10 +62,25 @@ export interface PracticeDockProps {
 	/** text — POST {type:"thinking"} (one lane; the register is read from
 	 *  the text). A sketch submit (Android plan M1) adds the handwriting;
 	 *  its text may then be empty. `sketchRef` re-sends the problem's kept
-	 *  page by id (no new ink). */
+	 *  page by id (no new ink). `mark` is the confidence button pressed with it. */
 	onSubmit: (text: string, sketch?: SketchPayload, sketchRef?: string, mark?: ThinkingMark) => Promise<boolean> | void;
-	/** The chat (the kept page's strokes are fetched from it after a reload). */
-	chatId: string;
+	/** The host's capture step for a thinking that carries more than text (a plugin adapter's images). It runs inside
+	 *  the confidence-first flow: the confidence press (`mark`) rides along, and the field clears once the host accepts. */
+	onPrepareSubmission?: PrepareThinkingSubmission;
+	/** Host-owned alternative editor (a plugin problem's). The native statement/thinking/controls stay shared; its
+	 *  submission goes straight through its own `prepare`, with no confidence step. */
+	customInput?: {
+		editor: ReactNode;
+		thinking: string;
+		onThinkingChange(value: string): void;
+		ready: boolean;
+		prepare: PrepareThinkingSubmission;
+	};
+	/** Images are waiting to go with the thinking (so an empty text may still be sent). */
+	hasPendingInput?: boolean;
+	preparing?: boolean;
+	/** The chat (the kept page's strokes are fetched from it after a reload). A plugin problem's dock has no kept page. */
+	chatId?: string;
 	/** The problem's newest sketch — its kept page (M3). */
 	keptSketch?: SketchRef | null;
 	/** The session's model reads images — "Open in sketch" shows only then
@@ -76,6 +96,7 @@ export interface PracticeDockProps {
 }
 
 export function PracticeDock({
+	viewReader,
 	problemCallId,
 	messageId,
 	wordingOnly = false,
@@ -83,19 +104,28 @@ export function PracticeDock({
 	expanded,
 	onExpand,
 	onSubmit,
+	onPrepareSubmission,
+	customInput,
+	hasPendingInput = false,
+	preparing = false,
 	chatId,
 	keptSketch = null,
 	onEscape,
 	compactionRunning = false,
 	sketchAvailable = false,
 }: PracticeDockProps) {
-	const [thinking, setThinking] = useState("");
+	const controller = useOptionalInteractionLayers();
+	const rootRef = useRef<HTMLElement>(null);
+	const [nativeThinking, setNativeThinking] = useState("");
+	const custom = useRef(customInput); custom.current = customInput;
+	const thinking = customInput ? customInput.thinking : nativeThinking;
+	const setThinking = (value: string) => { if (custom.current) custom.current.onThinkingChange(value); else setNativeThinking(value); };
 	const [sketching, setSketching] = useState(false);
 	// Submit has been pressed: the confidence buttons stand in for it until one is pressed (owner, 2026-10-28)
 	const [asking, setAsking] = useState(false);
 	// The kept page (M3): the problem's earlier sketch plus unsent ink. A
 	// text submit attaches them (the chip) unless the learner removed it.
-	const { kept, status: keptStatus } = useKeptPage(chatId, problemCallId, keptSketch);
+	const { kept, status: keptStatus } = useKeptPage(chatId ?? "", problemCallId, keptSketch);
 	const ink = useInk(problemCallId);
 	const [detached, setDetached] = useState(false);
 	const [sketchError, setSketchError] = useState<string | null>(null);
@@ -116,13 +146,20 @@ export function PracticeDock({
 	// Ref MIRRORS the field ("nothing gets lost", the question-dock
 	// discipline): a submit resuming after `await finishDictation()` reads
 	// the tail, never a stale closure.
-	const thinkingRef = useRef("");
+	const thinkingRef = useRef(thinking); thinkingRef.current = thinking;
+	const editRevision = useRef(0);
+	useLayoutEffect(() => {
+		if (!viewReader) return;
+		const read = () => thinkingRef.current;
+		viewReader.current = read;
+		return () => { if (viewReader.current === read) viewReader.current = null; };
+	}, [viewReader]);
 
 	useDictationTarget(
 		useCallback(
 			(t: string, withdraw?: boolean) => {
 				const v = joinDictation(thinkingRef.current, t, withdraw);
-				thinkingRef.current = v;
+				thinkingRef.current = v; editRevision.current++;
 				setThinking(v);
 			},
 			[],
@@ -130,19 +167,46 @@ export function PracticeDock({
 		true,
 	);
 
-	/** Submit (the button, or Enter): the text must exist, then the confidence buttons take its place. */
+	useLayoutEffect(() => { viewReader?.changed?.(); }, [viewReader, thinking]);
+
+	/** Hand the thinking to the host's capture step (upstream: a plugin's editor or adapter); `mark` is the confidence pressed. */
+	const runPrepare = (prepare: PrepareThinkingSubmission, mark?: ThinkingMark) => {
+		let capturedRevision = editRevision.current;
+		const read = () => (customInput ? thinkingRef.current : thinkingRef.current.trim());
+		prepare(() => { capturedRevision = editRevision.current; return read(); }, captured => {
+			if (editRevision.current === capturedRevision && read() === captured) { thinkingRef.current = ""; setThinking(""); }
+		}, mark);
+	};
+
+	/** Submit (the button, or Enter). A plugin's own editor goes straight through its prepare; the native field asks for the
+	 *  confidence first: the text must exist, then the confidence buttons take its place. */
 	const submit = () => {
-		if (compactionRunning) return;
-		if (thinkingRef.current.trim().length === 0 && !photo) return;
+		if (compactionRunning || preparing) return;
+		if (customInput) {
+			if (!customInput.ready) return;
+			runPrepare(customInput.prepare);
+			return;
+		}
+		if (thinkingRef.current.trim().length === 0 && !photo && !hasPendingInput) return;
 		setAsking(true);
 	};
 
 	/** The send itself, once a confidence button (or "I don't know") has been pressed. */
 	const send = (mark: ThinkingMark) => {
-		if (compactionRunning) return;
+		if (compactionRunning || preparing) return;
 		const text = thinkingRef.current.trim();
-		if (text.length === 0 && !photo) return;
+		if (text.length === 0 && !photo && !hasPendingInput) return;
 		setAsking(false);
+		const hasInk = attach && (ink.strokes.length > 0 || keptSketch !== null);
+		if (hasPendingInput && (photo || hasInk)) {
+			// A thinking carries a sketch OR images, never both (the input contract says so too).
+			setSketchError("A sketch and attached images can't be sent together — remove one.");
+			return;
+		}
+		if (onPrepareSubmission && !photo && !hasInk) {
+			runPrepare(onPrepareSubmission, mark);
+			return;
+		}
 		if (photo) {
 			// a photo answer: no ink to fold into a kept page, nothing to retry client-side
 			setSketchError(null);
@@ -192,12 +256,12 @@ export function PracticeDock({
 	 * means the field is often never focused — the window-level Enter
 	 * (typing surfaces and buttons excluded) submits the trace. Mounted
 	 * while the dock is — collapsed bar included (the trace survives). */
-	useEnterSubmits(submit);
+	useEnterSubmits(submit, rootRef);
 
 	/* ── the collapsed bar ── */
-	if (!expanded) {
-		return (
+	const bar = (
 			<button
+				ref={element => { if (!customInput) rootRef.current = element; }}
 				type="button"
 				data-testid="practice-dock-bar"
 				onClick={onExpand}
@@ -208,11 +272,13 @@ export function PracticeDock({
 				<span className="min-w-0 flex-1 truncate">{input.statement}</span>
 			</button>
 		);
-	}
+	if (!expanded && !customInput) return bar;
 
 	/* ── the expanded form ── */
 	return (
-		<div data-testid="practice-dock" data-problem={problemCallId}>
+		<div ref={element => { rootRef.current = element; }} data-testid="practice-dock" data-problem={problemCallId}>
+			{!expanded && bar}
+			<div hidden={!expanded}>
 			{/* The agent's half: the 'Problem' eyebrow (mirroring the quiz
 			    cards' label row — owner round, 2026-10-05) + the statement,
 			    markdown + LaTeX rendered, capped by the measured column
@@ -223,6 +289,8 @@ export function PracticeDock({
 					<ToolContentResponse>{input.statement}</ToolContentResponse>
 				</ClarifyWording>
 			</div>
+
+			{customInput?.editor}
 
 			{/* The learner's half: Enter SENDS (owner round 2, 2026-10-05);
 			    Shift+Enter makes a newline — less to decide about. */}
@@ -236,14 +304,16 @@ export function PracticeDock({
 				<PathInput
 					value={thinking}
 					onValueChange={(value) => {
-						thinkingRef.current = value;
+						thinkingRef.current = value; editRevision.current++;
 						setThinking(value);
 						setAsking(false); // changing the text puts Submit back
 					}}
 					onKeyDown={(e) => {
+						if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
 						// Esc ends dictation — stopPropagation claims it (the
 						// keyboard machine) so the window chain doesn't also fire.
 						if (e.key === "Escape" && onEscape) {
+							controller?.claimEscape(e);
 							e.preventDefault();
 							e.stopPropagation();
 							onEscape();
@@ -326,7 +396,7 @@ export function PracticeDock({
 					</div>
 				) : (
 					<div className="flex items-center gap-2 p-1">
-						{sketchAvailable && camera.available && (
+						{!customInput && sketchAvailable && camera.available && (
 							<Button
 								type="button"
 								variant="secondary"
@@ -338,7 +408,7 @@ export function PracticeDock({
 								Camera
 							</Button>
 						)}
-						{sketchAvailable && (
+						{!customInput && sketchAvailable && (
 							<Button
 								type="button"
 								variant="secondary"
@@ -359,17 +429,17 @@ export function PracticeDock({
 						<Button
 							type="button"
 							data-testid="practice-send"
-							disabled={(thinking.trim().length === 0 && !photo) || compactionRunning}
+							disabled={(customInput ? !customInput.ready : (!thinking.trim() && !photo && !hasPendingInput)) || compactionRunning || preparing}
 							onClick={() => submit()}
 							className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 						>
-							Submit thinking
+							{customInput ? "Submit" : "Submit thinking"}
 						</Button>
 					</div>
 				)}
 			</div>
 			{camera.node}
-			{sketching && sketchAvailable && (
+			{sketching && sketchAvailable && !customInput && (
 				<SketchView
 					label="Problem"
 					statement={typeof input.statement === "string" ? input.statement : ""}
@@ -382,6 +452,7 @@ export function PracticeDock({
 					confidenceLevels
 				/>
 			)}
+			</div>
 		</div>
 	);
 }

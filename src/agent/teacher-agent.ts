@@ -14,7 +14,8 @@ import {
 	type ProberToolContext,
 	type TeacherToolContext,
 } from "./tools.ts";
-import { practiceTools, type PracticeToolContext } from "./tools/practice.ts";
+import { practiceTools, createPracticeGate, type PracticeGate, type PracticeToolContext } from "./tools/practice.ts";
+import { pluginProblemTools, isPluginProblemPoseAcknowledgment, type NativePluginProblemContribution } from "./plugin-problem-tools.ts";
 import { placementProbeTool } from "./tools/course.ts";
 import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
 import { sendToUserApplies, sendToUserTool } from "./tools/send-to-user.ts";
@@ -27,13 +28,15 @@ import { figureInputProblems } from "../core/figures/index.ts";
 import { circuitSolveTool, figureGuideTool } from "./tools/figures.ts";
 import { readSketchTool } from "./tools/sketch.ts";
 import { READ_SKETCH_TOOL, isDoubtfulReadResult, sketchIdsOf } from "../core/sketch-gate.ts";
-import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
+import { QUESTION_TOOLS, TOGGLEABLE_TOOLS, type EnabledTools } from "../core/pending.ts";
+import type { PluginToolContext } from "../core/plugins.ts";
 import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL, type SketchImageResolver } from "../core/native-messages.ts";
 import { PROSE_GATED_TOOLS, proseGateBlocks, proseGateReason, proseGateRefusedLast } from "../core/prose-gate.ts";
 import { leadFloorBlocks, leadFloorReason } from "../core/lead-floor-gate.ts";
 import { VISUAL_GATE_REASON, visualGateBlocks } from "../core/visual-gate.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
+import { PluginQuestionLedger, type NativePluginQuestionContribution } from "./plugin-question-tools.ts";
 import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } from "../core/language.ts";
 import { paceSection, type Pace } from "../core/pace.ts";
 import { difficultySection, type Difficulty } from "../core/difficulty.ts";
@@ -66,6 +69,15 @@ import { practiceGradeHook } from "./practice-grade.ts";
 /** Which agent's prompt directory to compose. Practice (2026-10-04)
  *  composes ONLY its own directory — see prompt-segments.ts. */
 export type AgentKind = "prober" | "teacher" | "practice" | "placement";
+
+/** Reserve conversation builtins even when role/mechanics/settings gates hide them.
+ * New builtin names must join this catalog; actual turn tools are reserved too. */
+export const CONVERSATION_TOOL_NAMES = Object.freeze([
+	...QUESTION_TOOLS, ...TOGGLEABLE_TOOLS, "probe_done", "read", "ls", "find", "grep",
+	"plan_init", "list_sessions", "list_propositions", "problem", "conclude", sendToUserTool.name,
+	// The fork's builtins: reserved so no plugin can shadow them (the actual turn's tools are reserved too, this covers the gated-out ones).
+	"read_sketch", "figure_guide", "circuit_solve", "probe",
+] as const);
 
 // P2 (2026-09-19): segment discovery + override resolution live in ONE
 // canonical place now — src/store/prompt-overrides.ts (listSourceSegments
@@ -123,9 +135,24 @@ export interface AgentBuildOptions {
 	messages?: AgentMessage[];
 	/** Money channel: one call per model request. */
 	onUsage?: StepUsageCollector;
+	/** Append-only reference updates before each already-scheduled internal
+	 * model call. Does not schedule an extra call or interrupt live output. */
+	contextUpdates?: (messages: readonly AgentMessage[]) => AgentMessage[];
+	/** Validate the actual selected context after prepared/queued messages
+	 * join, before dispatch. Throws through the SDK's normal failed-response
+	 * lifecycle, never through the conversion seam. */
+	validateContext?: (messages: readonly AgentMessage[]) => void;
 	/** Tests may pass a bare tool registry to drive deterministic flows.
 	 *  An explicit registry is NEVER toggle-filtered — the caller owns it. */
 	tools?: Record<string, AgentTool<any>>;
+	/** Server-owned per-turn resolver. Additive only; explicit tools test overrides
+	 * bypass contributions entirely. No conversation identity means no factory call. */
+	pluginContributions?: (context: PluginToolContext, reservedToolNames: readonly string[]) => {
+		instructions: readonly string[];
+		tools: readonly AgentTool<any>[];
+		questionTypes?: readonly NativePluginQuestionContribution[];
+		problemTypes?: readonly NativePluginProblemContribution[];
+	};
 	/** The resolved per-user tool toggles (core/pending EnabledTools — the
 	 *  2026-09-19 P2 bridge: Platform's chat-handler passes
 	 *  effective.agent.tools; the factories drop any tool explicitly false.
@@ -278,7 +305,21 @@ export function agentSystemPrompt(
 	);
 }
 
-function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: AgentTool<any, any>[], afterToolCall?: ReturnType<typeof practiceGradeHook>) {
+function baseAgentOptions(
+	kind: AgentKind,
+	opts: AgentBuildOptions,
+	tools: AgentTool<any, any>[],
+	nodeExists?: (nodeId: string) => boolean,
+	practice?: {
+		gate: PracticeGate;
+		graphNodes: PracticeToolContext["graphNodes"];
+		/** The session's skills and difficulty: a plugin-posed problem passes the same admission as a native one. */
+		courseSkills?: PracticeToolContext["courseSkills"];
+		difficulty?: PracticeToolContext["difficulty"];
+	},
+	/** The practice grader's hook (fork): runs after a conclude. Only the practice agent has one. */
+	afterToolCall?: ReturnType<typeof practiceGradeHook>,
+) {
 	// Practice never reaches the role fallback (the handler ALWAYS injects
 	// the session's conversation engine — practice rides the same
 	// conversation-spec resolution as teaching); the cast keeps AgentKind
@@ -289,21 +330,56 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	// Upstream's narration guard (v0.5.0) rides beside the fork's prose gate: its delivery rule is
 	// appended to the conversation prompt when it applies, its hooks are chained below.
 	const narrationGuard = narrationGuardApplies(kind, engine.model, opts.tools !== undefined);
+	const narrationHooks = narrationGuard ? makeNarrationGuard() : undefined;
 	const composedPrompt = agentSystemPrompt(kind, opts);
 	// Appended in order: the narration rule (teacher), then the claude-code tool-name rule (every kind, claude-code only).
-	const systemPrompt = [
+	const builtinPrompt = [
 		composedPrompt,
 		narrationGuard ? SEND_TO_USER_DELIVERY_RULE : undefined,
 		engine.model.provider === CLAUDE_CODE_PROVIDER ? CLAUDE_CODE_TOOL_NAMES_RULE : undefined,
 	].filter((part): part is string => part !== undefined).join("\n\n---\n\n");
-	// read_sketch (Android plan M2) rides EVERY agent, always — practice
-	// builds its own (it shares the conclude gate). A caller-owned registry
-	// (opts.tools — the tests') is never touched.
+	// The fork's own builtins join the registry BEFORE it is bound and reserved below, so plugins can neither shadow
+	// them nor lose them. read_sketch (Android plan M2) rides EVERY agent, always — practice builds its own (it shares
+	// the conclude gate). A caller-owned registry (opts.tools — the tests') is never touched.
 	if (!opts.tools && !tools.some((t) => t.name === READ_SKETCH_TOOL)) {
 		tools = [...tools, ...Object.values(healToolRecord({ read_sketch: readSketchTool({ known: () => sketchIdsOf(opts.messages ?? []) }) }))];
 	}
 	if (opts.materials) tools = [...tools, ...opts.materials.tools];
 	if (opts.course?.tools) tools = [...tools, ...opts.course.tools];
+	// Bind native read and preserve the kind/model-aware Claude output gate
+	// before resolving additive plugins. Explicit registries remain caller-owned.
+	const builtinTools = [
+		...tools.map((tool) => tool.name === "read" && tool.execute === readTool.execute
+			? { ...tool, execute: createReadTool(engine.model).execute as AgentTool<any>["execute"] }
+			: tool),
+		...(sendToUserApplies(kind, engine.model, opts.tools !== undefined)
+			? [withArgumentHeal(sendToUserTool)]
+			: []),
+	];
+	const contributions = kind !== "placement" && opts.tools === undefined && opts.chatId && opts.pluginContributions
+		? opts.pluginContributions({ chatId: opts.chatId, agent: kind }, [...CONVERSATION_TOOL_NAMES, ...builtinTools.map(tool => tool.name)])
+		: undefined;
+	const questionLedger = contributions?.questionTypes?.length && opts.chatId
+		? new PluginQuestionLedger(contributions.questionTypes, opts.chatId, nodeExists) : undefined;
+	const problemTools = kind === "practice" && practice && opts.chatId
+		? pluginProblemTools(contributions?.problemTypes ?? [], opts.chatId, practice.gate, practice.graphNodes, { courseSkills: practice.courseSkills, difficulty: practice.difficulty }) : [];
+	// Never replace the builtin prompt or tools, or mutate an already-running Agent.
+	const systemPrompt = contributions?.instructions.length
+		? [builtinPrompt, ...contributions.instructions].join("\n\n---\n\n")
+		: builtinPrompt;
+	const agentTools = contributions ? [...builtinTools, ...contributions.tools, ...(questionLedger?.tools ?? []), ...problemTools] : builtinTools;
+	// The force-text step (fork): after the prose gate refuses a question, hide the gated tools for one request, then give
+	// the whole registry back (contributions included, so a plugin's tools are never lost to it).
+	const forceTextUpdate = (turn: PrepareNextTurnContext) => {
+		if (!hasGatedTool(agentTools)) return undefined;
+		const hidden = !hasGatedTool(turn.context.tools);
+		const refused = proseGateRefusedLast(turn.context.messages);
+		if (refused && !hidden) {
+			return { context: { ...turn.context, tools: (turn.context.tools ?? []).filter((t) => !PROSE_GATED_TOOLS.includes(t.name)) } };
+		}
+		if (!refused && hidden) return { context: { ...turn.context, tools: agentTools } };
+		return undefined;
+	};
 	// Debug recorder (owner, 2026-10-04): raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is
 	// the normal no-observer path (tests, env-off).
@@ -316,66 +392,57 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 			systemPrompt,
 			model: engine.model,
 			thinkingLevel: engine.level,
-			// Conditional registry inclusion, like the graph-tool gates: when
-			// closed, neither the tool nor its usage instructions reach the model.
-			// Match Claude across providers (including OpenRouter), not the API
-			// transport. Explicit test registries remain caller-owned.
-			tools: [
-				...tools.map((tool) => tool.name === "read" && tool.execute === readTool.execute
-					? { ...tool, execute: createReadTool(engine.model).execute as AgentTool<any>["execute"] }
-					: tool),
-				...(sendToUserApplies(kind, engine.model, opts.tools !== undefined)
-					? [withArgumentHeal(sendToUserTool)]
-					: []),
-			],
+			tools: agentTools,
 			messages: opts.messages ?? [],
 		},
 		streamFn: engine.streamFn,
 		...(providerEvents ? { onProviderStreamEvent: providerEvents } : {}),
-		// The prose gate (owner, 2026-10-25 — core/prose-gate.ts): the
-		// TEACHER's quiz/explain is refused when nothing visible reached the
-		// learner since his last graded answer; the refusal is an error
-		// result the model retries on, in the same turn. Upstream's narration
-		// guard (v0.5.0: narration-marked thinking is not delivery; paired
-		// hooks track successful output before allowing its question) is
-		// chained after it — either can refuse. Two owner gates ride between
-		// them (2026-11-10): the lead floor (core/lead-floor-gate.ts: a miss
-		// needs a real explanation, not a one-line filler) and the visual gate
-		// (core/visual-gate.ts: a plan that calls for a picture gets it
-		// dispatched before the first teach question).
-		...(kind === "teacher"
-			? (() => {
-					const narration = narrationGuard ? makeNarrationGuard() : undefined;
-					// A refusal cap (owner, 2026-11-10): after GATE_REFUSAL_CAP refusals by one gate in this
-					// run, that gate lets the call through, so a model that keeps failing it cannot loop.
-					// Run-local: the agent is built once per turn.
-					const refuse = makeGateRefusals();
-					return {
-						beforeToolCall: async ({ assistantMessage, toolCall, context }: BeforeToolCallContext, signal?: AbortSignal) =>
+		// All hooks share the SDK's one beforeToolCall, and none overwrites another. In order: the prose gate (owner,
+		// 2026-10-25 — core/prose-gate.ts: the TEACHER's quiz/explain is refused when nothing visible reached the learner
+		// since his last graded answer; the refusal is an error result the model retries on, in the same turn), the lead
+		// floor (owner, 2026-11-10 — core/lead-floor-gate.ts: a miss needs a real explanation, not a one-line filler) and
+		// the visual gate (core/visual-gate.ts: a plan that calls for a picture gets it dispatched before the first teach
+		// question); then upstream's narration guard (narration-marked thinking is not delivery); then the plugin
+		// question ledger's exact-occurrence binding, which never refuses.
+		...(kind === "teacher" || questionLedger || narrationHooks ? (() => {
+			// A refusal cap (owner, 2026-11-10): after GATE_REFUSAL_CAP refusals by one gate in this run, that gate lets
+			// the call through, so a model that keeps failing it cannot loop. Run-local: the agent is built once per turn.
+			const refuse = makeGateRefusals();
+			return {
+				beforeToolCall: async (call: BeforeToolCallContext, signal?: AbortSignal) => {
+					const { assistantMessage, toolCall, context } = call;
+					if (kind === "teacher") {
+						const refused =
 							refuse("prose", proseGateBlocks(context.messages, assistantMessage, toolCall.id, toolCall.name), proseGateReason(toolCall.name))
 							?? refuse("lead-floor", leadFloorBlocks(context.messages, assistantMessage, toolCall.id, toolCall.name), leadFloorReason(toolCall.name))
 							?? refuse(
 								"visual",
 								visualGateBlocks(context.messages, toolCall.name, (context.tools ?? []).map((t) => t.name), assistantMessage, toolCall.id),
 								VISUAL_GATE_REASON,
-							)
-							?? narration?.beforeToolCall?.({ assistantMessage, toolCall, context } as BeforeToolCallContext, signal),
-						...(narration?.afterToolCall ? { afterToolCall: narration.afterToolCall } : {}),
-					};
-				})()
-			: {}),
-		...(afterToolCall ? { afterToolCall } : {}),
+							);
+						if (refused) return refused;
+					}
+					const guarded = await narrationHooks?.beforeToolCall?.(call, signal);
+					if (guarded?.block) return guarded;
+					questionLedger?.validatedCall(call);
+					return undefined;
+				},
+			};
+		})() : {}),
+		// The narration guard's after-hook (teacher) and the practice grader's (practice) never meet on one agent.
+		...(narrationHooks?.afterToolCall ? { afterToolCall: narrationHooks.afterToolCall } : afterToolCall ? { afterToolCall } : {}),
 		// 0.87.1: shouldStopAfterTurn → finishTurn. Same call point (after
 		// tool results attach, before turn_end) and `{ action: "end" }` still
 		// exits BEFORE the steering poll — the parked-marker stranding our
 		// Wave C registerLiveAgent-before-runPiTurn design depends on.
 		// undefined preserves normal scheduling (the old boolean false).
 		finishTurn: (turn) => {
-			if (stopper(turn)) return { action: "end" };
+			// A plugin question's acknowledgment (or a plugin problem's pose) ends the run, like a native question.
+			if (turn.toolResults.some(result => questionLedger?.isAcknowledgment(result) || (kind === "practice" && isPluginProblemPoseAcknowledgment(result))) || stopper(turn)) return { action: "end" };
 			// The forced text-only reply is in: one more request, tools back.
 			if (
 				forceText &&
-				hasGatedTool(tools) &&
+				hasGatedTool(agentTools) &&
 				!hasGatedTool(turn.context.tools) &&
 				turn.message.stopReason === "stop" &&
 				turn.message.content.some((b) => b.type === "text" && b.text.trim().length > 0) &&
@@ -384,20 +451,6 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 				return { action: "continue" };
 			return undefined;
 		},
-		...(forceText
-			? {
-					prepareNextTurnWithContext: (turn: PrepareNextTurnContext) => {
-						if (!hasGatedTool(tools)) return undefined;
-						const hidden = !hasGatedTool(turn.context.tools);
-						const refused = proseGateRefusedLast(turn.context.messages);
-						if (refused && !hidden) {
-							return { context: { ...turn.context, tools: (turn.context.tools ?? []).filter((t) => !PROSE_GATED_TOOLS.includes(t.name)) } };
-						}
-						if (!refused && hidden) return { context: { ...turn.context, tools } };
-						return undefined;
-					},
-				}
-			: {}),
 		// Wave C (2026-09-26, owner correction same day): markers handed to a
 		// live run drain from pi's STEERING queue — the lesson loop is one
 		// continuous teach→quiz→teach run, so delivery must inject at turn
@@ -413,6 +466,14 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 		// an abort's dangling question call gets its INTERRUPTED result. It
 		// must never throw (pi's convertToLlm contract).
 		convertToLlm: (messages) => toLlmMessages(messages, { sketchImage: opts.sketchImages }),
+		// Two sources may change the next request, and neither may silence the other (the later of two spreads would):
+		// the force-text step (fork) and upstream's side-conversation updates (new exchanges appended before the request).
+		...(forceText || opts.contextUpdates ? { prepareNextTurnWithContext: (turn: PrepareNextTurnContext) => {
+			const forced = forceText ? forceTextUpdate(turn) : undefined;
+			const messages = opts.contextUpdates?.((forced?.context ?? turn.context).messages as AgentMessage[]) ?? [];
+			if (!forced && messages.length === 0) return undefined;
+			return { ...(forced ?? {}), ...(messages.length ? { messages } : {}) };
+		} } : {}),
 		prepareRequest: (request) => {
 			if (opts.callPurpose) {
 				let learner = false, automatic = false;
@@ -430,8 +491,14 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 				else if (learner) opts.callPurpose.background = false;
 			}
 			opts.requestCycle?.prepare(request);
+			try { opts.validateContext?.(request.context.messages); }
+			catch (error) {
+				opts.requestCycle?.rejectLocalRequest();
+				throw error;
+			}
 		},
 	});
+	questionLedger?.bind(agent);
 	if (opts.onUsage) {
 		agent.subscribe((event: AgentEvent) => {
 			if (event.type === "message_end" && event.message.role === "assistant" && "usage" in event.message) {
@@ -471,7 +538,9 @@ export function createTeacherAgent(
 	opts: AgentBuildOptions = {},
 ) {
 	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles) : bareQuestionTools());
-	return baseAgentOptions("teacher", opts, Object.values(tools));
+	return baseAgentOptions("teacher", opts, Object.values(tools), ctx
+		? nodeId => ctx.chatStore.getChat(ctx.chatId)?.tree?.nodes.some(node => node.id === nodeId) ?? false
+		: undefined);
 }
 
 /** The bare teach question set (tests, bare agents): quiz with the shared
@@ -517,10 +586,13 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
  * Practice uses ordinary final prose, not the explicit output tool.
  */
 export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOptions = {}) {
-	const tools = opts.tools ?? practiceTools(ctx);
 	// The practice grader (owner, 2026-11-09): a concluded problem's per-skill grades come from a second model, written into the conclude result.
 	const gradeHook = ctx.courseSkills ? practiceGradeHook({ courseSkills: ctx.courseSkills, ...(ctx.difficulty ? { difficulty: ctx.difficulty } : {}) }) : undefined;
-	return baseAgentOptions("practice", opts, Object.values(tools), gradeHook);
+	// Explicit test registries bypass all builtin construction and contributions.
+	if (opts.tools !== undefined) return baseAgentOptions("practice", opts, Object.values(opts.tools), undefined, undefined, gradeHook);
+	const gate = createPracticeGate(ctx);
+	return baseAgentOptions("practice", opts, Object.values(practiceTools(ctx, gate)), undefined,
+		{ gate, graphNodes: ctx.graphNodes, courseSkills: ctx.courseSkills, difficulty: ctx.difficulty }, gradeHook);
 }
 
 /**

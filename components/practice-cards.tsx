@@ -6,6 +6,7 @@ import { SketchReadingBody } from "@/components/artifacts/read-sketch-card";
 import { SketchThumbnail } from "@/components/sketch/sketch-thumbnail";
 import { repairMathForDisplay, type ArtifactPartProps, type Pace, type SketchRef } from "@/src/core";
 import { LearnPaceDialog } from "@/components/learn-pace-dialog";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 /**
  * The practice transcript cards (practice sessions, owner design
@@ -30,6 +31,8 @@ import { useRouter } from "next/navigation";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { ChatActionsContext } from "@/components/chat";
+import { INTERACTION_LAYER_Z_BASE } from "@/components/host-dialog";
+import { useInteractionLayers } from "@/components/interaction-layers";
 
 /* TARGET NAMES (owner round 17, 2026-10-06): targets are normalized to
  * opaque node ids at the record seam (owner round 9 — the mastery trace
@@ -63,6 +66,7 @@ export interface PracticeThinkingData {
 	/** The confidence button pressed with it (a CONFIDENCE_STOPS value), or "I don't know" (owner, 2026-10-28). */
 	confidence?: number;
 	dontKnow?: boolean;
+	images?: readonly Readonly<import("@earendil-works/pi-ai").ImageContent>[];
 }
 
 export function ProblemCard({ part }: ArtifactPartProps) {
@@ -96,13 +100,13 @@ const OUTCOME_LABEL: Record<string, string> = {
  * green (the "correct" twin), solved-with-hints amber (succeeded with
  * cost), surrendered red (the problem beat the learner), moved on muted
  * (the agent's call, not a verdict against him). */
-const OUTCOME_CHIP: Record<string, string> = {
-	solved: "bg-green-500/15 text-green-500",
-	solvedWithHints: "bg-amber-500/15 text-amber-500",
-	movedOn: "bg-muted text-muted-foreground",
-	surrendered: "bg-red-500/15 text-red-500",
-	taught: "bg-sky-500/15 text-sky-500",
-	dismissed: "bg-muted text-muted-foreground",
+const OUTCOME_COLOR: Record<string, string | undefined> = {
+	solved: "var(--lh-success)",
+	solvedWithHints: "var(--lh-warning)",
+	surrendered: "var(--lh-error)",
+	// The fork's two extra outcomes: a concept taught instead of a problem posed (sky), and a dismissed problem (muted).
+	taught: "oklch(0.685 0.169 237.323)",
+	dismissed: undefined,
 };
 
 export function ConcludeCard({ part }: ArtifactPartProps) {
@@ -140,9 +144,7 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 			<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				Concluded
 				{(OUTCOME_LABEL[outcome] ?? "") !== "" && outcome !== "dismissed" && (
-					<span className={cn("rounded px-1.5 py-0.5", OUTCOME_CHIP[outcome] ?? OUTCOME_CHIP.movedOn)}>
-						{OUTCOME_LABEL[outcome]}
-					</span>
+					<StatusBadge text={OUTCOME_LABEL[outcome] ?? ""} color={OUTCOME_COLOR[outcome]} />
 				)}
 			</div>
 			{/* The verdict — plain prose under the heading, no 'Verdict:' label
@@ -309,6 +311,8 @@ function MetadataPopover({
 	const [open, setOpen] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement | null>(null);
 	const rootRef = useRef<HTMLDivElement | null>(null);
+	const panelRef = useRef<HTMLDivElement | null>(null);
+	const interactions = useInteractionLayers();
 	// The portal's anchor (owner fix, 2026-10-06): the box is placed from
 	// the trigger's viewport rect AT OPEN TIME — any scroll closes the
 	// box, so there is nothing to track.
@@ -329,15 +333,15 @@ function MetadataPopover({
 		};
 	}, [open, targets.length, names]);
 
-	usePopoverDismiss(rootRef, open, () => setOpen(false));
+	const popupLayer = usePopoverDismiss(rootRef, open, () => setOpen(false), { layerRootRef: panelRef });
 	// ANY scroll closes it (owner law): capture-phase, so every scroller
 	// in the tree counts — the transcript's own scroll included.
 	useEffect(() => {
 		if (!open) return;
-		const close = () => setOpen(false);
+		const close = () => { if (interactions.isElementEligible(panelRef.current)) setOpen(false); };
 		window.addEventListener("scroll", close, { capture: true, passive: true });
 		return () => window.removeEventListener("scroll", close, { capture: true });
-	}, [open]);
+	}, [open, interactions]);
 
 	const mode = typeof problemInput.mode === "string" ? problemInput.mode : "";
 	const rung = typeof concludeInput.rung === "string" ? concludeInput.rung : "";
@@ -374,6 +378,7 @@ function MetadataPopover({
 				anchor &&
 				createPortal(
 					<div
+						ref={panelRef}
 						data-testid="metadata-box"
 						// PORTALED TO BODY (owner fix, 2026-10-06): the transcript's
 						// MessageContent boxes carry overflow-hidden — an absolutely
@@ -382,8 +387,8 @@ function MetadataPopover({
 						// EVERYTHING, the dialogs' law. Node-card info-box register;
 						// opening BELOW the trigger — always.
 						// capped to the room below the trigger (owner goal 2026-10-28: nothing off the screen): it scrolls inside instead
-						style={{ position: "fixed", top: anchor.top, left: anchor.left, maxHeight: `max(6rem, calc(100dvh - ${anchor.top}px - 8px))`, overflowY: "auto" }}
-						className="z-50 w-80 max-w-[calc(100vw-1rem)] rounded-xl border bg-card p-4 text-left shadow-lg"
+						style={{ position: "fixed", top: anchor.top, left: anchor.left, maxHeight: `max(6rem, calc(100dvh - ${anchor.top}px - 8px))`, overflowY: "auto", zIndex: INTERACTION_LAYER_Z_BASE + popupLayer.order }}
+						className="w-80 max-w-[calc(100vw-1rem)] rounded-xl border bg-card p-4 text-left shadow-lg"
 					>
 				<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
 						<dt className="text-muted-foreground">Mode</dt>
@@ -413,7 +418,7 @@ function MetadataPopover({
 						<dd className="font-mono">{retest === undefined ? "—" : retest ? "yes" : "no"}</dd>
 					</dl>
 					</div>,
-					document.body,
+					interactions.getPortalContainer(triggerRef.current)!,
 				)}
 		</div>
 	);
@@ -425,7 +430,7 @@ export function ThinkingCard({ data, chatId, reading }: { data: PracticeThinking
 	// deliberately unread (one lane now). A TRANSCRIPT row (owner round,
 	// 2026-10-07): full-width band + rail, arriving expanded.
 	const label = data.dontKnow ? "YOUR THINKING · I DON'T KNOW" : data.confidence !== undefined ? `YOUR THINKING · ${data.confidence}%` : "YOUR THINKING";
-	const block = data.text.trim() ? <ThinkingBlock testId="thinking-card" label={label} text={data.text} defaultOpen /> : null;
+	const block = data.text.trim() || data.images?.length ? <ThinkingBlock testId="thinking-card" label={label} text={data.text} images={data.images} defaultOpen /> : null;
 	if (!data.sketch || !chatId) return block;
 	// A sketch submission (Android plan M1): the page under the words —
 	// or alone, when the learner only drew.

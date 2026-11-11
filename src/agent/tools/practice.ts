@@ -15,6 +15,7 @@
  */
 
 import { Type, type Static } from "typebox";
+import { practiceProblemInputSchema } from "../../core/practice-problems.ts";
 import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import { resolveTargetId } from "../../core/chains.ts";
 import { readTool } from "./read.ts";
@@ -99,28 +100,7 @@ export function createPracticeGate(ctx: PracticeToolContext): PracticeGate {
 
 // ─── problem: the pose ───────────────────────────────────────────────────────
 
-export const problemInputObject = Type.Object({
-	statement: Type.String({
-		description:
-			"REQUIRED — the problem as the learner sees it (markdown + LaTeX). Must be self-contained and " +
-			"solvable from the session's material. NEVER announces the target proposition.",
-	}),
-	mode: Type.Union([Type.Literal("recall"), Type.Literal("discrimination"), Type.Literal("composition")], {
-		description: "REQUIRED — the demand mode: recall, discrimination, or composition (bare words, no quotes).",
-	}),
-	target: Type.Optional(
-		Type.Array(Type.String(), {
-			minItems: 1,
-			description:
-				"The proposition id(s) this problem exercises, from the session context's [id] list — include when " +
-				"the material is in the map; OMIT entirely when it is not (a topic session poses untagged problems). " +
-				"Names are normalized to ids at the seam; an unknown proposition is rejected.",
-		}),
-	),
-	modelSolution: Type.String({
-		description: "REQUIRED — the full solution, moves in order, committed BEFORE the learner sees the problem. This IS the reveal — conclude shows it verbatim; never re-author it.",
-	}),
-});
+export const problemInputObject = practiceProblemInputSchema;
 
 export type ProblemInput = Static<typeof problemInputObject>;
 
@@ -187,57 +167,7 @@ export function problemTool(
 			return { ...(healed as Record<string, unknown>), target: normalized } as never;
 		},
 		execute: async (_toolCallId, input) => {
-			if (gate.problemActive) {
-				return invalidInputResult("problem", [
-					"a problem is already active — call conclude on it before posing the next one",
-				]);
-			}
-			// SKILL VALIDATION (course sessions): every tag must be one of
-			// the session's skills — the boxes fold over exactly these.
-			if (courseSkills) {
-				const tags = (input as { skills?: unknown }).skills;
-				const list = courseSkills();
-				const unknown = Array.isArray(tags) ? tags.filter((t) => typeof t !== "string" || resolveSkillId(t, list) === null) : [];
-				if (!Array.isArray(tags) || tags.length === 0) {
-					return invalidInputResult("problem", ["skills is required in a course session — tag the skill id(s) this problem tests"]);
-				}
-				if (unknown.length > 0) {
-					return invalidInputResult("problem", [
-						`skills ${JSON.stringify(unknown)} are not this session's skills — use ids from the session context's skill list: ${list.map((s) => s.id).join(", ")}`,
-					]);
-				}
-				// DIFFICULTY (fork addition, 2026-11-07): the level caps how many skills one problem tests.
-				if (difficulty && Array.isArray(tags) && tags.length > maxSkillsFor(difficulty)) {
-					return invalidInputResult("problem", [
-						`this session's difficulty is ${difficultyInfo(difficulty).label}: tag at most ${maxSkillsFor(difficulty)} skill(s) per problem (you tagged ${tags.length}) — pose a smaller problem that tests fewer skills, or tag only the skills it genuinely requires`,
-					]);
-				}
-			}
-			// TARGET VALIDATION (owner round 9, round 12): against the WHOLE
-			// graph, and ONLY when targets are present — absent means an
-			// untagged problem (topic sessions, owner round 12), which poses
-			// freely. A one-line rejection — the proposition list already
-			// sits in the agent's context (the [id] marker); no re-listing.
-			// The message teaches the exit: omitting always works.
-			if (graphNodes && input.target && input.target.length > 0) {
-				const list = graphNodes();
-				const unknown = input.target.filter((t) => resolveTargetId(t, list) === null);
-				if (unknown.length > 0) {
-					return invalidInputResult("problem", [
-						`target ${JSON.stringify(unknown)} is not a known proposition — targets must be proposition ids from the session context; if the material is not in the map, omit target entirely`,
-					]);
-				}
-			}
-			// FIGURES (owner, 2026-10-26): every ```plot / ```blocks in the
-			// statement or solution parses before the learner sees it — each
-			// field on its own (they render as separate cards).
-			const figures = figureInputProblems(input, { perField: true });
-			if (figures.length > 0) return invalidInputResult("problem", figures);
-			gate.problemActive = true;
-			const posed = (input as { skills?: unknown }).skills;
-			gate.skills = Array.isArray(posed) ? posed.filter((s): s is string => typeof s === "string") : [];
-			gate.sketch = null; // a fresh problem starts with no sketch
-			return problemResult();
+			return admitPracticeProblem(gate, input, graphNodes, "problem", { courseSkills, difficulty }) ?? problemResult();
 		},
 	};
 }
@@ -252,6 +182,68 @@ function withSkillIds(healed: unknown, courseSkills: PracticeToolContext["course
 	const list = courseSkills();
 	const normalized = [...new Set(skills.map((s) => (typeof s === "string" ? (resolveSkillId(s, list) ?? s) : s)))];
 	return { ...(healed as Record<string, unknown>), skills: normalized };
+}
+
+/** What an admission needs beyond the gate: the session's skills and difficulty (fork), read per pose. */
+export interface PracticeAdmissionContext {
+	courseSkills?: PracticeToolContext["courseSkills"];
+	difficulty?: PracticeToolContext["difficulty"];
+	/** A native `problem` call must tag its skills in a course session. A plugin-posed problem carries whatever its own
+	 *  schema defines: skills are validated when present and not demanded when absent. */
+	requireSkills?: boolean;
+}
+
+/**
+ * One synchronous admission for native AND plugin poses; no await can split the gate. Every posed problem passes the
+ * same checks: the gate, the session's skill tags and difficulty cap (fork), the target ids, and the figures.
+ */
+export function admitPracticeProblem(
+	gate: PracticeGate,
+	input: { target?: string[]; skills?: unknown },
+	graphNodes?: PracticeToolContext["graphNodes"],
+	toolName = "problem",
+	admission: PracticeAdmissionContext = {},
+) {
+	const { courseSkills, difficulty, requireSkills = true } = admission;
+	if (gate.problemActive) return invalidInputResult(toolName, ["a problem is already active — call conclude on it before posing the next one"]);
+	// SKILL VALIDATION (course sessions): every tag must be one of the session's skills — the boxes fold over exactly these.
+	if (courseSkills) {
+		const tags = input.skills;
+		const list = courseSkills();
+		if (tags !== undefined || requireSkills) {
+			const unknown = Array.isArray(tags) ? tags.filter((t) => typeof t !== "string" || resolveSkillId(t, list) === null) : [];
+			if (!Array.isArray(tags) || tags.length === 0) {
+				return invalidInputResult(toolName, ["skills is required in a course session — tag the skill id(s) this problem tests"]);
+			}
+			if (unknown.length > 0) {
+				return invalidInputResult(toolName, [
+					`skills ${JSON.stringify(unknown)} are not this session's skills — use ids from the session context's skill list: ${list.map((s) => s.id).join(", ")}`,
+				]);
+			}
+			// DIFFICULTY (fork addition, 2026-11-07): the level caps how many skills one problem tests.
+			if (difficulty && tags.length > maxSkillsFor(difficulty)) {
+				return invalidInputResult(toolName, [
+					`this session's difficulty is ${difficultyInfo(difficulty).label}: tag at most ${maxSkillsFor(difficulty)} skill(s) per problem (you tagged ${tags.length}) — pose a smaller problem that tests fewer skills, or tag only the skills it genuinely requires`,
+				]);
+			}
+		}
+	}
+	// TARGET VALIDATION (owner round 9, round 12): against the WHOLE graph, and ONLY when targets are present — absent
+	// means an untagged problem (topic sessions), which poses freely. A one-line rejection: the proposition list already
+	// sits in the agent's context (the [id] marker); the message teaches the exit: omitting always works.
+	if (graphNodes && input.target?.length) {
+		const list = graphNodes();
+		const unknown = input.target.filter((target) => resolveTargetId(target, list) === null);
+		if (unknown.length) return invalidInputResult(toolName, [`target ${JSON.stringify(unknown)} is not a known proposition — targets must be proposition ids from the session context; if the material is not in the map, omit target entirely`]);
+	}
+	// FIGURES (owner, 2026-10-26): every ```plot / ```blocks in the statement or solution parses before the learner sees it —
+	// each field on its own (they render as separate cards).
+	const figures = figureInputProblems(input, { perField: true });
+	if (figures.length > 0) return invalidInputResult(toolName, figures);
+	gate.problemActive = true;
+	gate.skills = Array.isArray(input.skills) ? input.skills.filter((s): s is string => typeof s === "string") : [];
+	gate.sketch = null; // a fresh problem starts with no sketch
+	return undefined;
 }
 
 // ─── conclude: the end of a problem ──────────────────────────────────────────
@@ -334,9 +326,8 @@ export function concludeTool(gate: PracticeGate): AgentTool<typeof concludeInput
 }
 
 /** The practice toolset (the practice agent's whole registry). */
-export function practiceTools(ctx: PracticeToolContext): Record<string, AgentTool<any>> {
-	// ONE gate per turn, shared by both tools — the intra-turn truth.
-	const gate = createPracticeGate(ctx);
+export function practiceTools(ctx: PracticeToolContext, gate: PracticeGate = createPracticeGate(ctx)): Record<string, AgentTool<any>> {
+	// ONE gate per turn, shared by native/plugin poses and conclude.
 	// THE RARELY-NEEDED SET (owner round 10): read/ls/find/grep over the
 	// learner's files (always — the same read-only set the teacher and
 	// prober carry), the research + pdf jobs (available without search

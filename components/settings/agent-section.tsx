@@ -52,10 +52,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useBackLayer } from "../back-layers.ts";
 import type { CacheRetention } from "@earendil-works/pi-ai";
 import { CacheRetentionMenu, cacheRetentionLabel } from "./cache-retention-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
+import { useInteractionLayers } from "@/components/interaction-layers";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { defaultOrderLevel, populateLevel } from "@/components/thinking-default";
 import { useModelCatalog } from "@/components/model-catalog";
@@ -176,6 +176,37 @@ export function composeAddFolder(agent: AgentSettings | undefined, folder: strin
 /** Removing the last folder NEVER changes the restriction switch. */
 export function composeRemoveFolder(agent: AgentSettings | undefined, folder: string): AgentSettings {
 	return { ...agent, fileAccess: { restricted: agent?.fileAccess?.restricted ?? false, folders: (agent?.fileAccess?.folders ?? []).filter((f) => f !== folder) } };
+}
+
+/** Parse the numeric draft and compose the WHOLE agent section. Empty
+ *  removes the override; invalid input never writes, rounds, or clamps.
+ *  Pure — exported for tests. */
+export function composeWorkerRequestConcurrency(
+	agent: AgentSettings | undefined,
+	value: string,
+): { ok: true; settings: AgentSettings } | { ok: false; error: string } {
+	const next = { ...agent };
+	const draft = value.trim();
+	if (draft === "") {
+		delete next.workerRequestConcurrency;
+		return { ok: true, settings: next };
+	}
+	const invalid = { ok: false as const, error: "Enter a positive, safely representable whole number." };
+	const concurrency = Number(draft);
+	if (!Number.isSafeInteger(concurrency) || concurrency <= 0) return invalid;
+	// Preserve native decimal/exponent syntax, but check fractional digits
+	// BEFORE accepting Number's result: e.g. 8.0000000000000001 rounds to 8.
+	// Trailing coefficient zeroes cancel negative decimal places exactly;
+	// this needs no arbitrary-precision arithmetic or unbounded powers.
+	const decimal = draft.match(/^\+?(\d+(?:\.\d*)?|\.\d+)(?:e([+-]?\d+))?$/i);
+	if (!decimal) return invalid;
+	const mantissa = decimal[1]!;
+	const fractionalPlaces = mantissa.split(".")[1]?.length ?? 0;
+	const coefficient = mantissa.replace(".", "");
+	const trailingZeroes = coefficient.length - coefficient.replace(/0+$/, "").length;
+	if (Number(decimal[2] ?? 0) - fractionalPlaces + trailingZeroes < 0) return invalid;
+	next.workerRequestConcurrency = concurrency;
+	return { ok: true, settings: next };
 }
 
 /** The quizzing mechanics (owner 2026-09-27): a segmented control, not a
@@ -376,11 +407,11 @@ export function AgentSection({
 	 *  behavior, not an agent-section key; owner round 14, Agent tab). */
 	compaction: CompactionSettings | undefined;
 	/** Writes the composed WHOLE agent section (replace-PUT discipline). */
-	onSectionChange: (next: AgentSettings) => void;
+	onSectionChange: (next: AgentSettings) => boolean | Promise<boolean>;
 	/** Writes the composed models section (slots — replace-PUT discipline). */
 	onModelsChange: (next: ModelsSettings) => void;
 	/** Writes the whole compaction section (replace-PUT discipline). */
-	onCompactionChange: (next: CompactionSettings) => void;
+	onCompactionChange: (next: CompactionSettings) => boolean | Promise<boolean>;
 	/** Apply the Claude-subscription preset (fork addition): resolves to an
 	 *  error message, or null once the dialog holds the new record. */
 	onApplyClaudePreset?: () => Promise<string | null>;
@@ -406,7 +437,9 @@ export function AgentSection({
 	 *  row), which kind. */
 	const [openMenu, setOpenMenu] = useState<{ target: ModelSlotName | BackgroundModelRole | "search"; kind: "model" | "thinking" | "engine" | "cache" } | null>(null);
 	const [advancedModels, setAdvancedModels] = useState(false);
+	const [workerConcurrencyError, setWorkerConcurrencyError] = useState<string | null>(null);
 	const menuAnchorRef = useRef<HTMLSpanElement>(null);
+	const interactions = useInteractionLayers();
 
 	const refreshSearch = () =>
 		fetch("/api/search")
@@ -472,6 +505,8 @@ export function AgentSection({
 	useEffect(() => {
 		if (openMenu === null) return;
 		const onPointerDown = (e: PointerEvent) => {
+			const testid = openMenu.target === "search" ? "search-engine-menu" : `slot-${openMenu.kind}-menu-${openMenu.target}`;
+			if (!interactions.isElementEligible(document.querySelector<HTMLElement>(`[data-testid="${testid}"]`))) return;
 			const target = e.target as Node;
 			if (menuAnchorRef.current?.contains(target)) return;
 			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
@@ -480,20 +515,9 @@ export function AgentSection({
 			}
 			// else: outside the dialog — the dialog's own close handles it.
 		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.stopPropagation();
-				setOpenMenu(null);
-			}
-		};
 		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
-	}, [openMenu]);
-	useBackLayer(openMenu !== null, () => setOpenMenu(null));
+		return () => document.removeEventListener("pointerdown", onPointerDown);
+	}, [openMenu, interactions]);
 
 	async function saveSegment(path: string, text: string) {
 		setSegmentStatus(null);
@@ -646,7 +670,7 @@ export function AgentSection({
 								<button
 									type="button"
 									onClick={() => void deleteSegment(info.path)}
-									className="text-xs text-muted-foreground/70 underline-offset-2 hover:text-red-500 hover:underline"
+									className="text-xs text-muted-foreground/70 underline-offset-2 hover:text-error hover:underline"
 								>
 									Delete
 								</button>
@@ -674,6 +698,7 @@ export function AgentSection({
 	// Resolved through the SAME core resolver the server's effective
 	// settings use (the GraphSection precedent): the hint and placeholder
 	// report exactly the number the trigger waits for.
+	const resolvedAgent = resolveSettings(agent === undefined ? null : { version: 1, agent }).agent;
 	const resolvedCompaction = resolveSettings(
 		compaction === undefined ? null : { version: 1, compaction },
 	).compaction;
@@ -708,7 +733,7 @@ export function AgentSection({
 					onClick={() => { setAdvancedModels(!advancedModels); setOpenMenu(null); }}
 					className="lh-touch mb-1 self-start text-xs text-muted-foreground hover:text-foreground"
 				>{advancedModels ? "Hide advanced settings" : "Show advanced settings"}</button>
-				{catalogFailed && <p role="alert" className="text-xs text-red-400">Model catalog could not be loaded. Check the connection and retry. <button type="button" className="underline" onClick={refreshCatalog}>Retry</button></p>}
+				{catalogFailed && <p role="alert" className="text-xs text-error">Model catalog could not be loaded. Check the connection and retry. <button type="button" className="underline" onClick={refreshCatalog}>Retry</button></p>}
 				{MODEL_SLOTS.map((slot) => {
 					const override = models?.[slot];
 					const modelId = override?.model?.id ?? "";
@@ -739,12 +764,6 @@ export function AgentSection({
 							<span
 								ref={thisMenuOpen ? menuAnchorRef : undefined}
 								className={`relative flex items-center gap-2 ${advancedModels ? "shrink-0" : ""}`}
-								onKeyDown={(event) => {
-									// Portal events bubble here too: close this menu, not the dialog.
-									if (thisMenuOpen === "cache" && event.key === "Escape") {
-										event.preventDefault(); event.stopPropagation(); setOpenMenu(null);
-									}
-								}}
 							>
 								{slot !== "strong" && <><ChatGPTBackgroundAccess provider={coord?.provider} /><NativeSubscriptionBackgroundAccess provider={coord?.provider} /></>}
 								<MenuTrigger
@@ -783,6 +802,7 @@ export function AgentSection({
 									preferredSide="down"
 									anchorTestid={`slot-cache-${slot}`}
 									testid={`slot-cache-menu-${slot}`}
+									onClose={() => { setOpenMenu(null); return "closed"; }}
 									menuClass="flex w-80 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 								>
 									<CacheRetentionMenu value={override?.cacheRetention} onPick={(value) => {
@@ -795,6 +815,7 @@ export function AgentSection({
 										preferredSide="down"
 											anchorTestid={`slot-model-${slot}`}
 										testid={`slot-model-menu-${slot}`}
+										onClose={() => { setOpenMenu(null); return "closed"; }}
 										menuClass="flex w-[22rem] flex-col rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 									>
 										<ModelMenuList
@@ -823,6 +844,7 @@ export function AgentSection({
 										preferredSide="down"
 											anchorTestid={`slot-thinking-${slot}`}
 										testid={`slot-thinking-menu-${slot}`}
+										onClose={() => { setOpenMenu(null); return "closed"; }}
 										menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 									>
 										<ThinkingMenuList
@@ -841,6 +863,40 @@ export function AgentSection({
 						</SettingsRow>
 					);
 				})}
+				<SettingsRow
+					label="Concurrent worker requests"
+					hint="Maximum simultaneous background-worker model requests. Direct conversations are not limited."
+					testid="worker-request-concurrency-row"
+				>
+					<div
+						className="flex flex-col items-end gap-1"
+						onChangeCapture={() => setWorkerConcurrencyError(null)}
+						onBlurCapture={(event) => {
+							// Browsers expose incomplete numeric input (e.g. "1e")
+							// as an empty value. It is INVALID, not a blank reset.
+							if (event.target instanceof HTMLInputElement && event.target.validity.badInput) {
+								event.stopPropagation();
+								setWorkerConcurrencyError("Enter a positive, safely representable whole number.");
+							}
+						}}
+					>
+						<CommitInput
+							type="number"
+							min={1}
+							step={1}
+							value={String(agent?.workerRequestConcurrency ?? "")}
+							placeholder={String(resolvedAgent.workerRequestConcurrency)}
+							ariaLabel="Concurrent worker requests"
+							testid="input-worker-request-concurrency"
+							onCommit={(value) => {
+								const next = composeWorkerRequestConcurrency(agent, value);
+								setWorkerConcurrencyError(next.ok ? null : next.error);
+								return next.ok ? onSectionChange(next.settings) : false;
+							}}
+						/>
+						{workerConcurrencyError && <p role="alert" className="text-xs text-error">{workerConcurrencyError}</p>}
+					</div>
+				</SettingsRow>
 			</SettingsGroup>
 
 			{/* Per-role models (fork addition): each role on its own model, or
@@ -1038,7 +1094,7 @@ export function AgentSection({
 									<Toggle checked={restricted} label="Restrict to listed folders" onChange={(on) => onSectionChange(composeFileRestriction(effectiveAgent, on))} />
 								</div>
 							</SettingsRow>
-							{fileAccessError && <p role="alert" data-testid="file-access-config-error" className="text-xs text-red-500">{fileAccessError}</p>}
+							{fileAccessError && <p role="alert" data-testid="file-access-config-error" className="text-xs text-error">{fileAccessError}</p>}
 							<div className="flex gap-2 pl-3">
 								<input value={folderInput} aria-label="Allowed folder path" data-testid="file-access-add" placeholder="Absolute path or ~/folder"
 									onChange={(event) => { setFolderInput(event.target.value); setFolderError(null); }}
@@ -1046,7 +1102,7 @@ export function AgentSection({
 									className="min-w-0 flex-1 rounded-sm border border-border bg-background px-2 py-1 font-ui text-xs" />
 								<button type="button" data-testid="file-access-add-button" disabled={!folderInput.trim()} onClick={addFolder} className="rounded-sm border border-border px-2 text-xs disabled:opacity-40">Add folder</button>
 							</div>
-							{folderError && <p role="alert" data-testid="file-access-input-error" className="pl-3 text-xs text-red-500">{folderError}</p>}
+							{folderError && <p role="alert" data-testid="file-access-input-error" className="pl-3 text-xs text-error">{folderError}</p>}
 							{folders.map((folder) => (
 								<div key={folder} data-testid="file-access-folder" className="flex items-center justify-between gap-4 pl-3 text-xs">
 									<span title={folder} className="min-w-0 truncate font-ui text-muted-foreground">{folder}</span>
@@ -1085,6 +1141,7 @@ export function AgentSection({
 										preferredSide="down"
 											anchorTestid="search-engine-trigger"
 										testid="search-engine-menu"
+										onClose={() => { setOpenMenu(null); return "closed"; }}
 										menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
 									>
 										{engineOption("auto", "Automatic", engine === null, null, () => {
@@ -1121,19 +1178,29 @@ export function AgentSection({
 							// Empty = factory default (the budget row's discipline):
 							// absence is the unset for numbers.
 							if (v === "") {
-								onCompactionChange({ ...compaction, thresholdTokens: undefined });
-								return;
+								return onCompactionChange({ ...compaction, thresholdTokens: undefined });
 							}
 							const n = Number(v);
-							if (!Number.isFinite(n) || n <= 0) return; // bad input: no write
+							if (!Number.isFinite(n) || n <= 0) return false; // bad input: no write
 							// Mirror the server floor (anti-churn: each compaction
 							// keeps a ~20k-token tail); no ceiling — the effective
 							// trigger is min(threshold, contextWindow − 16k) anyway.
-							onCompactionChange({
+							return onCompactionChange({
 								...compaction,
 								thresholdTokens: Math.max(COMPACTION_THRESHOLD_FLOOR, Math.round(n)),
 							});
 						}}
+					/>
+				</SettingsRow>
+				<SettingsRow
+					label="Include reasoning in token estimates (OpenAI Responses only)"
+					hint="Use saved output-token usage to account for replayed reasoning on matching OpenAI Responses models. Off uses the original text-based estimate."
+					testid="compaction-row-reasoning"
+				>
+					<Toggle
+						label="Include reasoning in token estimates (OpenAI Responses only)"
+						checked={resolvedCompaction.includeReasoning}
+						onChange={(includeReasoning) => onCompactionChange({ ...compaction, includeReasoning })}
 					/>
 				</SettingsRow>
 			</SettingsGroup>

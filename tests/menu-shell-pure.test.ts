@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { computeMenuPlacement, type MenuSide } from "../components/menu-shell.tsx";
+import { computeMenuPlacement, menuAnchorRect, type MenuSide } from "../components/menu-shell.tsx";
 
 /**
  * The shared menu shell's placement decision (fix wave chunk B): the
@@ -137,5 +137,18 @@ describe("computeMenuPlacement — the system bars", () => {
 		const a = computeMenuPlacement(rect(500, 540), viewport(800), 100, "down", "right");
 		const b = computeMenuPlacement(rect(500, 540), viewport(800), 100, "down", "right", 0, { top: 0, bottom: 0 });
 		assert.deepEqual(a, b);
+	});
+});
+
+describe("menuAnchorRect — the anchor seam", () => {
+	const doc = { querySelector: () => ({ getBoundingClientRect: () => ({ top: 1, bottom: 2, left: 3, right: 4 }) }) } as unknown as Pick<Document, "querySelector">;
+	it("prefers a virtual anchor rect when it yields one", () => {
+		assert.deepEqual(menuAnchorRect({ getAnchorRect: () => ({ top: 10, bottom: 20, left: 30, right: 40 }), anchorTestid: "x" }, doc), { top: 10, bottom: 20, left: 30, right: 40 });
+	});
+	it("falls back to the element seam when the virtual anchor is gone", () => {
+		assert.deepEqual(menuAnchorRect({ getAnchorRect: () => null, anchorTestid: "x" }, doc), { top: 1, bottom: 2, left: 3, right: 4 });
+	});
+	it("is null with no anchor at all", () => {
+		assert.equal(menuAnchorRect({}, doc), null);
 	});
 });

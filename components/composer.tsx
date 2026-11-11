@@ -8,6 +8,8 @@ import { enterSends } from "@/components/enter-submits";
 import { useServerReachable } from "@/components/server-events";
 import { PathInput } from "@/components/path-input";
 import { AttachFilesButton } from "@/components/attach-files-button";
+import { useOptionalInteractionLayers } from "./interaction-layers";
+import { isInteractionScopeEligible } from "./plugin-input-focus";
 
 /**
  * The chat composer — content row ONLY (the persistent rounded shell lives in
@@ -64,6 +66,7 @@ export function ChatSessionComposer({
 	planContinue,
 	onPlanContinue,
 	edge,
+	pendingInput = false,
 }: {
 	busy: boolean;
 	value: string;
@@ -84,12 +87,14 @@ export function ChatSessionComposer({
 	onPlanContinue?: () => void;
 	/** The fork's composer edge (see Composer). */
 	edge?: { chatId?: string; mic?: React.ReactNode };
+	/** A plugin adapter has input waiting (images): an empty draft may still be sent. */
+	pendingInput?: boolean;
 }) {
 	const [draft, setDraft] = useState(value);
 	useLayoutEffect(() => { setDraft(value); }, [revision, value]);
 	// Send waits while the server is not reachable (it is starting again after the Android app rested it): the text can be typed meanwhile.
 	const reachable = useServerReachable();
-	const canSend = reachable && sendAllowed && (draft.trim().length > 0 || dictationActive);
+	const canSend = reachable && sendAllowed && (draft.trim().length > 0 || dictationActive || pendingInput);
 	const applyDraft = useCallback((next: string) => {
 		setDraft(next);
 		onChange(next);
@@ -132,6 +137,8 @@ export function Composer({
 	planContinue = false,
 	onPlanContinue,
 	edge,
+	defaultDropTarget = true,
+	fileInsertion = true,
 }: {
 	busy: boolean;
 	value: string;
@@ -165,7 +172,11 @@ export function Composer({
 	 *  present → the textarea takes the full width and the edge row below
 	 *  it carries sources, language, the mic, and the send button. */
 	edge?: { chatId?: string; mic?: React.ReactNode };
+	/** Neutral plugin composers opt out without changing core defaults. */
+	defaultDropTarget?: boolean;
+	fileInsertion?: boolean;
 }) {
+	const controller = useOptionalInteractionLayers();
 	const act = () => {
 		const action = enterAction({ busy, canSend, nextProblem });
 		if (action === "stop") onStop();
@@ -179,7 +190,7 @@ export function Composer({
 			data-testid="plan-continue-button"
 			aria-label="Continue"
 			onClick={() => onPlanContinue?.()}
-			className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-green-600 px-4 font-ui text-xs font-medium uppercase tracking-wide text-white transition-colors hover:bg-green-500"
+			className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-success px-4 font-ui text-xs font-medium uppercase tracking-wide text-background transition-colors hover:bg-success/85"
 		>
 			Continue
 			<ArrowRightIcon className="size-4" />
@@ -189,7 +200,7 @@ export function Composer({
 			type="submit"
 			data-testid="next-problem-button"
 			aria-label="Next problem"
-			className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-green-600 px-4 font-ui text-xs font-medium uppercase tracking-wide text-white transition-colors hover:bg-green-500"
+			className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-success px-4 font-ui text-xs font-medium uppercase tracking-wide text-background transition-colors hover:bg-success/85"
 		>
 			Next problem
 			<ArrowRightIcon className="size-4" />
@@ -228,13 +239,16 @@ export function Composer({
 				ref={editorRef}
 				value={value}
 				onValueChange={onChange}
-				defaultDropTarget
+				defaultDropTarget={defaultDropTarget}
+				fileInsertion={fileInsertion}
 				onKeyDown={(e) => {
+					if (!isInteractionScopeEligible(e.currentTarget, controller)) return;
 					// Esc ends dictation before anything else Esc might someday mean
 					// here (the dictate decisions: click-again or Esc to stop).
 					// stopPropagation claims the Esc (keyboard wave A): the
 					// window-level chain must not also abort a turn under us.
 					if (e.key === "Escape" && onEscape) {
+						controller?.claimEscape(e);
 						e.preventDefault();
 						e.stopPropagation();
 						onEscape();
@@ -268,7 +282,7 @@ export function Composer({
 				 a wide green NEXT PROBLEM — the affordance IS the button
 				 (click and Enter share one lane), and typing anything
 				 returns the regular send. The green is the app's correct-
-				 answer register (answered-card's green-500/600). */}
+				 answer register (answered-card's success token). */}
 				{edge ? <ComposerEdge chatId={edge.chatId} mic={edge.mic} trailing={submit} leading={<AttachFilesButton editorRef={editorRef} edge />} /> : <><AttachFilesButton editorRef={editorRef} />{submit}</>}
 		</form>
 	);
