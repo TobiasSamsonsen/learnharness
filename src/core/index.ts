@@ -73,6 +73,9 @@ export * from "./language.ts";
 export * from "./pace.ts";
 // Problem difficulty (fork addition, 2026-11-07).
 export * from "./difficulty.ts";
+// Learner profile: stored shape and caps (fork addition, 2026-11-11).
+export * from "./learner.ts";
+export * from "./learner-fold.ts";
 // Live dictation piece sizing (fork addition, 2026-10-26 — the Android plan M7b).
 export * from "./dictation-pieces.ts";
 // Upstream release notices (fork addition, 2026-10-24).

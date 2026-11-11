@@ -39,7 +39,7 @@ Repo paths mirror the data dir. Scope is `syncScope` in `src/core/sync-plan.ts`.
 | `courses/*.json` | held back while `status` is `drafting` |
 | `graph/{nodes,chains,skills,coverage}.jsonl`, `positions.json`, `render-settings.json`, `format.json` | not `sources.json`, `source-organization.json`, `sessions.jsonl`: their ids hash a device-local file path (owner) |
 | `sketches/<chat>/<sk>/strokes.json` and `N.svg` | a drawn page's `N.png` is a render of its SVG and does not travel; a photo sketch's does (owner). A synced sketch's PNG is re-rendered on first use (`ensureSketchPngs`) |
-| `settings.json`, portable part only | `models`, `agent`, `graph`, `compaction`, `general.language/pace`. Custom provider, Claude Code, dictation, appearance, notices and unknown keys stay on the device (owner) |
+| `settings.json`, portable part only | `models`, `agent`, `graph`, `compaction`, `learner` (the note and the applied claims, merged key by key; update every device before first use, since a build without `learner` pushes a file that erases it), `general.language/pace/difficulty`. Custom provider, Claude Code, dictation, appearance, notices and unknown keys stay on the device (owner) |
 | `prompts/**/*.md` | |
 | `materials/<chat>/index.json` (minus items still `reading`), `materials/<chat>/<id>/content.md` | original source files do not travel; the other device shows "original on another device" (owner) |
 

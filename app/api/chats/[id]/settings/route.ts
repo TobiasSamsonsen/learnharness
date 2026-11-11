@@ -43,6 +43,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 	// level never rejects — it clamps to the named model's nearest
 	// supported (body model, else the record's strong slot).
 	const settings = clampChatLevel(parsed.settings, effectiveSettings().models.strong);
+	// The one server-owned field (learner profile, 2026-11-11): frozen at birth, never in the body, so a replace-whole
+	// write from any client (including an older build) must not erase it.
+	const frozen = getChat(id)?.settings?.learnerProfile;
+	if (frozen) settings.learnerProfile = frozen;
 	stores.chatStore.saveSettings(id, settings);
 	return Response.json({ settings });
 }

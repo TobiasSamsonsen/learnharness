@@ -47,6 +47,7 @@ import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
 import { DEFAULT_PACE, isPace, type Pace } from "./pace.ts";
 import { DEFAULT_DIFFICULTY, isDifficulty, type Difficulty } from "./difficulty.ts";
 import { parseFileAccessSettings, type FileAccessSettings } from "./file-access.ts";
+import { sanitizeLearner, type LearnerSettings } from "./learner.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
  *  changes (a field renamed/meaning changed); pure additions never bump. */
@@ -538,6 +539,8 @@ export interface UserSettings {
 	appearance?: AppearanceSettings;
 	graph?: GraphSettings;
 	compaction?: CompactionSettings;
+	/** The one global learner profile (fork addition, 2026-11-11; core/learner.ts). Syncs, key by key. */
+	learner?: LearnerSettings;
 	notices?: NoticesSettings;
 	[key: string]: unknown;
 }
@@ -928,6 +931,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 		if (r.compaction !== undefined && r.compaction !== null && typeof r.compaction === "object") {
 			out.compaction = sanitizeCompaction(r.compaction as Record<string, unknown>);
 		}
+	}
+	if (r.learner !== null && typeof r.learner === "object" && !Array.isArray(r.learner)) {
+		out.learner = sanitizeLearner(r.learner as Record<string, unknown>);
 	}
 	// Unknown top-level keys ride along untouched (forward-compat). One
 	// known-DEAD key is stripped instead of riding: `chat` (the old

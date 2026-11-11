@@ -7,6 +7,7 @@ import { DEFAULT_LESSON_LANGUAGE, type LessonLanguage } from "../core/language.t
 import { DEFAULT_PACE, type Pace } from "../core/pace.ts";
 import { DEFAULT_DIFFICULTY, type Difficulty } from "../core/difficulty.ts";
 import { graphRevision } from "./graph.ts";
+import { learnerSnapshot } from "./learner-profile.ts";
 import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import { clearTurnFailure } from "./turn-runs.ts";
@@ -41,7 +42,10 @@ export type { ChatDeleteMode, ChatDeletionStats } from "../core/graph-deletion.t
  * addition): the default language, factory English — stamped even without
  * a model, so a lesson's language never drifts with later defaults.
  */
-export function stampNewSession(chatId: string, initial: { pace?: Pace; paceNote?: string; difficulty?: Difficulty; language?: LessonLanguage } = {}): void {
+export function stampNewSession(
+	chatId: string,
+	initial: { pace?: Pace; paceNote?: string; difficulty?: Difficulty; language?: LessonLanguage; learnerProfile?: boolean } = {},
+): void {
 	const record = stores.settingsStore.readSettings();
 	const strong = record?.models?.strong;
 	const language = initial.language ?? record?.general?.language ?? DEFAULT_LESSON_LANGUAGE;
@@ -50,6 +54,9 @@ export function stampNewSession(chatId: string, initial: { pace?: Pace; paceNote
 	const pace = initial.pace ?? record?.general?.pace ?? DEFAULT_PACE;
 	// Difficulty (fork addition, 2026-11-07): the same rule as pace, from general.difficulty, factory Short.
 	const difficulty = initial.difficulty ?? record?.general?.difficulty ?? DEFAULT_DIFFICULTY;
+	// The learner profile (fork addition, 2026-11-11): rendered now and frozen into the record (never recomputed, so the
+	// prompt cache survives); every session but the placement test (`learnerProfile: false`). "" adds nothing.
+	const learnerProfile = initial.learnerProfile === false ? "" : learnerSnapshot();
 	stores.chatStore.saveSettings(chatId, {
 		...(strong?.model
 			? { model: { provider: strong.model.provider, id: strong.model.id }, thinkingLevel: strong.thinkingLevel }
@@ -58,6 +65,7 @@ export function stampNewSession(chatId: string, initial: { pace?: Pace; paceNote
 		pace,
 		difficulty,
 		...(initial.paceNote ? { paceNote: initial.paceNote } : {}),
+		...(learnerProfile ? { learnerProfile } : {}),
 	});
 }
 

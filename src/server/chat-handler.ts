@@ -521,6 +521,9 @@ export async function handleChatInput(
 		pace: { level: resolvePace(record.settings), note: course?.note ?? record.settings?.paceNote },
 		// The session's problem difficulty (fork addition, 2026-11-07): the practice agent's problem size.
 		difficulty: resolveDifficulty(record.settings),
+		// The learner profile (fork addition, 2026-11-11): the block frozen into the record at birth, never recomputed
+		// per turn (it would change the prompt, break the cache and respawn claude). Teacher and practice only.
+		...(record.settings?.learnerProfile ? { learner: record.settings.learnerProfile } : {}),
 		// The lesson's source material (fork addition): profiles in the
 		// prompt + the lookup tools; absent when the lesson has none.
 		materials: materialsForTurn(chatId),

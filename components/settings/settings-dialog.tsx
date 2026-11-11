@@ -24,6 +24,7 @@
 import { LanguageSection } from "@/components/settings/language-section";
 import { PracticeSection } from "@/components/settings/practice-section";
 import { PaceSection } from "@/components/settings/pace-section";
+import { LearnerSection } from "@/components/settings/learner-section";
 import {
 	createContext,
 	useCallback,
@@ -69,6 +70,7 @@ const SECTIONS = [
 	{ id: "graph", label: "Graph", summary: "Extraction and rendering" },
 	{ id: "keyboard", label: "Keyboard", hint: "Stored on this device", summary: "Shortcuts, stored on this device" },
 	{ id: "sync", label: "Sync", summary: "Keep devices in step through a private GitHub repo" },
+	{ id: "learner", label: "Learner", summary: "How you learn best and your mistake patterns" },
 	{ id: "general", label: "General", summary: "Updates and default lesson language" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -269,7 +271,7 @@ export function SettingsDialogBody({
 	 *  schema mistake caught by the validation surface). */
 	const write = useCallback(
 		async (
-			section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction",
+			section: "general" | "agent" | "models" | "appearance" | "graph" | "compaction" | "learner",
 			body: object,
 		) => {
 			setError(null);
@@ -480,6 +482,11 @@ export function SettingsDialogBody({
 										general={record.general}
 										onChange={(next) => void write("general", next)}
 									/>
+								</SettingsSection>
+							)}
+							{active === "learner" && (
+								<SettingsSection title="Learner" testid="section-learner">
+									<LearnerSection learner={record.learner} onChange={(next) => void write("learner", next)} />
 								</SettingsSection>
 							)}
 							{active === "sync" && (

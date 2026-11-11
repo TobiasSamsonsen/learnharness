@@ -147,6 +147,9 @@ export interface AgentBuildOptions {
 	/** The session's problem difficulty (fork addition, 2026-11-07 — core/difficulty.ts). Only the practice
 	 *  agent is sized by it; absent adds nothing. */
 	difficulty?: Difficulty;
+	/** The session's frozen `<learner>` block (fork addition, 2026-11-11 — ChatSettings.learnerProfile). Only the teacher
+	 *  and the practice agent get it (not the prober, not the placement test); absent or empty adds nothing. */
+	learner?: string;
 	/** The lesson's source material (fork addition): its system-prompt
 	 *  section (core/materials.ts materialsPromptSection) and the lookup
 	 *  tools (tools/materials.ts), added to every conversation agent. */
@@ -255,16 +258,21 @@ function difficultyFor(kind: AgentKind, difficulty: AgentBuildOptions["difficult
 	return difficultySection(difficulty);
 }
 
+/** The learner-profile block: the teacher and the practice agent only; "" when there is none. */
+function learnerFor(kind: AgentKind, learner: string | undefined): string {
+	return kind === "teacher" || kind === "practice" ? (learner ?? "") : "";
+}
+
 /** The conversation agent's composed system prompt for one turn — the single
  *  source for the agent itself and for a side call that must read the same
  *  prompt (the clarification call, server/clarify.ts). */
 export function agentSystemPrompt(
 	kind: AgentKind,
-	opts: Pick<AgentBuildOptions, "promptSwitches" | "language" | "materials" | "course" | "pace" | "difficulty">,
+	opts: Pick<AgentBuildOptions, "promptSwitches" | "language" | "materials" | "course" | "pace" | "difficulty" | "learner">,
 ): string {
 	const composed = opts.promptSwitches ? composeInstructions(kind, opts.promptSwitches) : composedInstructions[kind]!;
 	return withLanguageDirective(
-		[composed, opts.materials?.section, opts.course?.section, paceFor(kind, opts.pace), difficultyFor(kind, opts.difficulty)].filter(Boolean).join("\n\n"),
+		[composed, opts.materials?.section, opts.course?.section, paceFor(kind, opts.pace), difficultyFor(kind, opts.difficulty), learnerFor(kind, opts.learner)].filter(Boolean).join("\n\n"),
 		opts.language ?? DEFAULT_LESSON_LANGUAGE,
 		"conversation",
 	);

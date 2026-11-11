@@ -543,7 +543,7 @@ export function createCourseSession(
 	const chat = stores.chatStore.createChat(title, mode === "learn" || mode === "placement" ? undefined : "practice", link);
 	// pace: the dialog's pick, else the course's default; absent, stampNewSession falls back to the global default
 	const sessionPace = pace ?? course.pace;
-	stampNewSession(chat.id, { language: courseLanguage(course), ...(sessionPace ? { pace: sessionPace } : {}) });
+	stampNewSession(chat.id, { language: courseLanguage(course), ...(sessionPace ? { pace: sessionPace } : {}), learnerProfile: mode !== "placement" });
 	stores.chatStore.saveMessages(chat.id, [
 		newCourseContextMessage({
 			courseTitle: course.title,

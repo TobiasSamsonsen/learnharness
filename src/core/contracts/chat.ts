@@ -151,6 +151,11 @@ export interface ChatSettings {
 	/** The session's problem difficulty (fork addition, 2026-11-07 — core/difficulty.ts): stamped at
 	 *  birth from the default (GeneralSettings.difficulty); absent = Short. Practice sessions only. */
 	difficulty?: Difficulty;
+	/** The rendered `<learner>` prompt block (fork addition, 2026-11-11 — core/learner-profile.ts), FROZEN at birth like the
+	 *  pace: the mistake fold changes after every conclude, and a per-turn recompute would change the system prompt, break
+	 *  the cache and respawn the claude process. Server-owned: never client-writable (the per-chat settings route keeps it).
+	 *  Absent = no profile (an empty one, an older session, a placement test). */
+	learnerProfile?: string;
 }
 
 

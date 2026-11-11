@@ -36,6 +36,7 @@ import { DIFFICULTIES, isDifficulty, type Difficulty } from "../core/difficulty.
 import { isSearchEngineId, SEARCH_ENGINES } from "../core/search.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
 import { parseFileAccessSettings } from "../core/file-access.ts";
+import { LEARNER_NOTE_MAX, normalizeLearnerNote, parseLearnerApplied, type LearnerSettings } from "../core/learner.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
 export type SettingsBodyResult<T> =
@@ -499,6 +500,28 @@ export function parseCompactionSettingsBody(body: unknown): SettingsBodyResult<C
 	return { ok: true, settings };
 }
 
+/** learner: { note?: string, applied?: LearnerClaim[] }. Replace-whole like every section: a blank note and an
+ *  empty claim list are absent. Strict on type and length (a 400, never a silent cut). */
+export function parseLearnerSettingsBody(body: unknown): SettingsBodyResult<LearnerSettings> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const settings: LearnerSettings = {};
+	if (raw.note !== undefined) {
+		if (typeof raw.note !== "string") return { ok: false, error: "note must be a string" };
+		const note = normalizeLearnerNote(raw.note);
+		if (note !== undefined && note.length > LEARNER_NOTE_MAX) {
+			return { ok: false, error: `note must be at most ${LEARNER_NOTE_MAX} characters` };
+		}
+		if (note !== undefined) settings.note = note;
+	}
+	if (raw.applied !== undefined) {
+		const applied = parseLearnerApplied(raw.applied);
+		if (!applied.ok) return { ok: false, error: applied.error };
+		if (applied.applied !== undefined) settings.applied = applied.applied;
+	}
+	return { ok: true, settings };
+}
+
 /** dictation: { language?: one of Nova-3's supported language codes } */
 export function parseDictationSettingsBody(body: unknown): SettingsBodyResult<DictationSettings> {
 	const raw = asRecord(body);
@@ -556,6 +579,7 @@ export const SETTINGS_SECTIONS = {
 	appearance: parseAppearanceSettingsBody,
 	graph: parseGraphSettingsBody,
 	compaction: parseCompactionSettingsBody,
+	learner: parseLearnerSettingsBody,
 	models: parseModelsSettingsBody,
 	dictation: parseDictationSettingsBody,
 	claudeCode: parseClaudeCodeSettingsBody,

@@ -36,7 +36,7 @@ describe("settings dialog below 1024px", () => {
 		const list = html.match(/<nav[^>]*data-testid="settings-list"[^>]*>/)?.[0] ?? "";
 		assert.ok(list.includes("lg:hidden"), "the category list is for phones and tablets");
 		const rows = [...html.matchAll(/data-testid="settings-list-([^"]+)"/g)].map((m) => m[1]);
-		assert.deepEqual(rows, ["keys", "agent", "dictation", "appearance", "graph", "keyboard", "sync", "general"]);
+		assert.deepEqual(rows, ["keys", "agent", "dictation", "appearance", "graph", "keyboard", "sync", "learner", "general"]);
 		assert.match(html, /min-h-0 flex-1 max-lg:flex-col/, "the body stacks the list over the page");
 		assert.ok(html.includes("Updates and default lesson language"), "each row says what is behind it");
 	});
