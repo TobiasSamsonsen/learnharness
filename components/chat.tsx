@@ -13,6 +13,7 @@ import { findSurfaceBoundary } from "./plugin-surface-targets";
 import { scheduleOpeningSubmission } from "./plugin-submission-opening";
 import { activeProblemOccurrenceOf, buildAnswer, toClientQuestion, type PluginSubmission, type PluginSubmissionTarget, type QuestionData } from "@/src/core";
 import { validatePluginBuiltinSubmissionAnswer } from "@/src/core";
+import { derivePlanStatuses, sessionProgress } from "@/src/core";
 import { visibleQueuedSteers } from "@/components/session-core";
 import { SetupDialog } from "@/components/setup-dialog";
 import { Hint } from "@/components/ui/hint";
@@ -1396,6 +1397,11 @@ export function Chat({
 	// The session's live plan (drives the top-bar chip; the marginalia
 	// derives its own from the same transcript).
 	const planTree = useMemo(() => latestTree(messages), [messages]);
+	const sessionBar = useMemo(() => {
+		if (!course) return 0;
+		const statuses = planTree ? derivePlanStatuses(planTree, messages as Parameters<typeof derivePlanStatuses>[1]) : null;
+		return sessionProgress(course.mode, { messages: nativeMessages, skillCount: course.skills.length, tree: planTree, statuses, finished: sessionFinished });
+	}, [course, planTree, messages, nativeMessages, sessionFinished]);
 	// The Continue chip under the plan: probing is done and a plan stands, but
 	// teaching has not begun (phase "plan"), and nothing is in flight. It sends
 	// the learner's go-ahead as an ordinary text message.
@@ -1781,6 +1787,7 @@ export function Chat({
 					// never fire. Rename mode is interactive mode (owner ask) —
 					// TopBar's one escape hatch.
 					drag={!renaming}
+					progress={sessionBar}
 					onMouseDown={(e) => {
 						// Escape hitbox: any mousedown outside the input itself blurs
 						// it, running the existing onBlur commit path. The input is

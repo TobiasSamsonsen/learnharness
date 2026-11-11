@@ -48,12 +48,15 @@ export function TopBar({
 	onMouseDown,
 	children,
 	sidebarToggle = true,
+	progress = 0,
 }: {
 	drag?: boolean;
 	onMouseDown?: React.MouseEventHandler<HTMLElement>;
 	children?: ReactNode;
 	/** Host picker chrome: native clearance without changing sidebar state. */
 	sidebarToggle?: boolean;
+	/** 0–1 session progress: a thin bar along the bottom edge, hidden at 0. */
+	progress?: number;
 }) {
 	const header = useRef<HTMLElement>(null);
 	useLayoutEffect(() => {
@@ -82,10 +85,22 @@ export function TopBar({
 		<header
 			ref={header}
 			onMouseDown={onMouseDown}
-			className={`${drag ? "lh-drag " : ""}${sidebarToggle ? "" : "lh-native-window-clearance "}lh-wco-gutter lh-safe-bar flex h-15 select-none items-center gap-3 border-b border-border px-3`}
+			className={`${drag ? "lh-drag " : ""}${sidebarToggle ? "" : "lh-native-window-clearance "}lh-wco-gutter lh-safe-bar relative flex h-15 select-none items-center gap-3 border-b border-border px-3`}
 		>
 			{sidebarToggle && <SidebarToggle />}
 			{children}
+			{progress > 0 && (
+				<div
+					data-testid="session-progress"
+					role="progressbar"
+					aria-label="Session progress"
+					aria-valuemin={0}
+					aria-valuemax={100}
+					aria-valuenow={Math.round(Math.min(1, progress) * 100)}
+					className="pointer-events-none absolute -bottom-px left-0 h-0.5 rounded-r-full bg-primary transition-[width] duration-500 ease-out"
+					style={{ width: `${Math.min(1, progress) * 100}%` }}
+				/>
+			)}
 		</header>
 	);
 }

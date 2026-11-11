@@ -98,6 +98,7 @@ export * from "./mastery.ts";
 export * from "./skill-visual.ts";
 export * from "./course-draft.ts";
 export * from "./course-session.ts";
+export * from "./session-progress.ts";
 // The Claude-subscription preset (fork addition, 2026-10-24).
 export * from "./profiles.ts";
 export * from "./file-access.ts";
