@@ -154,3 +154,39 @@ describe("currentMark — what the Ask button may offer", () => {
 		assert.deepEqual(mark!.anchor, { messageId: "m1", text: "rule", occurrence: 1 });
 	});
 });
+
+describe("the Ask offer beside the shared selection toolbar", () => {
+	it("the floating button stays out of a region the toolbar already serves", () => {
+		const doc = docWith('<div id="transcript"><div class="lh-source-passage" data-source-message-id="m1"><p id="p">A lesson passage</p></div></div>');
+		const sel = selectionOver(textNodeIn(doc, "#p"), 2, 8, "lesson");
+		assert.ok(currentMark(sel, WIN), "offered with no exclusion");
+		assert.equal(currentMark(sel, WIN, doc.querySelector("#transcript")), null, "the toolbar's Ask serves it instead");
+	});
+
+	it("outside that region (the dock's wording) the floating button still offers", () => {
+		const doc = docWith(
+			'<div id="transcript"><p>Lesson</p></div><div class="lh-source-passage" data-source-message-id="q1"><p id="q">Which planet?</p></div>',
+		);
+		const sel = selectionOver(textNodeIn(doc, "#q"), 0, 5, "Which");
+		assert.ok(currentMark(sel, WIN, doc.querySelector("#transcript")));
+	});
+
+	it("createAskAction is the third toolbar action: visible on a passage, and it hands the same mark over", async () => {
+		const { createAskAction } = await import("../components/ask-selection.tsx");
+		const doc = docWith('<div class="lh-source-passage" data-source-message-id="m1"><p id="p">The rule and the rule.</p></div>');
+		const sel = selectionOver(textNodeIn(doc, "#p"), 17, 21, "rule");
+		const previous = Object.getOwnPropertyDescriptor(globalThis, "document");
+		Object.defineProperty(globalThis, "document", { configurable: true, value: sel });
+		try {
+			const marks: unknown[] = [];
+			const action = createAskAction({ onAsk: (m) => marks.push(m) });
+			assert.equal(action.id, "ask");
+			assert.equal(action.visible({} as never), true);
+			assert.equal(action.onSelect({} as never), true);
+			assert.deepEqual(marks, [{ quote: "rule", anchor: { messageId: "m1", text: "rule", occurrence: 1 } }]);
+		} finally {
+			if (previous) Object.defineProperty(globalThis, "document", previous);
+			else delete (globalThis as Record<string, unknown>).document;
+		}
+	});
+});

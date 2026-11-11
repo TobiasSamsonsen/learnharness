@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DEFAULT_PACE, isPace, type Pace } from "@/src/core";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
 import { PaceRadios } from "@/components/session-setup";
-import { useBackLayer } from "./back-layers.ts";
+import { useInteractionLayer } from "./interaction-layers";
 
 /**
  * The pace dialog for a Learn start from a course (fork addition, 2026-11-09):
@@ -82,7 +82,9 @@ export function LearnPaceDialog({
 	busy?: boolean;
 }) {
 	const [pace, setPace] = useState<Pace | null>(null);
-	useBackLayer(true, onClose);
+	const rootRef = useRef<HTMLDivElement>(null);
+	// Esc and the Android back close it through the shared modal layer (interaction-layers.tsx).
+	useInteractionLayer({ kind: "modal", enabled: true, rootRef, onClose: () => { onClose(); return "closed"; } });
 
 	useEffect(() => {
 		let alive = true;
@@ -102,16 +104,9 @@ export function LearnPaceDialog({
 		};
 	}, [courseId]);
 
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.stopPropagation();
-				onClose();
-			}
-		};
-		document.addEventListener("keydown", onKey, true);
-		return () => document.removeEventListener("keydown", onKey, true);
-	}, [onClose]);
-
-	return <LearnPaceBody pace={pace} onPace={setPace} onClose={onClose} onStart={() => pace && onStart(pace)} busy={busy} />;
+	return (
+		<div ref={rootRef} className="contents">
+			<LearnPaceBody pace={pace} onPace={setPace} onClose={onClose} onStart={() => pace && onStart(pace)} busy={busy} />
+		</div>
+	);
 }

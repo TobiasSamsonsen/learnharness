@@ -191,7 +191,7 @@ object Back {
 		else -> BackAction.EXIT
 	}
 
-	/** Dispatch `lh:back` and read whether a layer closed (components/back-layers.ts). */
+	/** Dispatch `lh:back` and read whether a layer closed (components/interaction-layers.tsx, dispatchBack). */
 	const val SCRIPT =
 		"(function(){var d={handled:false};window.dispatchEvent(new CustomEvent('lh:back',{detail:d}));return d.handled;})()"
 }

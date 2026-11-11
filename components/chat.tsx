@@ -79,7 +79,7 @@ import { capturePluginQuestionDismissal, confirmPluginQuestionDismissal, type Pl
 import { pendingPluginQuestionOf, pluginQuestionCallsOf } from "@/src/core";
 import { pluginQuestionOccurrenceKey, type PluginQuestionSnapshot } from "@/src/core";
 import type { PluginQuestionDraft } from "./session-core";
-import { AskSelection, type AskMark } from "@/components/ask-selection";
+import { AskSelection, createAskAction, type AskMark } from "@/components/ask-selection";
 import { ClarifyLayer } from "@/components/clarify-layer";
 import { ClarifyDockContext } from "@/components/clarify-wording";
 import { useClarifyThreads } from "@/components/use-clarify-threads";
@@ -1151,7 +1151,9 @@ export function Chat({
 	}, [toggleQuestionThread]);
 	// Advancing the lesson does not close or disable an old conversation.
 	const sideActions = useMemo(() => createSideQuestionActions({ open: openSideThread }), [openSideThread]);
-	const selectionActions = useMemo(() => [citeAction, ...sideActions], [citeAction, sideActions]);
+	// One toolbar for tutor text: Cite and the side questions (upstream) and the fork's Ask (a margin thread on that line).
+	const askAction = useMemo(() => createAskAction({ onAsk: setAskDraft }), []);
+	const selectionActions = useMemo(() => [citeAction, ...sideActions, askAction], [citeAction, sideActions, askAction]);
 	const router = useRouter();
 	const transcriptElementRef = useRef<HTMLElement | null>(null);
 	transcriptElementRef.current = transcriptElement;
@@ -2216,7 +2218,7 @@ export function Chat({
 				    anchored to the dock block's top edge, so it rides every
 				    height morph (typing, a question growing the band, the
 				    fold) and NEVER overlaps the composer. */}
-				<AskSelection enabled onAsk={setAskDraft} />
+				<AskSelection enabled onAsk={setAskDraft} exclude={transcriptElement} />
 				{/* The dock's wording gets its own margin bubbles (ClarifyWording): the dock is outside the transcript the layer above measures. */}
 				<ClarifyDockContext.Provider value={dockClarify}>
 				<DockOverlay

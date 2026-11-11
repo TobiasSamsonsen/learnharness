@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { MessageSquareIcon } from "lucide-react";
+import type { SelectionAction } from "@/components/selection-toolbar";
 import type { ClarifyAnchor } from "@/src/core";
 import { anchorFromSelection } from "@/components/clarify-anchor";
 
@@ -25,14 +26,41 @@ interface Mark extends AskMark {
 	y: number;
 }
 
-/** What is marked right now, or null: a non-empty selection inside one lesson passage. Pure of React state. */
-export function currentMark(doc: Document, win: Window): Mark | null {
+/**
+ * The same offer as one more action on the shared selection toolbar (selection-toolbar.tsx: Cite, Side question, and
+ * this): selecting tutor text shows ONE toolbar. It opens the same margin thread the floating button does.
+ */
+export function createAskAction({ onAsk }: { onAsk: (mark: AskMark) => void }): SelectionAction {
+	const markOf = (): AskMark | null => {
+		const sel = document.getSelection();
+		if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+		return anchorFromSelection(document, sel.getRangeAt(0));
+	};
+	return {
+		id: "ask",
+		label: "Ask",
+		ariaLabel: "Ask about this in the margin",
+		icon: MessageSquareIcon,
+		visible: () => markOf() !== null,
+		onSelect: () => {
+			const mark = markOf();
+			if (!mark) return false;
+			onAsk({ quote: mark.quote, anchor: mark.anchor });
+			return true;
+		},
+	};
+}
+
+/** What is marked right now, or null: a non-empty selection inside one lesson passage. Pure of React state.
+ *  `exclude` is a region the shared selection toolbar already serves (the transcript): the floating button stays out of it. */
+export function currentMark(doc: Document, win: Window, exclude?: Element | null): Mark | null {
 	const sel = doc.getSelection();
 	if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
 	const range = sel.getRangeAt(0);
 	const node = range.commonAncestorContainer;
 	const el = node.nodeType === 1 ? (node as Element) : node.parentElement;
 	if (!el || el.closest("textarea, input, [contenteditable='true']")) return null;
+	if (exclude && exclude.contains(el)) return null;
 	const found = anchorFromSelection(doc, range);
 	if (!found) return null;
 	const rect = range.getBoundingClientRect();
@@ -50,7 +78,7 @@ export function currentMark(doc: Document, win: Window): Mark | null {
 	};
 }
 
-export function AskSelection({ enabled, onAsk }: { enabled: boolean; onAsk: (mark: AskMark) => void }) {
+export function AskSelection({ enabled, onAsk, exclude }: { enabled: boolean; onAsk: (mark: AskMark) => void; exclude?: Element | null }) {
 	const [mark, setMark] = useState<Mark | null>(null);
 
 	useEffect(() => {
@@ -61,7 +89,7 @@ export function AskSelection({ enabled, onAsk }: { enabled: boolean; onAsk: (mar
 		let frame = 0;
 		const update = () => {
 			cancelAnimationFrame(frame);
-			frame = requestAnimationFrame(() => setMark(currentMark(document, window)));
+			frame = requestAnimationFrame(() => setMark(currentMark(document, window, exclude)));
 		};
 		document.addEventListener("selectionchange", update);
 		// the button is fixed to the viewport: follow the text while it scrolls
@@ -74,7 +102,7 @@ export function AskSelection({ enabled, onAsk }: { enabled: boolean; onAsk: (mar
 			window.removeEventListener("scroll", update, { capture: true });
 			window.removeEventListener("resize", update);
 		};
-	}, [enabled]);
+	}, [enabled, exclude]);
 
 	if (!enabled || !mark) return null;
 	return (

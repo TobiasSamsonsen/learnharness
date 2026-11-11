@@ -20,7 +20,7 @@ Dictation uses Android's on-device speech recognizer (no audio leaves the phone)
 - `SpeechBridge.kt`: dictation. The page talks to the system `SpeechRecognizer` (on-device only) through the same `window.lhAndroid` channel as the native ink layer, with `speech …` lines (`src/core/speech-bridge.ts` is the page's half).
 - `Logic.kt`: everything testable without a device (flow decisions, release asset names and versions, login output parsing, server environment, URLs, token, back order, insets, redaction); `src/test/` covers it.
 - `MainActivity.kt`: the WebView, the status screens (setup progress, Claude sign-in, a server that does not start), permissions, file chooser, blob downloads, edge-to-edge insets, the native ink layer.
-- Back: the shell dispatches `lh:back` to the page (`components/back-layers.ts`), then goes back in page history, then exits.
+- Back: the shell dispatches `lh:back` to the page (`components/interaction-layers.tsx`, `dispatchBack`), then goes back in page history, then exits.
 
 ## Build (Windows, macOS, Linux)
 

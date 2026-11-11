@@ -483,6 +483,16 @@ function QuestionDockForm({
 	const viewPresentationKey = JSON.stringify({ ...toClientQuestion(qd), questionType: qd.questionType });
 	useLayoutEffect(() => { viewReader?.changed?.(); }, [viewReader, sel, other, text, thinking, confIdx, viewPresentationKey]);
 
+	// Snapshot before optimistic submission unmounts the form, on BOTH routes: a refused send restores exactly this. Ref values
+	// include the dictation finals that just landed, unlike stale closures.
+	const saveDraft = (override?: SubmitOverride) => onSaveDraft?.({
+		selection: { ...selFor(override), selected: new Set(selFor(override).selected) },
+		thinking: thinkingTextRef.current,
+		other,
+		text: answerTextRef.current,
+		confidenceIndex: override?.confIdx ?? confIdx,
+	});
+
 	const submitWith = (ov?: SubmitOverride) => {
 		if (!(gateFor(ov).canSubmit || pendingInput) || compactionRunning || preparing) return;
 		// A photo rides the sketch path and an adapter's images the inline path: one image route per answer.
@@ -492,6 +502,7 @@ function QuestionDockForm({
 		}
 		const go = () => {
 			if (onPrepareSubmission && !photo) {
+				saveDraft(ov);
 				onPrepareSubmission({
 					question: qd,
 					isCurrent: () => mounted.current && currentQuestion.current === qd && isInteractionScopeEligible(rootRef.current, controller),
@@ -545,15 +556,7 @@ function QuestionDockForm({
 			});
 			return;
 		}
-		// Snapshot before optimistic submission unmounts the form. Ref values
-		// include the dictation finals that just landed, unlike stale closures.
-		onSaveDraft?.({
-			selection: { ...selFor(ov), selected: new Set(selFor(ov).selected) },
-			thinking: thinkingTextRef.current,
-			other,
-			text: answerTextRef.current,
-			confidenceIndex: ov?.confIdx ?? confIdx,
-		});
+		saveDraft(ov);
 		onSubmit(buildAnswer(qd, captureRequest(ov), toolName));
 	};
 	/* The sketch submit (Android plan M1 + M3): in text mode the sketch

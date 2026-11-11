@@ -17,7 +17,7 @@ import { loadEraser, loadPen, loadToolbar, saveEraser, savePen, saveToolbar, SKE
 import { applyOp, hasNewInk, pagePayload, readInk, revertOp, sendPage, thawInk, useInk, useInkSaveFailed, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
 import { cn } from "@/lib/utils";
 import { SketchPayloadError, sketchStrokeCut, type SketchPayload } from "@/src/core";
-import { useBackLayer } from "../back-layers.ts";
+import { useInteractionLayer } from "../interaction-layers";
 
 /**
  * The sketch view (Android plan M1): a full-screen plain canvas opened
@@ -247,10 +247,7 @@ export function SketchView({
 			const mod = e.metaKey || e.ctrlKey;
 			const h = handlers.current;
 			if (e.key === "Escape") {
-				if (h.confirmOpen) h.cancelConfirm();
-				else if (h.panelOpen) h.closePanel();
-				else if (isDictationActive() && h.onCancelDictation) h.onCancelDictation();
-				else h.onClose();
+				return; // the view layer owns Esc (below), with the Android back: confirm, panel, dictation, then close
 			} else if (e.key === "Enter") {
 				// A KEYBOARD-focused button activates natively (a pointer-clicked
 				// one doesn't: plain Enter does nothing in the sketch view).
@@ -276,12 +273,19 @@ export function SketchView({
 		window.addEventListener("keydown", onKey, true);
 		return () => window.removeEventListener("keydown", onKey, true);
 	}, []);
-	useBackLayer(confirmClear, () => setConfirmClear(false));
-	useBackLayer(panel !== null, () => setPanel(null));
-	useBackLayer(true, () => {
-		const h = handlers.current;
-		if (isDictationActive() && h.onCancelDictation) h.onCancelDictation();
-		else h.onClose();
+	// Esc and the Android back are one cascade on one view layer: the open confirm, then the open panel, then a live
+	// dictation (cancelled, like Esc), and only then the view itself.
+	const viewRootRef = useRef<HTMLDivElement>(null);
+	useInteractionLayer({
+		kind: "view", enabled: true, rootRef: viewRootRef,
+		onClose: () => {
+			const h = handlers.current;
+			if (h.confirmOpen) { h.cancelConfirm(); return "handled-without-close"; }
+			if (h.panelOpen) { h.closePanel(); return "handled-without-close"; }
+			if (isDictationActive() && h.onCancelDictation) { h.onCancelDictation(); return "handled-without-close"; }
+			h.onClose();
+			return "closed";
+		},
 	});
 
 	// These scan every stroke (every point, for the share), and the view renders on every commit and every toolbar change:
@@ -305,6 +309,7 @@ export function SketchView({
 	});
 	return createPortal(
 		<div
+			ref={viewRootRef}
 			data-testid="sketch-view"
 			role="dialog"
 			aria-label="Sketch"

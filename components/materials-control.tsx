@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CameraIcon, FileTextIcon, ImageIcon, LinkIcon, Loader2Icon, PaperclipIcon, XIcon } from "lucide-react";
-import { useBackLayer } from "./back-layers.ts";
+import { usePopoverDismiss } from "./popover-dismiss.ts";
 import { MATERIAL_ACCEPT, isMaterialUrl, type LessonMaterial } from "@/src/core";
 import { MenuShell } from "@/components/menu-shell";
 import { useCamera } from "@/components/use-camera";
@@ -98,28 +98,8 @@ export function MaterialsControl({
 		return () => clearInterval(id);
 	}, [chatId, reading, read]);
 
-	// Same dismissal contract as the other stats-bar menus.
-	useEffect(() => {
-		if (!open) return;
-		const onPointerDown = (e: PointerEvent) => {
-			const t = e.target as Element;
-			if (t instanceof Element && t.closest("[data-lh-menu]")) return;
-			if (containerRef.current && !containerRef.current.contains(t)) setOpen(false);
-		};
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.stopPropagation();
-				setOpen(false);
-			}
-		};
-		document.addEventListener("pointerdown", onPointerDown, true);
-		document.addEventListener("keydown", onKey, true);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown, true);
-			document.removeEventListener("keydown", onKey, true);
-		};
-	}, [open]);
-	useBackLayer(open, () => setOpen(false)); // Android back closes the popover
+	// Outside pointerdown, Esc and the Android back close it through the shared popup layer (interaction-layers.tsx).
+	usePopoverDismiss(containerRef, open, () => setOpen(false));
 
 	const addFiles = async (files: File[]) => {
 		if (files.length === 0) return;

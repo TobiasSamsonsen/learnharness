@@ -11,7 +11,7 @@ import {
 	type LessonLanguage,
 } from "@/src/core";
 import { MenuShell } from "@/components/menu-shell";
-import { useBackLayer } from "./back-layers.ts";
+import { usePopoverDismiss } from "./popover-dismiss.ts";
 import { Hint } from "@/components/ui/hint";
 import { CONTROL_CLASS, type ControlVariant } from "@/components/control-variant";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
@@ -70,28 +70,8 @@ export function LanguageControl({ chatId, courseId, variant = "pill" }: { chatId
 		? resolveLessonLanguage(session)
 		: (courseId ? courseLanguage : undefined) ?? general?.language ?? DEFAULT_LESSON_LANGUAGE;
 
-	useBackLayer(open, () => setOpen(false));
-	// Same dismissal contract as the model menu: outside pointerdown or Esc.
-	useEffect(() => {
-		if (!open) return;
-		const onPointerDown = (e: PointerEvent) => {
-			const t = e.target as Element;
-			if (t instanceof Element && t.closest("[data-lh-menu]")) return;
-			if (containerRef.current && !containerRef.current.contains(t)) setOpen(false);
-		};
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.stopPropagation();
-				setOpen(false);
-			}
-		};
-		document.addEventListener("pointerdown", onPointerDown, true);
-		document.addEventListener("keydown", onKey, true);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown, true);
-			document.removeEventListener("keydown", onKey, true);
-		};
-	}, [open]);
+	// Outside pointerdown, Esc and the Android back close it through the shared popup layer (interaction-layers.tsx).
+	usePopoverDismiss(containerRef, open, () => setOpen(false));
 
 	const pick = async (language: LessonLanguage) => {
 		setError(null);

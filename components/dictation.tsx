@@ -550,6 +550,10 @@ export function useDictation({ append, chatId, destination = "primary", disabled
 	const appendFailureRef = useRef<{ error: unknown } | null>(null);
 	const appendPendingRef = useRef(false);
 
+	/** Where this run's text goes: the destination it captured at start (a plugin's, or the main input / the question's
+	 *  claim at that moment), for the buffered Deepgram flush and for the local and native engines' live delivery alike. */
+	const runTarget = useCallback((): DictationAppend => (destinationRef.current?.append ?? appendRef.current) as DictationAppend, []);
+
 	/** Flush into this run's fixed destination. Called exactly once at cleanup; the
 	 *  buffer clears itself so double-cleanup is a no-op. */
 	const flush = useCallback((): unknown => {
@@ -727,7 +731,7 @@ export function useDictation({ append, chatId, destination = "primary", disabled
 		if (nativeSpeechReady()) {
 			// the Android shell's on-device recognizer, streamed like a keyboard's voice typing: every partial replaces the
 			// last in the field, a final replaces its partial and stays (nothing is deferred to the end of the run)
-			const transcript = (transcriptRef.current = createLiveTranscript(() => questionTarget ?? appendRef.current));
+			const transcript = (transcriptRef.current = createLiveTranscript(() => runTarget()));
 			const normalizeLevel = createLevelNormalizer();
 			nativeRef.current = startNativeSpeech(config.language, {
 				onMode: (online) => {
@@ -766,7 +770,7 @@ export function useDictation({ append, chatId, destination = "primary", disabled
 				transcribe: (piece) => postLocalPiece(piece, config.language, chatId),
 				deliver: (text) => {
 					if (gen !== genRef.current) return;
-					const target = questionTarget ?? appendRef.current;
+					const target = runTarget();
 					target(text);
 					deliveredRef.current.push({ text, target });
 				},
@@ -1030,14 +1034,23 @@ export function useDictation({ append, chatId, destination = "primary", disabled
 	const retry = useCallback(() => {
 		const failed = failedClipRef.current;
 		if (phaseRef.current !== "idle" || !failed) return;
+		if (recordingOwner !== null && recordingOwner !== owner) {
+			setError(DICTATION_ACTIVE_ELSEWHERE);
+			return;
+		}
 		failedClipRef.current = null;
 		setCanRetry(false);
+		const target = { id: "main", append: (questionTarget ?? appendRef.current) as DictationAppend };
+		destinationRef.current = target;
+		setDestinationId(target.id);
+		recordingOwner = owner;
+		recordingTarget = target.append;
 		setDictationActive(true);
 		setError(null);
 		bufferRef.current = [];
 		setPhase("stopping");
 		void transcribeLocalRun(++genRef.current, failed);
-	}, [setPhase, transcribeLocalRun]);
+	}, [owner, setPhase, transcribeLocalRun]);
 
 	const toggleFor = useCallback((destination?: DictationDestination) => {
 		if (phaseRef.current === "idle") void start(destination);

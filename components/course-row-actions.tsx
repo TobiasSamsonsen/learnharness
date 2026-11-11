@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CourseSummary } from "@/src/core";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
-import { useBackLayer } from "./back-layers.ts";
+import { useInteractionLayer } from "./interaction-layers";
 
 /**
  * Course row actions (Android phone pass, owner 2026-10-28: swiping a course row reveals the same actions as a session
@@ -64,7 +64,9 @@ export function DeleteCourseDialog({
 	const backdropDismiss = useBackdropDismiss(() => {
 		if (!busy) onClose();
 	});
-	useBackLayer(course !== null, onClose);
+	const rootRef = useRef<HTMLDivElement>(null);
+	// Esc and the Android back close it through the shared modal layer (interaction-layers.tsx).
+	useInteractionLayer({ kind: "modal", enabled: course !== null, rootRef, onClose: () => { onClose(); return "closed"; } });
 
 	// a fresh dialog starts clean
 	useEffect(() => {
@@ -93,7 +95,7 @@ export function DeleteCourseDialog({
 	};
 
 	return createPortal(
-		<div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80" {...backdropDismiss}>
+		<div ref={rootRef} className="fixed inset-0 z-50 flex items-center justify-center bg-background/80" {...backdropDismiss}>
 			<div
 				role="dialog"
 				aria-modal="true"

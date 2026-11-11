@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { CameraIcon, RotateCcwIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CAMERA_CONSTRAINTS, CAPTURE_JPEG_QUALITY, photoFileName } from "@/components/camera-capture";
-import { useBackLayer } from "./back-layers.ts";
+import { useInteractionLayer } from "./interaction-layers";
 
 /**
  * The webcam dialog (M17, desktop and desktop browsers): a live preview, Capture, then Use photo or Retake. The result is a
@@ -17,7 +17,9 @@ export function CameraDialog({ onPhoto, onClose }: { onPhoto: (file: File) => vo
 	const [state, setState] = useState<"starting" | "live" | "error">("starting");
 	const [error, setError] = useState<string | null>(null);
 	const [shot, setShot] = useState<{ blob: Blob; url: string } | null>(null);
-	useBackLayer(true, onClose);
+	const rootRef = useRef<HTMLDivElement>(null);
+	// Esc and the Android back close it through the shared modal layer (interaction-layers.tsx).
+	useInteractionLayer({ kind: "modal", enabled: true, rootRef, onClose: () => { onClose(); return "closed"; } });
 
 	useEffect(() => {
 		let stream: MediaStream | null = null;
@@ -48,16 +50,6 @@ export function CameraDialog({ onPhoto, onClose }: { onPhoto: (file: File) => vo
 		};
 	}, []);
 
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.stopPropagation();
-				onClose();
-			}
-		};
-		window.addEventListener("keydown", onKey, true);
-		return () => window.removeEventListener("keydown", onKey, true);
-	}, [onClose]);
 	// a preview URL is released when it is replaced or the dialog goes
 	useEffect(() => () => void (shot && URL.revokeObjectURL(shot.url)), [shot]);
 
@@ -79,7 +71,7 @@ export function CameraDialog({ onPhoto, onClose }: { onPhoto: (file: File) => vo
 
 	if (typeof document === "undefined") return null;
 	return createPortal(
-		<div data-lh-menu data-testid="camera-dialog" role="dialog" aria-modal="true" aria-label="Take a photo" className="fixed inset-0 z-[70] grid place-items-center bg-black/60 p-4">
+		<div ref={rootRef} data-lh-menu data-testid="camera-dialog" role="dialog" aria-modal="true" aria-label="Take a photo" className="fixed inset-0 z-[70] grid place-items-center bg-black/60 p-4">
 			<div className="flex w-full max-w-xl flex-col gap-3 rounded-xl border bg-card p-3 text-card-foreground shadow-xl">
 				<div className="flex items-center justify-between">
 					<h2 className="text-sm font-semibold">Take a photo</h2>

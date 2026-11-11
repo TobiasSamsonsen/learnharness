@@ -46,7 +46,14 @@ const { SketchView } = await import("../components/sketch/sketch-view.tsx");
 const { readInk, writeInk, inkFromStrokes, readKept, writeKept, applyOp, revertOp, pagePayload } = await import("../components/sketch/ink-memory.ts");
 const { clampBoxPosition } = await import("../components/sketch/floating-problem.tsx");
 const pen = await import("../components/sketch/pen-settings.ts");
-const { handleBack } = await import("../components/back-layers.ts");
+const { InteractionLayersProvider, useInteractionLayers } = await import("../components/interaction-layers.tsx");
+// The layers need their provider (AppShell mounts it); the probe hands the test the controller, the Android back included.
+let layers: ReturnType<typeof useInteractionLayers> | undefined;
+function LayersProbe() {
+	layers = useInteractionLayers();
+	return null;
+}
+const handleBack = () => layers!.dispatchBack();
 import type { SketchPayload, SketchStroke } from "../src/core";
 
 const STROKE: SketchStroke = { size: 4, points: [10, 10, 0.5, 90, 50, 0.6, 200, 30, 0.5] };
@@ -65,14 +72,15 @@ async function mount(props: { inkKey: string; onSubmit: (s: SketchPayload, confi
 	document.body.append(host);
 	root = createRoot(host);
 	await act(async () =>
-		root!.render(<SketchView label="Problem" statement="Draw it." inkKey={props.inkKey} onSubmit={props.onSubmit} onClose={props.onClose ?? (() => {})} {...props.extra} />),
+		root!.render(<InteractionLayersProvider><LayersProbe /><SketchView label="Problem" statement="Draw it." inkKey={props.inkKey} onSubmit={props.onSubmit} onClose={props.onClose ?? (() => {})} {...props.extra} /></InteractionLayersProvider>),
 	);
 }
 const key = async (init: { key: string; ctrlKey?: boolean; shiftKey?: boolean }) =>
 	act(async () => {
 		// linkedom has no KeyboardEvent: a plain Event carrying the key fields.
 		const event = Object.assign(new dom.window.Event("keydown", { bubbles: true, cancelable: true }), { ctrlKey: false, shiftKey: false, metaKey: false, ...init });
-		window.dispatchEvent(event);
+		// Esc belongs to the shared layers (their listener sits on the document); every other key is the view's own (window).
+		(init.key === "Escape" ? document : window).dispatchEvent(event);
 	});
 const settle = () => act(async () => await new Promise((r) => setTimeout(r, 0)));
 
