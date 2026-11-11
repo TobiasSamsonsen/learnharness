@@ -398,7 +398,7 @@ export function SketchToolbar(p: SketchToolbarProps) {
 						data-testid="sketch-status"
 						className={cn(
 							"pointer-events-none absolute top-full left-1/2 mt-2 w-max max-w-[calc(100vw-1rem)] -translate-x-1/2 rounded-full border bg-background/95 px-3.5 py-1 text-xs shadow-md backdrop-blur",
-							p.status.kind === "error" ? "text-destructive" : p.status.kind === "warn" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
+							p.status.kind === "error" ? "text-destructive" : p.status.kind === "warn" ? "text-warning" : "text-muted-foreground",
 						)}
 					>
 						{p.status.text}

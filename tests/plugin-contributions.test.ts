@@ -23,7 +23,7 @@ process.env.LH_AUTH_FILE = path.join(DATA, "auth.json");
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async () => { throw Error("Unexpected network request in plugin contribution tests"); };
 after(() => { globalThis.fetch = originalFetch; fs.rmSync(DATA, { recursive: true, force: true }); });
-const { createTeacherAgent, createProberAgent, createPracticeAgent, composeInstructions, CONVERSATION_TOOL_NAMES } = await import("../src/agent/teacher-agent.ts");
+const { createTeacherAgent, createProberAgent, createPracticeAgent, composeInstructions, agentSystemPrompt, CONVERSATION_TOOL_NAMES } = await import("../src/agent/teacher-agent.ts");
 
 const textResult = (text = "native"): AgentToolResult => ({ content: [{ type: "text", text }], details: undefined });
 function native(name = "plugin_tool", execute: AgentTool<any>["execute"] = async () => textResult()): AgentTool<any> {
@@ -161,7 +161,7 @@ test("all roles append instructions/tools without replacing builtin prompt, gate
 	await f.host.setEnabled("example", false);
 	assert.equal(running.state.systemPrompt, prompt); // No live prompt rewriting.
 	const next = builders.teacher({ engine: engine(), chatId: "next", pluginContributions: f.host.agentContributions });
-	assert.equal(next.state.systemPrompt, composeInstructions("teacher"));
+	assert.equal(next.state.systemPrompt, agentSystemPrompt("teacher", {}));
 	await assert.rejects(running.state.tools.find(tool => tool.name === "addon_teacher")!.execute("late", {}), /disabled or unavailable/);
 });
 
@@ -178,7 +178,7 @@ test("builtin names remain reserved when absent; first valid package wins and in
 	builtin.registerTools({ agents: ["teacher"], create: () => [native("research")] });
 	const changes = f.changes();
 	const agent = createTeacherAgent(undefined, { engine: engine(), chatId: "no-core-research", pluginContributions: f.host.agentContributions });
-	assert.deepEqual(agent.state.tools.map(tool => tool.name), ["quiz", "ask_user_question", "shared_name", "otherwise_unique"]);
+	assert.deepEqual(agent.state.tools.map(tool => tool.name), ["quiz", "ask_user_question", "figure_guide", "circuit_solve", "read_sketch", "shared_name", "otherwise_unique"]);
 	assert.ok(agent.state.systemPrompt.includes("First survives"));
 	assert.ok(!agent.state.systemPrompt.includes("Omit entire package"));
 	assert.ok(!agent.state.systemPrompt.includes("No gated builtin shadowing"));
@@ -330,7 +330,7 @@ test("malformed parameter/output schemas omit the whole package; later valid pac
 		const off = bad.registerTools({ agents: ["teacher"], create: () => [{ ...native("shared_schema_tool"), [field]: schema }] });
 		const faux = createFauxCore({}); faux.setResponses([fauxAssistantMessage("Core remains usable")]);
 		const agent = createTeacherAgent(undefined, { engine: { model: faux.getModel(), streamFn: faux.streamSimple }, chatId: "schema-isolation", pluginContributions: f.host.agentContributions });
-		assert.deepEqual(agent.state.tools.map(tool => tool.name), ["quiz", "ask_user_question", "shared_schema_tool"]);
+		assert.deepEqual(agent.state.tools.map(tool => tool.name), ["quiz", "ask_user_question", "figure_guide", "circuit_solve", "read_sketch", "shared_schema_tool"]);
 		assert.ok(agent.state.systemPrompt.includes("Valid appendix"));
 		assert.ok(!agent.state.systemPrompt.includes("Must not poison core"));
 		assert.equal(f.host.list()[0]!.status, "active");

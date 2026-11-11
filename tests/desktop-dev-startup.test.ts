@@ -124,7 +124,7 @@ function boot() {
 	};
 	const context = {
 		require: (id: string) => id === "electron" ? electron : id === "node:fs" ? { mkdirSync() {}, appendFileSync() {} }
-			: id === "./appearance-chrome.cjs" ? { ...mainRequire(id), readAppearance: () => ({ mode: "dark", background: "#141414" }) }
+			: id === "./appearance-chrome.cjs" ? { ...mainRequire(id), readAppearance: () => ({ mode: "dark", background: "#151210" }) }
 			: id === "./dev-server-readiness.cjs" ? { waitForDevServer: (url: string, { signal }: { signal: AbortSignal }) => {
 				probes.push({ url, signal }); signal.addEventListener("abort", () => fail(signal.reason), { once: true }); return readiness;
 			} } : mainRequire(id),

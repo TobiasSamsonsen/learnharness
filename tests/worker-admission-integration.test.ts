@@ -201,8 +201,10 @@ test("raw PDF + visual loops share request admission with the native worker runn
 	} finally { gate.resolve(); await Promise.allSettled(work); }
 });
 
-test("chat and notes extraction share the configured request limit, not the old fixed-three extraction gate", { timeout: 8_000 }, async () => {
-	configureWorkerRequestAdmission(() => 4);
+// FORK: upstream v0.6.0 dropped the fixed three-wide extract gate; the fork keeps it beside the shared admission (owner decision,
+// 2026-11-11): at most three extractor calls run at once, and they occupy the same worker pool as every other request.
+test("chat and notes extraction share the worker pool, with the fork's three-wide extract slot on top", { timeout: 8_000 }, async () => {
+	configureWorkerRequestAdmission(() => 3);
 	const graphStore = memoryLedgers(), gate = deferred();
 	let extractCalls = 0;
 	const pipeline = (label: string, notes: boolean) => createExtractionPipeline({
@@ -220,12 +222,13 @@ test("chat and notes extraction share the configured request limit, not the old 
 	const controller = new AbortController();
 	let extra: Promise<unknown> | undefined;
 	try {
-		await until(() => extractCalls === 4);
+		await until(() => extractCalls === 3);
 		extra = assert.rejects(run(submit("unused", {}, () => { extraCalls++; }), {
 			abortSignal: controller.signal, onUsage: () => { billed++; },
 		}), { name: "AbortError" });
 		await flush();
-		assert.equal(extraCalls, 0, "all four extraction requests occupy the same worker pool");
+		assert.equal(extractCalls, 3, "the fourth extraction waits in the extract slot, not in the pool");
+		assert.equal(extraCalls, 0, "the three running extraction requests occupy the whole worker pool");
 		controller.abort(); await extra;
 		assert.equal(billed, 0, "queued cancellation never becomes a billed model step");
 		gate.resolve();

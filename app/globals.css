@@ -95,7 +95,7 @@
 	--lh-ink-italic: #ece5da;
 	--lh-ink-code: #ece5da;
 	/* Status inks (text-error, bg-success/15, border-warning/40, …). */
-	--lh-error: #ef4444;
+	--lh-error: #ff6467;
 	--lh-success: #22c55e;
 	--lh-warning: #f59e0b;
 	/* THE READING SIZE = the ladder's 16px rung (--text-lg). Can't be

@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const PRESET_APPEARANCE = {
-	default: { mode: "dark", background: "#141414" },
+	default: { mode: "dark", background: "#151210" },
 	"catppuccin-latte": { mode: "light", background: "#eff1f5" },
 	"catppuccin-frappe": { mode: "dark", background: "#303446" },
 	"catppuccin-macchiato": { mode: "dark", background: "#24273a" },
@@ -73,7 +73,7 @@ function luminance(hex) {
 /** Title-bar glyph contrast follows the actual final background, including
  * overrides that do not match the selected theme's dark/light label. */
 function chromeColors(appearance) {
-	const color = appearance.background ?? (appearance.mode === "light" ? "#f5f5f3" : "#141414");
+	const color = appearance.background ?? (appearance.mode === "light" ? "#f5f5f3" : "#151210");
 	const bg = luminance(color);
 	const contrast = ink => (Math.max(bg, luminance(ink)) + 0.05) / (Math.min(bg, luminance(ink)) + 0.05);
 	return { color, symbolColor: contrast("#e5e5e5") > contrast("#1a1a1a") ? "#e5e5e5" : "#1a1a1a" };

@@ -30,7 +30,7 @@ for (const toolName of ["quiz", "ask_user_question"] as const) test(`view reads 
     });
     const current = reader.current!(); assert.deepEqual(current.draft.values, [current.question.options[0]!.value]);
     assert.equal(current.draft.thinking, "  untrimmed thinking\n");
-    if (toolName === "quiz") assert.equal(current.draft.confidence, 50);
+    if (toolName === "quiz") assert.equal(current.draft.confidence, undefined, "the fork has no default confidence: the learner picks one (owner, 2026-10-25)");
     await render(false); assert.equal(reader.current!().draft.thinking, "  untrimmed thinking\n");
     assert.ok(changes > 1 && changes < 20, "Owner changes invalidate disabled predicates without a render loop");
   } finally { await act(async () => root.unmount()); host.remove(); }

@@ -125,6 +125,8 @@ function safeInsets(): { top: number; bottom: number } {
 	// a DOM without computed styles (a test environment) has no system bars to report
 	if (typeof getComputedStyle !== "function") return { top: 0, bottom: 0 };
 	const css = getComputedStyle(document.documentElement);
+	// (a stubbed getComputedStyle that only answers display/visibility has no custom properties either)
+	if (typeof css?.getPropertyValue !== "function") return { top: 0, bottom: 0 };
 	const px = (name: string) => {
 		const v = Number.parseFloat(css.getPropertyValue(name));
 		return Number.isFinite(v) ? v : 0;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run what CI runs (.github/workflows/ci.yml, job "quality") on a clean copy of a commit, on Linux.
 #
-#   npm ci  ->  npm run typecheck  ->  npm test  ->  npm run lint
+#   npm ci  ->  npm run plugins:setup  ->  npm run typecheck  ->  npm test  ->  npm run lint
 #
 # Why: the project is developed on Windows and CI runs Ubuntu 24.04 with Node 26. Tests that behave differently on Linux
 # (a 12-hour clock, file modes, shell scripts, path separators) only fail in CI, and every failed push mails the owner.
@@ -70,6 +70,14 @@ if [ ! -d node_modules ] || [ "$(cat "$WORK/lock.sha" 2>/dev/null)" != "$lock_su
 	if step "npm ci" npm ci --no-audit --no-fund; then echo "$lock_sum" >"$WORK/lock.sha"; else rm -f "$WORK/lock.sha"; fi
 else
 	echo "== npm ci ... skipped (package-lock.json unchanged since the last run)"
+fi
+
+# the source plugins' own dependencies and SDKs (upstream v0.6.0: CI runs this before typecheck), again only when a plugin lockfile changed
+plugin_sum="$(cat plugins/*/package-lock.json | sha256sum | cut -d' ' -f1)"
+if [ ! -d plugins/ui-showcase/node_modules ] || [ "$(cat "$WORK/plugins.sha" 2>/dev/null)" != "$plugin_sum" ]; then
+	if step "plugins:setup" npm run plugins:setup; then echo "$plugin_sum" >"$WORK/plugins.sha"; else rm -f "$WORK/plugins.sha"; fi
+else
+	echo "== plugins:setup ... skipped (plugin lockfiles unchanged since the last run)"
 fi
 
 step "typecheck" npm run typecheck

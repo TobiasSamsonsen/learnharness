@@ -485,11 +485,11 @@ export function CourseBody({
 					<p className="mt-2 text-xs text-muted-foreground">Add the curriculum (PDFs, notes or links), then draft the skill map.</p>
 				)}
 				{course.error && !drafting && (
-					<p className="mt-2 text-xs text-red-500" data-testid="course-error">
+					<p className="mt-2 text-xs text-error" data-testid="course-error">
 						Drafting failed: {course.error}
 					</p>
 				)}
-				{error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+				{error && <p className="mt-2 text-xs text-error">{error}</p>}
 			</section>
 
 			{course.draft && !drafting && <DraftReview data={data} busy={busy} onFeedback={(f) => onDraft(f)} onApprove={onApprove} />}

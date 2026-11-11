@@ -163,7 +163,7 @@ describe("desktop window chrome", () => {
 		it(`${platform} uses native-height right-side controls with an Alt-accessible menu`, () => {
 			const options = windowOptions(platform);
 			assert.equal(options.titleBarStyle, "hidden");
-			assert.deepEqual(options.titleBarOverlay, { color: "#141414", symbolColor: "#e5e5e5" });
+			assert.deepEqual(options.titleBarOverlay, { color: "#151210", symbolColor: "#e5e5e5" });
 			assert.equal(Object.hasOwn(options.titleBarOverlay, "height"), false, "omit height so the OS selects its native default");
 			assert.equal(options.trafficLightPosition, undefined);
 			assert.equal(options.autoHideMenuBar, true);
@@ -175,7 +175,7 @@ describe("desktop window chrome", () => {
 
 	it("the native chrome paints the active theme: Default dark until the renderer reports, then its mode and background", () => {
 		const dark = windowOptions("win32");
-		assert.equal(dark.backgroundColor, "#141414");
+		assert.equal(dark.backgroundColor, "#151210");
 		const light = windowOptions("win32", {}, { mode: "light", background: "#faf4ed" });
 		assert.deepEqual(light.titleBarOverlay, { color: "#faf4ed", symbolColor: "#1a1a1a" });
 		assert.equal(light.backgroundColor, "#faf4ed");

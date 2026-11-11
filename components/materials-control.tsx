@@ -218,7 +218,7 @@ export function MaterialsControl({
 										<span className="block truncate text-foreground" title={m.url ?? m.name}>
 											{m.name}
 										</span>
-										<span className={`block truncate ${m.status === "error" ? "text-red-500" : "text-muted-foreground"}`} title={m.error}>
+										<span className={`block truncate ${m.status === "error" ? "text-error" : "text-muted-foreground"}`} title={m.error}>
 											{materialStatusLine(m)}
 										</span>
 									</span>
@@ -273,7 +273,7 @@ export function MaterialsControl({
 						/>
 					</div>
 					<div className="px-1 text-[10px] text-muted-foreground/60">PDF, text, Markdown, images, a photo, or a web link</div>
-					{error && <div className="px-1 text-red-500" data-testid="materials-error">{error}</div>}
+					{error && <div className="px-1 text-error" data-testid="materials-error">{error}</div>}
 				</MenuShell>
 			)}
 		</div>

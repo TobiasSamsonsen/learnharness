@@ -41,6 +41,7 @@ jobs:
           node-version: "26"
           cache: npm
       - run: npm ci
+      - run: npm run plugins:setup
       - run: npm run build
       - run: node scripts/smoke-provider-runtime.mjs
       - run: node scripts/build-server.mjs

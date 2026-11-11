@@ -62,8 +62,8 @@ it("dedicated plugin settings pages cover schema/custom/empty/loading/error, dee
 		await act(async () => { root.render(shell(<SettingsDialogBody initialSection="plugin:schema" onClose={() => {}} />)); });
 		assert.ok(page()?.textContent?.includes("Feature enabled"), "deep link renders while core settings are pending");
 		const nav = document.querySelector('[data-testid="settings-nav"]')!;
-		assert.deepEqual([...nav.querySelectorAll("button")].map(button => button.textContent), ["Providers", "Agent", "Appearance", "Graph", "Keyboard", "General", "Core plugins", "Community plugins", "Plugin schema", "Plugin custom", "Plugin backend", "Plugin loading", "Plugin broken"]);
-		assert.equal(nav.querySelectorAll("svg").length, 8, "only built-in navigation entries receive icons");
+		assert.deepEqual([...nav.querySelectorAll("button")].map(button => button.textContent), ["Providers", "Agent", "Dictation", "Appearance", "Graph", "Keyboard", "Sync", "Learner", "General", "Core plugins", "Community plugins", "Plugin schema", "Plugin custom", "Plugin backend", "Plugin loading", "Plugin broken"]);
+		assert.equal(nav.querySelectorAll("svg").length, 11, "only built-in navigation entries receive icons");
 		for (const button of nav.querySelectorAll("button")) {
 			if (button.getAttribute("data-testid")?.startsWith("settings-nav-plugin:")) {
 				assert.equal(button.querySelector("svg"), null, "individual plugin entries remain unchanged");

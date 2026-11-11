@@ -31,6 +31,7 @@ Object.assign(globalThis, {
 });
 
 const { ModelControl } = await import("../components/model-picker.tsx");
+const { InteractionLayersProvider } = await import("../components/interaction-layers.tsx");
 
 const MODEL = { id: "claude-sonnet-5", name: "Claude Sonnet 5", provider: "claude-code", reasoning: true, input: ["text"], supportedLevels: ["low", "medium", "high"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 8000 };
 const puts: unknown[] = [];
@@ -67,7 +68,7 @@ async function mount() {
 	host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
-	await act(async () => root!.render(<ModelControl />));
+	await act(async () => root!.render(<InteractionLayersProvider><ModelControl /></InteractionLayersProvider>));
 	await settle();
 }
 

@@ -114,7 +114,7 @@ export function SwipeRow({
 							}}
 							className={cn(
 								"flex items-center justify-center text-xs font-medium",
-								a.tone === "danger" ? "bg-red-600 text-white" : "bg-muted text-foreground",
+								a.tone === "danger" ? "bg-error text-background" : "bg-muted text-foreground",
 							)}
 							style={{ width: ACTION_WIDTH }}
 						>

@@ -185,7 +185,7 @@ export function LearnerSection({
 					)}
 				</div>
 				{error && (
-					<p role="alert" className="text-xs text-red-500" data-testid="learner-adapt-error">
+					<p role="alert" className="text-xs text-error" data-testid="learner-adapt-error">
 						{error}
 					</p>
 				)}

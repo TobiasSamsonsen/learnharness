@@ -64,7 +64,7 @@ async function fixture() {
 		fetch: async (url: string) => {
 			if (url === "/api/stt/token") return Response.json({ token: "test-token" });
 			assert.equal(url, "/api/settings");
-			return Response.json({ settings: { version: 1, dictation: { language: "en" } } });
+			return Response.json({ settings: { version: 1, general: { dictationEngine: "deepgram" }, dictation: { language: "en" } } });
 		},
 	})) {
 		previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key));

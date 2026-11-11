@@ -67,7 +67,7 @@ async function fixture(options: { strict?: boolean; activity?: boolean; withSess
 		fetch: (async (url, init) => {
 			requests.push({ url: String(url), init });
 			if (options.fetch) return options.fetch(url, init);
-			if (url === "/api/settings") return Response.json({ settings: { version: 1, appearance: { background: "#141414" } } });
+			if (url === "/api/settings") return Response.json({ settings: { version: 1, appearance: { background: "#151210" } } });
 			assert.equal(init?.method, undefined, "opening/selecting must never mutate data");
 			if (url === "/api/graph") return Response.json(graph);
 			assert.equal(url, "/api/graph/sources");

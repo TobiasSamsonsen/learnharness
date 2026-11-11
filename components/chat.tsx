@@ -2247,7 +2247,7 @@ export function Chat({
 					initialQuestionDraft={pending ? questionDraft(pending.key)?.form : undefined}
 					onSaveQuestionDraft={(form) => { if (pending) saveQuestionDraft(pending.key, { form }); }}
 					workingRef={workingRef}
-					practice={activeProblem}
+					practice={activeProblem && activeProblemOccurrence ? { ...activeProblem, messageId: activeProblemOccurrence.messageId } : null}
 					pluginPractice={activeProblem?.pluginProblem && activeProblemOccurrence ? {
 						snapshot: activeProblem.pluginProblem, occurrence: activeProblemOccurrence, chatId, draft: pluginProblemDraft(activeProblem.pluginProblem),
 						available: pluginProblemAvailability?.problemId === activeProblem.pluginProblem.problemId && pluginProblemAvailability.status === "available",

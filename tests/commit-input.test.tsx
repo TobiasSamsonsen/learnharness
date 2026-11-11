@@ -269,7 +269,7 @@ it("worker/compaction adapters acknowledge invalid, accepted and unset outcomes"
 
 for (const failure of ["http", "network", "missing", "malformed"] as const) {
 	it(`Settings writer keeps draft after ${failure} failure, reports inline, and retries through canonical ACK`, async () => fixture(async f => {
-		const initial: UserSettings = { version: 1, appearance: { background: "#141414" } };
+		const initial: UserSettings = { version: 1, appearance: { background: "#151210" } };
 		let accept = false, writes = 0, closed = 0;
 		f.setFetch(async (_url, init) => {
 			if (init?.method !== "PUT") return Response.json({ settings: initial });

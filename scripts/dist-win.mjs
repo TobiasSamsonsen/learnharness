@@ -9,7 +9,7 @@
  *   1. clean dist/ and the previous standalone tree
  *   2. make sure Electron's binary is present (installs that skipped the
  *      download, e.g. ELECTRON_SKIP_BINARY_DOWNLOAD=1, lack it)
- *   3. next build → 4. smoke-provider-runtime.mjs (the fresh trace)
+ *   3. npm run build (stage Core plugins, then next build) → 4. smoke-provider-runtime.mjs (the fresh trace)
  *   5. build-server.mjs → 6. smoke-server.mjs --electron
  *   7. electron-builder --win --x64 --publish never
  *   8. smoke-provider-runtime.mjs on dist/win-unpacked, under host Node
@@ -48,7 +48,9 @@ if (!fs.existsSync(path.join(ROOT, "node_modules", "electron", "dist", "electron
 	run("fetch the Electron binary", "node", [path.join("node_modules", "electron", "install.js")]);
 }
 
-run("build", "npx", ["next", "build"]);
+// npm run build stages the Core plugins and the authoring download first (upstream v0.6.0), then runs next build;
+// build-server.mjs refuses a payload without them.
+run("build", "npm", ["run", "build"]);
 // Check the fresh trace before any static copying/curation.
 run("initialize providers offline (fresh trace)", "node", [path.join("scripts", "smoke-provider-runtime.mjs")]);
 run("curate the server payload", "node", [path.join("scripts", "build-server.mjs")]);

@@ -47,7 +47,7 @@ describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 
 describe("isHexColor", () => {
 	it("accepts #rgb and #rrggbb (case-insensitive), rejects everything else", () => {
-		for (const good of ["#fff", "#FFF", "#141414", "#8B5CF6"]) assert.equal(isHexColor(good), true, good);
+		for (const good of ["#fff", "#FFF", "#151210", "#8B5CF6"]) assert.equal(isHexColor(good), true, good);
 		for (const bad of ["fff", "#ffff", "#gggggg", "141414", "#12345", "", "white"]) {
 			assert.equal(isHexColor(bad), false, bad);
 		}

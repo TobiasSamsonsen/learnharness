@@ -271,7 +271,7 @@ function LearnSkillRow({ courseId, skills }: { courseId: string; skills: Array<{
 					</button>
 				))}
 			</div>
-			{error && <div className="mt-2 text-xs text-red-500">{error}</div>}
+			{error && <div className="mt-2 text-xs text-error">{error}</div>}
 			{pending !== null && (
 				<LearnPaceDialog
 					courseId={courseId}

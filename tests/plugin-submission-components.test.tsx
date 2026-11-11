@@ -59,7 +59,8 @@ test("builtin pending input enables an initially empty selection and crosses pre
 	let rendered: QuestionData | undefined, raw: AnswerRequest | undefined, pending = false, preparing = false, preparations = 0;
 	const render = async () => { await act(async () => root.render(<QuestionDock toolName="quiz" toolCallId="shuffle-call" input={{ question: "Which?", options: [{ label: "Left", value: "left" }, { label: "Right", value: "right" }], correctAnswer: "right", explanation: "Because" }} expanded onExpand={() => {}} onSubmit={() => assert.fail("must not pregrade before hooks")}
 		preparing={preparing} initialDraft={{ selection: { selected: new Set(), otherSelected: false, dontKnow: false }, thinking: "retained native thinking", other: "", text: "", confidenceIndex: 0 }} hasPendingInput={question => { rendered = question; return pending; }} onPrepareSubmission={capture => { preparations++; rendered = capture.question; assert.equal(capture.isCurrent(), true); raw = capture.capture(); }} />)); };
-	await render(); const button = () => document.querySelector('button[type="submit"]')!;
+	await render(); // the fork's quiz has no Submit button: the confidence buttons are what sends (they enable with a picked answer)
+	const button = () => document.querySelector('[data-testid="confidence-buttons"] button[title$="% sure"]')!;
 	assert.equal(button().hasAttribute("disabled"), true);
 	pending = true; preparing = true; await render(); assert.equal(button().hasAttribute("disabled"), true);
 	await act(async () => { document.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });

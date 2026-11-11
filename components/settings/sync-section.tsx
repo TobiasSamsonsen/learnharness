@@ -179,7 +179,7 @@ export function SyncSection() {
 							onClick={() => void removeToken()}
 							disabled={busy}
 							data-testid="sync-token-remove"
-							className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-red-500 hover:underline"
+							className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-error hover:underline"
 						>
 							Remove
 						</button>
@@ -188,7 +188,7 @@ export function SyncSection() {
 			</SettingsRow>
 
 			{error && (
-				<p role="alert" data-testid="sync-error" className="text-xs text-red-500">
+				<p role="alert" data-testid="sync-error" className="text-xs text-error">
 					{error}
 				</p>
 			)}
@@ -210,16 +210,16 @@ export function SyncSection() {
 					onClick={() => void openReplace()}
 					disabled={busy || replacing || !status?.configured || status.running || confirm !== null}
 					data-testid="sync-replace-open"
-					className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-red-500 hover:underline disabled:text-muted-foreground/40 disabled:no-underline"
+					className="shrink-0 text-xs text-muted-foreground/70 underline-offset-2 hover:text-error hover:underline disabled:text-muted-foreground/40 disabled:no-underline"
 				>
 					Replace this device with the repo…
 				</button>
-				<span role="status" data-testid="sync-status" className={`text-xs ${status?.error ? "text-red-500" : "text-muted-foreground"}`}>
+				<span role="status" data-testid="sync-status" className={`text-xs ${status?.error ? "text-error" : "text-muted-foreground"}`}>
 					{syncStatusLine(status)}
 				</span>
 			</div>
 			{confirm && (
-				<div role="alertdialog" aria-label="Replace this device with the repo" data-testid="sync-replace-confirm" className="flex flex-col gap-2 rounded-sm border border-red-500/40 p-3">
+				<div role="alertdialog" aria-label="Replace this device with the repo" data-testid="sync-replace-confirm" className="flex flex-col gap-2 rounded-sm border border-error/40 p-3">
 					<p className="text-xs font-medium text-foreground">Replace this device with the repo?</p>
 					<p className="text-xs leading-relaxed text-muted-foreground">This device will end up with exactly what the repo has. Nothing is sent to the repo.</p>
 					<p data-testid="sync-replace-remove" className="text-xs leading-relaxed text-foreground">{replacePreviewLines(confirm).remove}</p>
@@ -233,7 +233,7 @@ export function SyncSection() {
 							onClick={() => void doReplace()}
 							disabled={replacing}
 							data-testid="sync-replace-confirm-run"
-							className="shrink-0 text-xs text-red-500 underline-offset-2 hover:underline disabled:text-muted-foreground/40 disabled:no-underline"
+							className="shrink-0 text-xs text-error underline-offset-2 hover:underline disabled:text-muted-foreground/40 disabled:no-underline"
 						>
 							{replacing ? "Replacing…" : "Replace this device"}
 						</button>

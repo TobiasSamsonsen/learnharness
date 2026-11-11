@@ -408,7 +408,7 @@ export function newThinkingMessage(
 ): LhMarkerMessage {
 	// A sketch (fork addition, 2026-10-26) may stand alone: the text names
 	// it, and toLlmMessages puts its page images ahead of this content.
-	const body = text.trim().length > 0 ? text : sketch ? "(no words — see the sketch)" : images?.length ? "(no words — see the attached image)" : text;
+	const body = text.trim().length > 0 || !sketch ? text : "(no words — see the sketch)";
 	const sketchLine = sketch
 		? `\n\n[Handwritten sketch ${sketch.id} attached — ${sketch.pages.length} page(s). Call read_sketch on it first, in this reply.]`
 		: "";
@@ -621,9 +621,9 @@ export function problemInputForConclude(
 
 export function activeProblemOf(
 	messages: readonly LhMessage[],
-): { toolCallId: string; input: unknown; messageId: string; pluginProblem?: PluginProblemSnapshot } | null {
+): { toolCallId: string; input: unknown; pluginProblem?: PluginProblemSnapshot } | null {
 	const active = activeProblemCallOf(messages);
-	return active ? { toolCallId: active.occurrence.toolCallId, input: active.input, messageId: active.occurrence.messageId, ...(active.pluginProblem ? { pluginProblem: active.pluginProblem } : {}) } : null;
+	return active ? { toolCallId: active.occurrence.toolCallId, input: active.input, ...(active.pluginProblem ? { pluginProblem: active.pluginProblem } : {}) } : null;
 }
 
 /** Exact source of the same clean activation selected by activeProblemOf. */

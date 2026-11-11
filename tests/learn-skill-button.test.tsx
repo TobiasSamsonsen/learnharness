@@ -13,7 +13,10 @@ import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, beforeEach, describe, it } from "node:test";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup as renderBare } from "react-dom/server";
+import { InteractionLayersProvider } from "../components/interaction-layers";
+// the shared layers need their provider (AppShell mounts it; renders here have no shell)
+const renderToStaticMarkup = (node: React.ReactElement) => renderBare(<InteractionLayersProvider>{node}</InteractionLayersProvider>);
 
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-learn-skill-"));
 process.env.LH_DATA_DIR = TMP_DATA;
