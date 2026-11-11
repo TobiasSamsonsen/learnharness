@@ -737,6 +737,13 @@ export function AgentSection({
 						return err === null;
 					};
 					const activeMissing = missing(active);
+					const saveProfileName = async () => {
+						if (!profileEdit) return;
+						const ok = await run(profileEdit.mode === "new"
+							? { action: "create", name: profileEdit.draft }
+							: { action: "rename", name: active, newName: profileEdit.draft });
+						if (ok) setProfileEdit(null);
+					};
 					return (
 						<SettingsRow
 							label="Profile"
@@ -748,22 +755,20 @@ export function AgentSection({
 									<input
 										type="text"
 										autoFocus
+										enterKeyHint="done"
 										data-testid="profile-name-input"
 										aria-label="Profile name"
 										value={profileEdit.draft}
 										placeholder="Profile name"
 										onChange={(e) => setProfileEdit({ ...profileEdit, draft: e.target.value })}
-										onKeyDown={async (e) => {
+										onKeyDown={(e) => {
 											if (e.key === "Escape") { e.stopPropagation(); setProfileEdit(null); setProfileError(null); }
-											if (e.key !== "Enter") return;
-											const ok = await run(profileEdit.mode === "new"
-												? { action: "create", name: profileEdit.draft }
-												: { action: "rename", name: active, newName: profileEdit.draft });
-											if (ok) setProfileEdit(null);
+											if (e.key === "Enter") void saveProfileName();
 										}}
-										className="h-7 w-40 rounded-sm border border-border bg-background px-1.5 text-xs"
+										className="h-7 touch:h-10 w-40 rounded-sm border border-border bg-background px-1.5 text-xs"
 									/>
-									<button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => { setProfileEdit(null); setProfileError(null); }}>Cancel</button>
+									<button type="button" data-testid="profile-name-save" className="lh-touch text-xs text-foreground hover:underline" onClick={() => void saveProfileName()}>Save</button>
+									<button type="button" data-testid="profile-name-cancel" className="lh-touch text-xs text-muted-foreground hover:text-foreground" onClick={() => { setProfileEdit(null); setProfileError(null); }}>Cancel</button>
 								</span>
 							) : (
 								<span ref={open ? menuAnchorRef : undefined} className="relative flex items-center gap-2">
@@ -778,8 +783,8 @@ export function AgentSection({
 									/>
 									{!isBuiltinProfile(active) && (
 										<>
-											<button type="button" data-testid="profile-rename" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => { setProfileError(null); setProfileEdit({ mode: "rename", draft: active }); }}>Rename</button>
-											<button type="button" data-testid="profile-delete" disabled={list.filter((e) => !e.builtin).length <= 1} className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-40" onClick={() => void run({ action: "delete", name: active })}>Delete</button>
+											<button type="button" data-testid="profile-rename" className="lh-touch text-xs text-muted-foreground hover:text-foreground" onClick={() => { setProfileError(null); setProfileEdit({ mode: "rename", draft: active }); }}>Rename</button>
+											<button type="button" data-testid="profile-delete" disabled={list.filter((e) => !e.builtin).length <= 1} className="lh-touch text-xs text-muted-foreground hover:text-foreground disabled:opacity-40" onClick={() => void run({ action: "delete", name: active })}>Delete</button>
 										</>
 									)}
 									{open && (
