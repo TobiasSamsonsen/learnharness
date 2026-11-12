@@ -168,7 +168,11 @@ function isIdPrefix(shorter: readonly unknown[], longer: readonly unknown[]): bo
 /**
  * Messages are append-only (nothing edits, regenerates or deletes one), so
  * two copies of a chat are normally one a prefix of the other: take the
- * longer. If both appended different messages the order cannot be
+ * longer. The one exception is a compaction marker (upstream v0.6.1): it is
+ * inserted where the summarized chat ended, before any message that arrived
+ * while the summary ran. Sync treats a chat as busy during a compaction, so
+ * the other device holds a prefix of that array or has diverged on its own
+ * messages. If both appended different messages the order cannot be
  * interleaved (tool-call pairing and the compaction cut depend on it): the
  * newer chat wins whole and the other is kept as the loser. The append-only
  * logs (turns, extractions, clarify threads) union by id; title, settings and
