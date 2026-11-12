@@ -55,7 +55,7 @@ export function TopBar({
 	children?: ReactNode;
 	/** Host picker chrome: native clearance without changing sidebar state. */
 	sidebarToggle?: boolean;
-	/** 0–1 session progress: a thin bar along the bottom edge, hidden at 0. */
+	/** 0â€“1 session progress: a thin bar along the bottom edge, hidden at 0. */
 	progress?: number;
 }) {
 	const header = useRef<HTMLElement>(null);
