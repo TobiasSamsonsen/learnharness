@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { applyPortableSettings, mergeFile, portableSettings, type MergeInput } from "../src/core/sync-merge.ts";
+import { CURRENT_CHAT_VERSION } from "../src/core/contracts/chat.ts";
 
 const j = (v: unknown) => JSON.stringify(v, null, "\t");
 const lines = (...recs: unknown[]) => recs.map((r) => JSON.stringify(r)).join("\n") + "\n";
@@ -23,7 +24,8 @@ const chat = (over: Record<string, unknown>) => ({
 	createdAt: "2026-01-01T00:00:00Z",
 	updatedAt: "2026-01-01T00:00:00Z",
 	messages: [],
-	version: 1,
+	// what this build writes: fixtures at an older stamp hid a merge that refused every current chat
+	version: CURRENT_CHAT_VERSION,
 	...over,
 });
 
@@ -97,9 +99,70 @@ describe("mergeFile: chats", () => {
 		assert.equal(((out.clarifyThreads as { entries: unknown[] }[])[0] as { entries: unknown[] }).entries.length, 2);
 	});
 
-	it("leaves a chat from a newer app version alone", () => {
-		const r = merge("chats/chat_1.json", { local: j(chat({})), remote: j(chat({ version: 2, title: "x" })) });
-		assert.ok(r.skipped);
+	it("leaves a chat from a newer app version alone, whichever side has it", () => {
+		const newer = j(chat({ version: CURRENT_CHAT_VERSION + 1, title: "x" }));
+		const r = merge("chats/chat_1.json", { local: j(chat({})), remote: newer });
+		assert.match(r.skipped ?? "", /newer version/);
+		assert.equal(r.content, j(chat({})), "this device's copy is not rewritten");
+		assert.ok(merge("chats/chat_1.json", { local: newer, remote: j(chat({})) }).skipped);
+	});
+
+	it("merges two chats at the version this build writes, and stamps the result with it", () => {
+		const local = chat({ updatedAt: "2026-01-02T00:00:00Z", messages: [msg("m1")] });
+		const remote = chat({ updatedAt: "2026-01-03T00:00:00Z", messages: [msg("m1"), msg("m2")] });
+		const r = merge("chats/chat_1.json", { local: j(local), remote: j(remote) });
+		assert.equal(r.skipped, null);
+		assert.equal(parse(r.content).version, CURRENT_CHAT_VERSION);
+		// an unstamped (version 1) copy merges too and leaves with the current stamp
+		const { version: _v, ...old } = local;
+		const mixed = merge("chats/chat_1.json", { local: j(old), remote: j(remote) });
+		assert.equal(mixed.skipped, null);
+		assert.equal(parse(mixed.content).version, CURRENT_CHAT_VERSION);
+	});
+
+	it("was reviewed against chat schema 2: read the field rules of mergeChat again before raising this number", () => {
+		// mergeChat merges fields by name. A schema bump can add a field it copies whole from the newer side (losing the
+		// other device's part), which is how side threads and image snapshots arrived unnoticed.
+		assert.equal(CURRENT_CHAT_VERSION, 2);
+	});
+
+	it("unions image snapshots by key, also when the newer copy is the shorter one", () => {
+		const snap = (data: string) => ({ mimeType: "image/png", data, width: 1, height: 1 });
+		const local = chat({ updatedAt: "2026-01-03T00:00:00Z", messages: [msg("m1")], imageSnapshots: { aa: snap("A") } });
+		const remote = chat({ updatedAt: "2026-01-02T00:00:00Z", messages: [msg("m1"), msg("m2")], imageSnapshots: { aa: snap("A"), bb: snap("B") } });
+		const r = merge("chats/chat_1.json", { local: j(local), remote: j(remote) });
+		const out = parse(r.content);
+		assert.deepEqual(Object.keys(out.imageSnapshots as object).sort(), ["aa", "bb"], "the picture of m2 came along with m2");
+		assert.equal((out.messages as unknown[]).length, 2);
+		assert.equal(r.loser, null);
+		const plain = merge("chats/chat_1.json", { local: j(chat({ messages: [msg("m1")] })), remote: j(chat({ updatedAt: "2026-03-01T00:00:00Z", messages: [msg("m1"), msg("m2")] })) });
+		assert.equal("imageSnapshots" in parse(plain.content), false, "no empty field is added");
+		assert.equal("sideChats" in parse(plain.content), false);
+	});
+
+	it("unions side threads by id, taking the longer list when one device continued the other's", () => {
+		const sm = (id: string) => ({ id, role: "user", text: id, at: "1" });
+		const thread = (id: string, messages: unknown[], open = false) => ({ id, anchor: { messageId: id }, open, createdAt: "c", messages });
+		const local = chat({ updatedAt: "2026-01-03T00:00:00Z", sideChats: [thread("side_a", [sm("q1")], true), thread("side_b", [sm("x1")])] });
+		const remote = chat({ updatedAt: "2026-01-02T00:00:00Z", sideChats: [thread("side_a", [sm("q1"), sm("r1")]), thread("side_c", [sm("y1")])] });
+		const r = merge("chats/chat_1.json", { local: j(local), remote: j(remote) });
+		const threads = parse(r.content).sideChats as { id: string; open: boolean; messages: { id: string }[] }[];
+		assert.deepEqual(threads.map((t) => t.id), ["side_a", "side_b", "side_c"]);
+		assert.deepEqual(threads[0]?.messages.map((x) => x.id), ["q1", "r1"]);
+		assert.equal(threads[0]?.open, true, "the thread's own fields are the newer side's");
+		assert.equal(r.loser, null);
+	});
+
+	it("keeps the newer side thread and the other copy when both devices added to it", () => {
+		const sm = (id: string) => ({ id, role: "user", text: id, at: "1" });
+		const thread = (messages: unknown[]) => ({ id: "side_a", anchor: { messageId: "a" }, open: false, createdAt: "c", messages });
+		const local = chat({ updatedAt: "2026-01-03T00:00:00Z", sideChats: [thread([sm("q1"), sm("here")])] });
+		const remote = chat({ updatedAt: "2026-01-02T00:00:00Z", sideChats: [thread([sm("q1"), sm("there")])] });
+		const r = merge("chats/chat_1.json", { local: j(local), remote: j(remote) });
+		const threads = parse(r.content).sideChats as { messages: { id: string }[] }[];
+		assert.deepEqual(threads[0]?.messages.map((x) => x.id), ["q1", "here"]);
+		assert.equal(r.loser, j(remote));
+		assert.match(r.notes.join(" "), /side conversation/);
 	});
 
 	it("falls back to the preferred copy for unreadable JSON", () => {

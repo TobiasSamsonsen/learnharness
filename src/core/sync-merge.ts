@@ -27,6 +27,8 @@
  * changes nothing produces no diff.
  */
 
+import { CURRENT_CHAT_VERSION } from "./contracts/chat.ts";
+
 export type Side = "local" | "remote";
 
 export interface MergeInput {
@@ -159,7 +161,20 @@ const idOf = (v: unknown): string | null => (isObj(v) ? str(v.id) : null);
 
 // ─── Chats ─────────────────────────────────────────────────────────────────
 
-const CHAT_VERSION = 1;
+// The chat schema this build writes (src/store/chats.ts stamps it on every save). A private constant here went stale at
+// upstream's bump to 2: every chat both devices had changed was then held back as "written by a newer version", on
+// every round. mergeChat merges fields BY NAME: tests/sync-merge.test.ts pins the schema number it was last reviewed
+// against, so the next bump fails a test until this function has been read again.
+const CHAT_VERSION = CURRENT_CHAT_VERSION;
+
+/** A side thread both devices hold: the longer message list when one continues the other; null when they differ. */
+function mergeSideThread(mine: Obj, theirs: Obj): Obj | null {
+	const a = arr(mine.messages);
+	const b = arr(theirs.messages);
+	if (isIdPrefix(b, a)) return mine;
+	if (isIdPrefix(a, b)) return { ...mine, messages: b };
+	return null;
+}
 
 function isIdPrefix(shorter: readonly unknown[], longer: readonly unknown[]): boolean {
 	return shorter.length <= longer.length && shorter.every((m, i) => idOf(m) !== null && idOf(m) === idOf(longer[i]));
@@ -176,7 +191,11 @@ function isIdPrefix(shorter: readonly unknown[], longer: readonly unknown[]): bo
  * interleaved (tool-call pairing and the compaction cut depend on it): the
  * newer chat wins whole and the other is kept as the loser. The append-only
  * logs (turns, extractions, clarify threads) union by id; title, settings and
- * tree take whichever side changed them since the base.
+ * tree take whichever side changed them since the base. Image snapshots
+ * (content-addressed, write-once) union by key. Side threads (upstream's side
+ * questions, switched off in the fork but kept in old records) union by id; a
+ * thread both devices added to differently keeps the newer side's and the
+ * other chat is kept as the loser.
  */
 function mergeChat(i: MergeInput & { local: string; remote: string }): MergeResult {
 	const l = parseObj(i.local);
@@ -217,6 +236,25 @@ function mergeChat(i: MergeInput & { local: string; remote: string }): MergeResu
 			return { ...t, entries: unionBy(arr(lt.entries), arr(rt.entries), idOf, (e) => (isObj(e) ? (str(e.at) ?? "") : "")) };
 		});
 		for (const k of ["turns", "extractions", "clarifyThreads"]) if (arr(out[k]).length === 0 && !(k in winner)) delete out[k];
+		const loserSide = newer === "local" ? r : l;
+		if (isObj(winner.imageSnapshots) || isObj(loserSide.imageSnapshots)) {
+			out.imageSnapshots = { ...(isObj(loserSide.imageSnapshots) ? loserSide.imageSnapshots : {}), ...(isObj(winner.imageSnapshots) ? winner.imageSnapshots : {}) };
+		}
+		if (Array.isArray(winner.sideChats) || Array.isArray(loserSide.sideChats)) {
+			const theirs = arr(loserSide.sideChats);
+			let differed = false;
+			out.sideChats = unionBy(arr(winner.sideChats), theirs, idOf).map((t) => {
+				const twin = isObj(t) ? theirs.find((x) => idOf(x) === t.id) : undefined;
+				if (!isObj(t) || !isObj(twin) || t === twin) return t;
+				const merged = mergeSideThread(t, twin);
+				if (merged === null) differed = true;
+				return merged ?? t;
+			});
+			if (differed) {
+				loser ??= other(i, newer);
+				notes.push("a side conversation was continued on both devices; kept the newer one and saved the other copy");
+			}
+		}
 		for (const key of ["title", "settings", "tree"]) {
 			const m = threeWay(b?.[key], l[key], r[key], newer, b !== null);
 			if (m.value === undefined) delete out[key];

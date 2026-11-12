@@ -16,6 +16,7 @@ import { after, describe, it } from "node:test";
 import { runSync, type AppliedChange } from "../src/server/sync/engine.ts";
 import { GitHubError, type RemoteRepo } from "../src/server/sync/github.ts";
 import { FakeRemote } from "./sync-fake-remote.ts";
+import { CURRENT_CHAT_VERSION } from "../src/core/contracts/chat.ts";
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-sync-engine-"));
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
@@ -63,7 +64,8 @@ const chat = (over: Record<string, unknown>) => ({
 	createdAt: "2026-01-01T00:00:00Z",
 	updatedAt: "2026-01-01T00:00:00Z",
 	messages: [] as unknown[],
-	version: 1,
+	// what this build writes (a version 1 fixture hid a merge that held back every current chat)
+	version: CURRENT_CHAT_VERSION,
 	...over,
 });
 const m = (id: string) => ({ id, role: "user", content: id, timestamp: 1 });
@@ -157,6 +159,29 @@ describe("a round", () => {
 		assert.deepEqual(ids(fs.readFileSync(copy, "utf8")), ["m1", "from-a"]);
 		await a.sync();
 		assert.deepEqual(ids(a.read("chats/chat_1.json")), ["m1", "from-b"], "the devices converge");
+		assert.equal((await a.sync()).idle, true);
+		assert.equal((await b.sync()).idle, true);
+	});
+
+	it("merges a chat both devices changed at the current schema version, and the next round is quiet", async () => {
+		const remote = new FakeRemote();
+		const a = device(remote);
+		const b = device(remote);
+		a.write("chats/chat_1.json", j(chat({ title: "Old", messages: [m("m1")] })));
+		await a.sync();
+		await b.sync();
+		a.write("chats/chat_1.json", j(chat({ title: "Old", updatedAt: "2026-02-01T00:00:00Z", messages: [m("m1"), m("m2")] })));
+		b.write("chats/chat_1.json", j(chat({ title: "Renamed", messages: [m("m1")] })));
+		await a.sync();
+		const r = await b.sync();
+		assert.equal(r.skipped.length, 0, "not held back as written by a newer version");
+		assert.deepEqual(r.merged, ["chats/chat_1.json"]);
+		const merged = JSON.parse(b.read("chats/chat_1.json") ?? "{}") as { title: string; version: number };
+		assert.equal(merged.title, "Renamed");
+		assert.equal(merged.version, CURRENT_CHAT_VERSION);
+		assert.deepEqual(ids(b.read("chats/chat_1.json")), ["m1", "m2"]);
+		await a.sync();
+		assert.equal(a.read("chats/chat_1.json"), b.read("chats/chat_1.json"), "the devices converge");
 		assert.equal((await a.sync()).idle, true);
 		assert.equal((await b.sync()).idle, true);
 	});
