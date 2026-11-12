@@ -33,6 +33,7 @@ import {
 	resolvePluginShortcuts,
 } from "@/src/core";
 import { SettingsRow } from "./controls.tsx";
+import { isHiddenKeyAction } from "../fork-switches.ts";
 import { coreShortcutBindings, pluginShortcutScopeLabel, useKeymapRevision, usePluginShortcutRows } from "../plugin-shortcuts";
 
 const SCOPES: { scope: KeyScope; label: string }[] = [
@@ -120,7 +121,7 @@ export function KeyboardSection() {
 		<>
 			{rebindError && rebinding && <p role="alert" className="text-xs text-destructive">{rebindError}</p>}
 			{SCOPES.map(({ scope, label }) => {
-				const actions = KEYBOARD_ACTIONS.filter((a) => a.scope === scope);
+				const actions = KEYBOARD_ACTIONS.filter((a) => a.scope === scope && !isHiddenKeyAction(a.id));
 				if (!actions.length) return null;
 				return (
 					<div key={scope} ref={scope === "global" ? rootRef : undefined} data-testid={`kbd-scope-${scope}`}>

@@ -40,6 +40,7 @@ import { isDictationActive } from "@/components/dictation";
 import { dispatchFocusedPluginShortcut, hasLegacyInteractionForeground, isInteractionScopeEligible } from "@/components/plugin-input-focus";
 import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 import { usePlugins } from "./plugins";
+import { isHiddenKeyAction } from "./fork-switches.ts";
 import { dispatchPluginActionShortcut, pluginShortcutScopeLabel, usePluginShortcutRows } from "./plugin-shortcuts";
 
 // Re-exported for the contract pin (tests/keyboard-toggle-sidebar.test.ts):
@@ -137,6 +138,8 @@ export function KeyboardShortcuts() {
 					handlersRef.current.setCheatOpen(true);
 					break;
 				case "toggle-question-thread":
+					// FORK: side questions are switched off (fork-switches.ts): the chord is not claimed.
+					if (isHiddenKeyAction(action)) break;
 					// The chat view owns it (only while a question waits); claim the
 					// chord so a browser tab's own ⌘J (Downloads) never fires too.
 					e.preventDefault();
@@ -191,7 +194,7 @@ function CheatSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
 					<span className="text-xs text-muted-foreground">Esc to close</span>
 				</div>
 				{scopes.map((scope) => {
-					const actions = KEYBOARD_ACTIONS.filter((a) => a.scope === scope);
+					const actions = KEYBOARD_ACTIONS.filter((a) => a.scope === scope && !isHiddenKeyAction(a.id));
 					if (actions.length === 0) return null;
 					return (
 						<div key={scope} className="mb-4">

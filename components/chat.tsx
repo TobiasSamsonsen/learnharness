@@ -70,6 +70,7 @@ import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext, type SessionImage } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
+import { upstreamSelectionTools } from "@/components/fork-switches";
 import { ArrowRightIcon, ClipboardCheckIcon, DumbbellIcon, MessageCircleQuestionIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
 import { QuestionDock } from "@/components/question-dock";
@@ -1084,6 +1085,9 @@ export function Chat({
 		() => createCiteAction({ chatId, composer: citeInput, openEditor: setCitationEdit }),
 		[chatId, citeInput],
 	);
+	// FORK (owner, 2026-11-12): upstream's selection toolbar, side questions and companion are switched off
+	// (fork-switches.ts). The hook stays mounted; every way in and every read of its open state is gated on this.
+	const sideTools = upstreamSelectionTools.current;
 	// One durable companion per explanation/check, in teaching AND practice.
 	// Main requests append new raw exchanges from every thread; closing only hides the UI.
 	const workingRef = useRef("");
@@ -1125,7 +1129,7 @@ export function Chat({
 			finish: () => recording.finishFor(destinationId) };
 	};
 	const renderSideEntry = (sourceMessageId?: string) => {
-		if (!sourceMessageId) return null;
+		if (!sideTools || !sourceMessageId) return null;
 		const hasHistory = sideThread.threads.some((thread) => thread.anchor.messageId === sourceMessageId && thread.messages.length > 0);
 		return <div className="mt-1 flex justify-end">
 			<Button type="button" variant="ghost" size="icon-xs" data-testid="side-conversation-button" data-side-segment-id={sourceMessageId}
@@ -1138,11 +1142,11 @@ export function Chat({
 		</div>;
 	};
 	const sideThreadOpenRef = useRef(false);
-	sideThreadOpenRef.current = sideThread.state !== null;
+	sideThreadOpenRef.current = sideTools && sideThread.state !== null;
 	const closeSideThreadRef = useRef(closeSideThread);
 	closeSideThreadRef.current = closeSideThread;
 	const toggleQuestionThread = useCallback(() => {
-		if (!isInteractionScopeEligible(sessionFindScopeRef.current, controller)) return;
+		if (!upstreamSelectionTools.current || !isInteractionScopeEligible(sessionFindScopeRef.current, controller)) return;
 		if (sideThreadOpenRef.current) closeSideThreadRef.current();
 		else openSideThread({ anchor: { kind: "composer" }, questionCallId: pendingRef.current?.toolCallId });
 	}, [controller, openSideThread]);
@@ -2224,7 +2228,7 @@ export function Chat({
 				    anchored to the dock block's top edge, so it rides every
 				    height morph (typing, a question growing the band, the
 				    fold) and NEVER overlaps the composer. */}
-				<AskSelection enabled onAsk={setAskDraft} exclude={transcriptElement} />
+				<AskSelection enabled onAsk={setAskDraft} exclude={sideTools ? transcriptElement : null} />
 				{/* The dock's wording gets its own margin bubbles (ClarifyWording): the dock is outside the transcript the layer above measures. */}
 				<ClarifyDockContext.Provider value={dockClarify}>
 				<DockOverlay
@@ -2354,7 +2358,7 @@ export function Chat({
 				/>
 				</ClarifyDockContext.Provider>
 				</Conversation>
-				{sideThread.state?.mode === "panel" && (
+				{sideTools && sideThread.state?.mode === "panel" && (
 					<SideThreadPanel>
 						<SideThreadBody
 							key={sideThread.state.threadId}
@@ -2374,7 +2378,7 @@ export function Chat({
 					</SideThreadPanel>
 				)}
 
-				{sideThread.state?.mode === "popover" && (
+				{sideTools && sideThread.state?.mode === "popover" && (
 					<SideThreadPopover
 						state={sideThread.state}
 						chatId={chatId}
@@ -2407,7 +2411,7 @@ export function Chat({
 					/>
 				)}
 				{planOpen && <PlanPopup messages={messages} onClose={() => setPlanOpen(false)} />}
-				<SelectionToolbar viewport={transcriptElement} actions={selectionActions} />
+				{sideTools && <SelectionToolbar viewport={transcriptElement} actions={selectionActions} />}
 				{citationEdit && (
 					<CitationCommentPopover
 						key={`${citationEdit.start}:${citationEdit.link}`}

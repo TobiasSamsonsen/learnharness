@@ -20,6 +20,7 @@ import { AppearanceProvider } from "../components/settings/appearance.tsx";
 import { BUILTIN_THEMES, resolveTheme, THEME_COLOR_KEYS, type AppearanceSettings, type Theme } from "../src/core/index.ts";
 import { KeysSection } from "../components/settings/keys-section.tsx";
 import { KeyboardSection } from "../components/settings/keyboard-section.tsx";
+import { isHiddenKeyAction } from "../components/fork-switches.ts";
 import type { GraphSettings } from "../src/core/index.ts";
 import { SettingsDialogBody, SettingsDialogProvider } from "../components/settings/settings-dialog.tsx";
 import { KEYBOARD_ACTIONS } from "../src/core/index.ts";
@@ -451,8 +452,10 @@ describe("KeyboardSection (thin SSR)", () => {
 	it("renders every registry action in its scope group", () => {
 		const html = renderToStaticMarkup(<KeyboardSection />);
 		for (const def of KEYBOARD_ACTIONS) {
-			assert.ok(html.includes(`data-testid="kbd-row-${def.id}"`), def.id);
+			// FORK: an action whose feature is switched off is not listed (components/fork-switches.ts).
+			assert.equal(html.includes(`data-testid="kbd-row-${def.id}"`), !isHiddenKeyAction(def.id), def.id);
 		}
+		assert.equal(isHiddenKeyAction("toggle-question-thread"), true, "the side-question chord is the hidden one");
 		assert.ok(html.includes("kbd-scope-global"));
 		assert.ok(html.includes("kbd-scope-chat"));
 	});

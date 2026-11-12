@@ -95,6 +95,7 @@ import { cn } from "@/lib/utils";
 import { SettingsGroup, SettingsRow, SettingsMenuTrigger, Toggle, CommitInput } from "./controls.tsx";
 import { ModelMenuList, ThinkingMenuList } from "./model-menu";
 import { ChatGPTBackgroundAccess } from "./chatgpt-connection";
+import { upstreamSelectionTools } from "../fork-switches.ts";
 import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
 
 /** One slot's display identity — the tier's roster as the row hint rides
@@ -1004,7 +1005,7 @@ export function AgentSection({
 			    following its slot. The Claude-subscription preset sets two of
 			    these (planner → Opus, demo builder → Sonnet). */}
 			<SettingsGroup label="Roles" testid="group-roles">
-				{ROLE_ROWS.map(({ role, label, hint, slot }) => {
+				{ROLE_ROWS.filter(({ role }) => role !== "sideQuestion" || upstreamSelectionTools.current).map(({ role, label, hint, slot }) => {
 					const override = agent?.models?.[role];
 					const pin = slot ? slots?.[slot] : null;
 					const shown = roleModelLabel(override, slot, pin);
