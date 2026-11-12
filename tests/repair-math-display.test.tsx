@@ -194,10 +194,12 @@ describe("practice display surfaces", () => {
 		}
 	});
 
-	it("does not change the collapsed preview, dismissal or global prose renderer", () => {
+	it("does not change the dismissal or global prose renderer; the collapsed preview renders the repaired first line", () => {
+		// FORK (owner, 2026-11-12): the collapsed bar is no longer raw source. It shows the statement's first line through the
+		// same display repair as the expanded dock (components/rich-text.tsx, RichLine).
 		const preview = renderToStaticMarkup(dock({ statement: doubled }, false));
-		assert.ok(preview.includes(doubled));
-		assert.deepEqual(math(preview).annotations, []);
+		assert.ok(!preview.includes(doubled));
+		assertMath(preview);
 		const dismissed = renderToStaticMarkup(<ConcludeCard part={part({ outcome: "dismissed", verdict: doubled }, { reveal: doubled })} />);
 		assert.ok(dismissed.includes("Problem dismissed."));
 		assert.deepEqual(math(dismissed).annotations, []);

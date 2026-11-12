@@ -3,14 +3,16 @@
 import { useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { RichText } from "@/components/rich-text";
 import { COURSE_MODE_LABEL, type CourseContextDetails } from "@/src/core";
 
 /**
  * The graph-context card (owner, 2026-10-04): the session's map pick —
  * message[0] of a session started with propositions picked from the
  * graph. Scaffolding, not a turn: minimal, muted, collapsed by default;
- * expand reveals the picked propositions (name — statement) and the
- * reasoning chains among them (premises → conclusion lines). The model
+ * expand reveals the picked propositions (name over statement, math
+ * rendered — owner, 2026-11-12) and the reasoning chains among them
+ * (premises → conclusion lines, plain). The model
  * reads the same content through the marker's own text (toLlmMessages);
  * this card is the learner's face of it.
  *
@@ -26,6 +28,9 @@ export interface GraphContextData {
 	/** Course sessions only. */
 	course?: CourseContextDetails;
 }
+
+/** The card's own type for a rendered name or statement: text-xs, relaxed leading (see rich-text.tsx). */
+const ITEM_TYPE = "[--lh-prose-size:var(--text-xs)] [--lh-prose-leading:1.625]";
 
 export function GraphContextCard({ data }: { data: GraphContextData }) {
 	const [open, setOpen] = useState(false);
@@ -50,16 +55,16 @@ export function GraphContextCard({ data }: { data: GraphContextData }) {
 			{open && (
 				<div data-testid="graph-context-body" className="mt-1 space-y-1 rounded-lg border border-dashed border-border/70 px-4 py-3 text-xs">
 					{course?.skills.map((s) => (
-						<div key={s.id} data-testid={`graph-context-skill-${s.id}`} className="leading-relaxed">
-							<span className="font-medium text-foreground">{s.name}</span>
-							<span className="text-muted-foreground"> — {s.statement}</span>
+						<div key={s.id} data-testid={`graph-context-skill-${s.id}`}>
+							<RichText className={cn(ITEM_TYPE, "font-medium text-foreground")}>{s.name}</RichText>
+							<RichText className={cn(ITEM_TYPE, "text-muted-foreground")}>{s.statement}</RichText>
 						</div>
 					))}
 					{course && propositions.length > 0 && <div className="pt-1" aria-hidden="true" />}
 					{propositions.map((p) => (
-						<div key={p.id} data-testid={`graph-context-prop-${p.id}`} className="leading-relaxed">
-							<span className="font-medium text-foreground/80">{p.name}</span>
-							<span className="text-muted-foreground"> — {p.statement}</span>
+						<div key={p.id} data-testid={`graph-context-prop-${p.id}`}>
+							<RichText className={cn(ITEM_TYPE, "font-medium text-foreground/80")}>{p.name}</RichText>
+							<RichText className={cn(ITEM_TYPE, "text-muted-foreground")}>{p.statement}</RichText>
 						</div>
 					))}
 					{chains.length > 0 && (

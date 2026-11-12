@@ -189,7 +189,13 @@ export function Composer({
 			type="button"
 			data-testid="plan-continue-button"
 			aria-label="Continue"
-			onClick={() => onPlanContinue?.()}
+			// preventDefault: the go-ahead makes the turn busy inside this same click, and React then turns this very
+			// element into the submit button below (Stop). Without it the browser finishes the click by submitting the
+			// form, which reads as Stop and opens the abort-turn popup (owner report, 2026-11-12).
+			onClick={(e) => {
+				e.preventDefault();
+				onPlanContinue?.();
+			}}
 			className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-success px-4 font-ui text-xs font-medium uppercase tracking-wide text-background transition-colors hover:bg-success/85"
 		>
 			Continue

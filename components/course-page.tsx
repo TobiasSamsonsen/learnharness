@@ -37,6 +37,7 @@ import { SkillMap } from "@/components/skill-map";
 import { SidebarToggle } from "@/components/sidebar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { cn } from "@/lib/utils";
+import { RichLine, RichText } from "@/components/rich-text";
 
 /**
  * The course page (fork addition, 2026-10-24 — docs/courses.md §6): the
@@ -138,6 +139,8 @@ function dueLine(skill: CourseSkillView, now = Date.now()): string | null {
 const BTN =
 	"rounded-md border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50";
 const SECTION_HEAD = "mb-2 text-xs uppercase tracking-widest text-muted-foreground/70";
+/** The page's small type for a rendered name or statement: text-xs, relaxed leading (see rich-text.tsx). */
+const ITEM_TYPE = "[--lh-prose-size:var(--text-xs)] [--lh-prose-leading:1.625]";
 
 function SkillRow({
 	skill,
@@ -166,7 +169,7 @@ function SkillRow({
 				</button>
 				<span className="min-w-0 flex-1">
 					<span className="flex items-center gap-2">
-						<span className="min-w-0 truncate font-prose text-(length:--lh-prose-size)">{skill.name}</span>
+						<RichLine prose>{skill.name}</RichLine>
 						{isDue(skill, now) && <DueChip />}
 					</span>
 					<span className="block text-xs text-muted-foreground">
@@ -180,7 +183,7 @@ function SkillRow({
 			</div>
 			{open && (
 				<div className="space-y-2 border-t border-border/60 px-3 py-2 text-xs" data-testid={`skill-detail-${skill.id}`}>
-					<p className="font-prose text-(length:--lh-prose-size) leading-relaxed">{skill.statement}</p>
+					<RichText prose className="[--lh-prose-leading:1.625]">{skill.statement}</RichText>
 					{skill.stability !== null && skill.lastReview !== null && (
 						<p className="text-muted-foreground" data-testid={`skill-recall-${skill.id}`}>
 							Recall now about {Math.round(retrievability({ stability: skill.stability, lastReview: Date.parse(skill.lastReview) }, now) * 100)}% · due for review below 90%
@@ -196,8 +199,8 @@ function SkillRow({
 							<p className="text-muted-foreground">Rests on what you have learned:</p>
 							{skill.propositions.map((p) => (
 								<div key={p.id} className="leading-relaxed">
-									<span className="font-medium text-foreground">{p.name}</span>
-									<span className="text-muted-foreground"> — {p.statement}</span>
+									<RichText className={cn(ITEM_TYPE, "font-medium text-foreground")}>{p.name}</RichText>
+									<RichText className={cn(ITEM_TYPE, "text-muted-foreground")}>{p.statement}</RichText>
 									{p.sessions.length > 0 && (
 										<span className="block text-[11px] text-muted-foreground/80">
 											from{" "}
@@ -249,10 +252,10 @@ function DraftReview({
 				{draft.skills.map((s) => (
 					<li key={s.key} className="rounded-lg border border-border/60 px-3 py-2" data-testid={`draft-skill-${s.key}`}>
 						<div className="flex items-baseline gap-2">
-							<span className="font-prose text-(length:--lh-prose-size)">{label(s)}</span>
+							<RichLine prose>{label(s)}</RichLine>
 							{s.reuse && <span className="rounded-full border border-border px-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">reused</span>}
 						</div>
-						<p className="text-xs leading-relaxed text-muted-foreground">{s.statement}</p>
+						<RichText className={cn(ITEM_TYPE, "text-muted-foreground")}>{s.statement}</RichText>
 						<p className="mt-0.5 text-[11px] text-muted-foreground/80">
 							{s.requires.length > 0 ? `Requires ${s.requires.map((k) => (byKey.get(k) ? label(byKey.get(k)!) : k)).join(", ")}` : "No prerequisites"}
 							{s.restsOn.length > 0 ? ` · rests on ${s.restsOn.length} proposition${s.restsOn.length === 1 ? "" : "s"} you have learned` : ""}

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import type { ViewReaderRef } from "./session-view-readers";
 import { CameraIcon, ChevronRightIcon, PenLineIcon, XIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
+import { RichLine } from "@/components/rich-text";
 import { ClarifyWording } from "@/components/clarify-wording";
 import { Button } from "@/components/ui/button";
 import { PhotoError, preparePhoto, releasePhoto, type PreparedPhoto } from "@/components/photo-answer";
@@ -269,7 +270,8 @@ export function PracticeDock({
 			>
 				<ChevronRightIcon className="size-4 shrink-0 rotate-90" />
 				<span className="font-medium">Problem</span>
-				<span className="min-w-0 flex-1 truncate">{input.statement}</span>
+				{/* The statement's first line, math rendered (owner, 2026-11-12); display-only, so nothing interactive nests in this button. */}
+				<RichLine className="flex-1 [--lh-prose-size:var(--text-sm)] [--lh-prose-leading:var(--text-sm--line-height)]">{input.statement}</RichLine>
 			</button>
 		);
 	if (!expanded && !customInput) return bar;

@@ -83,6 +83,7 @@ import { isInteractionScopeEligible } from "@/components/plugin-input-focus";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ToolContentResponse } from "@/components/ai-elements/message";
+import { RichLine } from "@/components/rich-text";
 import { Hint } from "@/components/ui/hint";
 import { COMPACT_BUTTON, COMPACT_LABEL } from "@/components/chrome-compact";
 import {
@@ -205,9 +206,9 @@ export function SkillDetail({
 				<div className="flex flex-col gap-0.5">
 					<div className="text-xs text-muted-foreground">Rests on</div>
 					{rests.map((name, i) => (
-						<div key={i} className="truncate px-2 text-xs text-foreground">
+						<RichLine key={i} className="px-2 text-foreground [--lh-prose-size:var(--text-xs)] [--lh-prose-leading:var(--text-xs--line-height)]">
 							{name}
-						</div>
+						</RichLine>
 					))}
 				</div>
 			)}
