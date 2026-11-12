@@ -178,7 +178,7 @@ test("builtin names remain reserved when absent; first valid package wins and in
 	builtin.registerTools({ agents: ["teacher"], create: () => [native("research")] });
 	const changes = f.changes();
 	const agent = createTeacherAgent(undefined, { engine: engine(), chatId: "no-core-research", pluginContributions: f.host.agentContributions });
-	assert.deepEqual(agent.state.tools.map(tool => tool.name), ["quiz", "ask_user_question", "figure_guide", "circuit_solve", "read_sketch", "shared_name", "otherwise_unique"]);
+	assert.deepEqual(agent.state.tools.map(tool => tool.name), ["quiz", "ask_user_question", "figure_guide", "circuit_solve", "read_sketch", "show_figure", "shared_name", "otherwise_unique"]);
 	assert.ok(agent.state.systemPrompt.includes("First survives"));
 	assert.ok(!agent.state.systemPrompt.includes("Omit entire package"));
 	assert.ok(!agent.state.systemPrompt.includes("No gated builtin shadowing"));
@@ -330,7 +330,7 @@ test("malformed parameter/output schemas omit the whole package; later valid pac
 		const off = bad.registerTools({ agents: ["teacher"], create: () => [{ ...native("shared_schema_tool"), [field]: schema }] });
 		const faux = createFauxCore({}); faux.setResponses([fauxAssistantMessage("Core remains usable")]);
 		const agent = createTeacherAgent(undefined, { engine: { model: faux.getModel(), streamFn: faux.streamSimple }, chatId: "schema-isolation", pluginContributions: f.host.agentContributions });
-		assert.deepEqual(agent.state.tools.map(tool => tool.name), ["quiz", "ask_user_question", "figure_guide", "circuit_solve", "read_sketch", "shared_schema_tool"]);
+		assert.deepEqual(agent.state.tools.map(tool => tool.name), ["quiz", "ask_user_question", "figure_guide", "circuit_solve", "read_sketch", "show_figure", "shared_schema_tool"]);
 		assert.ok(agent.state.systemPrompt.includes("Valid appendix"));
 		assert.ok(!agent.state.systemPrompt.includes("Must not poison core"));
 		assert.equal(f.host.list()[0]!.status, "active");

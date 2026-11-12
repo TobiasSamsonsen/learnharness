@@ -282,17 +282,22 @@ export function newUserSteer(text: string, id: string, images?: readonly ImageCo
  *  restating them doubled every answer's tokens), while `details` keeps
  *  the FULL graded QuestionAnswerData for the record and the UI. A
  *  prose-gated tool's answer also carries `next` (core/prose-gate.ts) —
- *  written once here, so replay and the prompt cache stay stable. */
+ *  written once here, so replay and the prompt cache stay stable. `figures`
+ *  is the soft reminder about finished figures not shown yet (owner,
+ *  2026-11-12 — core/figure-show.ts unshownFiguresNote), on the same tools,
+ *  written once the same way; the caller computes it from the record. */
 export function newAnswerResult(
 	toolCallId: string,
 	toolName: string,
 	answer: unknown,
+	figures?: string,
 ): LhMessage & ToolResultMessage {
 	const forModel = compactAnswerForModel(answer as QuestionAnswerData);
 	const hasSketch = (answer as QuestionAnswerData).sketch !== undefined;
 	// only the tools that carry a `lead`: the hint says "reply in the next question's `lead`", which an ask has not
 	if (LEAD_TOOLS.includes(toolName)) forModel.next = hasSketch ? SKETCH_ANSWER_NEXT_TEXT : ANSWER_NEXT_TEXT;
 	else if (hasSketch) forModel.next = SKETCH_READ_FIRST_TEXT;
+	if (figures && LEAD_TOOLS.includes(toolName)) forModel.figures = figures;
 	return {
 		id: newMessageId(),
 		role: "toolResult",

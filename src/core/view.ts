@@ -42,6 +42,7 @@ import { QUESTION_TOOLS } from "./pending.ts";
 import { leadOf } from "./tutor-prose.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
 import type { PlanBlockData } from "./contracts/chat.ts";
+import { FIGURE_TOOLS, SHOW_FIGURE_TOOL, figureDispatchShown, figureSteerOf, figuresOf, hiddenFigureDispatches } from "./figure-show.ts";
 
 /** One projected transcript part consumed by host renderers and phase/input
  * scanners. type selects the part vocabulary; common fields are optional
@@ -66,6 +67,9 @@ export interface LhViewPart extends Record<string, unknown> {
 	/** Native result retained for public plugin renderers and readable fallbacks. */
 	result?: Pick<ToolResultMessage, "content" | "details" | "isError">;
 	data?: unknown;
+	/** A show_figure part's figure (a figure-show.ts FigureEntry), joined from its delivery marker by job id. Typed
+	 *  unknown so the plugin SDK does not grow the job result types. */
+	figure?: unknown;
 }
 
 /** A view message: user (bubble) or assistant (one continuous run). */
@@ -198,6 +202,16 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 	// not shown a second time (see echoesOutput).
 	const groupOutputs: string[] = [];
 
+	// Figures wait for the tutor (owner, 2026-11-12 — figure-show.ts): a visual/demo dispatch, its delivery and its
+	// abort stay hidden; show_figure renders the figure where the tutor calls it, joined here by job id.
+	const figureResults = new Map<string, ToolResultMessage>();
+	for (const m of messages) {
+		const r = m as ToolResultMessage;
+		if (r.role === "toolResult" && FIGURE_TOOLS.includes(r.toolName)) figureResults.set(r.toolCallId, r);
+	}
+	const figures = figuresOf(messages);
+	const hiddenDispatches = hiddenFigureDispatches(messages);
+
 	for (const m of messages) {
 		const role = (m as { role?: string }).role;
 		// a new group starts wherever the view's last entry is not an assistant one
@@ -229,7 +243,7 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 		}
 
 		if (role === "custom") {
-			projectMarker(m as LhMarkerMessage, out);
+			projectMarker(m as LhMarkerMessage, out, hiddenDispatches);
 			continue;
 		}
 
@@ -284,7 +298,18 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 							state: annotation.status === "posed" ? "input-available" : streamingMessage ? "input-streaming" : "output-error" });
 						continue;
 					}
+					if (FIGURE_TOOLS.includes(block.name)) {
+						// Hidden while it runs and once it carries the flag; only an old chat's clean dispatch still renders.
+						const exec = live?.executions.get(block.id);
+						const settled = figureResults.get(block.id) ?? (exec ? { isError: exec.isError, details: exec.output } : undefined);
+						if (!figureDispatchShown(settled)) continue;
+					}
 					const part = toolPartOf(block, live, streamingMessage);
+					if (block.name === SHOW_FIGURE_TOOL) {
+						const id = (block.arguments as { figure?: unknown } | null | undefined)?.figure;
+						const figure = typeof id === "string" ? figures.get(id.trim()) : undefined;
+						if (figure) part.figure = figure;
+					}
 					const pluginProblem = pluginProblemForCall(messages, { messageId: m.id, contentIndex, toolCallId: block.id, toolName: block.name });
 					if (pluginProblem) { part.pluginProblem = pluginProblem; part.input = pluginProblem.input; }
 					if ((QUESTION_TOOLS as readonly string[]).includes(block.name)) {
@@ -442,7 +467,7 @@ function applyResultTo(part: LhViewPart | undefined, result: ToolResultMessage):
 }
 
 /** A marker's projected message (handoff/steers) or splice (plan block). */
-function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
+function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[], hiddenDispatches: ReadonlySet<string>): void {
 	switch (marker.customType) {
 		case "graph-context": {
 			// The session's map context (owner, 2026-10-04): user-side —
@@ -464,6 +489,8 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			return;
 		}
 		case "subagent-steer": {
+			// A figure that waits for show_figure (success or failure) has no card of its own.
+			if (figureSteerOf(marker)?.onShow) return;
 			const meta = marker.details as SubagentResultMeta;
 			const artifact = marker.details as {
 				kind: SubagentArtifactData["kind"];
@@ -487,6 +514,8 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 		}
 		case "subagent-abort": {
 			const meta = marker.details as SubagentResultMeta & { aborted: true };
+			// The learner never saw a hidden figure ordered, so its abort or delivery failure stays hidden too.
+			if (hiddenDispatches.has(meta.toolCallId)) return;
 			out.push({
 				id: marker.id,
 				role: "user",

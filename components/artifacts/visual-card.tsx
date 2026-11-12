@@ -46,10 +46,13 @@ export function VisualOutputCard({
 	output,
 	messageId,
 	initialInverted = false,
+	caption,
 }: {
 	output: unknown;
 	messageId?: string;
 	initialInverted?: boolean;
+	/** The tutor's one-line caption (show_figure), beside the "Figure" label. */
+	caption?: string;
 }) {
 	const result = output as VisualResult | undefined;
 	const snapshot = useImageSnapshot(result?.image?.snapshotId);
@@ -140,7 +143,14 @@ export function VisualOutputCard({
 					? "mt-2 flex w-0 min-w-full flex-wrap items-center justify-between gap-2"
 					: "mt-2 flex items-center justify-between gap-2"
 			}>
-				<div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Figure</div>
+				<div className="flex min-w-0 items-baseline gap-2">
+					<span className="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">Figure</span>
+					{caption && (
+						<span className="text-sm text-muted-foreground" data-testid="figure-caption">
+							{caption}
+						</span>
+					)}
+				</div>
 				<div className={!invertible ? "ml-auto flex items-center gap-1.5" : "flex items-center gap-1.5"}>
 					{/* The invert affordance (owner round, 2026-10-07): the disc IS
 					    the half-filled contrast circle; the tooltip names it. */}

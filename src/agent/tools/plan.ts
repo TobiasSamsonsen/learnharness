@@ -18,7 +18,7 @@ const PLAN_NODE_IDS_REMINDER =
  *  2026-11-10 — core/visual-gate.ts enforces the first of the two). The tutor
  *  never used `visual`/`demo` unprompted: across 14 chats, one demo, on request. */
 const VISUAL_DISPATCH_REMINDER =
-	"Your plan calls for a picture: dispatch it now with `visual` (a static figure) or `demo` (something to sweep or animate), before your first quiz or explain — those calls are refused until a job is dispatched. Say in a sentence that it is on its way, and keep teaching.";
+	"Your plan calls for a picture: dispatch it now with `visual` (a static figure) or `demo` (something to sweep or animate), before your first quiz or explain — those calls are refused until a job is dispatched. Do not mention it to the learner; it stays hidden until you show it with show_figure at the step it serves.";
 const VISUAL_NONE_REMINDER = "You chose no picture for this plan; if a concept turns out to need one, dispatch `visual` or `demo` anyway.";
 
 /** What the plan tools close over (the plan-tree half of the tool context). */

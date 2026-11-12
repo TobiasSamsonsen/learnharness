@@ -27,7 +27,7 @@ export const VISUAL_TOOLS: readonly string[] = ["visual", "demo"];
 export const VISUAL_GATE_REASON =
 	"Refused: your plan says this lesson needs a picture (`visual.use` in plan_init), and none has been dispatched yet. " +
 	"Dispatch it now with `visual` (a static figure) or `demo` (something to sweep or animate): write a precise, self-contained brief, " +
-	"tell the learner in a sentence that it is on its way, and keep teaching, then call the question again. " +
+	"keep teaching without mentioning it (the learner sees it only when you show it with show_figure), then call the question again. " +
 	"If no picture would help after all, call plan_init again with `visual.use` set to `none` and a one-line reason.";
 
 /** What the newest successful plan_init chose for `visual.use`, or undefined (no plan, an old plan without the field).

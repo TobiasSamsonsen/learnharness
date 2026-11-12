@@ -57,6 +57,7 @@ export type { ComposerToken } from "./composer-tokens.ts";
 // canon (one continuous assistant document, step separators) ported from
 // the deleted server projection to the client side. Pure, browser-safe.
 export * from "./view.ts";
+export * from "./figure-show.ts";
 export * from "./tool-parts.ts";
 export * from "./answer-presentation.ts";
 export * from "./prices.ts";

@@ -453,7 +453,7 @@ describe("visual job runner with an image", () => {
 		assert.ok(!result.svg.includes(image.data));
 		assert.equal(chatStore.getChat(job.chatId)?.imageSnapshots?.[image.snapshotId]?.data, image.data);
 		assert.equal(steers.length, 1);
-		assert.match(steers[0]!.content as string, /^The annotated image is drawn, verified by inspection/);
+		assert.match(steers[0]!.content as string, /^Annotated image job_\S+ is drawn and verified\. It is NOT shown to the learner yet/);
 	});
 
 	it("an image gone by run time delivers a FAILED steer", async () => {

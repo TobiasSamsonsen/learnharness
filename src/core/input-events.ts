@@ -33,6 +33,7 @@ import type { ImageContent } from "@earendil-works/pi-ai";
 import { validatePluginSubmissionImageArray, validatePluginSubmissionImages, type PluginSubmissionImages, type PluginSubmissionOccurrence } from "./plugin-submissions.ts";
 import type { LhMessage } from "./native-messages.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { unshownFiguresNote } from "./figure-show.ts";
 import {
 	activeProblemOf,
 	activeProblemOccurrenceOf,
@@ -205,7 +206,7 @@ export function dismissAppends(record: { messages: LhMessage[] }, input: Dismiss
 	if (input.answer.kind !== toolQuestionKind(pending.tool)) {
 		throw new ChatInputError("dismiss input's answer kind does not match the question");
 	}
-	return [newAnswerResult(input.toolCallId, pending.tool, input.answer)];
+	return [newAnswerResult(input.toolCallId, pending.tool, input.answer, unshownFiguresNote(record.messages))];
 }
 
 /** A malformed input event (the honest 400 — the orphan-trap discipline). */
@@ -400,7 +401,8 @@ export function inputAppends(
 			if (!pending || pending.toolCallId !== input.toolCallId) {
 				throw new ChatInputError("answer input targets no pending question call");
 			}
-			return [newAnswerResult(input.toolCallId, pending.tool, input.answer)];
+			// The soft figure reminder (owner, 2026-11-12) is computed from the FULL record, so compaction never drops it.
+			return [newAnswerResult(input.toolCallId, pending.tool, input.answer, unshownFiguresNote(record.messages))];
 		}
 		case "continue":
 			return dismissalConclusion(record);

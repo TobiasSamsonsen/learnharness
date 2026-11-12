@@ -1,7 +1,8 @@
 import { Type, type Static } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { serverExecute } from "../tool-execute.ts";
+import { serverExecute, type ImageFileResult } from "../tool-execute.ts";
 import type { JobRecord } from "../../core/contracts.ts";
+import type { FigureDispatchDetails } from "../../core/figure-show.ts";
 import type { JobStore } from "../../core/ports.ts";
 import { checkLearnerImage } from "./learner-image.ts";
 import { resolveSourcePath } from "./fs-shared.ts";
@@ -86,22 +87,28 @@ function dispatch(
 	toolCallId: string,
 	ack: string,
 	input: ResearchInput | DemoInput | VisualInput | PdfInput,
-): string {
+): string | ImageFileResult {
 	const existing = ctx.jobStore.findJobByToolCallId(ctx.chatId, toolCallId);
 	const job = existing ?? ctx.jobStore.createJob({ kind, chatId: ctx.chatId, toolCallId, input });
 	if (!existing) ctx.spawn(job, input);
-	return `Dispatched (job ${job.id}). ${ack}`;
+	const text = `Dispatched (job ${job.id}). ${ack}`;
+	// A figure waits for show_figure (owner, 2026-11-12): the flag hides the dispatch line (core/figure-show.ts).
+	if (kind === "visual" || kind === "demo") {
+		const details: FigureDispatchDetails = { jobId: job.id, onShow: true };
+		return { text, details };
+	}
+	return text;
 }
 
 const RESEARCH_ACK =
 	"This call is fire-and-forget: continue your turn and keep teaching — do not wait, poll, or mention waiting. " +
 	"The researched brief arrives as a new message when ready and the lesson resumes from it; cite its sources when you use them.";
 const DEMO_ACK =
-	"This call is fire-and-forget: continue your turn and keep teaching — do not wait, poll, or mention waiting. " +
-	"The tested demo arrives as a new message when ready and is rendered in the lesson; teach with it then.";
+	"This call is fire-and-forget: keep teaching, and do not wait, poll, or mention it to the learner. " +
+	"The tested demo arrives later as a message to you and stays hidden from the learner until you show it with show_figure where it serves the explanation.";
 const VISUAL_ACK =
-	"This call is fire-and-forget: continue your turn and keep teaching — do not wait, poll, or mention waiting. " +
-	"The verified figure arrives as a new message when ready and is rendered in the lesson; reference it then.";
+	"This call is fire-and-forget: keep teaching, and do not wait, poll, or mention it to the learner. " +
+	"The verified figure arrives later as a message to you and stays hidden from the learner until you show it with show_figure where it serves the explanation.";
 const PDF_ACK =
 	"This call is fire-and-forget: continue your turn and keep teaching — do not wait, poll, or mention waiting. " +
 	"The document brief arrives as a new message when ready; weave it into the lesson and cite its pages.";
@@ -116,14 +123,14 @@ const DEMO_DESCRIPTION =
 	"demo (parameter sweep, simulation, animation, sampling) rendered live in the lesson. Use it when the concept is DYNAMIC: " +
 	"something to sweep, animate, or sample is better experienced than described. " +
 	"The call is ASYNC and fire-and-forget — it resolves immediately and your turn continues; the tested demo arrives later " +
-	"as a new message. Write a precise brief: concept, controls, interactions, style.";
+	"as a new message and stays hidden until you show it with show_figure. Write a precise brief: concept, controls, interactions, style.";
 const VISUAL_DESCRIPTION =
 	"Dispatch a background sub-agent that hand-authors ONE precise SVG figure, renders it, LOOKS at the render, and iterates " +
 	"until correct. Use it for exact spatial pictures auto-layout diagrams can't do: coordinate geometry, number lines, vectors, " +
 	"function plots, physical layouts. For flows/relations/taxonomies write mermaid inline instead. " +
 	"Pass `image` (a learner image file) to have the maker annotate that picture — arrows, outlines, labels — instead. Local image paths follow File access settings; use ls to discover allowed folders. " +
 	"The call is ASYNC and fire-and-forget — it resolves immediately and your turn continues; the verified figure arrives later " +
-	"as a new message.";
+	"as a new message and stays hidden until you show it with show_figure.";
 const PDF_DESCRIPTION =
 	"Dispatch a background sub-agent that READS a learner-provided PDF on your behalf (triage, targeted extraction, visual page " +
 	"reading for equations and diagrams) and returns a brief with page citations. Use it when the learner gives you a PDF path " +

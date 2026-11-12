@@ -324,6 +324,8 @@ export interface SteerDetails extends SubagentResultMeta {
 	 *  restarting) keeps it. A VIEW preference — never enters the teacher's
 	 *  context, never exports (the markdown engine reads `result` only). */
 	ui?: { inverted?: boolean };
+	/** A visual/demo delivered from 2026-11-12 on: hidden until the tutor calls show_figure (core/figure-show.ts). */
+	onShow?: true;
 }
 
 /** Set a steer message's ui.inverted (pure): returns a NEW message array
@@ -368,35 +370,38 @@ export function isSubagentFailure(
 	return typeof r.svg !== "string" || r.svg.length === 0;
 }
 
-/** The model-facing text of a steer: what the result IS, what to do with it. */
-function steerText(kind: JobKind, result: JobResult): string {
+/** The model-facing text of a steer: what the result IS, what to do with it.
+ *  A visual/demo waits for show_figure (owner, 2026-11-12 — core/figure-show.ts): the text names its job id and
+ *  makes "not yet" the default reading, so a figure arriving with the first answer is not shown right after the plan. */
+function steerText(kind: JobKind, result: JobResult, jobId: string): string {
 	if (kind === "plugin") return (result as PluginBackgroundResult).text;
 	if (isSubagentFailure(kind, result)) {
 		if (kind === "research")
 			return `${(result as ResearchResult).brief}\n\nContinue with what you can establish and flag the uncertainty to the learner.`;
 		if (kind === "demo")
-			return `The demo "${(result as DemoResult).title}" could not be built: ${
+			return `The demo ${jobId} "${(result as DemoResult).title}" could not be built: ${
 				(result as DemoResult).notes ?? "unknown reason"
-			}. Fall back to explaining in prose; if the brief was the problem, re-call demo with a tighter one.`;
+			}. The learner never saw it was ordered; carry on in prose, or re-call demo with a tighter brief.`;
 		if (kind === "pdf")
 			return `${(result as PdfResult).brief}\n\nContinue with what you can establish from the session and flag the gap to the learner.`;
-		return `The figure could not be made: ${(result as VisualResult).notes ?? "unknown reason"}. Fall back to prose or mermaid, or re-call visual with a tighter brief.`;
+		return `The figure ${jobId} could not be made: ${(result as VisualResult).notes ?? "unknown reason"}. The learner never saw it was ordered; carry on in prose or mermaid, or re-call visual with a tighter brief.`;
 	}
 	if (kind === "research")
 		return `Research complete — the researcher's full brief follows. Weave it into the lesson and cite its sources when you use its findings:\n\n${(result as ResearchResult).brief}`;
 	if (kind === "pdf")
 		return `PDF reading complete — the reader's brief on "${(result as PdfResult).path}" follows, with page citations. Weave it into the lesson and cite pages when you use it:\n\n${(result as PdfResult).brief}`;
+	const notShown = `It is NOT shown to the learner yet: call show_figure({figure: "${jobId}"}) in the turn whose teaching it serves, not before that point.`;
 	if (kind === "demo")
-		return `The demo "${(result as DemoResult).title}" is built, headlessly tested, and rendered in the lesson. Builder notes: ${
+		return `Demo ${jobId} "${(result as DemoResult).title}" is built and headlessly tested. ${notShown} Builder notes: ${
 			(result as DemoResult).notes ?? "(none)"
-		}.\nTeach with it — reference its controls by name and point the learner at what to try.`;
+		}.\nWhen you show it, reference its controls by name and point the learner at what to try.`;
 	if ((result as VisualResult).image)
-		return `The annotated image is drawn, verified by inspection, and rendered in the lesson. Maker notes: ${
+		return `Annotated image ${jobId} is drawn and verified. ${notShown} Maker notes: ${
 			(result as VisualResult).notes ?? "(none)"
-		}.\nReference its marks as you teach.`;
-	return `The figure is drawn, verified by inspection, and rendered in the lesson. Maker notes: ${
+		}.\nReference its marks by name when you show it.`;
+	return `Figure ${jobId} is drawn and verified. ${notShown} Maker notes: ${
 		(result as VisualResult).notes ?? "(none)"
-	}.\nReference its elements as you teach.`;
+	}.\nReference its elements by name when you show it.`;
 }
 
 /**
@@ -412,13 +417,15 @@ export function buildSubagentSteer(
 		id: `steer_${job.id}`,
 		role: "custom",
 		customType: "subagent-steer",
-		content: steerText(job.kind, result),
+		content: steerText(job.kind, result, job.id),
 		display: true,
 		details: {
 			jobId: job.id,
 			kind: job.kind,
 			toolCallId: job.toolCallId,
 			result,
+			// Figures wait for the tutor's show_figure (core/figure-show.ts); research/pdf/plugin deliveries render as before.
+			...(job.kind === "visual" || job.kind === "demo" ? { onShow: true as const } : {}),
 		},
 		timestamp: Date.now(),
 	};

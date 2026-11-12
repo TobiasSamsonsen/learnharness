@@ -85,6 +85,7 @@ export interface LhViewPart extends Record<string, unknown> {
     errorText?: string;
     result?: Pick<ToolResultMessage, "content" | "details" | "isError">;
     data?: unknown;
+    figure?: unknown;
 }
 ```
 
@@ -107,6 +108,7 @@ export interface LhViewPart extends Record<string, unknown> {
 - [errorText](#lhviewpart-errortext)
 - [result](#lhviewpart-result)
 - [data](#lhviewpart-data)
+- [figure](#lhviewpart-figure)
 
 ### LhViewPart type
 
@@ -204,4 +206,13 @@ result?: Pick<ToolResultMessage, "content" | "details" | "isError">;
 
 ```ts
 data?: unknown;
+```
+
+### LhViewPart figure
+
+A show_figure part's figure (a figure-show.ts FigureEntry), joined from its delivery marker by job id. Typed
+unknown so the plugin SDK does not grow the job result types.
+
+```ts
+figure?: unknown;
 ```

@@ -45,6 +45,7 @@ import { svgNaturalWidth, VisualCard, VisualOutputCard } from "../components/art
 import { slugFilename } from "../components/artifacts/download.ts";
 import { chartSize } from "../components/session-overlay.tsx";
 import { SubagentSteerCard } from "../components/artifacts/steer-card.tsx";
+import { ShowFigureCard } from "../components/artifacts/show-figure-card.tsx";
 import { DispatchCard } from "../components/artifacts/dispatch-card.tsx";
 import { JobCard, PdfJobCard } from "../components/artifacts/job-card.tsx";
 import { ToolCallCard } from "../components/artifacts/tool-call-card.tsx";
@@ -351,13 +352,49 @@ describe("dispatch card rendering (the tool-call ack box)", () => {
 	});
 });
 
+/** The card renders a delivery where it arrived only in chats saved before figures waited for show_figure (owner,
+ *  2026-11-12 — tests/figure-show.test.ts covers the hiding): strip the flag to exercise that card path. */
+function legacySteer<T extends { details?: unknown }>(steer: T): T {
+	const details = steer.details as Record<string, unknown>;
+	const { onShow: _onShow, ...rest } = details;
+	return { ...steer, details: rest };
+}
+
+describe("show_figure card (figures wait for the tutor, owner 2026-11-12)", () => {
+	const showFigure = (steer: SteerMessage, args: Record<string, unknown>, isError = false) => {
+		const call = { id: "a_show", role: "assistant", content: [{ type: "toolCall", id: "call-show", name: "show_figure", arguments: args }], api: "faux", provider: "faux", model: "faux", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: 2 };
+		const result = { id: "r_show", role: "toolResult", toolCallId: "call-show", toolName: "show_figure", content: [{ type: "text", text: "Shown." }], details: isError ? null : { jobId: "jv", kind: "visual" }, isError, timestamp: 3 };
+		const view = projectNative([steer, call, result] as never);
+		return view.flatMap((m) => m.parts).find((p) => p.type === "tool-show_figure");
+	};
+
+	it("renders the delivered figure with the caption, and nothing for a refused call", () => {
+		const steer = buildSubagentSteer({ id: "jv", kind: "visual", toolCallId: "cv" }, { svg: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"></svg>' });
+		const part = showFigure(steer, { figure: "jv", caption: "The ε-band" });
+		assert.ok(part, "the show_figure part projects");
+		const html = renderToStaticMarkup(<ShowFigureCard part={part as never} />);
+		assert.match(html, /data-testid="visual-card"/);
+		assert.match(html, /The ε-band/);
+		const refused = showFigure(steer, { figure: "jv" }, true);
+		assert.equal(renderToStaticMarkup(<ShowFigureCard part={refused as never} />), "");
+		assert.equal(artifactRenderers.show_figure, ShowFigureCard);
+	});
+
+	it("renders a demo with its frame", () => {
+		const steer = buildSubagentSteer({ id: "jv", kind: "demo", toolCallId: "cd" }, { title: "Damped oscillator", html: DEMO_HTML, tested: true });
+		const html = renderToStaticMarkup(<ShowFigureCard part={showFigure(steer, { figure: "jv" }) as never} />);
+		assert.match(html, /sandbox="allow-scripts"/);
+		assert.match(html, /Damped oscillator/);
+	});
+});
+
 describe("steer card rendering (the delivered artifact)", () => {
 	it("renders a sandboxed demo iframe (allow-scripts, NO allow-same-origin) with the bridge injected", () => {
 		const steer = buildSubagentSteer(
 			{ id: "jd", kind: "demo", toolCallId: "cd" },
 			{ title: "Damped oscillator", html: DEMO_HTML, tested: true },
 		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([legacySteer(steer)])[0] as never} />);
 		assert.match(html, /sandbox="allow-scripts"/);
 		assert.ok(!html.includes("allow-same-origin"), "never allow-same-origin");
 		assert.match(html, /demo-resize/);
@@ -373,7 +410,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 			{ id: "jd", kind: "demo", toolCallId: "cd" },
 			{ title: "T", html: "", tested: true, notes: "FAILED: never passed verification" },
 		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([legacySteer(steer)])[0] as never} />);
 		assert.match(html, /FAILED: never passed verification/);
 		assert.ok(!html.includes("<iframe"), "no iframe for a failed build");
 	});
@@ -384,7 +421,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 			{ id: "jv", kind: "visual", toolCallId: "cv" },
 			{ svg, notes: "Looking at the render, the diagram is clean and accurate." },
 		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([legacySteer(steer)])[0] as never} />);
 		assert.ok(html.includes(encodeURIComponent(svg)), "the image URL contains the original SVG");
 		assert.match(html, /Figure/);
 		// Natural sizing (owner, 2026-10-07): a DECLARED width (200) means the
@@ -398,7 +435,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 		const steer = buildAbortSteer({ id: "jc", kind: "research", toolCallId: "cc" });
 		// Wave B: the steer is a native marker — the card renders its
 		// PROJECTION (the same view the transcript renderer hands it).
-		const view = projectNative([steer])[0]!;
+		const view = projectNative([legacySteer(steer)])[0]!;
 		assert.equal((steer.details as { aborted: boolean }).aborted, true);
 		assert.equal(view.parts.length, 2, "text (teacher-facing) + the data-subagent-aborted marker part");
 		const html = renderToStaticMarkup(<SubagentSteerCard message={view as never} />);
@@ -424,7 +461,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 				],
 			},
 		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([legacySteer(steer)])[0] as never} />);
 		assert.match(html, /Research/);
 		assert.match(html, /complete/);
 		assert.match(html, /2 sources/);
@@ -449,7 +486,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 				pagesConsulted: [1, 2],
 			},
 		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([legacySteer(steer)])[0] as never} />);
 		assert.match(html, /PDF/);
 		assert.match(html, /reading complete/);
 		assert.match(html, /read 1 page/, "the badge counts READ pages, not search hits");
@@ -465,7 +502,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 			{ id: "jpf2", kind: "pdf", toolCallId: "cpf2" },
 			{ path: "/tmp/doc.pdf", question: "q", brief: "PDF failed: the file could not be opened", pagesRead: [], pagesConsulted: [] },
 		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([legacySteer(steer)])[0] as never} />);
 		assert.match(html, /pdf-brief-card/);
 		assert.match(html, /failed/);
 		assert.match(html, /could not be opened/);
@@ -474,7 +511,7 @@ describe("steer card rendering (the delivered artifact)", () => {
 
 	it("renders the visual failure note with no svg when the build FAILED", () => {
 		const steer = buildSubagentSteer({ id: "jv", kind: "visual", toolCallId: "cv" }, { svg: "", notes: "FAILED: iteration limit" });
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([legacySteer(steer)])[0] as never} />);
 		assert.match(html, /FAILED: iteration limit/);
 		assert.ok(!html.includes("circle") && !html.includes("<svg"), "no svg for a failed build");
 	});
@@ -493,7 +530,7 @@ describe("artifact chrome — scrollbar, invert toggles, downloads (release poli
 			{ id: "jd3", kind: "demo", toolCallId: "cd3" },
 			{ title: "Wave interference", html: DEMO_HTML, tested: true },
 		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
+		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([legacySteer(steer)])[0] as never} />);
 		assert.match(html, /scrolling="no"/, "no internal scrollbar — the wheel chains to the session");
 		assert.match(html, /toggle-invert-demo-brightness/, "the invert switch (house Toggle)");
 		assert.match(html, /data-testid="demo-download"/);
@@ -1017,11 +1054,17 @@ describe("demo/visual job runners", () => {
 			const done = jobStore.getJob(job!.id)!;
 			assert.equal(done.status, "done");
 
-			const saved = projectNative(chatStore.getChat(chat.id)!.messages);
-			const part = saved[1]!.parts.find((p) => p.type === "tool-demo");
-			assert.ok(part && part.type === "tool-demo", "demo tool part persisted");
-			assert.equal(part.state, "output-available", "the part resolved with the ack at dispatch time");
-			assert.match(String((part as { output?: unknown }).output), /fire-and-forget/);
+			// The call resolved with the ack at dispatch time; the learner sees no dispatch line (figures wait for
+			// show_figure, owner 2026-11-12), so the check reads the record, not the view.
+			const record = chatStore.getChat(chat.id)!.messages;
+			const ackResult = record.find((m) => m.role === "toolResult" && (m as { toolCallId?: string }).toolCallId === "call-d2") as
+				| { content: Array<{ type: string; text?: string }>; details: unknown; isError: boolean }
+				| undefined;
+			assert.ok(ackResult, "demo tool result persisted");
+			assert.equal(ackResult.isError, false);
+			assert.match(ackResult.content[0]!.text ?? "", /fire-and-forget/);
+			assert.deepEqual(ackResult.details, { jobId: job!.id, onShow: true });
+			assert.ok(!projectNative(record).some((m) => m.parts.some((p) => p.type === "tool-demo")), "the dispatch line is hidden");
 
 			assert.equal(steers.length, 1, "one job, one steer");
 			assert.equal((steers[0]!.details as { jobId: string }).jobId, job!.id);

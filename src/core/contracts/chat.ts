@@ -453,5 +453,8 @@ export interface ArtifactPartProps {
 		 *  the modelSolution committed at POSE time, folded onto the part by
 		 *  projectView — the reveal is never re-authored. */
 		reveal?: unknown;
+		/** The show_figure join (owner, 2026-11-12): the delivered figure, folded onto the part by
+		 *  projectView from its hidden delivery marker (core/figure-show.ts FigureEntry). */
+		figure?: unknown;
 	};
 }

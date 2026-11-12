@@ -18,7 +18,7 @@ from typing import Any
 from _data import DataError, add_common_arguments, data_root, print_json, read_chat, safe_path
 
 QUESTION_TOOLS = {"quiz", "probe", "ask_user_question", "explain", "recall"}
-LEARNING_TOOLS = QUESTION_TOOLS | {"problem", "conclude", "read_sketch", "probe_done", "plan_init", "research", "pdf", "visual", "demo"}
+LEARNING_TOOLS = QUESTION_TOOLS | {"problem", "conclude", "read_sketch", "probe_done", "plan_init", "research", "pdf", "visual", "demo", "show_figure"}
 OPERATION_TOOLS = {
     "read", "ls", "grep", "find", "bash", "write", "edit", "list_sessions",
     "list_propositions", "get_session", "get_proposition", "search", "web_search", "web_fetch",
@@ -157,6 +157,14 @@ def selected_record(record: dict[str, Any], *, include_agent_thinking: bool = Fa
             tool in {"research", "pdf", "visual", "demo"}
             and isinstance(details, str) and details.startswith("Dispatched (")
             and original.get("content") == [{"type": "text", "text": details}]
+        ) or (
+            # Figure dispatches since 2026-11-12 carry {jobId, onShow} details (hidden until show_figure).
+            tool in {"visual", "demo"}
+            and isinstance(details, dict) and details.get("onShow") is True
+            and isinstance(details.get("jobId"), str)
+            and isinstance(original.get("content"), list) and len(original["content"]) == 1
+            and isinstance(original["content"][0], dict)
+            and str(original["content"][0].get("text", "")).startswith(f"Dispatched (job {details['jobId']}). ")
         )
         routine_result = is_result and not original.get("isError") and (
             tool in OPERATION_TOOLS or routine_learning_ack

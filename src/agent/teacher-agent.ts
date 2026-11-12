@@ -34,6 +34,8 @@ import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL, type SketchImag
 import { PROSE_GATED_TOOLS, proseGateBlocks, proseGateReason, proseGateRefusedLast } from "../core/prose-gate.ts";
 import { leadFloorBlocks, leadFloorReason } from "../core/lead-floor-gate.ts";
 import { VISUAL_GATE_REASON, visualGateBlocks } from "../core/visual-gate.ts";
+import { SHOW_FIGURE_TOOL } from "../core/figure-show.ts";
+import { createShowFigureTool } from "./tools/show-figure.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 import { PluginQuestionLedger, type NativePluginQuestionContribution } from "./plugin-question-tools.ts";
@@ -77,6 +79,8 @@ export const CONVERSATION_TOOL_NAMES = Object.freeze([
 	"plan_init", "list_sessions", "list_propositions", "problem", "conclude", sendToUserTool.name,
 	// The fork's builtins: reserved so no plugin can shadow them (the actual turn's tools are reserved too, this covers the gated-out ones).
 	"read_sketch", "figure_guide", "circuit_solve", "probe",
+	// show_figure (owner, 2026-11-12 — core/figure-show.ts): rides every teacher, like read_sketch.
+	"show_figure",
 ] as const);
 
 // P2 (2026-09-19): segment discovery + override resolution live in ONE
@@ -343,6 +347,11 @@ function baseAgentOptions(
 	// the conclude gate). A caller-owned registry (opts.tools — the tests') is never touched.
 	if (!opts.tools && !tools.some((t) => t.name === READ_SKETCH_TOOL)) {
 		tools = [...tools, ...Object.values(healToolRecord({ read_sketch: readSketchTool({ known: () => sketchIdsOf(opts.messages ?? []) }) }))];
+	}
+	// show_figure (owner, 2026-11-12 — core/figure-show.ts) rides the teacher, always: a finished visual/demo stays
+	// hidden until it is called. It reads the RUN's history (the agent's state), so a figure handed in mid-run is found.
+	if (!opts.tools && kind === "teacher" && !tools.some((t) => t.name === SHOW_FIGURE_TOOL)) {
+		tools = [...tools, ...Object.values(healToolRecord({ show_figure: createShowFigureTool({ messages: () => agent.state.messages }) }))];
 	}
 	if (opts.materials) tools = [...tools, ...opts.materials.tools];
 	if (opts.course?.tools) tools = [...tools, ...opts.course.tools];

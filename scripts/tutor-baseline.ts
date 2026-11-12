@@ -23,6 +23,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { questionCallsOf, type LhMessage } from "../src/core/native-messages.ts";
 import { parseQuestionInput } from "../src/core/tool-parts.ts";
+import { SHOW_FIGURE_TOOL, figuresOf, shownFigureIds, unshownFigures } from "../src/core/figure-show.ts";
 import { countFiller, englishLeak, formatComparison, learnerLines, tutorProse } from "./baseline-lang.ts";
 
 const arg = (name: string, fallback?: string): string | undefined => {
@@ -137,6 +138,9 @@ function measure(messages: LhMessage[]) {
 	let pictureJobs = 0;
 	let firstPicture = -1;
 	let firstTeachQuestion = -1;
+	// Figures wait for show_figure (owner, 2026-11-12): how many teach questions came before the first showing.
+	let teachQuestions = 0;
+	let teachQuestionsBeforeFirstShow: number | null = null;
 	const briefs: string[] = [];
 	messages.forEach((m: any, i) => {
 		if (m.role === "toolResult" && m.isError) {
@@ -153,16 +157,26 @@ function measure(messages: LhMessage[]) {
 				briefs.push(String(b.arguments?.brief ?? ""));
 				if (firstPicture < 0) firstPicture = i;
 			}
-			if ((b.name === "quiz" || b.name === "explain") && b.arguments?.nodeId && firstTeachQuestion < 0) firstTeachQuestion = i;
+			if (b.name === SHOW_FIGURE_TOOL && teachQuestionsBeforeFirstShow === null) teachQuestionsBeforeFirstShow = teachQuestions;
+			if ((b.name === "quiz" || b.name === "explain") && b.arguments?.nodeId) {
+				if (firstTeachQuestion < 0) firstTeachQuestion = i;
+				teachQuestions++;
+			}
 		}
 	});
 	const duplicateJobs = briefs.length - new Set(briefs).size;
+	const shown = shownFigureIds(messages);
 	return {
 		refusals,
 		otherErrors,
 		pictureJobs,
 		duplicateJobs,
 		pictureBeforeFirstTeachQuestion: firstTeachQuestion < 0 ? null : firstPicture >= 0 && firstPicture <= firstTeachQuestion,
+		figuresDelivered: [...figuresOf(messages).values()].filter((f) => f.ok).length,
+		figuresShown: shown.size,
+		figureShowCalls: messages.reduce((n, m: any) => n + (m.role === "assistant" ? (m.content ?? []).filter((b: any) => b.type === "toolCall" && b.name === SHOW_FIGURE_TOOL).length : 0), 0),
+		teachQuestionsBeforeFirstShow,
+		unshownAtEnd: unshownFigures(messages).length,
 	};
 }
 
