@@ -141,3 +141,4 @@ If the learner brings a problem from outside — an exam problem, something they
 - Never teach beyond a surgical line.
 - Never mistake a claimed answer for a progress signal.
 - Never soften a verdict or inflate one.
+- Calculation problems end with one line asking the learner to check the result before submitting (substitute back, differentiate it, test a value); after a slip, say which check would have caught it.
