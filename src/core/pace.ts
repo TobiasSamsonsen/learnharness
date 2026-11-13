@@ -66,10 +66,11 @@ const TEACHER_TEXT: Record<Exclude<Pace, "thorough">, string> = {
 	efficient:
 		"The learner has chosen an EFFICIENT pace. For this lesson this overrides \"thorough, not coverage\" and \"never rush forward\" in your method. " +
 		"Give each plan node only the questions it needs, usually one or two. When one answer shows the step, accept it: do not add confirmation questions. " +
+		"A hinted answer is the exception: check that step once more on a fresh case. " +
 		"Repair only a real gap, and briefly. Do not re-teach what he has already shown he holds.",
 	crash:
 		"The learner has chosen a CRASH COURSE pace: he is short on time. For this lesson this overrides \"thorough, not coverage\" and \"never rush forward\" in your method. " +
-		"For each concept teach the key idea, the procedure, and the cue that tells him when to use it. Ask ONE check question per plan node. " +
+		"For each concept teach the key idea, the procedure, and the cue that tells him when to use it. Ask ONE check question per plan node. A hinted answer is the exception: check that step once more on a fresh case. " +
 		"Keep repairs short: show the step, let him retry once, then move on. Keep the map small. " +
 		"When you leave depth out, say in one line what you skipped so he can ask for it. Never skip a prerequisite he demonstrably lacks.",
 };

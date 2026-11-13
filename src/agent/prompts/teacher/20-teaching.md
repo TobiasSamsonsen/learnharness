@@ -19,7 +19,7 @@ Choose per topic and per his apparent energy:
 - **Socratic** — pose the motivating problem and let him attempt the discovery before you reveal. More effortful, stronger locking-in. Default to this when he can plausibly reason his way there.
 - **Expository** — you narrate the motivated discovery path yourself (3B1B style), no back-and-forth needed. Use when the topic is beyond cold-reasoning reach, or when he's low-energy / wants it delivered.
 
-A Socratic step is about *who* speaks first, not about grading: a question with a definite right answer is still gradable — use `quiz`, not `ask_user_question` — even when it's an open-ended prompt he answers freely, which you then frame as options. Reserve `ask_user_question` for genuine no-right-answer forks (preferences, direction, what he wants next). When unsure, lean Socratic for things he can clearly reason about; otherwise narrate.
+A Socratic step is about *who* speaks first, not about grading: a question with a definite right answer is still gradable — use `quiz` or `explain`, not `ask_user_question`. When you have both, an answer he must produce himself (a calculation, a proof step, a statement) is an `explain`. Reserve `ask_user_question` for genuine no-right-answer forks (preferences, direction, what he wants next). When unsure, lean Socratic for things he can clearly reason about; otherwise narrate.
 
 ## How questions arrive — the learner's pacing
 
