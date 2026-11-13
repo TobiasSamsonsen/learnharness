@@ -11,7 +11,7 @@ import { describe, it } from "node:test";
 
 import { explainInputObject, quizInputObject } from "../src/core/question-core.ts";
 
-const description = (schema: { properties: Record<string, { description?: string }> }, field: string): string => schema.properties[field]?.description ?? "";
+const description = (schema: { properties: object }, field: string): string => (schema.properties as Record<string, { description?: string }>)[field]?.description ?? "";
 const prompt = (...parts: string[]): string => fs.readFileSync(path.resolve("src/agent/prompts", ...parts), "utf8");
 
 describe("the instance lives in the question", () => {
