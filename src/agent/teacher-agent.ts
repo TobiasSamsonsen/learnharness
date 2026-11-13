@@ -596,7 +596,7 @@ export function bareQuestionTools(): Record<string, AgentTool<any>> {
  */
 export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOptions = {}) {
 	// The practice grader (owner, 2026-11-09): a concluded problem's per-skill grades come from a second model, written into the conclude result.
-	const gradeHook = ctx.courseSkills ? practiceGradeHook({ courseSkills: ctx.courseSkills, ...(ctx.difficulty ? { difficulty: ctx.difficulty } : {}) }) : undefined;
+	const gradeHook = ctx.courseSkills ? practiceGradeHook({ courseSkills: ctx.courseSkills, ...(ctx.difficulty ? { difficulty: ctx.difficulty } : {}), ...(ctx.sessionModel ? { sessionModel: ctx.sessionModel } : {}) }) : undefined;
 	// Explicit test registries bypass all builtin construction and contributions.
 	if (opts.tools !== undefined) return baseAgentOptions("practice", opts, Object.values(opts.tools), undefined, undefined, gradeHook);
 	const gate = createPracticeGate(ctx);

@@ -77,6 +77,11 @@ edit keeps the edit (owner).
 
 - **Chats**: messages are append-only, so one copy is normally a prefix of the
   other: take the longer. Continued on both devices: keep the newer whole.
+  The one edit of an earlier message is "Grade again" (docs/courses.md §2), which
+  writes grades into a practice `conclude` result that had none: where both
+  copies hold the same message, the graded result is kept, whichever side it is
+  on. A device on a build from before 2026-11-13 does not know this rule and can
+  drop the grades; the problem then shows "Not graded" again.
   `turns`, `extractions`, `clarifyThreads` union by id; `title`, `settings`,
   `tree` take whichever side changed since the base.
 - **Courses**: `title`, `language`, `note` per field; `status/skills/draft/error`

@@ -847,6 +847,8 @@ export async function handleChatInput(
 						...(course?.skills ? { courseSkills: course.skills } : {}),
 						// The session's problem difficulty (fork addition, 2026-11-07): caps the skills a problem tags.
 						difficulty: resolveDifficulty(record.settings),
+						// The session's own model (owner, 2026-11-13): the practice grader's fallback when its model fails.
+						sessionModel: conversation,
 					},
 					agentOpts,
 				)

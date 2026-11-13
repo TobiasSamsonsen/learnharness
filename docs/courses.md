@@ -165,9 +165,31 @@ work with stated confidence, tutor replies, sketch read-backs, the tutor's own c
 `src/core/practice-grading.ts`), runs the `grader` role (strong slot, Settings override;
 `src/agent/subagents/grader.ts`, whose owner-approved rubric is code, not an editable fragment)
 and writes the grades into the result's `details`. The tutor no longer grades: `conclude` has no
-`grades` field and drops one sent anyway. A grader failure or timeout (120 s) fails open to
-`details.grades = []`, so the outcome's default applies; a skill the grader skipped likewise.
+`grades` field and drops one sent anyway. A skill the grader skipped gets the cautious default
+(a solve counts as `hard`, other outcomes keep their own default).
 A record without grader grades (older chats) takes the tutor's own, then the outcome's default.
+
+**When the grader fails (owner, 2026-11-13).** A grader slot out of credit once left nine
+problems ungraded with nothing on screen. Now (`src/server/practice-grade.ts`):
+
+- **Fallback.** If the grader's model is missing, errors or passes its 120 s limit, the
+  session's own model grades once with a 60 s limit (`gradeWithFallback`). No second attempt
+  when the session already runs on the grader's model, and none when the learner stopped the turn.
+- **What is stored**, beside `grades` in the conclude result's `details`: `gradedBy: "session"`
+  only when the fallback graded, and `gradeError`, a short readable reason for the grader's
+  failure ("out of credit (Google)", `core/grade-failure.ts`), kept when the fallback graded and
+  when nothing did. With nothing graded `grades` is `[]` and the cautious default applies.
+- **The concluded card** shows nothing new when the grader worked; "Graded by the session's
+  model. The grader failed: …" after a fallback; and "Not graded. The grader failed: …. A
+  cautious default grade applies." with a **Grade again** button when nothing graded (an older
+  ungraded problem shows the same line without a reason).
+- **Grade again** (`POST /api/chats/[id]/regrade { toolCallId }`, `regradeConcludedProblem`)
+  grades the stored problem with the same fallback and writes the grades into that conclude
+  result. It is refused (409) while a turn or a compaction runs in the chat, since their saves
+  replace the whole message list; a grading that fails again leaves the record unchanged and
+  the reason shows under the button. On success it emits `record-changed` and
+  `courses-changed`. This is the only place an earlier message is edited; docs/sync.md has the
+  merge rule that goes with it.
 
 Each event is one FSRS review:
 

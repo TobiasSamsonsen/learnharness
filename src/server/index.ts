@@ -98,4 +98,6 @@ export * from "./custom-provider.ts";
 export { customProviderGet, customProviderMutation } from "./custom-provider-http.ts";
 // The learner profile (fork addition, 2026-11-11): birth snapshot, stats and the on-demand Adapt pass.
 export { digestChats, learnerSnapshot } from "./learner-profile.ts";
+// "Grade again" on an ungraded concluded problem (fork addition, 2026-11-13).
+export { regradeConcludedProblem } from "./practice-grade.ts";
 export { learnerStats, runAdapt, type AdaptOutcome } from "./learner-adapt.ts";

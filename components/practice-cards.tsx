@@ -4,7 +4,7 @@ import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
 import { SketchReadingBody } from "@/components/artifacts/read-sketch-card";
 import { SketchThumbnail } from "@/components/sketch/sketch-thumbnail";
-import { repairMathForDisplay, type ArtifactPartProps, type Pace, type SketchRef } from "@/src/core";
+import { gradeNoteOf, isUngraded, repairMathForDisplay, type ArtifactPartProps, type Pace, type SketchRef } from "@/src/core";
 import { LearnPaceDialog } from "@/components/learn-pace-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 
@@ -120,6 +120,9 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 	// the grader's grades ride the result's details (agent/practice-grade.ts); older records kept the tutor's own on the call
 	const output = part.output as { grades?: unknown } | null | undefined;
 	const grades = Array.isArray(output?.grades) ? output.grades : input.grades;
+	// a grading that failed, or that the session's model did instead (owner, 2026-11-13)
+	const ungraded = isUngraded(output);
+	const gradeNote = gradeNoteOf(output);
 	const outcome = typeof input.outcome === "string" ? input.outcome : "";
 	const verdict = typeof input.verdict === "string" ? input.verdict : "";
 	const reveal =
@@ -167,6 +170,15 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 					</div>
 				</>
 			)}
+			{ungraded ? (
+				<UngradedNote chatId={chat?.chatId} toolCallId={part.toolCallId} reason={gradeNote.gradeError} />
+			) : (
+				gradeNote.gradedBy === "session" && (
+					<div data-testid="grade-fallback-note" className="mt-3 text-xs text-muted-foreground">
+						Graded by the session's model.{gradeNote.gradeError ? ` The grader failed: ${gradeNote.gradeError}.` : ""}
+					</div>
+				)
+			)}
 			{chat && <LearnSkillButtons chatId={chat.chatId} skillIds={learnableSkillIds({ outcome: input.outcome, grades })} />}
 			<MetadataPopover
 				concludeInput={input}
@@ -191,6 +203,48 @@ export function learnableSkillIds(input: { outcome?: unknown; grades?: unknown }
 		if (typeof skill === "string" && grade === "again") ids.push(skill);
 	}
 	return [...new Set(ids)];
+}
+
+/* NOT GRADED (owner, 2026-11-13): the grader and its fallback both failed, so a cautious default grade
+ * stands. The line says why; "Grade again" re-runs the grading on the stored problem
+ * (POST /api/chats/[id]/regrade). On success the record changes and the chat re-reads it, so this
+ * note leaves with the next render; a failure shows its reason under the button. */
+function UngradedNote({ chatId, toolCallId, reason }: { chatId: string | undefined; toolCallId: string; reason: string | undefined }) {
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const regrade = async () => {
+		if (!chatId || busy) return;
+		setBusy(true);
+		setError(null);
+		try {
+			const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}/regrade`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ toolCallId }),
+			});
+			if (!res.ok) {
+				const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+				setError(typeof body?.error === "string" ? body.error : `Could not grade the problem (${res.status})`);
+			}
+		} catch {
+			setError("Could not grade the problem");
+		} finally {
+			setBusy(false);
+		}
+	};
+	return (
+		<div data-testid="ungraded-note" className="mt-3 text-xs">
+			<div className="text-[var(--lh-warning)]">
+				Not graded.{reason ? ` The grader failed: ${reason}.` : ""} A cautious default grade applies.
+			</div>
+			{chatId && (
+				<button type="button" className={`${LEARN_BTN} mt-2`} disabled={busy} onClick={() => void regrade()}>
+					{busy ? "Grading…" : "Grade again"}
+				</button>
+			)}
+			{error && <div className="mt-1 text-error">{error}</div>}
+		</div>
+	);
 }
 
 const LEARN_BTN =

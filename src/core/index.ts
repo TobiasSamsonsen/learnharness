@@ -78,6 +78,8 @@ export * from "./language.ts";
 export * from "./pace.ts";
 // Problem difficulty (fork addition, 2026-11-07).
 export * from "./difficulty.ts";
+// Why a practice grading failed, for the concluded card (fork addition, 2026-11-13).
+export * from "./grade-failure.ts";
 // Learner profile: stored shape and caps (fork addition, 2026-11-11).
 export * from "./learner.ts";
 export * from "./learner-fold.ts";

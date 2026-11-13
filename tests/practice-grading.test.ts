@@ -104,7 +104,7 @@ describe("the practice grade hook", () => {
 		installPracticeGrader(async (input) => {
 			seen = input.transcript;
 			assert.deepEqual(input.skills, [{ id: "sk_a", name: "Alpha" }, { id: "sk_b", name: "Beta" }]);
-			return [{ skill: "sk_a", grade: "hard" }, { skill: "sk_b", grade: "good" }];
+			return { grades: [{ skill: "sk_a", grade: "hard" }, { skill: "sk_b", grade: "good" }] };
 		});
 		const out = await practiceGradeHook({ courseSkills: skills })(callOf(record()));
 		assert.deepEqual(out, { details: { grades: [{ skill: "sk_a", grade: "hard" }, { skill: "sk_b", grade: "good" }] } });
@@ -112,28 +112,54 @@ describe("the practice grade hook", () => {
 	});
 
 	it("adds the assistant message when the live list does not hold it yet", async () => {
-		installPracticeGrader(async () => [{ skill: "sk_a", grade: "good" }]);
+		installPracticeGrader(async () => ({ grades: [{ skill: "sk_a", grade: "good" }] }));
 		const messages = record();
 		const ctx = callOf(messages);
 		const out = await practiceGradeHook({ courseSkills: skills })({ ...ctx, context: { ...ctx.context, messages: messages.slice(0, -1) } as never });
 		assert.deepEqual(out, { details: { grades: [{ skill: "sk_a", grade: "good" }] } });
 	});
 
-	it("a grader failure records no grades, so the outcome's default applies", async () => {
+	it("a grader that throws records no grades and the reason, so a cautious default applies", async () => {
 		installPracticeGrader(async () => {
 			throw new Error("boom");
 		});
 		const original = console.warn;
 		console.warn = () => {};
 		try {
-			assert.deepEqual(await practiceGradeHook({ courseSkills: skills })(callOf(record())), { details: { grades: [] } });
+			assert.deepEqual(await practiceGradeHook({ courseSkills: skills })(callOf(record())), { details: { grades: [], gradeError: "boom" } });
 		} finally {
 			console.warn = original;
 		}
 	});
 
+	it("a stopped turn records no grades and no reason", async () => {
+		const stop = new AbortController();
+		installPracticeGrader(async () => {
+			stop.abort();
+			throw new Error("aborted");
+		});
+		assert.deepEqual(await practiceGradeHook({ courseSkills: skills })(callOf(record()), stop.signal), { details: { grades: [] } });
+	});
+
+	it("hands the session's model to the grader and records a fallback grading and its reason", async () => {
+		const sessionModel = { provider: "anthropic", id: "claude-sonnet-5-5" };
+		let seenSession: unknown;
+		installPracticeGrader(async (_input, _signal, session) => {
+			seenSession = session;
+			return { grades: [{ skill: "sk_a", grade: "hard" }], gradedBy: "session", gradeError: "out of credit (Google)" };
+		});
+		const out = await practiceGradeHook({ courseSkills: skills, sessionModel })(callOf(record()));
+		assert.deepEqual(seenSession, sessionModel);
+		assert.deepEqual(out, { details: { grades: [{ skill: "sk_a", grade: "hard" }], gradedBy: "session", gradeError: "out of credit (Google)" } });
+	});
+
+	it("when nothing graded, the reason rides beside the empty list", async () => {
+		installPracticeGrader(async () => ({ grades: [], gradeError: "out of credit (Google)" }));
+		assert.deepEqual(await practiceGradeHook({ courseSkills: skills })(callOf(record())), { details: { grades: [], gradeError: "out of credit (Google)" } });
+	});
+
 	it("does nothing outside a course session, for other tools, for a refused conclude, or with no grader installed", async () => {
-		installPracticeGrader(async () => [{ skill: "sk_a", grade: "good" }]);
+		installPracticeGrader(async () => ({ grades: [{ skill: "sk_a", grade: "good" }] }));
 		assert.equal(await practiceGradeHook({})(callOf(record())), undefined);
 		assert.equal(await practiceGradeHook({ courseSkills: skills })(callOf(record(), "read_sketch")), undefined);
 		assert.equal(await practiceGradeHook({ courseSkills: skills })(callOf(record(), "conclude", true)), undefined);
@@ -161,6 +187,8 @@ describe("the fold reads the grader's grades", () => {
 		assert.equal(grade("solved", { grades: [{ skill: "sk_a", grade: "good" }] }), "good", "a real grade stands");
 		assert.equal(grade("solved", null), undefined, "no grader at all: the outcome default (good) applies");
 		assert.equal(grade("taught", { grades: [] }), undefined, "taught keeps its default (again)");
+		assert.equal(grade("solved", { grades: [], gradeError: "out of credit (Google)" }), "hard", "the failure reason changes nothing in the fold");
+		assert.equal(grade("solved", { grades: [{ skill: "sk_a", grade: "good" }], gradedBy: "session", gradeError: "x" }), "good", "a fallback grade counts like any other");
 	});
 
 	it("a hint-assisted solve graded hard moves understanding less than the tutor's good", () => {

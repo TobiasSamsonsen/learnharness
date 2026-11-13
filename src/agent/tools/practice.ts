@@ -33,6 +33,7 @@ import { healEncodedArguments, healToolRecord } from "./heal.ts";
 import { readSketchTool } from "./sketch.ts";
 import { noteSketchRead, sketchConcludeProblems, sketchGateOf, sketchIdsOf, type SketchGate } from "../../core/sketch-gate.ts";
 import { difficultyInfo, maxSkillsFor, type Difficulty } from "../../core/difficulty.ts";
+import type { ResolvedModelSpec } from "../models.ts";
 
 
 /** The record-reading context the gates need (the plan-tools idiom). */
@@ -59,6 +60,9 @@ export interface PracticeToolContext {
 	 *  Present → the problem tool rejects more skill tags than the level allows (course sessions, where
 	 *  skills exist). Absent → no cap. */
 	difficulty?: Difficulty;
+	/** The model the session runs on (owner, 2026-11-13): the practice grader's fallback when its own
+	 *  model fails (agent/practice-grade.ts). Absent → no fallback. */
+	sessionModel?: ResolvedModelSpec;
 }
 
 /** TURN-SCOPED GATE STATE (the BKT incident, 2026-10-05): the gates used

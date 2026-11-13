@@ -180,8 +180,22 @@ function isIdPrefix(shorter: readonly unknown[], longer: readonly unknown[]): bo
 	return shorter.length <= longer.length && shorter.every((m, i) => idOf(m) !== null && idOf(m) === idOf(longer[i]));
 }
 
+/** The grades on a practice `conclude` result, when the message is one and holds any. */
+function concludeGrades(message: unknown): unknown[] | null {
+	if (!isObj(message) || message.role !== "toolResult" || message.toolName !== "conclude" || !isObj(message.details)) return null;
+	const grades = message.details.grades;
+	return Array.isArray(grades) && grades.length > 0 ? grades : null;
+}
+
+/** "Grade again" is the one edit of an earlier message: it writes grades into a conclude result that had
+ *  none. Where the two copies hold the same message, the graded one is kept, whichever side it is on. */
+function keepGraded(chosen: unknown[], other: readonly unknown[]): unknown[] {
+	return chosen.map((m, i) => (i < other.length && concludeGrades(m) === null && concludeGrades(other[i]) !== null ? other[i] : m));
+}
+
 /**
- * Messages are append-only (nothing edits, regenerates or deletes one), so
+ * Messages are append-only (nothing regenerates or deletes one, and the only
+ * edit is "Grade again" writing grades into a conclude result, see keepGraded), so
  * two copies of a chat are normally one a prefix of the other: take the
  * longer. The one exception is a compaction marker (upstream v0.6.1): it is
  * inserted where the summarized chat ended, before any message that arrived
@@ -213,8 +227,8 @@ function mergeChat(i: MergeInput & { local: string; remote: string }): MergeResu
 	const notes: string[] = [];
 	let loser: string | null = null;
 
-	if (isIdPrefix(lm, rm)) out.messages = rm;
-	else if (isIdPrefix(rm, lm)) out.messages = lm;
+	if (isIdPrefix(lm, rm)) out.messages = keepGraded(rm, lm);
+	else if (isIdPrefix(rm, lm)) out.messages = keepGraded(lm, rm);
 	else {
 		// Diverged: `winner` already supplies messages and the logs below.
 		loser = other(i, newer);
