@@ -101,7 +101,8 @@ Supporting declaration used by a public type. This is not an additional runtime 
 ```ts
 declare const QUIZ_QUESTION_TYPES: readonly [
     "predict",
-    "check"
+    "check",
+    "final"
 ];
 ```
 

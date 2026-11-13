@@ -65,6 +65,12 @@ const line = (id: string, requires: string[] = [], restsOn: string[] = [], name 
 // ─── message builders (native records) ──────────────────────────────────────
 
 let seq = 0;
+/** The teacher's finish_lesson going through: the call and its clean result. */
+function teacherFinish(): LhMessage[] {
+	const id = `fin${++seq}`;
+	return [assistant([{ id, name: "finish_lesson", args: { summary: "s" } }], Date.now()), result(id, "finish_lesson", Date.now())];
+}
+
 function assistant(calls: Array<{ id: string; name: string; args: unknown }>, at: number): LhMessage {
 	return {
 		id: `m${++seq}`,
@@ -178,11 +184,17 @@ describe("understanding — the FSRS fold (core/mastery.ts)", () => {
 
 	it("a finished Learn session is evidence — the learner's marker or the teacher's clean finish_lesson, first one wins", () => {
 		const learn = practiceLink(["a"], "learn");
-		const marker = { ...session.newLessonFinishedMarker(), timestamp: T0 + 5 } as LhMessage;
+		// a Learn marker from before the final problem (2026-11-13) carries no `request` and still is the finish it was
+		const marker = { ...session.newLessonFinishedMarker("practice"), timestamp: T0 + 5 } as LhMessage;
 		assert.deepEqual(mastery.skillEventsOf([marker], learn).map((e) => [e.skillId, e.outcome, e.at]), [["a", "finished", T0 + 5]]);
+		// today's Learn press is a request for the final problem: it finishes nothing
+		const request = { ...session.newLessonFinishedMarker("learn"), timestamp: T0 + 1 } as LhMessage;
+		assert.equal(session.isFinishRequest(request), true);
+		assert.equal(session.sessionFinishOf([request]), null);
+		assert.deepEqual(mastery.skillEventsOf([request], learn), []);
 		const f = `f${++seq}`;
 		const byTeacher = [assistant([{ id: f, name: session.FINISH_LESSON_TOOL, args: { summary: "s" } }], T0 + 2), result(f, session.FINISH_LESSON_TOOL, T0 + 2), marker];
-		assert.deepEqual(session.sessionFinishOf(byTeacher), { at: T0 + 2, by: "agent" });
+		assert.deepEqual(session.sessionFinishOf(byTeacher), { at: T0 + 2, by: "agent", callId: f });
 		assert.equal(mastery.skillEventsOf(byTeacher, learn).length, 1, "finished once");
 		const refused = [assistant([{ id: f, name: session.FINISH_LESSON_TOOL, args: {} }], T0), result(f, session.FINISH_LESSON_TOOL, T0, true)];
 		assert.equal(session.sessionFinishOf(refused), null, "a failed call never finished anything");
@@ -562,6 +574,8 @@ describe("course sessions (core/course-session.ts)", () => {
 		assert.match(learn, /ONE skill/);
 		assert.match(learn, /SK_A: Do sk_a/);
 		assert.match(learn, /call `finish_lesson`/);
+		assert.match(learn, /ONE final problem, posed with `explain` and type "final"/);
+		assert.match(learn, /Pace never removes it/);
 		assert.doesNotMatch(learn, /`skills` field/);
 		for (const mode of ["practice", "review"] as const) {
 			assert.match(session.coursePromptSection(mode, "Calc", [sk("sk_a")]), /`skills` field MUST name them/);
@@ -757,10 +771,15 @@ describe("the course service (src/server/courses.ts)", () => {
 		const learn = courses.createCourseSession(courseId, "learn", a);
 		assert.ok(learn.ok);
 		const record = chatStore.getChat(learn.value.id)!;
-		// the learner's Finish lesson, through the input-event seam
+		// the learner's Finish lesson, through the input-event seam: a request for the final problem, not a finish
 		const appends = inputAppends(record, { type: "finish" });
 		assert.equal((appends[0] as { customType?: string }).customType, "lesson-finished");
+		assert.equal(session.isFinishRequest(appends[0]), true);
 		chatStore.saveMessages(learn.value.id, [...record.messages, ...appends]);
+		assert.deepEqual(courses.courseView(courseId)!.learning, [], "a request teaches nothing");
+		assert.doesNotThrow(() => inputAppends(chatStore.getChat(learn.value.id)!, { type: "finish" }), "it may be pressed again");
+		// the teacher's finish_lesson going through is the finish
+		chatStore.saveMessages(learn.value.id, [...chatStore.getChat(learn.value.id)!.messages, ...teacherFinish()]);
 		const view = courses.courseView(courseId)!;
 		assert.deepEqual(view.learning, [a]);
 		assert.equal(view.skills.find((s) => s.id === a)!.learned, true);
@@ -777,7 +796,7 @@ describe("the course service (src/server/courses.ts)", () => {
 		const learn = courses.createCourseSession(courseId, "learn", a);
 		assert.ok(learn.ok);
 		const lesson = chatStore.getChat(learn.value.id)!;
-		chatStore.saveMessages(learn.value.id, [...lesson.messages, ...inputAppends(lesson, { type: "finish" })]);
+		chatStore.saveMessages(learn.value.id, [...lesson.messages, ...teacherFinish()]);
 		// a second course reuses A and builds D on it
 		const second = courseStore.createCourse("Physics");
 		courseStore.updateCourse(second.id, {
@@ -1013,7 +1032,7 @@ describe("the course tools", () => {
 		const learn = chatStore.createChat("Learn: A", undefined, { courseId: "course_x", mode: "learn", skillIds: ["sk_a"] });
 		const tool = finishLessonTool({ chatId: learn.id, chatStore });
 		assert.match(text(await tool.execute("f1", { summary: "s" })), /Logged: the lesson is finished/);
-		chatStore.saveMessages(learn.id, [session.newLessonFinishedMarker()]);
+		chatStore.saveMessages(learn.id, teacherFinish());
 		assert.match(text(await tool.execute("f2", { summary: "s" })), /already finished/);
 	});
 });

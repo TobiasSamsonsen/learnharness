@@ -574,7 +574,7 @@ export function courseSessionSkillNames(chatId: string): { courseId: string; ski
  *  tool may tag. Undefined for other sessions, or when the course is gone. */
 export function courseForTurn(
 	chatId: string,
-): { section: string; mode: CourseMode; note?: string; skills?: () => ReadonlyArray<{ id: string; name: string }> } | undefined {
+): { section: string; mode: CourseMode; note?: string; skills?: () => ReadonlyArray<{ id: string; name: string }>; lessonSkill?: { id: string; name: string } } | undefined {
 	const link = stores.chatStore.getChat(chatId)?.course;
 	if (!link) return undefined;
 	const course = stores.courseStore.getCourse(link.courseId);
@@ -583,7 +583,9 @@ export function courseForTurn(
 	const section = coursePromptSection(link.mode, course?.title ?? "(deleted course)", skills);
 	// The course's time note is read fresh every turn, so editing it reaches the sessions already running.
 	const note = course?.note;
-	if (link.mode === "learn") return { section, mode: link.mode, ...(note ? { note } : {}) };
+	// a lesson's one skill: the final problem is graded for it (core/final-problem.ts)
+	const lessonSkill = skills[0] ? { id: skills[0].id, name: skills[0].name } : undefined;
+	if (link.mode === "learn") return { section, mode: link.mode, ...(note ? { note } : {}), ...(lessonSkill ? { lessonSkill } : {}) };
 	const tags = skills.map((s) => ({ id: s.id, name: s.name }));
 	return { section, mode: link.mode, ...(note ? { note } : {}), skills: () => tags };
 }

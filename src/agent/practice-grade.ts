@@ -39,6 +39,11 @@ export function installPracticeGrader(grader: PracticeGrader | null): void {
 	installed = grader;
 }
 
+/** The installed grader (the lesson finish grades its final problem with the same one: agent/lesson-grade.ts). */
+export function installedPracticeGrader(): PracticeGrader | null {
+	return installed;
+}
+
 /** What the hook needs of the practice tool context. */
 export interface PracticeGradeContext {
 	courseSkills?: () => ReadonlyArray<{ id: string; name: string }>;

@@ -964,7 +964,8 @@ export class SessionModel {
 		} else if (input.type === "finish") {
 			// Finish lesson (owner, 2026-10-25): the divider lands the
 			// instant the button fires.
-			optimistic.push({ ...newLessonFinishedMarker(), id: localId() });
+			const mode = (this.nativeHistory().find((m) => (m as { customType?: string }).customType === "graph-context") as { details?: { course?: { mode?: "learn" | "practice" | "review" | "placement" | "check" } } } | undefined)?.details?.course?.mode;
+			optimistic.push({ ...newLessonFinishedMarker(mode ?? "learn"), id: localId() });
 		} else if (input.type === "answer") {
 			const tool = pendingCallTool(this.nativeHistory(), input.toolCallId) ?? "quiz";
 			const result = { ...newAnswerResult(input.toolCallId, tool, input.answer), id: localId() };

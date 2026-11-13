@@ -1995,7 +1995,7 @@ export function Chat({
 											case "data-sketch-dispute":
 												return <SketchDisputeLine key={pi} data={part.data as { sketchId?: unknown; text?: unknown }} />;
 											case "data-lesson-finished":
-												return <LessonFinishedLine key={pi} skill={lessonSkill} lesson={isLesson} />;
+												return <LessonFinishedLine key={pi} skill={lessonSkill} lesson={isLesson} request={(part.data as { request?: boolean } | null)?.request === true} />;
 											default:
 												return null;
 										}

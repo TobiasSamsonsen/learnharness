@@ -24,7 +24,19 @@ export function courseOfView(messages: readonly LhViewMessage[]): CourseContextD
 
 /** The centered divider: "Lesson finished · <skill> learned" — or, for
  *  every other course session (owner, 2026-10-25), "Session finished". */
-export function LessonFinishedLine({ skill, lesson = true }: { skill?: string; lesson?: boolean }) {
+export function LessonFinishedLine({ skill, lesson = true, request = false }: { skill?: string; lesson?: boolean; request?: boolean }) {
+	// A Learn session's Finish press (owner, 2026-11-13) only asks for the final problem.
+	if (request) {
+		return (
+			<div
+				data-testid="finish-requested-line"
+				className="my-4 flex items-center justify-center gap-1.5 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground"
+			>
+				<FlagIcon className="size-3" />
+				Finish requested · final problem next
+			</div>
+		);
+	}
 	return (
 		<div
 			data-testid="lesson-finished-line"
@@ -65,7 +77,7 @@ export function FinishLessonButton({
 			label={
 				blocked ??
 				(lesson
-					? "Log this lesson as finished — its skill becomes learned and the skills that build on it unlock"
+					? "Ask for the final problem — passing it finishes the lesson and makes its skill learned"
 					: "Mark this session as finished — what it showed stays credited")
 			}
 			side="bottom"

@@ -1,5 +1,5 @@
 import { Agent } from "@earendil-works/pi-agent-core";
-import type { AgentEvent, AgentMessage, AgentTool, BeforeToolCallContext, PrepareNextTurnContext } from "@earendil-works/pi-agent-core";
+import type { AfterToolCallContext, AgentEvent, AgentMessage, AgentTool, BeforeToolCallContext, PrepareNextTurnContext } from "@earendil-works/pi-agent-core";
 import { invalidInputResult, questionResult } from "./tool-execute.ts";
 import { providerEventObserver } from "./provider-events.ts";
 import type { Usage } from "@earendil-works/pi-ai";
@@ -43,6 +43,8 @@ import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } f
 import { paceSection, type Pace } from "../core/pace.ts";
 import { difficultySection, type Difficulty } from "../core/difficulty.ts";
 import { practiceGradeHook } from "./practice-grade.ts";
+import { lessonGradeHook } from "./lesson-grade.ts";
+import { finishGateProblem, finishGateReason } from "../core/final-problem.ts";
 
 /**
  * The two teaching-side agents (docs/archive/probe-teach-split.md): the PROBER and
@@ -321,8 +323,10 @@ function baseAgentOptions(
 		courseSkills?: PracticeToolContext["courseSkills"];
 		difficulty?: PracticeToolContext["difficulty"];
 	},
-	/** The practice grader's hook (fork): runs after a conclude. Only the practice agent has one. */
+	/** The grader's hook (fork): the practice agent's runs after a conclude, a course lesson's teacher's after finish_lesson. */
 	afterToolCall?: ReturnType<typeof practiceGradeHook>,
+	/** A course Learn session's teacher (owner, 2026-11-13): finish_lesson waits for an answered final problem. */
+	finishGate = false,
 ) {
 	// Practice never reaches the role fallback (the handler ALWAYS injects
 	// the session's conversation engine — practice rides the same
@@ -430,6 +434,11 @@ function baseAgentOptions(
 								VISUAL_GATE_REASON,
 							);
 						if (refused) return refused;
+						// The finish gate (owner, 2026-11-13 — core/final-problem.ts): a course lesson finishes only after an
+						// answered final problem. Same refusal cap as the gates above.
+						const finishProblem = finishGate ? finishGateProblem(context.messages, toolCall.name, toolCall.id) : null;
+						const finishRefused = finishProblem ? refuse("finish", true, finishGateReason(finishProblem)) : undefined;
+						if (finishRefused) return finishRefused;
 					}
 					const guarded = await narrationHooks?.beforeToolCall?.(call, signal);
 					if (guarded?.block) return guarded;
@@ -438,8 +447,16 @@ function baseAgentOptions(
 				},
 			};
 		})() : {}),
-		// The narration guard's after-hook (teacher) and the practice grader's (practice) never meet on one agent.
-		...(narrationHooks?.afterToolCall ? { afterToolCall: narrationHooks.afterToolCall } : afterToolCall ? { afterToolCall } : {}),
+		// The narration guard's after-hook only notes a delivery and overrides nothing, so a grader hook beside it (a
+		// course lesson's teacher) still decides the result.
+		...(narrationHooks?.afterToolCall || afterToolCall
+			? {
+					afterToolCall: async (call: AfterToolCallContext, signal?: AbortSignal) => {
+						const noted = await narrationHooks?.afterToolCall?.(call, signal);
+						return (await afterToolCall?.(call, signal)) ?? noted;
+					},
+				}
+			: {}),
 		// 0.87.1: shouldStopAfterTurn → finishTurn. Same call point (after
 		// tool results attach, before turn_end) and `{ action: "end" }` still
 		// exits BEFORE the steering poll — the parked-marker stranding our
@@ -547,9 +564,11 @@ export function createTeacherAgent(
 	opts: AgentBuildOptions = {},
 ) {
 	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles) : bareQuestionTools());
+	// A course lesson (owner, 2026-11-13): the grader rates the final problem when finish_lesson goes through.
+	const gradeHook = ctx?.lesson ? lessonGradeHook(ctx.lesson) : undefined;
 	return baseAgentOptions("teacher", opts, Object.values(tools), ctx
 		? nodeId => ctx.chatStore.getChat(ctx.chatId)?.tree?.nodes.some(node => node.id === nodeId) ?? false
-		: undefined);
+		: undefined, undefined, gradeHook, ctx?.lesson !== undefined);
 }
 
 /** The bare teach question set (tests, bare agents): quiz with the shared

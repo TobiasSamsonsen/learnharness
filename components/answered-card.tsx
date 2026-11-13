@@ -83,7 +83,9 @@ export function AnsweredCard({ answer: savedAnswer, input, chatId, reading, mess
 									? "Prediction"
 									: "Check"
 									: isExplain
-										? "Explain"
+										? answer.questionType === "final"
+											? "Final problem"
+											: "Explain"
 											: "Question"}
 				{isQuiz &&
 					(answer.dontKnow ? (

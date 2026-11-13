@@ -242,7 +242,8 @@ export const quizInputBase = Type.Object({
 // path accepts) runs at the CALL BOUNDARY in the tool's execute:
 // quizInputProblems here, the per-session plan-nodeId validation in
 // tools.ts (it reads the live chat record, which this core never touches).
-export const QUIZ_QUESTION_TYPES = ["predict", "check"] as const;
+/** "final" (owner, 2026-11-13) is the explain tool's alone: a course lesson's unaided final problem (core/final-problem.ts). */
+export const QUIZ_QUESTION_TYPES = ["predict", "check", "final"] as const;
 export type QuizQuestionType = (typeof QUIZ_QUESTION_TYPES)[number];
 
 /** Normalize a persisted quiz `type` (display seam): old records carry
@@ -253,7 +254,7 @@ export type QuizQuestionType = (typeof QUIZ_QUESTION_TYPES)[number];
 export function normalizeQuizType(raw: unknown): QuizQuestionType | undefined {
 	if (typeof raw !== "string") return undefined;
 	const v = stripModelValueDebris(raw);
-	return v === "predict" ? "predict" : v === "check" ? "check" : undefined;
+	return v === "predict" ? "predict" : v === "check" ? "check" : v === "final" ? "final" : undefined;
 }
 
 /** The reveal law as a pure predicate (owner 2026-10-03; explain joined
@@ -267,7 +268,9 @@ export function normalizeQuizType(raw: unknown): QuizQuestionType | undefined {
  *  as checks, the standing default. */
 export function questionNeedsReveal(tool: string, rawInput: unknown, phase: string): boolean {
 	if ((tool !== "quiz" && tool !== "explain") || phase !== "teach") return false;
-	return normalizeQuizType((rawInput as { type?: unknown } | null)?.type) !== "predict";
+	const type = normalizeQuizType((rawInput as { type?: unknown } | null)?.type);
+	// a final problem arrives open like a prediction: it follows no teaching to collapse behind
+	return type !== "predict" && type !== "final";
 }
 
 /** The teaching-cycle role field, shared VERBATIM by both teach quizzing
@@ -283,6 +286,14 @@ const predictCheckType = Type.Union([Type.Literal("predict"), Type.Literal("chec
 		"understanding reveal). ONE question per turn either way.",
 });
 
+
+/** The explain tool's `type`: the teaching-cycle roles plus "final", a course lesson's unaided final problem. */
+const explainType = Type.Union([Type.Literal("predict"), Type.Literal("check"), Type.Literal("final")], {
+	description:
+		"REQUIRED — the question's role, as a bare word (no quotes): predict = posed BEFORE you teach the step; check = posed AFTER " +
+		"the step's teaching is complete; final = the ONE unaided problem that ends a course lesson (a fresh case taking the whole " +
+		"skill, no hint anywhere in `lead`; a separate grader rates it when you call finish_lesson). ONE question per turn either way.",
+});
 
 /** The text the learner reads before a teach question (owner, 2026-10-27).
  *  The tutor drafted its reply in thinking and fired the next question with no
@@ -382,7 +393,7 @@ export const explainInputBase = Type.Object({
  *  recognizes BOTH tools). The required pair leads the property order,
  *  exactly as the teach quiz's (owner, 2026-10-09). */
 export const explainInputObject = Type.Object({
-	type: predictCheckType,
+	type: explainType,
 	nodeId: Type.String({
 		description:
 			"REQUIRED plan-tree node id this question is about — must EXACTLY match one of this session's " +

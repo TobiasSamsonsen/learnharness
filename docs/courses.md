@@ -152,7 +152,7 @@ is the chance of recall `t` days after the last review. Background:
 
 **Events** (`skillEventsOf`, per course chat):
 - practice / review → every concluded problem with `skills` → `{ skillId, at: conclude timestamp, outcome, grade? }`; `grade` is the grader's per-skill grade from the `conclude` RESULT's `details.grades` (`concludeGradesOf`; records from before the grader keep the tutor's own `grades` argument);
-- Learn → its finish (`sessionFinishOf`: the `lesson-finished` marker or a clean `finish_lesson` call, the first one) → `finished`;
+- Learn → its finish (`sessionFinishOf`: a clean `finish_lesson` call, or a `lesson-finished` marker from before 2026-11-13, the first one) → `finished`, with the grader's grade of the final problem when the finish result carries one (see "The final problem" below);
 - placement test → every answered placement `probe` (its `skill` arg + the answer's `correct`/`confidence`/`dontKnow`) → `placementKnown` / `placementUnsure` / `placementMiss`;
 - legacy placement checks (problems, before 2026-10-25) keep `placement: true`.
 
@@ -196,7 +196,7 @@ Each event is one FSRS review:
 | Event | Grade |
 |---|---|
 | tutor's `grade` | as given |
-| `finished` | good |
+| `finished` | the final problem's grade; hard when a grading ran and left none; good for a finish from before the final problem |
 | `solved` (no grade) | good |
 | `solvedWithHints` (no grade) | hard |
 | `movedOn` / `surrendered` / `taught` (no grade) | again — on a skill never learned: ignored, a miss never counts as learned |
@@ -209,6 +209,31 @@ Each event is one FSRS review:
 A review at the same moment as the last adds no stability (no credit for drilling);
 a review once recall has faded grows it more. `taught` is the outcome for a problem
 where the tutor showed the correction and taught the point itself.
+
+**The final problem (owner, 2026-11-13).** Finishing a lesson used to count as `good` whatever
+happened in it, and the first practice afterwards mostly needed hints. A course Learn session now
+ends with ONE unaided problem (`core/final-problem.ts`):
+
+- **Form.** The teacher poses it with `explain` and `type: "final"`: always free-form (writing or
+  a sketch, no options), whatever the Quizzing setting. A multiple-choice lesson keeps `quiz` for
+  its checks and gets `explain` for the final problem alone (`ExplainScope` in `agent/tools.ts`).
+  The dock labels it "Final problem", shows "No hints. Sets your first rating." and has an
+  "I don't know" button. It arrives open, never behind the reveal.
+- **The finish gate.** `finish_lesson` is refused until a final problem has been answered since
+  the last finish attempt, and when the answer was "I don't know" (`finishGateProblem`, chained
+  with the teacher's other gates and under the same refusal cap).
+- **The grade.** When `finish_lesson` goes through, the teacher's `afterToolCall` hook
+  (`agent/lesson-grade.ts`) has the practice grader, with its fallback, rate the final problem
+  for the lesson's skill from the final problem to the finish call. The grade rides the finish
+  result's `details.grades`, like a conclude's, and is the skill's first rating. `again` turns
+  the finish into an error result ("NOT FINISHED"): the transcript holds no clean finish, the
+  skill stays not learned, and the teacher repairs the gap and poses a new final problem. A
+  grading that fails altogether lets the finish stand; the fold counts it as `hard`.
+- **The Finish lesson button** no longer finishes a Learn session. It appends a `lesson-finished`
+  marker with `details.request: true` ("Finish requested · final problem next") whose text tells
+  the teacher to pose the final problem at once. `sessionFinishOf` skips request markers; a Learn
+  marker from before this change has no `request` and still counts as the finish it was. Every
+  other course session's Finish button is unchanged.
 
 **Understanding (0–10, what the learner sees)** = `ln(1 + S) / ln(1 + 365) × 10`: how long
 the skill lasts, a year being 10 (S = 1 day: 1.2, 8: 3.7, 30: 5.8, 100: 7.8). It does not
@@ -306,13 +331,13 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
   skip a skill once a dependent has been cleanly solved (prerequisites are
   credited), with only that problem's skills tagged.
 - Titles: "Learn: <skill>", "Practice: …", "Review: <course>", "Placement: <course>".
-- **Finishing a Learn session** (2026-10-25): the teacher's `finish_lesson`
-  (`agent/tools/course.ts`, teacher phase of course Learn sessions only) or
-  the learner's `{ type: "finish" }` input event (400 outside a course
-  lesson, when already finished, or over an open question) → the
-  `lesson-finished` marker, which the model reads as "wrap up". Both render
-  the "Lesson finished · <skill> learned" divider; the top bar's button
-  turns into "Finished".
+- **Finishing a Learn session** (2026-10-25, changed 2026-11-13): the teacher's
+  `finish_lesson` (`agent/tools/course.ts`, teacher phase of course Learn
+  sessions only) after an answered final problem; it renders the "Lesson
+  finished · <skill> learned" divider and the top bar's button turns into
+  "Finished". The learner's `{ type: "finish" }` input event (400 outside a
+  course session, when already finished, or over an open question) is, in a
+  Learn session, a request for the final problem (section 2).
 - **The placement tester** (2026-10-25): its own prompt directory
   (`prompts/placement/`, plus the shared voice, accuracy, question craft,
   confidence and formatting fragments — no teaching base) and a registry of

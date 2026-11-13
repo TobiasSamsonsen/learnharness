@@ -39,6 +39,7 @@ import { readPluginQuestionMessageAnnotation, readPluginQuestionCancellation, ty
 import { pluginProblemForCall, type PluginProblemSnapshot } from "./plugin-problems.ts";
 import { activeCompactionOf, type CompactionDetails } from "./compaction.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
+import { isFinishRequest } from "./course-session.ts";
 import { leadOf } from "./tutor-prose.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
 import type { PlanBlockData } from "./contracts/chat.ts";
@@ -570,7 +571,7 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[], hiddenDisp
 			out.push({
 				id: marker.id,
 				role: "user",
-				parts: [{ type: "data-lesson-finished", id: `lf_${marker.id}`, data: null }],
+				parts: [{ type: "data-lesson-finished", id: `lf_${marker.id}`, data: isFinishRequest(marker) ? { request: true } : null }],
 			});
 			return;
 		}

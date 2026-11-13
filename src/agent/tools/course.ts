@@ -2,9 +2,10 @@
  * The course-session tools (fork addition, 2026-10-25; spec: docs/courses.md).
  *
  * - finish_lesson — the TEACHER's, in a course Learn session: logs the
- *   lesson finished, which makes its skill learned (core/mastery.ts). The
- *   learner's own path is the Finish lesson button (the lesson-finished
- *   marker); either one counts, the first one wins.
+ *   lesson finished, which makes its skill learned (core/mastery.ts). Since
+ *   2026-11-13 it needs an answered final problem (core/final-problem.ts) and
+ *   the grader's rating of it (agent/lesson-grade.ts); the learner's Finish
+ *   lesson button only asks for that final problem.
  * - probe (placement) — the PLACEMENT TESTER's one instrument: the
  *   prober's multiple-choice quiz plus a required `skill` — the one course
  *   skill the question tests. The learner's graded answer to it is the
@@ -33,8 +34,9 @@ export function finishLessonTool(ctx: { chatId: string; chatStore: Pick<ChatStor
 		label: FINISH_LESSON_TOOL,
 		description:
 			"Log this course lesson as FINISHED: its skill becomes learned, which unlocks the course skills that build on it. " +
-			"Call it once — when the learner has shown they can do what the skill's statement says, or when they ask to finish. " +
-			"After it, wrap up in a few sentences and pose no new question.",
+			"Call it only after the learner has answered the lesson's final problem (`explain` with type \"final\"); before that it is refused. " +
+			"A separate grader then rates the final problem: if it was not solved, this call comes back NOT FINISHED and you teach the gap and pose a new final problem. " +
+			"After a finish that went through, wrap up in a few sentences and pose no new question.",
 		parameters: finishLessonInput,
 		execute: serverExecute(FINISH_LESSON_TOOL, finishLessonInput, () => {
 			const record = ctx.chatStore.getChat(ctx.chatId);

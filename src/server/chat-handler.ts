@@ -862,6 +862,8 @@ export async function handleChatInput(
 						// The registry drop's signal (2026-09-20): no live engine
 						// = no research tool in the teacher's registry.
 						searchAvailable,
+						// A course lesson (owner, 2026-11-13): its skill, for the final problem and the grader's rating of it.
+						...(course?.mode === "learn" && course.lessonSkill ? { lesson: { skill: course.lessonSkill, sessionModel: conversation } } : {}),
 					},
 					agentOpts,
 				)

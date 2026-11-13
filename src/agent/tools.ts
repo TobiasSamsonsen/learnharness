@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { ResolvedModelSpec } from "./models.ts";
 import { invalidInputResult, questionResult, serverExecute } from "./tool-execute.ts";
 import {
 	MISSING_QUESTION_MESSAGE,
@@ -208,7 +209,20 @@ function quizDescription(delta: { name: "quiz" | "probe"; nodeId: boolean; types
  *  (near-miss reading, genuine gaps) lives in the shared prompt chunk.
  *  `name`: the teach tool self-references as explain, the probe variant
  *  as recall (owner 2026-10-09). */
-function explainDescription(name: "explain" | "recall", nodeId: boolean): string {
+/** Which `type` values a teach explain accepts: every lesson check ("checks"), those plus a course lesson's final
+ *  problem ("all"), or the final problem alone ("finalOnly": a multiple-choice lesson, where quiz does the checks). */
+export type ExplainScope = "checks" | "all" | "finalOnly";
+
+const FINAL_ONLY_DESCRIPTION =
+	"Pose this course lesson's FINAL PROBLEM: the one unaided problem that ends the lesson. Here `explain` is ONLY for that " +
+	"(`type` must be final; every other question in this lesson is a `quiz`). The learner answers free-form, by writing or " +
+	"sketching, with no options. `correctAnswer` is the FULL correct answer, COMMITTED before he sees the question: grade his " +
+	"answer strictly against it, never revise it. He sees it on submit. Give NO hint: nothing in `lead`, `question` or `details` " +
+	"may name the method, remind him of a step or show part of the answer. Set `nodeId` (required) to the plan node the skill " +
+	"ends on. After his answer, say what was right and wrong, then call finish_lesson. ONE question per turn.";
+
+function explainDescription(name: "explain" | "recall", nodeId: boolean, scope: ExplainScope = "checks"): string {
+	if (scope === "finalOnly") return FINAL_ONLY_DESCRIPTION;
 	return (
 		"Ask the learner to EXPLAIN something in his own words — a graded check with NO options: he types a free-text " +
 		"answer. Unlike ask_user_question (no right answer), " +
@@ -221,8 +235,19 @@ function explainDescription(name: "explain" | "recall", nodeId: boolean): string
 			? "Set `nodeId` (required) to the plan node this question is about — validated at call time against the session's plan map. " +
 				"Set `lead` (required) to the text he reads before the question; the field's own description says what it holds. "
 			: "") +
-		"ONE question per turn: call a single " + name + ", then end your turn — his answer determines the next."
+		"ONE question per turn: call a single " + name + ", then end your turn — his answer determines the next." +
+		(scope === "all"
+			? " In this course lesson, `type` final poses the lesson's FINAL PROBLEM: one unaided problem taking the whole skill, with no hint " +
+				"anywhere in `lead`, `question` or `details`; after his answer, say what was right and wrong, then call finish_lesson."
+			: "")
 	);
+}
+
+/** The scope's own refusal, or null when the call's `type` is allowed. */
+export function explainScopeProblem(scope: ExplainScope, type: unknown): string | null {
+	if (scope === "checks" && type === "final") return "type final is only for a course lesson's final problem; this session has none — use predict or check.";
+	if (scope === "finalOnly" && type !== "final") return "in this lesson `explain` is only for the final problem (type final); pose every other question with `quiz`.";
+	return null;
 }
 
 /** The prober's multiple-choice quizzing tool — named `probe`, not
@@ -253,11 +278,12 @@ export const probeQuizTool: AgentTool<typeof probeQuizInputSchema> = {
  *  teach quiz — phases/plan recognize BOTH tool names). */
 export function teachExplainToolFor(
 	ctx: Pick<PlanToolContext, "chatId" | "chatStore">,
+	scope: ExplainScope = "checks",
 ): AgentTool<typeof explainInputObject> {
 	return {
 		name: "explain",
 		label: "explain",
-		description: explainDescription("explain", true),
+		description: explainDescription("explain", true, scope),
 		parameters: explainInputObject,
 		prepareArguments: prepareTeachQuestionArguments,
 		executionMode: "sequential",
@@ -265,6 +291,8 @@ export function teachExplainToolFor(
 			const problems = [...explainInputProblems(input), ...figureInputProblems(input)];
 			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
 			if (nodeIdProblemText) problems.push(nodeIdProblemText);
+			const scopeProblem = explainScopeProblem(scope, input.type);
+			if (scopeProblem) problems.push(scopeProblem);
 			if (problems.length > 0) return invalidInputResult("explain", problems);
 			return questionResult();
 		},
@@ -437,6 +465,10 @@ export interface TeacherToolContext extends PlanToolContext {
 	spawn: (job: JobRecord, input: ResearchInput | DemoInput | VisualInput | PdfInput) => void;
 	/** Retained search-status seam; research dispatch is available keylessly. */
 	searchAvailable?: () => boolean;
+	/** A course Learn session (owner, 2026-11-13 — core/final-problem.ts): its one skill. Present → `explain` accepts
+	 *  type final whatever the quizzing mechanic, `finish_lesson` waits for an answered final problem, and the grader
+	 *  rates it on finish. Absent → no final problem. */
+	lesson?: { skill: { id: string; name: string }; sessionModel?: ResolvedModelSpec };
 }
 
 /**
@@ -478,8 +510,12 @@ export function createTeacherTools(
 	const mechanics = quizMechanics(enabled);
 	// Same widening as the prober's (see above) — the conditional spread of
 	// two differently-typed literals collapses into an unusable union type.
+	// A course lesson's final problem is always free-form (owner, 2026-11-13): a multiple-choice lesson keeps quiz for
+	// its checks and gets explain for the final problem alone.
 	const quizzing: Record<string, AgentTool<any>> =
-		mechanics === "free" ? { explain: teachExplainToolFor(ctx) } : { quiz: teachQuizToolFor(ctx) };
+		mechanics === "free"
+			? { explain: teachExplainToolFor(ctx, ctx.lesson ? "all" : "checks") }
+			: { quiz: teachQuizToolFor(ctx), ...(ctx.lesson ? { explain: teachExplainToolFor(ctx, "finalOnly") } : {}) };
 	// healToolRecord — same standard as the prober's registry (above).
 	return healToolRecord(
 		filterEnabledTools(

@@ -38,22 +38,35 @@ export const FINISH_SESSION_TOOL = "finish_session";
 export const LESSON_FINISHED_TEXT =
 	"[LESSON FINISHED] — the learner pressed Finish lesson: the lesson is logged as finished and its skill now counts as learned. Wrap up in a few sentences — what they can now do, and what to practice — and pose no new question.";
 
+/** The model-facing text of the learner's Finish lesson press since the final problem (owner, 2026-11-13): a REQUEST. The
+ *  lesson finishes only through a final problem and `finish_lesson`. */
+export const FINISH_REQUESTED_TEXT =
+	"[FINISH REQUESTED] — the learner pressed Finish lesson: they want to end the lesson now. Skip what is left of the plan and pose the final problem " +
+	"at once (`explain` with type \"final\"), with no hint in its lead. The lesson is finished only when `finish_lesson` goes through after their answer.";
+
 /** …and of the learner's Finish session marker (every other mode). */
 export const SESSION_FINISHED_TEXT =
 	"[SESSION FINISHED] — the learner pressed Finish session: the session is logged as finished. Wrap up in a few sentences — what this session showed — and pose nothing more.";
 
-/** The learner's Finish marker (a Learn session's, or any other course
- *  session's — the text tells the model which). */
+/** The learner's Finish marker. In a Learn session it is a REQUEST for the final problem (`details.request`, owner
+ *  2026-11-13) and finishes nothing; in every other course session it finishes the session. A Learn marker from
+ *  before the final problem carries no `request` and still counts as the finish it was. */
 export function newLessonFinishedMarker(mode: CourseMode = "learn"): LhMarkerMessage {
 	return {
 		id: newMessageId(),
 		role: "custom",
 		customType: "lesson-finished",
-		content: mode === "learn" ? LESSON_FINISHED_TEXT : SESSION_FINISHED_TEXT,
+		content: mode === "learn" ? FINISH_REQUESTED_TEXT : SESSION_FINISHED_TEXT,
 		display: true,
-		details: { by: "learner" },
+		details: mode === "learn" ? { by: "learner", request: true } : { by: "learner" },
 		timestamp: Date.now(),
 	};
+}
+
+/** True for a Learn session's finish REQUEST marker (it asks for the final problem and finishes nothing). */
+export function isFinishRequest(message: unknown): boolean {
+	const m = message as { role?: string; customType?: string; details?: { request?: unknown } | null };
+	return m.role === "custom" && m.customType === "lesson-finished" && m.details?.request === true;
 }
 
 const FINISH_TOOLS: ReadonlySet<string> = new Set([FINISH_LESSON_TOOL, FINISH_SESSION_TOOL]);
@@ -62,19 +75,21 @@ const FINISH_TOOLS: ReadonlySet<string> = new Set([FINISH_LESSON_TOOL, FINISH_SE
  *  the transcript; null while it is open. A finish call counts only
  *  through its clean result ("either it goes through or it doesn't" — the
  *  practice tools' activation rule). */
-export function sessionFinishOf(messages: readonly LhMessage[]): { at: number; by: "agent" | "learner" } | null {
+export function sessionFinishOf(messages: readonly LhMessage[]): { at: number; by: "agent" | "learner"; callId?: string } | null {
 	const clean = new Set<string>();
 	for (const m of messages) {
 		if ((m as { role?: string }).role === "toolResult" && !(m as ToolResultMessage).isError) clean.add((m as ToolResultMessage).toolCallId);
 	}
 	for (const m of messages) {
 		const role = (m as { role?: string }).role;
-		if (role === "custom" && (m as LhMarkerMessage).customType === "lesson-finished") return { at: m.timestamp, by: "learner" };
+		if (role === "custom" && (m as LhMarkerMessage).customType === "lesson-finished") {
+			if (isFinishRequest(m)) continue;
+			return { at: m.timestamp, by: "learner" };
+		}
 		if (role !== "assistant") continue;
 		const assistant = m as AssistantMessage;
-		if (assistant.content.some((b) => b.type === "toolCall" && FINISH_TOOLS.has(b.name) && clean.has(b.id))) {
-			return { at: assistant.timestamp, by: "agent" };
-		}
+		const call = assistant.content.find((b) => b.type === "toolCall" && FINISH_TOOLS.has(b.name) && clean.has(b.id));
+		if (call && call.type === "toolCall") return { at: assistant.timestamp, by: "agent", callId: call.id };
 	}
 	return null;
 }
@@ -220,7 +235,9 @@ export function coursePromptSection(mode: CourseMode, courseTitle: string, skill
 			"Any source material below is the course's curriculum: use its definitions, notation and terminology, and cite it — but this lesson's TARGET and SCOPE is this one skill, not the whole material.",
 			"The session context lists the skill's prerequisites and their state, and the propositions from the learner's graph it rests on — probe from there.",
 			"",
-			`FINISHING: when the learner has shown they can do what the statement says — demonstrated on fresh cases, not assumed — call \`${FINISH_LESSON_TOOL}\`, then wrap up in a few sentences. Call it too when the learner asks to finish. Finishing logs the lesson and makes the skill learned, which unlocks the skills that build on it; spaced practice and review make it known later. Never pose a new question after finishing.`,
+			`FINISHING: a lesson ends with ONE final problem, posed with \`explain\` and type "final". Pose it when the plan is taught, or at once when the learner asks to finish. It is a fresh case that takes the whole skill as its statement says, at the level the course's past exams ask when the sources hold any. It is unaided: give no hint, no method reminder and no partial answer in its lead, and none while it is open. Pace never removes it.`,
+			`After the answer, say what was right and wrong, then call \`${FINISH_LESSON_TOOL}\`. A separate grader rates the final problem. If it was not solved (or the learner did not know), the lesson is not finished: teach the gap, then pose a NEW final problem on a different case (never the one you just explained). Never pose a question after a finish that went through.`,
+			"A finish that goes through logs the lesson and makes the skill learned at the grader's rating, which unlocks the skills that build on it; spaced practice and review make it known later.",
 		);
 	} else if (mode === "placement") {
 		body.push(

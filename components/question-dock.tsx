@@ -193,7 +193,9 @@ export function QuestionDock({
 						(canonical === "quiz" || canonical === "explain") &&
 						normalizeQuizType((parsed as { type?: unknown }).type) === "predict"
 							? "Prediction"
-							: undefined
+							: canonical === "explain" && normalizeQuizType((parsed as { type?: unknown }).type) === "final"
+								? "Final problem"
+								: undefined
 					}
 				/>
 			)}
@@ -347,7 +349,7 @@ function QuestionDockForm({
 			kind,
 			// The role (owner 2026-10-03): predict questions gate by it in the
 			// view (never collapsed) and the answered card tucks the explanation.
-			questionType: kind === "quiz" ? normalizeQuizType((input as { type?: unknown }).type) : undefined,
+			questionType: kind === "quiz" || kind === "explain" ? normalizeQuizType((input as { type?: unknown }).type) : undefined,
 			question: input.question,
 			context: input.details,
 			mode,
@@ -763,7 +765,9 @@ function QuestionDockForm({
 									? "Prediction"
 									: "Check"
 									: kind === "explain"
-										? "Explain"
+										? qd.questionType === "final"
+											? "Final problem"
+											: "Explain"
 											: "Question"}
 					{qd.mode === "multi-select" && " · select all that apply"}
 				</div>
@@ -928,6 +932,25 @@ function QuestionDockForm({
 							</button>
 						}
 					/>
+				</div>
+			)}
+
+			{/* A course lesson's FINAL PROBLEM (owner, 2026-11-13): free-form, unaided, and it may be given up. */}
+			{kind === "explain" && qd.questionType === "final" && (
+				<div
+					className={cn("flex items-center justify-between gap-3 border-t border-border/60 px-4 py-2 text-xs text-muted-foreground", wordingOnly && "hidden")}
+					data-testid="final-problem-row"
+				>
+					<span>No hints. Sets your first rating.</span>
+					<button
+						type="button"
+						disabled={compactionRunning || preparing}
+						onClick={pressDontKnow}
+						data-testid="dont-know-button"
+						className="lh-touch h-9 shrink-0 rounded-[6px] border border-dashed border-border/70 bg-transparent px-3 text-[11px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+					>
+						I don't know
+					</button>
 				</div>
 			)}
 

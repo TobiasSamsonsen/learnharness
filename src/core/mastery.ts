@@ -210,7 +210,18 @@ export function concludeGradesOf(args: { grades?: unknown } | undefined, details
 export function skillEventsOf(messages: readonly LhMessage[], link: ChatCourseLink): SkillEvent[] {
 	if (link.mode === "learn") {
 		const finish = sessionFinishOf(messages);
-		return finish ? link.skillIds.map((skillId) => ({ skillId, at: finish.at, outcome: "finished" as const, placement: false })) : [];
+		if (!finish) return [];
+		// The final problem's grade (owner, 2026-11-13) rides the finish_lesson result's details, like a conclude's. A
+		// grading that ran and left the skill no grade counts as hard; a finish from before the final problem has no
+		// list and keeps the default (good).
+		const result = finish.callId ? messages.find((m) => (m as { role?: string }).role === "toolResult" && (m as ToolResultMessage).toolCallId === finish.callId) : undefined;
+		const details = (result as ToolResultMessage | undefined)?.details as { grades?: unknown } | null | undefined;
+		const graderRan = typeof details === "object" && details !== null && Array.isArray(details.grades);
+		const graded = graderRan ? gradesOf(details!.grades) : new Map<string, Grade>();
+		return link.skillIds.map((skillId) => {
+			const grade = graded.get(skillId) ?? (graderRan ? ("hard" as const) : undefined);
+			return { skillId, at: finish.at, outcome: "finished" as const, placement: false, ...(grade ? { grade } : {}) };
+		});
 	}
 	const clean = new Set<string>();
 	const detailsOf = new Map<string, unknown>();
