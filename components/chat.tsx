@@ -139,6 +139,7 @@ import {
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { FinishLessonButton, LessonFinishedLine, courseOfView } from "@/components/lesson-finish";
 import { LessonResultCard } from "@/components/lesson-result-card";
+import { TurnErrorText } from "@/components/turn-error";
 import { ComposerEdge } from "@/components/composer-edge";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
 
@@ -2211,7 +2212,7 @@ export function Chat({
 							{openingError && <p role="alert" className="text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 							{error && (
 								<div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
-									<span>Something went wrong: {error.message}</span>
+									<TurnErrorText message={error.message} />
 									{retryable && (
 										<Button variant="outline" size="xs" data-testid="retry-failed-turn" onClick={retryFailedTurn}>
 											Retry

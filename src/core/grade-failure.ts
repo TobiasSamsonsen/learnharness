@@ -39,6 +39,18 @@ export function gradeFailureReason(message: string, opts: { provider?: string; t
 	return opts.provider ? `${reason} (${providerLabel(opts.provider)})` : reason;
 }
 
+/** The turn's failure for the chat banner (owner, 2026-11-13): a known cause as a phrase, with the provider's own
+ *  words kept as `detail` so nothing is hidden. A provider error arrives as a JSON blob ("code": 402, ...); the banner
+ *  used to show it raw. Anything not recognised is shown as it is (`phrase` null). */
+export function turnErrorDisplay(message: string): { phrase: string | null; detail: string } {
+	const text = message.replace(/\s+/g, " ").trim();
+	const known = gradeFailureReason(text);
+	// gradeFailureReason echoes an unknown message; a recognised cause is one of its fixed phrases
+	const phrases = ["out of credit", "quota or rate limit reached", "API key rejected", "provider unavailable", "timed out"];
+	const phrase = phrases.find((p) => known === p) ?? null;
+	return { phrase, detail: text };
+}
+
 /** The grading note on a conclude result's details; malformed fields are dropped. */
 export function gradeNoteOf(details: unknown): GradeNote {
 	if (typeof details !== "object" || details === null) return {};
