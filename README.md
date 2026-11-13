@@ -140,7 +140,7 @@ The skills you know show in the **knowledge graph** beside the ideas you have le
 
 **Answer keys are checked before you see a question.** A question with Python code is run, and its real output must match the answer key. Anything that can't be run (math, concepts) is solved independently by a second model that never sees the key; set which model under Settings → Agent → **Answer checker** (a different, stronger model catches more). A question that fails goes back to the teacher to fix. The check needs Python 3 on your machine for code questions (`LH_PYTHON` picks a specific interpreter; `LH_ANSWER_CHECK=0` turns the whole check off).
 
-**Known** is measured by spaced practice, in Leitner boxes 0–5. A finished lesson puts a skill in box 1 (learned). In course practice sessions every problem is tagged with the skills it tests. A hint-free solve moves the skill up a box, but only once it is due again (1, 3, 7, 16, 35 days). A hinted solve leaves it where it is, and giving up drops a learned skill back to box 1. A skill is known from box 3. In the placement test, a correct answer at confidence 70 or more marks the skill and all its prerequisites as known; a less sure correct answer marks it learned; a wrong answer changes nothing, except that a skill you got wrong is never marked known just because it is a prerequisite of one you got right.
+**Known** is measured by spaced practice with an FSRS memory model: every skill has an understanding from 0 to 10 (how long it lasts; 10 is a year) and counts as known from 6, about a month of memory. A lesson ends with one unaided final problem, and the grade it earns is the skill's first rating (learned). In course practice sessions every problem is tagged with the skills it tests, and a separate grader model rates each skill from the whole problem: a clean solve on a later day grows the understanding, a hinted one grows it less, and giving up sets it back. A skill that needs review (recall below 90%) comes back in a Review session. A course can carry an exam date and per-skill exam weights, so Next up is ordered by what the exams use and a Today list shows the reviews and lessons for today. In the placement test, a correct answer at confidence 70 or more marks the skill and all its prerequisites as known; a less sure correct answer marks it learned; a wrong answer changes nothing, except that a skill you got wrong is never marked known just because it is a prerequisite of one you got right.
 
 ### Local dictation
 
@@ -157,7 +157,7 @@ Dictation is **live**: the recording is cut at natural pauses (after at least 8 
 
 If the GPU path can't run (no WebGPU adapter, a driver error), dictation falls back to the small models on the CPU (`whisper-small` and `nb-whisper-small-ONNX`, q8, ~6× real time), and Settings → General shows that it did. A transcription that fails on the GPU is retried on the CPU, so a recording is never lost; a failed transcription keeps the recording, and **Retry** sends it again.
 
-The model for a lesson's language downloads the first time you dictate in that language. The dictation bar shows the progress, or you can download in advance under Settings → Providers → Dictation. Models are stored in the app's data folder under `models/stt`. Transcription runs in a separate worker process that exits after 10 idle minutes to free its memory (~1 GB).
+The model for a lesson's language downloads the first time you dictate in that language. The dictation bar shows the progress, or you can download in advance under Settings → Dictation. Models are stored in the app's data folder under `models/stt`. Transcription runs in a separate worker process that exits after 10 idle minutes to free its memory (~1 GB).
 
 `LH_STT_DEVICE=cpu` makes this engine use only the small CPU models, so a machine without WebGPU (a phone or tablet) never downloads the 1.3–1.6 GB GPU weights; Settings shows "CPU". The default is `auto`, as described above. The whisper.cpp engine below ignores it.
 
@@ -172,11 +172,11 @@ Dictation can run on [whisper.cpp](https://github.com/ggml-org/whisper.cpp)'s `w
 
 If whisper.cpp fails, the transcription fails (the recording is kept; **Retry** sends it again); there is no fallback to the other engine. The engine biases the transcript toward the lesson's own terms (the active question or problem, the plan's titles, recent bold terms) through whisper.cpp's prompt. Numbers: [docs/android/stt-bench.md](docs/android/stt-bench.md).
 
-To use Deepgram's cloud engine instead, choose *Deepgram (cloud)* as the *Dictation engine* under Settings → Providers → Dictation and add a Deepgram key there; its language is the dictation language set in the same group.
+To use Deepgram's cloud engine instead, choose *Deepgram (cloud)* as the *Dictation engine* under Settings → Dictation and add a Deepgram key there; its language is the dictation language set in the same group.
 
 ### Cloud dictation (Deepgram, optional)
 
-Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Providers → Dictation**, then pick the Deepgram engine in the same group. The cloud engine's language is the **dictation language** chosen below the key (**Multilingual** supports automatic recognition and mixed-language speech); it does not follow the lesson's language, unlike the local engine. A `403 Insufficient permissions` error during token minting can indicate an insufficient key role.
+Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Dictation**, then pick the Deepgram engine in the same group. The cloud engine's language is the **dictation language** chosen below the key (**Multilingual** supports automatic recognition and mixed-language speech); it does not follow the lesson's language, unlike the local engine. A `403 Insufficient permissions` error during token minting can indicate an insufficient key role.
 
 ### Headless server (optional)
 

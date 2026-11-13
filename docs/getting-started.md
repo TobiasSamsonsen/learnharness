@@ -27,11 +27,11 @@ Sessions are saved locally, including earlier messages when context is compacted
 
 ## Dictation
 
-1. Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher**, required for [short-lived token minting](https://developers.deepgram.com/reference/auth/tokens/grant).
-2. Add it under **Settings → Providers → Dictation** and choose the language below the key. **Multilingual** supports automatic recognition and mixed-language speech.
-3. Use the microphone or **Mod+D** to start and stop. Review the text before sending. **Esc cancellation discards the pending transcript**; stop normally to keep it.
+By default dictation is transcribed on your machine with Whisper: free, offline after a one-time model download per language, and the audio never leaves the computer. Choose the engine, the language and the offline model pack under **Settings → Dictation** (the README's "Local dictation" section has the details).
 
-Audio streams from your browser directly to Deepgram using a short-lived token. A `403 Insufficient permissions` error while obtaining that token can mean the key's role is insufficient.
+Use the microphone or **Mod+D** to start and stop. Review the text before sending. **Esc cancellation discards the pending transcript**; stop normally to keep it.
+
+To use Deepgram instead, create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** (required for [short-lived token minting](https://developers.deepgram.com/reference/auth/tokens/grant)), add it under **Settings → Dictation** and pick Deepgram as the engine. Audio then streams from your browser directly to Deepgram using a short-lived token. A `403 Insufficient permissions` error while obtaining that token can mean the key's role is insufficient.
 
 ## Use local files in a session
 

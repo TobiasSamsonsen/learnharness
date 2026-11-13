@@ -19,7 +19,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
  *   (the committed solution, shown when the problem ended). A dismissal
  *   synthesis (outcome:"dismissed") renders as one muted line.
  * - ThinkingCard — the learner's own submission, user-side: the register
- *   is the two buttons' (Nudge = working trace, Commit = answer). The
+ *   is the practice dock's one "Your thinking" lane (a working trace or the answer). The
  *   UNIFIED ThinkingBlock (owner round 2026-10-05): the quiz quote-block
  *   language in a faint user-side shell, never collapsible.
  */
