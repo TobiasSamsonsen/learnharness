@@ -19,6 +19,8 @@ import { teaserText } from "@/components/teaser-text";
 import { QuestionPreview } from "@/components/question-preview";
 import { SketchChoices } from "@/components/sketch/sketch-choices";
 import { SketchView } from "@/components/sketch/sketch-view";
+import { hasNewInk, pagePayload, readInk, readKept, sendPage, useInk } from "@/components/sketch/ink-memory";
+import { nativeInkBridge, nativeInkEnabled } from "@/components/sketch/use-native-ink";
 import { cn } from "@/lib/utils";
 import { ChatActionsContext } from "@/components/chat";
 import { HINT_MAX, HINT_NUDGE_MS, hintEligible, hintsOf } from "@/src/core";
@@ -449,6 +451,13 @@ function QuestionDockForm({
 
 	/** A press on a confidence button (or "I don't know") submits THIS render's answer with that press, so the gate and the
 	 *  request read the override rather than state that has not landed yet (owner, 2026-10-28: Anki-style buttons). */
+	/* UNSENT INK (owner report, 2026-11-13): a sketch drawn in the sketch view and left there by closing it used to be
+	 * dropped when the answer was then sent from the dock ("I don't know" after an hour of work reached the tutor with
+	 * no work). Ink waiting on this question's page now rides whatever the dock sends, shown as a chip the learner can
+	 * remove. */
+	const inkState = useInk(toolCallId);
+	const [skipInk, setSkipInk] = useState(false);
+	const inkWaiting = sketchAvailable && !skipInk && hasNewInk(inkState);
 	type SubmitOverride = { confIdx?: number; dontKnow?: boolean };
 	const selFor = (ov?: SubmitOverride): DockSelection =>
 		ov?.dontKnow ? { ...sel, selected: new Set(), otherSelected: false, dontKnow: true } : sel;
@@ -460,7 +469,7 @@ function QuestionDockForm({
 			other,
 			text,
 			confidenceSet: ov?.confIdx !== undefined || confIdx !== null,
-			hasSketch: photo !== null,
+			hasSketch: photo !== null || inkWaiting,
 		});
 	// Images waiting in the host's adapter count as an answer (upstream): an empty form may still be sent with them.
 	const pendingInput = hasPendingInput?.(qd) === true;
@@ -623,6 +632,18 @@ function QuestionDockForm({
 			});
 			return;
 		}
+		if (inkWaiting) {
+			// the page's unsent ink goes with the answer, exactly as the sketch view's own Submit would send it
+			const state = readInk(toolCallId);
+			try {
+				const payload = pagePayload(readKept(toolCallId), state.strokes, nativeInkBridge() !== null && nativeInkEnabled() ? "android-ink" : "web-canvas", state.thawed !== undefined);
+				void sendPage(toolCallId, payload, state.strokes, () => submitSketch(payload, ov?.confIdx, ov?.dontKnow));
+				return;
+			} catch (err) {
+				// ink that cannot be packed (too large) must not block the answer: it stays on the page, the answer goes without it
+				console.warn("[question-dock] the unsent sketch could not be attached:", err);
+			}
+		}
 		saveDraft(ov);
 		onSubmit(buildAnswer(qd, captureRequest(ov), toolName));
 	};
@@ -631,14 +652,14 @@ function QuestionDockForm({
 	 * the picked answer (and confidence) is the answer and the sketch rides
 	 * as thinking. Dictation's tail lands first, exactly as for the Submit
 	 * button. */
-	const submitSketch = async (sketch: SketchPayload, pressedIdx?: number): Promise<boolean> => {
+	const submitSketch = async (sketch: SketchPayload, pressedIdx?: number, dontKnow?: boolean): Promise<boolean> => {
 		if (compactionRunning) return false;
 		setSketching(false);
 		if (isDictationActive()) await finishDictation();
 		// The dock's own gate (the view disables Submit with the same one). The sketch page asks for the confidence itself
 		// (its Submit expands into the confidence buttons), so a press there counts like one in the dock.
-		const ov: SubmitOverride | undefined = pressedIdx === undefined ? undefined : { confIdx: pressedIdx };
-		if (!dockSubmitGate({ kind, mode: qd.mode, sel, other, text: answerTextRef.current, confidenceSet: pressedIdx !== undefined || confIdx !== null, hasSketch: true }).canSubmit) return false;
+		const ov: SubmitOverride | undefined = pressedIdx === undefined && !dontKnow ? undefined : { ...(pressedIdx !== undefined ? { confIdx: pressedIdx } : {}), ...(dontKnow ? { dontKnow: true } : {}) };
+		if (!dockSubmitGate({ kind, mode: qd.mode, sel: selFor(ov), other, text: answerTextRef.current, confidenceSet: pressedIdx !== undefined || confIdx !== null, hasSketch: true }).canSubmit) return false;
 		const req: AnswerRequest = { ...captureRequest(ov), sketch: sketchRefOf(sketch) };
 		return (await onSubmit(buildAnswer(qd, req, toolName), sketch)) ?? true;
 	};
@@ -1119,6 +1140,24 @@ function QuestionDockForm({
 								phase === "teach" ? "min-h-10 focus:min-h-[4.5rem]" : "min-h-10",
 							)}
 						/>
+					)}
+					{inkWaiting && !photo && (
+						<div className="px-2.5 pb-1.5">
+							<span data-testid="question-ink-chip" className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 py-0.5 pr-1 pl-2 text-xs text-muted-foreground">
+								<PenLineIcon className="size-3" />
+								Sketch attached
+								<button
+									type="button"
+									data-testid="question-ink-chip-remove"
+									aria-label="Don't attach the sketch"
+									title="Send without the sketch (it stays on the sketch page)"
+									onClick={() => setSkipInk(true)}
+									className="flex size-4 items-center justify-center rounded-full transition-colors hover:bg-muted hover:text-foreground"
+								>
+									<XIcon className="size-3" />
+								</button>
+							</span>
+						</div>
 					)}
 					{(photo || photoError) && (
 						<div className="px-2.5 pb-1.5">
