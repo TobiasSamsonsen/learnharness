@@ -113,7 +113,7 @@ export async function handleClarifyRequest(
 	if (!question) return bad("Write a question first", 400);
 	if (question.length > CLARIFY_QUESTION_MAX) return bad("The question is too long", 400);
 
-	let record = stores.chatStore.getChat(chatId);
+	const record = stores.chatStore.getChat(chatId);
 	if (!record) return bad("Unknown chat", 404);
 
 	// A follow-up names its thread; a new thread brings its anchor and the marked text.
@@ -138,6 +138,55 @@ export async function handleClarifyRequest(
 		thread = { id: crypto.randomUUID(), anchor, quote, entries: [] };
 	}
 
+	const outcome = await tutorSideCall(
+		chatId,
+		({ waiting }) => clarifyPrompt({ quote: thread.quote, question, earlier: thread.entries, pending: waiting }),
+		{ label: "clarification", failure: "The tutor could not answer just now. Try again.", empty: "The tutor sent an empty answer. Try again." },
+		engineOverride,
+	);
+	if (outcome instanceof Response) return outcome;
+
+	const entry: ClarifyEntry = { id: crypto.randomUUID(), question, reply: outcome.reply, at: new Date().toISOString() };
+	try {
+		stores.chatStore.appendClarifyEntry(chatId, thread, entry);
+		// The money channel: the call is real spend, filed under the pending question's message (or the newest tutor message).
+		outcome.fileUsage(`clarify_${entry.id}`, entry.at);
+	} catch (error) {
+		console.error(`[chat ${chatId}] clarification not saved:`, error);
+		return bad("The answer could not be saved. Try again.", 500);
+	}
+	emit("record-changed", { chatId });
+	const saved = stores.chatStore.getChat(chatId)?.clarifyThreads?.find((t) => t.id === thread.id);
+	return Response.json({ thread: saved });
+}
+
+type ChatRecordOf = NonNullable<ReturnType<typeof stores.chatStore.getChat>>;
+
+/** What a side call hands back: the reply, and a way to file its usage under the pending question's message. */
+export interface SideCallOutcome {
+	reply: string;
+	record: ChatRecordOf;
+	pending: ReturnType<typeof pendingQuestionOf>;
+	fileUsage: (id: string, at: string) => void;
+}
+
+/**
+ * ONE text-only model call beside the lesson (the clarification call, and since 2026-11-13 the hint call —
+ * server/hint.ts): on the chat's own conversation engine, with the SAME system prompt and the record's history, so
+ * the model already has the context and the prompt cache holds. No tools, so it cannot touch the record, and nothing
+ * enters `messages`. Refused over a running turn (its messages are not saved yet); a compaction in flight is awaited.
+ * `buildPrompt` runs AFTER the awaits, on the record as it then stands, and may refuse with its own Response.
+ * `opts.usageId` files the call's usage at once; without it the caller files it through the outcome.
+ */
+export async function tutorSideCall(
+	chatId: string,
+	buildPrompt: (ctx: { record: ChatRecordOf; pending: ReturnType<typeof pendingQuestionOf>; waiting: boolean }) => string | Response,
+	opts: { label: string; failure: string; empty: string; usageId?: string },
+	/** Test seam: a scripted engine replaces the chat's conversation engine. */
+	engineOverride?: PiEngine,
+): Promise<SideCallOutcome | Response> {
+	let record = stores.chatStore.getChat(chatId);
+	if (!record) return bad("Unknown chat", 404);
 	// One model call per chat at a time, and never over a running turn (its messages are not saved yet).
 	if (isTurnRunning(chatId)) return bad("The tutor is writing right now. Try again in a moment.", 409);
 
@@ -159,6 +208,8 @@ export async function handleClarifyRequest(
 	const pending = pendingQuestionOf(record.messages);
 	// An open practice problem is a question waiting for its learner as well: its solution is never revealed (owner, 2026-11-06).
 	const waiting = pending !== null || activeProblemOf(record.messages) !== null;
+	const prompt = buildPrompt({ record, pending, waiting });
+	if (prompt instanceof Response) return prompt;
 
 	let engine: PiEngine;
 	try {
@@ -200,7 +251,7 @@ export async function handleClarifyRequest(
 			systemPrompt,
 			messages: asAgentMessages(record.messages),
 			convertToLlm: (messages) => toLlmMessages(messages),
-			prompt: clarifyPrompt({ quote: thread.quote, question, earlier: thread.entries, pending: waiting }),
+			prompt,
 			maxTurns: 1,
 			abortSignal: AbortSignal.timeout(CLARIFY_TIMEOUT_MS),
 			onUsage: collect,
@@ -208,31 +259,24 @@ export async function handleClarifyRequest(
 		});
 		reply = result.text.trim();
 	} catch (error) {
-		console.error(`[chat ${chatId}] clarification failed:`, error);
-		return bad("The tutor could not answer just now. Try again.", 502);
+		console.error(`[chat ${chatId}] ${opts.label} failed:`, error);
+		return bad(opts.failure, 502);
 	}
-	if (!reply) return bad("The tutor sent an empty answer. Try again.", 502);
+	if (!reply) return bad(opts.empty, 502);
 
-	const entry: ClarifyEntry = { id: crypto.randomUUID(), question, reply, at: new Date().toISOString() };
-	try {
-		stores.chatStore.appendClarifyEntry(chatId, thread, entry);
-		// The money channel: the call is real spend, filed under the pending question's message (or the newest tutor message).
-		const anchorMessageId =
-			pending?.messageId ?? [...record.messages].reverse().find((m) => (m as { role?: string }).role === "assistant")?.id;
+	const history = record.messages;
+	const fileUsage = (id: string, at: string): void => {
+		const anchorMessageId = pending?.messageId ?? [...history].reverse().find((m) => (m as { role?: string }).role === "assistant")?.id;
 		if (steps.length > 0 && anchorMessageId) {
-			stores.chatStore.appendTurnUsage(chatId, {
-				id: `clarify_${entry.id}`,
-				messageId: anchorMessageId,
-				at: entry.at,
-				model: `${engine.model.provider}:${engine.model.id}`,
-				steps,
-			});
+			stores.chatStore.appendTurnUsage(chatId, { id, messageId: anchorMessageId, at, model: `${engine.model.provider}:${engine.model.id}`, steps });
 		}
-	} catch (error) {
-		console.error(`[chat ${chatId}] clarification not saved:`, error);
-		return bad("The answer could not be saved. Try again.", 500);
+	};
+	if (opts.usageId) {
+		try {
+			fileUsage(opts.usageId, new Date().toISOString());
+		} catch (error) {
+			console.error(`[chat ${chatId}] ${opts.label} usage not saved:`, error);
+		}
 	}
-	emit("record-changed", { chatId });
-	const saved = stores.chatStore.getChat(chatId)?.clarifyThreads?.find((t) => t.id === thread.id);
-	return Response.json({ thread: saved });
+	return { reply, record, pending, fileUsage };
 }

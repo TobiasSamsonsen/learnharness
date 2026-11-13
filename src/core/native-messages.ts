@@ -49,6 +49,7 @@ import {
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
 import { ANSWER_NEXT_TEXT, SKETCH_ANSWER_NEXT_TEXT, SKETCH_READ_FIRST_TEXT } from "./prose-gate.ts";
+import { hintsNextText } from "./hints.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import type { SketchRef } from "./contracts/sketch.ts";
 import { SKETCH_MAX_REQUEST_PAGES, sketchLabel, sketchStubText } from "./sketch.ts";
@@ -298,6 +299,9 @@ export function newAnswerResult(
 	if (LEAD_TOOLS.includes(toolName)) forModel.next = hasSketch ? SKETCH_ANSWER_NEXT_TEXT : ANSWER_NEXT_TEXT;
 	else if (hasSketch) forModel.next = SKETCH_READ_FIRST_TEXT;
 	if (figures && LEAD_TOOLS.includes(toolName)) forModel.figures = figures;
+	// an answer that took hints is not unaided (owner, 2026-11-13 — core/hints.ts)
+	const hints = Array.isArray(forModel.hints) ? forModel.hints.length : 0;
+	if (hints > 0) forModel.next = [forModel.next, hintsNextText(hints)].filter(Boolean).join(" ");
 	return {
 		id: newMessageId(),
 		role: "toolResult",

@@ -100,4 +100,6 @@ export { customProviderGet, customProviderMutation } from "./custom-provider-htt
 export { digestChats, learnerSnapshot } from "./learner-profile.ts";
 // "Grade again" on an ungraded concluded problem (fork addition, 2026-11-13).
 export { regradeConcludedProblem } from "./practice-grade.ts";
+// One hint on the pending lesson question (fork addition, 2026-11-13).
+export { handleHintRequest } from "./hint.ts";
 export { learnerStats, runAdapt, type AdaptOutcome } from "./learner-adapt.ts";

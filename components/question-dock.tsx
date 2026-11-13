@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ViewReaderRef, NativeQuestionViewState } from "./session-view-readers";
-import { ArrowDownIcon, CameraIcon, ChevronRightIcon, PenLineIcon, PlayIcon, XIcon } from "lucide-react";
+import { ArrowDownIcon, CameraIcon, ChevronRightIcon, LightbulbIcon, PenLineIcon, PlayIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PhotoError, preparePhoto, releasePhoto, type PreparedPhoto } from "@/components/photo-answer";
 import { useCamera } from "@/components/use-camera";
@@ -20,6 +20,8 @@ import { QuestionPreview } from "@/components/question-preview";
 import { SketchChoices } from "@/components/sketch/sketch-choices";
 import { SketchView } from "@/components/sketch/sketch-view";
 import { cn } from "@/lib/utils";
+import { ChatActionsContext } from "@/components/chat";
+import { HINT_MAX, HINT_NUDGE_MS, hintEligible, hintsOf } from "@/src/core";
 import {
 	buildAnswer,
 	toClientQuestion,
@@ -527,6 +529,68 @@ function QuestionDockForm({
 		void finishDictation().then(go);
 	};
 	const submit = () => submitWith();
+
+	/* HINTS (owner, 2026-11-13 — core/hints.ts): up to three on a lesson check, each one separate call that leaves the
+	 * question open. They are kept with the question (this device's storage, keyed by the call) and ride the answer.
+	 * After five minutes on the question with the app on screen, the button is quietly highlighted. */
+	const chatActions = useContext(ChatActionsContext);
+	const hintsOffered = chatActions !== null && hintEligible(toolName, input, phase);
+	const hintsKey = `lh:hints:${toolCallId}`;
+	const [hints, setHints] = useState<string[]>(() => {
+		try {
+			return hintsOf(JSON.parse(globalThis.localStorage?.getItem(hintsKey) ?? "[]"));
+		} catch {
+			return [];
+		}
+	});
+	const hintsRef = useRef(hints);
+	hintsRef.current = hints;
+	const [hintBusy, setHintBusy] = useState(false);
+	const [hintError, setHintError] = useState<string | null>(null);
+	const [hintNudge, setHintNudge] = useState(false);
+	useEffect(() => {
+		if (!hintsOffered) return;
+		let onScreenMs = 0;
+		const STEP = 5000;
+		const timer = setInterval(() => {
+			if (document.visibilityState !== "visible") return;
+			onScreenMs += STEP;
+			if (onScreenMs >= HINT_NUDGE_MS) {
+				setHintNudge(true);
+				clearInterval(timer);
+			}
+		}, STEP);
+		return () => clearInterval(timer);
+	}, [hintsOffered, toolCallId]);
+	const requestHint = async () => {
+		if (!chatActions || hintBusy || hintsRef.current.length >= HINT_MAX) return;
+		setHintBusy(true);
+		setHintError(null);
+		try {
+			const res = await fetch(`/api/chats/${encodeURIComponent(chatActions.chatId)}/hint`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ toolCallId, earlier: hintsRef.current, thinking: (qd.mode === "text" ? answerTextRef.current : thinkingTextRef.current).trim() || undefined }),
+			});
+			const body = (await res.json().catch(() => null)) as { hint?: unknown; error?: unknown } | null;
+			if (!res.ok || typeof body?.hint !== "string") {
+				setHintError(typeof body?.error === "string" ? body.error : `Could not get a hint (${res.status})`);
+				return;
+			}
+			const next = hintsOf([...hintsRef.current, body.hint]);
+			setHints(next);
+			try {
+				globalThis.localStorage?.setItem(hintsKey, JSON.stringify(next));
+			} catch {
+				// storage is a convenience: the hints still ride this answer
+			}
+		} catch {
+			setHintError("Could not get a hint");
+		} finally {
+			setHintBusy(false);
+		}
+	};
+
 	const pressLevel = (stopIndex: number) => {
 		setConfIdx(stopIndex);
 		submitWith({ confIdx: stopIndex });
@@ -547,6 +611,7 @@ function QuestionDockForm({
 			// Always chosen on a picked quiz answer (canSubmit waits for it);
 			// buildAnswer drops it on "I don't know".
 			confidence: kind === "quiz" && conf !== null ? CONFIDENCE_STOPS[conf] : undefined,
+			...(hintsRef.current.length > 0 ? { hints: hintsRef.current } : {}),
 		};
 	};
 	const doSubmit = (ov?: SubmitOverride) => {
@@ -935,6 +1000,24 @@ function QuestionDockForm({
 				</div>
 			)}
 
+			{hintsOffered && (hints.length > 0 || hintError) && (
+				<div className={cn("space-y-1.5 border-t border-border/60 px-4 py-2.5 text-sm", wordingOnly && "hidden")} data-testid="hint-list">
+					{hints.map((hint, i) => (
+						<div key={i} className="flex gap-2 text-foreground/80">
+							<span className="shrink-0 pt-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Hint {i + 1}</span>
+							<div className="min-w-0 flex-1">
+								<ToolContentResponse>{hint}</ToolContentResponse>
+							</div>
+						</div>
+					))}
+					{hintError && (
+						<div role="alert" className="text-xs text-destructive">
+							{hintError}
+						</div>
+					)}
+				</div>
+			)}
+
 			{/* A lesson's free-form question may be given up like a multiple-choice one (owner, 2026-11-13: with Tutor decides,
 			    calculations are free-form). A course lesson's FINAL PROBLEM also says what it is. */}
 			{kind === "explain" && toolName === "explain" && (
@@ -1086,6 +1169,31 @@ function QuestionDockForm({
 							>
 								<PenLineIcon className="size-4" />
 								Open in sketch
+							</Button>
+						)}
+						{hintsOffered && (
+							<Button
+								type="button"
+								variant="secondary"
+								data-testid="question-hint"
+								data-nudge={hintNudge && hints.length === 0 ? "true" : undefined}
+								disabled={hintBusy || hints.length >= HINT_MAX || compactionRunning || preparing}
+								onClick={() => void requestHint()}
+								className={cn(
+									"lh-press h-9 gap-1.5 rounded-pill px-4 text-sm active:rounded-lg",
+									hintNudge && hints.length === 0 && "ring-2 ring-primary/50",
+								)}
+							>
+								<LightbulbIcon className="size-4" />
+								{hintBusy
+									? "Thinking…"
+									: hints.length >= HINT_MAX
+										? `Hints used (${HINT_MAX} of ${HINT_MAX})`
+										: hints.length > 0
+											? `Hint (${hints.length} of ${HINT_MAX} used)`
+											: hintNudge
+												? "Stuck? Take a hint"
+												: "Hint"}
 							</Button>
 						)}
 						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">

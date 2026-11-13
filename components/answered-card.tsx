@@ -95,6 +95,10 @@ export function AnsweredCard({ answer: savedAnswer, input, chatId, reading, mess
 					) : (
 						<StatusBadge text="incorrect" color="var(--lh-error)" />
 					))}
+				{/* hints taken before answering (owner, 2026-11-13 — core/hints.ts) */}
+				{Array.isArray(answer.hints) && answer.hints.length > 0 && (
+					<StatusBadge text={`${answer.hints.length} hint${answer.hints.length === 1 ? "" : "s"}`} />
+				)}
 			</div>
 			{/* The wording stays markable after the answer (owner, 2026-11-06): threads asked while it sat in the dock hang here. */}
 			<ClarifyWording messageId={messageId} callId={callId}>

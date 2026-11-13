@@ -547,6 +547,8 @@ export interface QuestionAnswerData {
 	 *  toLlmMessages, never through this record. In text mode it is (part
 	 *  of) the answer; in select modes it is thinking. */
 	sketch?: SketchRef;
+	/** The hints the learner took on this question before answering, in order (owner, 2026-11-13 — core/hints.ts). */
+	hints?: string[];
 	answeredAt: string;
 }
 
@@ -570,6 +572,7 @@ export interface AnswerRequest {
 	readingThinking?: string; // the thinking-while-reading channel (check answers)
 	confidence?: number; // quiz only: 0-100 raw probability, always chosen by the learner — the dock has no default (owner, 2026-10-25)
 	sketch?: SketchRef; // the handwriting's ref (the payload itself rides the input event)
+	hints?: string[]; // the hints taken on this question, in order (core/hints.ts)
 }
 
 /** The confidence slider's snap stops (owner, 2026-10-01): raw probability
@@ -853,6 +856,7 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 	if (req.other?.trim()) base.other = req.other.trim();
 	if (req.text?.trim()) base.text = req.text.trim();
 	if (req.sketch) base.sketch = req.sketch;
+	if (req.hints && req.hints.length > 0) base.hints = [...req.hints];
 
 	if (qd.kind === "quiz") {
 		base.correctIndices = qd.correctIndices ?? [];
@@ -925,6 +929,8 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 	const thinking = ad.thinking ?? ad.note;
 	if (thinking) out.thinking = expandCitationsForModel(thinking);
 	if (ad.readingThinking) out.thinkingWhileReading = expandCitationsForModel(ad.readingThinking);
+	// The hints he took (owner, 2026-11-13): what was already said to him, so the answer reads as aided.
+	if (Array.isArray(ad.hints) && ad.hints.length > 0) out.hints = ad.hints.filter((h) => typeof h === "string");
 	// The handwriting LAST (verdict-first order): its pages ride as images
 	// right after this JSON, each labeled with the id.
 	if (ad.sketch) {
