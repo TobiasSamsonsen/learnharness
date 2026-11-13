@@ -242,8 +242,9 @@ export const quizInputBase = Type.Object({
 // path accepts) runs at the CALL BOUNDARY in the tool's execute:
 // quizInputProblems here, the per-session plan-nodeId validation in
 // tools.ts (it reads the live chat record, which this core never touches).
-/** "final" (owner, 2026-11-13) is the explain tool's alone: a course lesson's unaided final problem (core/final-problem.ts). */
-export const QUIZ_QUESTION_TYPES = ["predict", "check", "final"] as const;
+/** "final" and "recall" (owner, 2026-11-13) are the explain tool's alone: a course lesson's unaided final problem
+ *  (core/final-problem.ts) and its recall opener on an earlier skill. */
+export const QUIZ_QUESTION_TYPES = ["predict", "check", "final", "recall"] as const;
 export type QuizQuestionType = (typeof QUIZ_QUESTION_TYPES)[number];
 
 /** Normalize a persisted quiz `type` (display seam): old records carry
@@ -254,7 +255,7 @@ export type QuizQuestionType = (typeof QUIZ_QUESTION_TYPES)[number];
 export function normalizeQuizType(raw: unknown): QuizQuestionType | undefined {
 	if (typeof raw !== "string") return undefined;
 	const v = stripModelValueDebris(raw);
-	return v === "predict" ? "predict" : v === "check" ? "check" : v === "final" ? "final" : undefined;
+	return v === "predict" ? "predict" : v === "check" ? "check" : v === "final" ? "final" : v === "recall" ? "recall" : undefined;
 }
 
 /** The reveal law as a pure predicate (owner 2026-10-03; explain joined
@@ -269,8 +270,8 @@ export function normalizeQuizType(raw: unknown): QuizQuestionType | undefined {
 export function questionNeedsReveal(tool: string, rawInput: unknown, phase: string): boolean {
 	if ((tool !== "quiz" && tool !== "explain") || phase !== "teach") return false;
 	const type = normalizeQuizType((rawInput as { type?: unknown } | null)?.type);
-	// a final problem arrives open like a prediction: it follows no teaching to collapse behind
-	return type !== "predict" && type !== "final";
+	// a final problem and a recall opener arrive open like a prediction: they follow no teaching to collapse behind
+	return type !== "predict" && type !== "final" && type !== "recall";
 }
 
 /** The teaching-cycle role field, shared VERBATIM by both teach quizzing
@@ -288,11 +289,11 @@ const predictCheckType = Type.Union([Type.Literal("predict"), Type.Literal("chec
 
 
 /** The explain tool's `type`: the teaching-cycle roles plus "final", a course lesson's unaided final problem. */
-const explainType = Type.Union([Type.Literal("predict"), Type.Literal("check"), Type.Literal("final")], {
+const explainType = Type.Union([Type.Literal("predict"), Type.Literal("check"), Type.Literal("final"), Type.Literal("recall")], {
 	description:
 		"REQUIRED — the question's role, as a bare word (no quotes): predict = posed BEFORE you teach the step; check = posed AFTER " +
 		"the step's teaching is complete; final = the ONE unaided problem that ends a course lesson (a fresh case taking the whole " +
-		"skill, no hint anywhere in `lead`; a separate grader rates it when you call finish_lesson). ONE question per turn either way.",
+		"skill, no hint anywhere in `lead`; a separate grader rates it when you call finish_lesson); recall = a course lesson's OPENER: a short question on a skill he learned earlier (set `skill` to its id), posed before the new material, no hint; the grader rates it when the lesson finishes. ONE question per turn either way.",
 });
 
 /** The text the learner reads before a teach question (owner, 2026-10-27).
@@ -404,6 +405,11 @@ export const explainInputObject = Type.Object({
 			"For off-map checks use ask_user_question.",
 	}),
 	lead: leadField,
+	skill: Type.Optional(
+		Type.String({
+			description: "Only with type recall: the id of the earlier skill the opener tests (one of the learned prerequisites the session context lists). Omit otherwise.",
+		}),
+	),
 	...explainInputBase.properties,
 });
 

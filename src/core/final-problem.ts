@@ -145,3 +145,55 @@ export function renderFinalProblemSpan(span: readonly LhMessage[], finishCallId:
 	}
 	return lines.join("\n\n");
 }
+
+// ─── the recall opener (owner, 2026-11-13) ──────────────────────────────────
+
+const isRecallCall = (b: AssistantMessage["content"][number]): boolean =>
+	b.type === "toolCall" && b.name === EXPLAIN_TOOL && normalizeQuizType((b.arguments as { type?: unknown } | undefined)?.type) === "recall";
+
+const QUESTION_TOOL_NAMES: readonly string[] = ["quiz", "explain", "ask_user_question"];
+
+/** The lesson's answered recall openers before the finish call: the earlier skill each tested and the evidence the
+ *  grader reads (the question, the committed answer, what the learner wrote and thought, the sketch read-backs that
+ *  followed). A refused, unanswered or dismissed opener is left out. */
+export function recallOpenersOf(messages: readonly LhMessage[], finishCallId: string): Array<{ skill: string; callId: string; transcript: string }> {
+	const end = messages.findIndex((m) => roleOf(m) === "assistant" && (m as AssistantMessage).content.some((b) => b.type === "toolCall" && b.id === finishCallId));
+	const upTo = end < 0 ? messages.length : end;
+	const out: Array<{ skill: string; callId: string; transcript: string }> = [];
+	for (let i = 0; i < upTo; i++) {
+		if (roleOf(messages[i]) !== "assistant") continue;
+		for (const b of (messages[i] as AssistantMessage).content) {
+			if (b.type !== "toolCall" || !isRecallCall(b)) continue;
+			const args = (b.arguments ?? {}) as Record<string, unknown>;
+			const skill = typeof args.skill === "string" ? args.skill : "";
+			if (!skill) continue;
+			const resultAt = messages.findIndex((m, j) => j > i && roleOf(m) === "toolResult" && (m as ToolResultMessage).toolCallId === b.id);
+			if (resultAt < 0) continue;
+			const r = messages[resultAt] as ToolResultMessage;
+			const d = r.details as { dontKnow?: unknown; dismissed?: unknown; text?: unknown; thinking?: unknown; sketch?: unknown } | null | undefined;
+			if (r.isError || !d || d.dismissed === true) continue;
+			const lines = [
+				`RECALL QUESTION (posed with no hints; the learner works alone): ${String(args.question ?? "")}`,
+				`COMMITTED CORRECT ANSWER (hidden from the learner until they submit): ${String(args.correctAnswer ?? "")}`,
+			];
+			if (d.dontKnow === true) lines.push("LEARNER: pressed \"I don't know\".");
+			else {
+				const text = typeof d.text === "string" ? d.text.trim() : "";
+				lines.push(`LEARNER'S ANSWER: ${text || (d.sketch ? "(handwritten: see the sketch read-back)" : "(empty)")}`);
+			}
+			if (typeof d.thinking === "string" && d.thinking.trim()) lines.push(`LEARNER'S THINKING: ${d.thinking.trim()}`);
+			// the sketch read-backs between this answer and the next question
+			for (let k = resultAt + 1; k < upTo; k++) {
+				if (roleOf(messages[k]) !== "assistant") continue;
+				const blocks = (messages[k] as AssistantMessage).content;
+				for (const rb of blocks) {
+					if (rb.type !== "toolCall") continue;
+					if (rb.name === READ_SKETCH) lines.push(`SKETCH READ-BACK (the tutor's transcription of the learner's handwriting): ${String((rb.arguments as { reading?: unknown } | undefined)?.reading ?? "")}`);
+				}
+				if (blocks.some((rb) => rb.type === "toolCall" && QUESTION_TOOL_NAMES.includes(rb.name))) break;
+			}
+			out.push({ skill, callId: b.id, transcript: lines.join("\n\n") });
+		}
+	}
+	return out;
+}

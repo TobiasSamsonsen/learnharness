@@ -218,10 +218,21 @@ export function skillEventsOf(messages: readonly LhMessage[], link: ChatCourseLi
 		const details = (result as ToolResultMessage | undefined)?.details as { grades?: unknown } | null | undefined;
 		const graderRan = typeof details === "object" && details !== null && Array.isArray(details.grades);
 		const graded = graderRan ? gradesOf(details!.grades) : new Map<string, Grade>();
-		return link.skillIds.map((skillId) => {
+		const own = link.skillIds.map((skillId) => {
 			const grade = graded.get(skillId) ?? (graderRan ? ("hard" as const) : undefined);
 			return { skillId, at: finish.at, outcome: "finished" as const, placement: false, ...(grade ? { grade } : {}) };
 		});
+		// The lesson's recall openers (owner, 2026-11-13): a graded question on an earlier skill is a review of that skill.
+		const openers = (details as { openers?: unknown } | null | undefined)?.openers;
+		const reviews = Array.isArray(openers)
+			? openers.flatMap((o): SkillEvent[] => {
+					const { skill, grade } = (o ?? {}) as { skill?: unknown; grade?: unknown };
+					return typeof skill === "string" && !link.skillIds.includes(skill) && (GRADES as readonly unknown[]).includes(grade)
+						? [{ skillId: skill, at: finish.at, outcome: "solved" as const, grade: grade as Grade, placement: false }]
+						: [];
+				})
+			: [];
+		return [...own, ...reviews];
 	}
 	const clean = new Set<string>();
 	const detailsOf = new Map<string, unknown>();

@@ -170,7 +170,7 @@ export function newCourseContextMessage(opts: {
 	const lines = [
 		`[Session context] — this session belongs to the course "${opts.courseTitle}" (${COURSE_MODE_LABEL[opts.mode]}).`,
 		"",
-		opts.mode === "learn" ? "The skill this lesson teaches (id — name: statement · state):" : "The session's skills, prerequisites first (id — name: statement · state):",
+		opts.mode === "learn" ? "The skill this lesson teaches (id — name: statement · state):" : opts.mode === "practice" && opts.skills.length > 1 ? "The session's skills, in a mixed order (id — name: statement · state):" : "The session's skills, prerequisites first (id — name: statement · state):",
 		...opts.skills.map((s) => `- [${s.id}] ${s.name}: ${s.statement} · ${stateLabel(s)}${s.note && opts.mode !== "learn" ? `\n  note from its last lesson: ${s.note}` : ""}`),
 	];
 	if (opts.background && opts.background.length > 0) {
@@ -254,6 +254,7 @@ export function coursePromptSection(mode: CourseMode, courseTitle: string, skill
 			"Any source material below is the course's curriculum: use its definitions, notation and terminology, and cite it — but this lesson's TARGET and SCOPE is this one skill, not the whole material.",
 			"The session context lists the skill's prerequisites and their state, and the propositions from the learner's graph it rests on — probe from there.",
 			"",
+			`OPENER: when the context lists prerequisite skills the learner has already learned, open the teaching (after the plan is approved, before the first step) with one or two SHORT questions on them, each posed with \`explain\` and type "recall" and \`skill\` set to that skill's id: a fresh case, written by the learner, no hint. They are retrieval practice on earlier skills, and a separate grader rates them when the lesson finishes, so a good answer strengthens that skill's memory and a miss brings its review forward. React to the answer briefly (what was right, the one thing missed) and go on; never turn an opener into a lesson. When the context lists no learned prerequisite, there is no opener.`,
 			`FINISHING: a lesson ends with ONE final problem, posed with \`explain\` and type "final". Pose it when the plan is taught, or at once when the learner asks to finish. It is a fresh case that takes the whole skill as its statement says, at the level the course's past exams ask when the sources hold any. It is unaided: give no hint, no method reminder and no partial answer in its lead, and none while it is open. Pace never removes it.`,
 			`After the answer, say what was right and wrong, then call \`${FINISH_LESSON_TOOL}\`. A separate grader rates the final problem. If it was not solved (or the learner did not know), the lesson is not finished: teach the gap, then pose a NEW final problem on a different case (never the one you just explained). Never pose a question after a finish that went through.`,
 			"A finish that goes through logs the lesson and makes the skill learned at the grader's rating, which unlocks the skills that build on it; spaced practice and review make it known later.",
@@ -274,7 +275,7 @@ export function coursePromptSection(mode: CourseMode, courseTitle: string, skill
 	} else {
 		body.push(`This practice session belongs to the course "${courseTitle}".`, "", TAGGING_LAW, "");
 		if (mode === "practice") {
-			body.push(`Work through the session's skills in the order listed (prerequisites first): give each skill at least one problem before returning to any. When the arc is complete — or the learner says they are done — close in a few sentences and call \`${FINISH_SESSION_TOOL}\`.`);
+			body.push(`Work through the session's skills in the order listed (it is mixed on purpose, so that skills are practiced between one another): give each skill at least one problem before returning to any. When the arc is complete — or the learner says they are done — close in a few sentences and call \`${FINISH_SESSION_TOOL}\`.`);
 		} else if (mode === "check") {
 			body.push(
 				"CONTEXT CHECK — the learner already has this skill from another course. This is a SHORT session, not a lesson: confirm the skill works for them in THIS course's context.",

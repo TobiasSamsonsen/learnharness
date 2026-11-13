@@ -214,8 +214,8 @@ function quizDescription(delta: { name: "quiz" | "probe"; nodeId: boolean; types
 export type ExplainScope = "checks" | "all" | "finalOnly";
 
 const FINAL_ONLY_DESCRIPTION =
-	"Pose this course lesson's FINAL PROBLEM: the one unaided problem that ends the lesson. Here `explain` is ONLY for that " +
-	"(`type` must be final; every other question in this lesson is a `quiz`). The learner answers free-form, by writing or " +
+	"Pose this course lesson's FINAL PROBLEM: the one unaided problem that ends the lesson, or its RECALL OPENER (type recall, with `skill`: a short question on an earlier skill, before the new material). Here `explain` is ONLY for those " +
+	"(`type` must be final or recall; every other question in this lesson is a `quiz`). The learner answers free-form, by writing or " +
 	"sketching, with no options. `correctAnswer` is the FULL correct answer, COMMITTED before he sees the question: grade his " +
 	"answer strictly against it, never revise it. He sees it on submit. Give NO hint: nothing in `lead`, `question` or `details` " +
 	"may name the method, remind him of a step or show part of the answer. Set `nodeId` (required) to the plan node the skill " +
@@ -238,16 +238,21 @@ function explainDescription(name: "explain" | "recall", nodeId: boolean, scope: 
 		"ONE question per turn: call a single " + name + ", then end your turn — his answer determines the next." +
 		(scope === "all"
 			? " In this course lesson, `type` final poses the lesson's FINAL PROBLEM: one unaided problem taking the whole skill, with no hint " +
-				"anywhere in `lead`, `question` or `details`; after his answer, say what was right and wrong, then call finish_lesson."
+				"anywhere in `lead`, `question` or `details`; after his answer, say what was right and wrong, then call finish_lesson. " +
+				"`type` recall is the lesson's OPENER: a short question on an earlier skill he learned (set `skill`), posed before the new material."
 			: "") +
 		(mixed ? QUIZ_FORM_RULE : "")
 	);
 }
 
 /** The scope's own refusal, or null when the call's `type` is allowed. */
-export function explainScopeProblem(scope: ExplainScope, type: unknown): string | null {
-	if (scope === "checks" && type === "final") return "type final is only for a course lesson's final problem; this session has none — use predict or check.";
-	if (scope === "finalOnly" && type !== "final") return "in this lesson `explain` is only for the final problem (type final); pose every other question with `quiz`.";
+export function explainScopeProblem(scope: ExplainScope, type: unknown, skill?: unknown, openers: ReadonlyArray<{ id: string }> = []): string | null {
+	if (scope === "checks" && (type === "final" || type === "recall")) return `type ${String(type)} is only for a course lesson; this session has none — use predict or check.`;
+	if (scope === "finalOnly" && type !== "final" && type !== "recall") return "in this lesson `explain` is only for the final problem (type final) and the recall opener (type recall); pose every other question with `quiz`.";
+	if (type === "recall") {
+		if (openers.length === 0) return "this lesson has no learned prerequisite to open with: do not pose a recall question.";
+		if (typeof skill !== "string" || !openers.some((o) => o.id === skill)) return `a recall question needs \`skill\`: one of ${openers.map((o) => o.id).join(", ")}.`;
+	}
 	return null;
 }
 
@@ -281,6 +286,7 @@ export function teachExplainToolFor(
 	ctx: Pick<PlanToolContext, "chatId" | "chatStore">,
 	scope: ExplainScope = "checks",
 	mixed = false,
+	openerSkills: ReadonlyArray<{ id: string; name: string }> = [],
 ): AgentTool<typeof explainInputObject> {
 	return {
 		name: "explain",
@@ -293,7 +299,7 @@ export function teachExplainToolFor(
 			const problems = [...explainInputProblems(input), ...figureInputProblems(input)];
 			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
 			if (nodeIdProblemText) problems.push(nodeIdProblemText);
-			const scopeProblem = explainScopeProblem(scope, input.type);
+			const scopeProblem = explainScopeProblem(scope, input.type, (input as { skill?: unknown }).skill, openerSkills);
 			if (scopeProblem) problems.push(scopeProblem);
 			if (problems.length > 0) return invalidInputResult("explain", problems);
 			return questionResult();
@@ -470,7 +476,7 @@ export interface TeacherToolContext extends PlanToolContext {
 	/** A course Learn session (owner, 2026-11-13 — core/final-problem.ts): its one skill. Present → `explain` accepts
 	 *  type final whatever the quizzing mechanic, `finish_lesson` waits for an answered final problem, and the grader
 	 *  rates it on finish. Absent → no final problem. */
-	lesson?: { skill: { id: string; name: string }; sessionModel?: ResolvedModelSpec };
+	lesson?: { skill: { id: string; name: string }; sessionModel?: ResolvedModelSpec; /** The learned prerequisites a recall opener may test (owner, 2026-11-13). */ openerSkills?: ReadonlyArray<{ id: string; name: string }> };
 }
 
 /**
@@ -529,10 +535,10 @@ export function createTeacherTools(
 	const scope: ExplainScope = ctx.lesson ? "all" : "checks";
 	const quizzing: Record<string, AgentTool<any>> =
 		mechanics === "free"
-			? { explain: teachExplainToolFor(ctx, scope) }
+			? { explain: teachExplainToolFor(ctx, scope, false, ctx.lesson?.openerSkills) }
 			: mechanics === "mixed"
-				? { quiz: teachQuizToolFor(ctx, true), explain: teachExplainToolFor(ctx, scope, true) }
-				: { quiz: teachQuizToolFor(ctx), ...(ctx.lesson ? { explain: teachExplainToolFor(ctx, "finalOnly") } : {}) };
+				? { quiz: teachQuizToolFor(ctx, true), explain: teachExplainToolFor(ctx, scope, true, ctx.lesson?.openerSkills) }
+				: { quiz: teachQuizToolFor(ctx), ...(ctx.lesson ? { explain: teachExplainToolFor(ctx, "finalOnly", false, ctx.lesson.openerSkills) } : {}) };
 	// healToolRecord — same standard as the prober's registry (above).
 	return healToolRecord(
 		filterEnabledTools(

@@ -305,6 +305,17 @@ Learn session whose tutor has `material_search`, `plan_init` is now refused unti
 saying what the lookup showed and what the plan uses (a later rewrite of the map does not need it again).
 Same refusal cap as the other teacher gates (3 per run), and the planning prompt says the same.
 
+**The recall opener and a mixed Practice all (owner, 2026-11-13).** A Learn session whose skill has learned
+prerequisites opens its teaching (after the plan, before the first step) with one or two short free-form
+questions on them: `explain` with `type: "recall"` and `skill` (a learned prerequisite of the lesson's skill,
+validated; none learned = no opener, and the tool refuses the type). No hints, they arrive open, and the dock
+labels them "Recall". The grader rates each when the lesson finishes (`recallOpenersOf` in
+`core/final-problem.ts`, graded in `agent/lesson-grade.ts` only on a finish that goes through) and the grades ride
+the finish result as `details.openers`; the fold reads each as a `solved` review of its skill at the finish time
+(`skillEventsOf`), so a good answer strengthens that skill's memory and a miss brings its review forward. A
+grading that fails adds nothing. "Practice all" poses the learning skills in a shuffled order (`shuffled`), so
+the session interleaves them; the context marker says "in a mixed order".
+
 **Exam date, weights and Today (owner, 2026-11-13, `core/exam-plan.ts`).** A course may carry an
 exam date and a weight per skill, so the learner spends the time left on what the exams use:
 

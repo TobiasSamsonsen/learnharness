@@ -23,11 +23,11 @@ export const HINT_THINKING_MAX = 4000;
 export const HINT_NUDGE_MS = 5 * 60_000;
 
 /** Is the Hint button offered on this pending question? Lesson CHECKS only (multiple choice and free-form): never a
- *  prediction (it comes before the teaching), the final problem (unaided), the probe, or an open-ended ask. */
+ *  prediction (it comes before the teaching), the final problem and the recall opener (unaided), the probe, or an open-ended ask. */
 export function hintEligible(tool: string, input: unknown, phase: string): boolean {
 	if (phase !== "teach" || (tool !== "quiz" && tool !== "explain")) return false;
 	const type = normalizeQuizType((input as { type?: unknown } | null)?.type);
-	return type !== "predict" && type !== "final";
+	return type !== "predict" && type !== "final" && type !== "recall";
 }
 
 /** The instruction appended to the history as the hint call's one user message. `n` = which hint this is (1-based). */

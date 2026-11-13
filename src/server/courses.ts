@@ -776,6 +776,16 @@ export function lessonResult(chatId: string): LessonResult | null {
 	};
 }
 
+/** A random order of `ids` (Fisher-Yates); a copy, never the input. */
+export function shuffled<T>(ids: readonly T[], random: () => number = Math.random): T[] {
+	const out = [...ids];
+	for (let i = out.length - 1; i > 0; i--) {
+		const j = Math.floor(random() * (i + 1));
+		[out[i], out[j]] = [out[j]!, out[i]!];
+	}
+	return out;
+}
+
 /** Create a session from a course (docs/courses.md §4). The client sends
  *  `prompt` as the first learner message. */
 export function createCourseSession(
@@ -799,7 +809,8 @@ export function createCourseSession(
 			break;
 		case "practice":
 			// "Practice all" practices what is learned but not known yet
-			ids = skillId !== undefined ? [skillId] : p.learning;
+			// "Practice all" mixes its order (owner, 2026-11-13): practice that interleaves skills holds better than a block
+			ids = skillId !== undefined ? [skillId] : shuffled(p.learning);
 			if (ids.length === 0) return { ok: false, status: 409, error: "Nothing to practice yet — finish a lesson first" };
 			break;
 		case "review":
@@ -867,7 +878,7 @@ export function courseSessionSkillNames(chatId: string): { courseId: string; ski
  *  tool may tag. Undefined for other sessions, or when the course is gone. */
 export function courseForTurn(
 	chatId: string,
-): { section: string; mode: CourseMode; note?: string; skills?: () => ReadonlyArray<{ id: string; name: string }>; lessonSkill?: { id: string; name: string } } | undefined {
+): { section: string; mode: CourseMode; note?: string; skills?: () => ReadonlyArray<{ id: string; name: string }>; lessonSkill?: { id: string; name: string }; openerSkills?: Array<{ id: string; name: string }> } | undefined {
 	const link = stores.chatStore.getChat(chatId)?.course;
 	if (!link) return undefined;
 	const course = stores.courseStore.getCourse(link.courseId);
@@ -878,7 +889,11 @@ export function courseForTurn(
 	const note = course?.note;
 	// a lesson's one skill: the final problem is graded for it (core/final-problem.ts)
 	const lessonSkill = skills[0] ? { id: skills[0].id, name: skills[0].name } : undefined;
-	if (link.mode === "learn") return { section, mode: link.mode, ...(note ? { note } : {}), ...(lessonSkill ? { lessonSkill } : {}) };
+	// the learned prerequisites of the lesson's skill: what its recall opener may test (core/final-problem.ts)
+	const openerSkills = link.mode === "learn" && skills[0]
+		? (ctx.skills.get(skills[0].id)?.requires ?? []).filter((r) => ctx.skillStates.has(r) && ctx.skills.has(r)).map((r) => ({ id: r, name: ctx.skills.get(r)!.name }))
+		: [];
+	if (link.mode === "learn") return { section, mode: link.mode, ...(note ? { note } : {}), ...(lessonSkill ? { lessonSkill } : {}), ...(openerSkills.length > 0 ? { openerSkills } : {}) };
 	const tags = skills.map((s) => ({ id: s.id, name: s.name }));
 	return { section, mode: link.mode, ...(note ? { note } : {}), skills: () => tags };
 }

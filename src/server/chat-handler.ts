@@ -864,7 +864,7 @@ export async function handleChatInput(
 						// = no research tool in the teacher's registry.
 						searchAvailable,
 						// A course lesson (owner, 2026-11-13): its skill, for the final problem and the grader's rating of it.
-						...(course?.mode === "learn" && course.lessonSkill ? { lesson: { skill: course.lessonSkill, sessionModel: conversation } } : {}),
+						...(course?.mode === "learn" && course.lessonSkill ? { lesson: { skill: course.lessonSkill, sessionModel: conversation, ...(course.openerSkills ? { openerSkills: course.openerSkills } : {}) } } : {}),
 					},
 					agentOpts,
 				)

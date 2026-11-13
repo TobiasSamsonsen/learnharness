@@ -199,7 +199,9 @@ export function QuestionDock({
 							? "Prediction"
 							: canonical === "explain" && normalizeQuizType((parsed as { type?: unknown }).type) === "final"
 								? "Final problem"
-								: undefined
+								: canonical === "explain" && normalizeQuizType((parsed as { type?: unknown }).type) === "recall"
+									? "Recall"
+									: undefined
 					}
 				/>
 			)}
@@ -853,7 +855,9 @@ function QuestionDockForm({
 									: kind === "explain"
 										? qd.questionType === "final"
 											? "Final problem"
-											: "Explain"
+											: qd.questionType === "recall"
+												? "Recall"
+												: "Explain"
 											: "Question"}
 					{qd.mode === "multi-select" && " · select all that apply"}
 				</div>
@@ -1046,7 +1050,7 @@ function QuestionDockForm({
 					className={cn("flex items-center justify-between gap-3 border-t border-border/60 px-4 py-2 text-xs text-muted-foreground", wordingOnly && "hidden")}
 					data-testid="final-problem-row"
 				>
-					<span>{qd.questionType === "final" ? "No hints. Sets your first rating." : ""}</span>
+					<span>{qd.questionType === "final" ? "No hints. Sets your first rating." : qd.questionType === "recall" ? "No hints. A quick look back at an earlier skill." : ""}</span>
 					<button
 						type="button"
 						disabled={compactionRunning || preparing}

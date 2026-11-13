@@ -17,8 +17,9 @@
 import type { AfterToolCallContext, AfterToolCallResult } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { FINISH_LESSON_TOOL } from "../core/course-session.ts";
-import { FINISH_NOT_PASSED_TEXT, finalProblemSpanOf, renderFinalProblemSpan } from "../core/final-problem.ts";
+import { FINISH_NOT_PASSED_TEXT, finalProblemSpanOf, recallOpenersOf, renderFinalProblemSpan } from "../core/final-problem.ts";
 import { gradeFailureReason } from "../core/grade-failure.ts";
+import type { Grade } from "../core/mastery.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import type { ResolvedModelSpec } from "./models.ts";
 import { installedPracticeGrader } from "./practice-grade.ts";
@@ -28,6 +29,31 @@ export interface LessonGradeContext {
 	skill: { id: string; name: string };
 	/** The session's own model, the grader's fallback. */
 	sessionModel?: ResolvedModelSpec;
+	/** The learned prerequisites a recall opener may test (names for the grader's prompt). */
+	openerSkills?: ReadonlyArray<{ id: string; name: string }>;
+}
+
+async function gradeOpeners(
+	grader: NonNullable<ReturnType<typeof installedPracticeGrader>>,
+	openers: ReturnType<typeof recallOpenersOf>,
+	ctx: LessonGradeContext,
+	signal: AbortSignal | undefined,
+): Promise<Array<{ skill: string; grade: Grade }>> {
+	const names = new Map((ctx.openerSkills ?? []).map((s) => [s.id, s.name]));
+	const graded = await Promise.all(
+		openers
+			.filter((o) => names.has(o.skill))
+			.map(async (o) => {
+				try {
+					const outcome = await grader({ skills: [{ id: o.skill, name: names.get(o.skill)! }], transcript: o.transcript, difficulty: "recall opener of a lesson" }, signal, ctx.sessionModel);
+					const grade = outcome.grades.find((g) => g.skill === o.skill)?.grade;
+					return grade ? { skill: o.skill, grade } : null;
+				} catch {
+					return null;
+				}
+			}),
+	);
+	return graded.filter((g): g is { skill: string; grade: Grade } => g !== null);
 }
 
 export function lessonGradeHook(ctx: LessonGradeContext): (call: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined> {
@@ -45,7 +71,10 @@ export function lessonGradeHook(ctx: LessonGradeContext): (call: AfterToolCallCo
 			const details = { grades: outcome.grades, ...(outcome.gradedBy ? { gradedBy: outcome.gradedBy } : {}), ...(outcome.gradeError ? { gradeError: outcome.gradeError } : {}) };
 			const grade = outcome.grades.find((g) => g.skill === ctx.skill.id)?.grade;
 			if (grade === "again") return { content: [{ type: "text", text: FINISH_NOT_PASSED_TEXT }], details, isError: true };
-			return { details };
+			// The recall openers (owner, 2026-11-13) count as reviews of their skills. They are graded once, when the lesson
+			// finishes; an opener the grader could not grade adds no evidence (nothing is guessed).
+			const openers = await gradeOpeners(grader, recallOpenersOf(live, toolCall.id), ctx, signal);
+			return { details: { ...details, ...(openers.length > 0 ? { openers } : {}) } };
 		} catch (err) {
 			if (signal?.aborted) return { details: { grades: [] } };
 			const message = err instanceof Error ? err.message : String(err);
