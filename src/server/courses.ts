@@ -3,6 +3,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type {
 	ChatCourseLink,
 	LessonResult,
+	RatingChange,
 	CourseDraft,
 	CourseMode,
 	CourseRecord,
@@ -695,6 +696,51 @@ function sessionSkill(id: string, ctx: ReadContext): SessionSkill {
 		needsReview: state !== undefined && needsReview(state, ctx.now),
 		...(ctx.notes.get(id) ? { note: ctx.notes.get(id)!.summary } : {}),
 	};
+}
+
+/** What each concluded problem of a course practice, review or check session did to its skills' understanding
+ *  (owner, 2026-11-13): the memory model folded over every course's evidence before the problem and with it. Null for
+ *  any other session. */
+export function ratingChanges(chatId: string): RatingChange[] | null {
+	const record = stores.chatStore.getChat(chatId);
+	const link = record?.course;
+	if (!record || !link || link.mode === "learn" || link.mode === "placement") return null;
+	const ctx = readContext();
+	const requiresOf = (id: string) => ctx.skills.get(id)?.requires ?? [];
+	const all = [...ctx.byCourse.values()].flat();
+	const own = skillEventsOf(record.messages, link);
+	const clean = new Set<string>();
+	for (const m of record.messages) {
+		const r = m as { role?: string; toolCallId?: string; isError?: boolean };
+		if (r.role === "toolResult" && !r.isError && r.toolCallId) clean.add(r.toolCallId);
+	}
+	const out: RatingChange[] = [];
+	for (const m of record.messages) {
+		if ((m as { role?: string }).role !== "assistant") continue;
+		const at = (m as { timestamp: number }).timestamp;
+		for (const block of (m as unknown as { content: Array<{ type: string; id?: string; name?: string }> }).content) {
+			if (block.type !== "toolCall" || block.name !== "conclude" || !block.id || !clean.has(block.id)) continue;
+			const ids = [...new Set(own.filter((e) => e.at === at).map((e) => e.skillId))];
+			if (ids.length === 0) continue;
+			const before = foldSkills(all.filter((e) => e.at < at), requiresOf);
+			const after = foldSkills(all.filter((e) => e.at <= at), requiresOf);
+			out.push({
+				callId: block.id,
+				skills: ids.map((id) => {
+					const b = before.get(id);
+					const a = after.get(id);
+					return {
+						id,
+						name: ctx.skills.get(id)?.name ?? id,
+						before: b ? understandingOf(b) : 0,
+						after: a ? understandingOf(a) : 0,
+						reviewAt: a ? new Date(reviewAt(a)).toISOString() : null,
+					};
+				}),
+			});
+		}
+	}
+	return out;
 }
 
 /** The card under a finished lesson (GET /api/chats/[id]/lesson-result, owner 2026-11-13): the skill, its new

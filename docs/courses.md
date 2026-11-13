@@ -280,6 +280,13 @@ A concluded problem that ended taught / moved on / surrendered shows a "Learn <s
 per again-graded skill: it opens a Learn session on that skill, and Next problem continues
 the review on return.
 
+**Rating change after a problem (owner, 2026-11-13).** A concluded course practice, review or check
+problem shows under its card how it moved its skills: "Product rule: understanding 3.1 → 4.2 · review in 5
+days". `GET /api/chats/[id]/rating-changes` (`ratingChanges` in `src/server/courses.ts`) folds every
+course's evidence before each problem of the session and with it (the same `foldSkills` the course page
+reads), one request per chat for all its cards; `components/rating-change.tsx` asks again when a turn
+settles, since the problem is only in the record by then. Nothing is stored.
+
 **The lesson's result (owner, 2026-11-13).** What the teacher says it showed when it finishes a lesson (the
 `summary` argument of the clean `finish_lesson` call, `finishSummaryOf` in `core/course-session.ts`) used to
 be read by nothing. It is now the skill's **lesson note**, derived from the transcript on read (nothing is

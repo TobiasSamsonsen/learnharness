@@ -75,6 +75,7 @@ export {
 	courseWeighing,
 	courseView,
 	lessonResult,
+	ratingChanges,
 	createCourse,
 	createCourseSession,
 	courseSessionSkillNames,

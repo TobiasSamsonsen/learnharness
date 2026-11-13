@@ -33,6 +33,7 @@ import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { ChatActionsContext } from "@/components/chat";
 import { INTERACTION_LAYER_Z_BASE } from "@/components/host-dialog";
 import { useInteractionLayers } from "@/components/interaction-layers";
+import { RatingChangeNote } from "@/components/rating-change";
 
 /* TARGET NAMES (owner round 17, 2026-10-06): targets are normalized to
  * opaque node ids at the record seam (owner round 9 — the mastery trace
@@ -179,6 +180,7 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 					</div>
 				)
 			)}
+			{chat && <RatingChangeNote chatId={chat.chatId} callId={part.toolCallId} />}
 			{chat && <LearnSkillButtons chatId={chat.chatId} skillIds={learnableSkillIds({ outcome: input.outcome, grades })} />}
 			<MetadataPopover
 				concludeInput={input}

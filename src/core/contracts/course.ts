@@ -210,6 +210,13 @@ export interface CourseSkillView {
 	propositions: Array<{ id: string; name: string; statement: string; sessions: Array<{ id: string; title: string }> }>;
 }
 
+/** One concluded problem's effect on its skills (GET /api/chats/[id]/rating-changes, owner 2026-11-13). */
+export interface RatingChange {
+	/** The conclude call's id. */
+	callId: string;
+	skills: Array<{ id: string; name: string; before: number; after: number; reviewAt: string | null }>;
+}
+
 /** GET /api/chats/[id]/lesson-result: the card under a finished lesson (owner, 2026-11-13). */
 export interface LessonResult {
 	courseId: string;
