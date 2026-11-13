@@ -138,6 +138,7 @@ import {
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { FinishLessonButton, LessonFinishedLine, courseOfView } from "@/components/lesson-finish";
+import { LessonResultCard } from "@/components/lesson-result-card";
 import { ComposerEdge } from "@/components/composer-edge";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
 
@@ -2124,7 +2125,12 @@ export function Chat({
 													case "tool-finish_session":
 														// The agent's finish (owner, 2026-10-25): the same
 														// divider as the learner's button, once it went through.
-														return part.state === "output-available" ? <LessonFinishedLine key={pi} skill={lessonSkill} lesson={isLesson} /> : null;
+														return part.state === "output-available" ? (
+															<div key={pi}>
+																<LessonFinishedLine skill={lessonSkill} lesson={isLesson} />
+																{isLesson && part.type === "tool-finish_lesson" && <LessonResultCard chatId={chatId} />}
+															</div>
+														) : null;
 													case "tool-quiz":
 													case "tool-probe":
 													case "tool-ask_user_question":

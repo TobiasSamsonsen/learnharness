@@ -94,6 +94,23 @@ export function sessionFinishOf(messages: readonly LhMessage[]): { at: number; b
 	return null;
 }
 
+/** What the teacher said it showed when it finished the lesson (the `summary` of the clean finish_lesson call; owner,
+ *  2026-11-13): the lesson's note. Null for an open lesson, a finish by the learner's marker (older sessions) or a blank
+ *  summary. */
+export function finishSummaryOf(messages: readonly LhMessage[]): { summary: string; at: number } | null {
+	const finish = sessionFinishOf(messages);
+	if (!finish?.callId) return null;
+	for (const m of messages) {
+		if ((m as { role?: string }).role !== "assistant") continue;
+		for (const b of (m as AssistantMessage).content) {
+			if (b.type !== "toolCall" || b.id !== finish.callId) continue;
+			const summary = (b.arguments as { summary?: unknown } | undefined)?.summary;
+			return typeof summary === "string" && summary.trim() !== "" ? { summary: summary.trim(), at: finish.at } : null;
+		}
+	}
+	return null;
+}
+
 /** The placement test's grading line (owner, 2026-10-25): a correct answer
  *  at or above this confidence credits the skill as KNOWN. */
 export const PLACEMENT_KNOWN_CONFIDENCE = 70;
@@ -114,6 +131,8 @@ export interface SessionSkill {
 	learned: boolean;
 	known: boolean;
 	needsReview: boolean;
+	/** The note its last lesson left (finishSummaryOf): what the learner showed and what to practice. */
+	note?: string;
 }
 
 export const COURSE_MODE_LABEL: Record<CourseMode, string> = {
@@ -152,7 +171,7 @@ export function newCourseContextMessage(opts: {
 		`[Session context] — this session belongs to the course "${opts.courseTitle}" (${COURSE_MODE_LABEL[opts.mode]}).`,
 		"",
 		opts.mode === "learn" ? "The skill this lesson teaches (id — name: statement · state):" : "The session's skills, prerequisites first (id — name: statement · state):",
-		...opts.skills.map((s) => `- [${s.id}] ${s.name}: ${s.statement} · ${stateLabel(s)}`),
+		...opts.skills.map((s) => `- [${s.id}] ${s.name}: ${s.statement} · ${stateLabel(s)}${s.note && opts.mode !== "learn" ? `\n  note from its last lesson: ${s.note}` : ""}`),
 	];
 	if (opts.background && opts.background.length > 0) {
 		lines.push("", "Its prerequisite skills (id — name: statement · state):", ...opts.background.map((s) => `- [${s.id}] ${s.name}: ${s.statement} · ${stateLabel(s)}`));

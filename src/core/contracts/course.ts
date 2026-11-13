@@ -204,8 +204,23 @@ export interface CourseSkillView {
 	weightBy?: "model" | "learner";
 	weightReason?: string;
 	priority: number;
+	/** What its last finished lesson said the learner showed and should practice (the finish_lesson summary). */
+	lessonNote?: { summary: string; at: string; chatId: string };
 	/** The propositions it rests on: stored links ∪ derived from Learn sessions. */
 	propositions: Array<{ id: string; name: string; statement: string; sessions: Array<{ id: string; title: string }> }>;
+}
+
+/** GET /api/chats/[id]/lesson-result: the card under a finished lesson (owner, 2026-11-13). */
+export interface LessonResult {
+	courseId: string;
+	skill: { id: string; name: string };
+	understanding: number;
+	learned: boolean;
+	/** ISO — when recall reaches the review target. */
+	reviewAt: string | null;
+	summary: string | null;
+	/** The next skill in the course's order, when one is ready (not this skill). */
+	next: { id: string; name: string } | null;
 }
 
 /** GET /api/courses/[id]. */

@@ -280,6 +280,17 @@ A concluded problem that ended taught / moved on / surrendered shows a "Learn <s
 per again-graded skill: it opens a Learn session on that skill, and Next problem continues
 the review on return.
 
+**The lesson's result (owner, 2026-11-13).** What the teacher says it showed when it finishes a lesson (the
+`summary` argument of the clean `finish_lesson` call, `finishSummaryOf` in `core/course-session.ts`) used to
+be read by nothing. It is now the skill's **lesson note**, derived from the transcript on read (nothing is
+stored): the skill's detail on the course page shows it with a link to the lesson
+(`CourseSkillView.lessonNote`, the newest finished lesson wins), and the context marker of a later Practice,
+Review or Check session lists it under the skill ("note from its last lesson: …") as the tutor's opening
+reminder. Under the finish divider a **result card** (`GET /api/chats/[id]/lesson-result`,
+`components/lesson-result-card.tsx`) shows the skill, its new understanding and when it comes up for review,
+the summary, and three buttons: Practice this skill (starts a practice session on it), Next: <skill> (the next
+in the exam-ordered Next up; opens the course page on its pace dialog) and Back to the course.
+
 **Sources before the plan (owner, 2026-11-13, `core/sources-gate.ts`).** In 22 tablet chats the tutor
 searched the course's sources once, and only after the learner asked for the full syllabus. In a course
 Learn session whose tutor has `material_search`, `plan_init` is now refused until a lookup

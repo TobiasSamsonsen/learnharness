@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type {
 	ChatCourseLink,
+	LessonResult,
 	CourseDraft,
 	CourseMode,
 	CourseRecord,
@@ -31,6 +32,7 @@ import {
 } from "../core/exam-plan.ts";
 import { approveDraft, draftProblems, type DraftCheckContext } from "../core/course-draft.ts";
 import {
+	finishSummaryOf,
 	courseFirstMessage,
 	coursePromptSection,
 	courseSessionTitle,
@@ -104,14 +106,29 @@ function courseChats() {
 		.filter((r) => r !== null && r.course !== undefined);
 }
 
-/** Every course session's skill evidence, by course. */
-function eventsByCourse(): Map<string, SkillEvent[]> {
-	const out = new Map<string, SkillEvent[]>();
+/** A skill's lesson note: the summary its newest finished lesson gave (core/course-session.ts finishSummaryOf). */
+interface LessonNote {
+	summary: string;
+	at: number;
+	chatId: string;
+}
+
+/** Every course session's skill evidence, by course, and each skill's lesson note, in one pass over the chats. */
+function courseEvidence(): { byCourse: Map<string, SkillEvent[]>; notes: Map<string, LessonNote> } {
+	const byCourse = new Map<string, SkillEvent[]>();
+	const notes = new Map<string, LessonNote>();
 	for (const chat of courseChats()) {
-		const id = chat!.course!.courseId;
-		out.set(id, [...(out.get(id) ?? []), ...skillEventsOf(chat!.messages, chat!.course!)]);
+		const link = chat!.course!;
+		byCourse.set(link.courseId, [...(byCourse.get(link.courseId) ?? []), ...skillEventsOf(chat!.messages, link)]);
+		if (link.mode !== "learn") continue;
+		const note = finishSummaryOf(chat!.messages);
+		if (!note) continue;
+		for (const skillId of link.skillIds) {
+			const held = notes.get(skillId);
+			if (!held || held.at < note.at) notes.set(skillId, { summary: note.summary, at: note.at, chatId: chat!.id });
+		}
 	}
-	return out;
+	return { byCourse, notes };
 }
 
 interface ReadContext {
@@ -121,6 +138,8 @@ interface ReadContext {
 	/** A skill's memory state is global: evidence from every course counts. */
 	skillStates: Map<string, SkillState>;
 	byCourse: Map<string, SkillEvent[]>;
+	/** Each skill's newest lesson note. */
+	notes: Map<string, LessonNote>;
 	now: number;
 }
 
@@ -128,9 +147,9 @@ function readContext(): ReadContext {
 	const graph = getGraph(stores.graphStore);
 	const nodeIds = new Set(graph.nodes.map((n) => n.id));
 	const skills = allSkills(nodeIds);
-	const byCourse = eventsByCourse();
+	const { byCourse, notes } = courseEvidence();
 	const skillStates = foldSkills([...byCourse.values()].flat(), (id) => skills.get(id)?.requires ?? []);
-	return { graph, nodeIds, skills, skillStates, byCourse, now: Date.now() };
+	return { graph, nodeIds, skills, skillStates, byCourse, notes, now: Date.now() };
 }
 
 function checkContext(ctx = readContext()): DraftCheckContext {
@@ -317,6 +336,7 @@ export function courseView(courseId: string): CourseView | null {
 			stability: s.state ? s.state.stability : null,
 			lastReview: s.state ? new Date(s.state.lastReview).toISOString() : null,
 			missing: s.missing,
+			...(ctx.notes.get(id) ? { lessonNote: { summary: ctx.notes.get(id)!.summary, at: new Date(ctx.notes.get(id)!.at).toISOString(), chatId: ctx.notes.get(id)!.chatId } } : {}),
 			weight: weightOf(weights, id),
 			...(weights?.[id] ? { weightBy: weights[id]!.by } : {}),
 			...(weights?.[id]?.reason ? { weightReason: weights[id]!.reason } : {}),
@@ -673,6 +693,35 @@ function sessionSkill(id: string, ctx: ReadContext): SessionSkill {
 		learned: state !== undefined,
 		known: state !== undefined && isKnown(state),
 		needsReview: state !== undefined && needsReview(state, ctx.now),
+		...(ctx.notes.get(id) ? { note: ctx.notes.get(id)!.summary } : {}),
+	};
+}
+
+/** The card under a finished lesson (GET /api/chats/[id]/lesson-result, owner 2026-11-13): the skill, its new
+ *  understanding and review date, the teacher's summary, and the next skill in the course's order. Null when the chat is
+ *  not a course Learn session. */
+export function lessonResult(chatId: string): LessonResult | null {
+	const record = stores.chatStore.getChat(chatId);
+	const link = record?.course;
+	if (!record || !link || link.mode !== "learn") return null;
+	const course = stores.courseStore.getCourse(link.courseId);
+	const skillId = link.skillIds[0];
+	if (!course || !skillId) return null;
+	const ctx = readContext();
+	const skill = ctx.skills.get(skillId);
+	if (!skill) return null;
+	const state = ctx.skillStates.get(skillId);
+	const p = partitionOf(course, ctx);
+	const { nextUp } = examPlanOf(course, p, ctx);
+	const next = nextUp.find((id) => id !== skillId);
+	return {
+		courseId: course.id,
+		skill: { id: skillId, name: skill.name },
+		understanding: state ? understandingOf(state) : 0,
+		learned: state !== undefined,
+		reviewAt: state ? new Date(reviewAt(state)).toISOString() : null,
+		summary: finishSummaryOf(record.messages)?.summary ?? null,
+		next: next ? { id: next, name: ctx.skills.get(next)?.name ?? next } : null,
 	};
 }
 

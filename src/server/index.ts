@@ -74,6 +74,7 @@ export {
 	courseDrafting,
 	courseWeighing,
 	courseView,
+	lessonResult,
 	createCourse,
 	createCourseSession,
 	courseSessionSkillNames,

@@ -196,6 +196,17 @@ function SkillRow({
 						<p className="text-muted-foreground">Requires: {skill.requires.map((id) => names.get(id) ?? id).join(", ")}</p>
 					)}
 					<WeightEditor skill={skill} />
+					{skill.lessonNote && (
+						<div className="space-y-0.5" data-testid={`skill-note-${skill.id}`}>
+							<p className="text-muted-foreground">
+								Last lesson ({skill.lessonNote.at.slice(0, 10)}):{" "}
+								<Link href={`/chat/${skill.lessonNote.chatId}`} className="underline decoration-border underline-offset-2 hover:text-foreground">
+									open
+								</Link>
+							</p>
+							<RichText prose className="[--lh-prose-leading:1.625]">{skill.lessonNote.summary}</RichText>
+						</div>
+					)}
 					{skill.propositions.length === 0 ? (
 						<p className="text-muted-foreground">No propositions from your graph yet — a Learn session on this skill adds them.</p>
 					) : (
