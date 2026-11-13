@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, Loader2Icon } from "lucide-react";
 import {
 	COURSE_MODE_LABEL,
@@ -811,13 +811,13 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 		[courseId, refresh],
 	);
 	// The sidebar's Today opens a lesson's pace dialog through ?learn=<skill id>.
+	const wantedLearn = useSearchParams().get("learn");
 	useEffect(() => {
-		const wanted = new URLSearchParams(window.location.search).get("learn");
-		if (!wanted) return;
-		if (data.skills.some((s) => s.id === wanted)) setLearnSkill(wanted);
+		if (!wantedLearn) return;
+		if (data.skills.some((s) => s.id === wantedLearn)) setLearnSkill(wantedLearn);
 		router.replace(`/course/${courseId}`);
-		// once, on arrival
-	}, []);
+		// every arrival by a link with ?learn=, also from another lesson of the same course (the effect follows the URL)
+	}, [wantedLearn]);
 
 	const commitTitle = async () => {
 		const t = title.trim();

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { LessonResult } from "@/src/core";
 import { RichText } from "@/components/rich-text";
+import { useNotifyHub } from "@/components/server-events";
 
 /**
  * The card under a finished course lesson (owner, 2026-11-13): the skill, its understanding and when it comes up for
@@ -76,18 +77,23 @@ export function LessonResultCard({ chatId }: { chatId: string }) {
 	const [result, setResult] = useState<LessonResult | null>(null);
 	const [busy, setBusy] = useState(false);
 
-	useEffect(() => {
-		let alive = true;
+	// The divider mounts mid-turn, before the finish is in the record: ask again when the turn settles (and when the
+	// record changes outside a turn).
+	const load = useCallback(() => {
 		fetch(`/api/chats/${encodeURIComponent(chatId)}/lesson-result`, { cache: "no-store" })
 			.then((r) => (r.ok ? (r.json() as Promise<LessonResult>) : null))
 			.then((body) => {
-				if (alive && body) setResult(body);
+				if (body) setResult(body);
 			})
 			.catch(() => {});
-		return () => {
-			alive = false;
-		};
 	}, [chatId]);
+	useEffect(() => load(), [load]);
+	const hub = useNotifyHub();
+	useEffect(() => {
+		if (!hub) return;
+		const offs = [hub.subscribe("turn-settled", () => load()), hub.subscribe("record-changed", (p) => p.chatId === chatId && load())];
+		return () => offs.forEach((off) => off());
+	}, [hub, load, chatId]);
 
 	if (!result) return null;
 	const practice = async () => {

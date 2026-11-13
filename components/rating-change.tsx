@@ -56,11 +56,10 @@ export function useRatingChange(chatId: string | undefined, callId: string): Rat
 	const hub = useNotifyHub();
 	useEffect(() => {
 		if (!hub) return;
-		const off = hub.subscribe("turn-settled", () => refresh(true));
-		return () => {
-			off();
-		};
-	}, [hub, refresh]);
+		// "record-changed" too: Grade again rewrites a conclude result outside a turn
+		const offs = [hub.subscribe("turn-settled", () => refresh(true)), hub.subscribe("record-changed", (p) => p.chatId === chatId && refresh(true))];
+		return () => offs.forEach((off) => off());
+	}, [hub, refresh, chatId]);
 	return change;
 }
 

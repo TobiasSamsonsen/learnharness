@@ -497,6 +497,11 @@ function weighRuns(): Map<string, AbortController> {
 	return g[WEIGH_KEY];
 }
 
+/** How many weighing passes are running (the idle check reads this, so the Android shell does not rest the server mid-pass). */
+export function courseWeighCount(): number {
+	return weighRuns().size;
+}
+
 /** Is a weighing pass live for this course? */
 export function courseWeighing(courseId: string): boolean {
 	return weighRuns().has(courseId);

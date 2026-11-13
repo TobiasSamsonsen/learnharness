@@ -3,7 +3,7 @@ import { bgLlmSlots } from "../agent/subagents/bg-llm-semaphore.ts";
 import { workerRequestLoad } from "../agent/worker-request-admission.ts";
 import { extractionStatuses } from "../agent/subagents/extraction.ts";
 import { compactionsInFlight } from "./compaction.ts";
-import { courseDraftCount } from "./courses.ts";
+import { courseDraftCount, courseWeighCount } from "./courses.ts";
 import { wakeWorkCount } from "./jobs.ts";
 import { materialRunCount } from "./materials.ts";
 import { syncStatus } from "./sync-service.ts";
@@ -35,6 +35,7 @@ export function serverBusy(): BusyReport {
 		["a job result is being delivered", wakeWorkCount()],
 		["graph extraction is running", extractionStatuses().length],
 		["a course is being drafted", courseDraftCount()],
+		["exam weights are being read", courseWeighCount()],
 		["a material is being read", materialRunCount()],
 		["a background model call is running", slots.active + slots.queue.length + workerRequestLoad()],
 		["a sync round is running", syncStatus().running ? 1 : 0],
