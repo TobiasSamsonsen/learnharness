@@ -70,10 +70,14 @@ function writeBox(box: BoxState): void {
 export function FloatingProblem({
 	label,
 	statement,
+	lessonText,
 	children,
 }: {
 	label: string;
 	statement: string;
+	/** The teaching text the question was posed with (its `lead`), offered folded under the statement (owner,
+	 *  2026-11-14): a backstop for a question whose data the tutor wrote there. Never opened by itself. */
+	lessonText?: string;
 	/** The question's answer controls (MC options, confidence — M3), below
 	 *  the statement and scrolling with it. */
 	children?: React.ReactNode;
@@ -179,6 +183,14 @@ export function FloatingProblem({
 					    canvas is wide there: a touch screen in landscape gets 68vh (owner request 2026-11-10, "improve the UI on tablets"). */}
 					<div className="lh-prose max-h-[45vh] overflow-y-auto px-3 py-3 text-[15px] [@media(pointer:coarse)_and_(orientation:landscape)]:max-h-[68vh]">
 						<MessageResponse>{repairMathForDisplay(statement)}</MessageResponse>
+						{lessonText && lessonText.trim() !== "" && (
+							<details data-testid="sketch-lesson-text" className="mt-3 border-t border-border/60 pt-2 text-sm text-muted-foreground">
+								<summary className="lh-touch cursor-pointer text-xs font-medium tracking-wide uppercase">Lesson text</summary>
+								<div className="mt-2">
+									<MessageResponse>{repairMathForDisplay(lessonText)}</MessageResponse>
+								</div>
+							</details>
+						)}
 						{children}
 					</div>
 				</div>

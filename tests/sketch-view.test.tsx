@@ -286,6 +286,27 @@ describe("the floating problem box", () => {
 		assert.equal((JSON.parse(store.get("lh:sketch-box")!) as { collapsed: boolean }).collapsed, false);
 	});
 
+	it("offers the lesson text folded under the statement, never open by itself (2026-11-14)", async () => {
+		store.clear();
+		await mount({ inkKey: "k-lesson", onSubmit: async () => true, extra: { lessonText: "Teaching text with $M=\\begin{pmatrix}1&0\\\\0&2\\end{pmatrix}$." } });
+		const details = document.querySelector('[data-testid="sketch-lesson-text"]') as HTMLElement | null;
+		assert.ok(details, "the lesson text is offered");
+		assert.equal(details!.hasAttribute("open"), false, "closed by default");
+		assert.match(details!.textContent ?? "", /Lesson text/);
+		assert.match(details!.textContent ?? "", /Teaching text/);
+		// it sits inside the problem box, so it is part of the touch hole the native ink layer leaves alone
+		assert.ok(document.querySelector('[data-testid="sketch-problem-box"] [data-testid="sketch-lesson-text"]'));
+	});
+
+	it("shows no lesson-text section when the question came with none", async () => {
+		store.clear();
+		await mount({ inkKey: "k-nolesson", onSubmit: async () => true });
+		assert.equal(document.querySelector('[data-testid="sketch-lesson-text"]'), null);
+		await act(async () => root!.unmount());
+		await mount({ inkKey: "k-blank", onSubmit: async () => true, extra: { lessonText: "   " } });
+		assert.equal(document.querySelector('[data-testid="sketch-lesson-text"]'), null, "a blank lead is not offered");
+	});
+
 	it("keeps the box inside its parent, edges included", () => {
 		const size = { width: 300, height: 120 };
 		const bounds = { width: 1000, height: 600 };

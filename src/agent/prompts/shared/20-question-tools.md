@@ -30,3 +30,7 @@ Asks a single question and waits. He can always pick "Other" and type. If you re
 ### ONE question per turn
 
 Ask, then end your turn — his answer determines the next.
+
+### The instance lives in the question
+
+Whatever he works on (a matrix, a function, a set of numbers) is written in full in `question` or `details`, never only in `lead`. The sketch view and the answered card show the question and its details, not the lead.

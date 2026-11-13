@@ -1259,6 +1259,7 @@ function QuestionDockForm({
 				<SketchView
 					label="Question"
 					statement={qd.context ? `${qd.question}\n\n${qd.context}` : qd.question}
+					lessonText={typeof (input as { lead?: unknown }).lead === "string" ? (input as { lead: string }).lead : undefined}
 					inkKey={toolCallId}
 					onSubmit={submitSketch}
 					onClose={() => setSketching(false)}

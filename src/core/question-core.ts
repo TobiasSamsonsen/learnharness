@@ -165,7 +165,8 @@ export function quizInputProblems(input: {
 export const quizInputBase = Type.Object({
 	question: Type.String({
 		description:
-			"The single quiz question to ask. ONE question per turn: ask, then end your turn — the answer determines the next question.",
+			"The single quiz question to ask. ONE question per turn: ask, then end your turn — the answer determines the next question. " +
+			"Write the INSTANCE he works on (the matrix, function, numbers) in full HERE or in `details`, never only in `lead`: the sketch view shows only this question and `details`.",
 	}),
 	explanation: Type.String({
 		description:
@@ -310,7 +311,9 @@ const leadField = Type.String({
 	minLength: 1,
 	description:
 		"The text he reads before the question: respond to his last answer (what it shows; if it was wrong, diagnose " +
-		"and repair), then teach the next step. Markdown. The question itself goes in `question`. A one-line filler is " +
+		"and repair), then teach the next step. Markdown. The question itself goes in `question`, with the instance he works on " +
+		"(the matrix, function, numbers) written out in full there: the lead may teach with a DIFFERENT example, but never states " +
+		"the question's own instance and never carries out its steps. A one-line filler is " +
 		"not a lead. `lead` is never the question: `question` is a REQUIRED field of its own, so never end `lead` with " +
 		"the question and leave `question` out.",
 });
@@ -373,7 +376,8 @@ export const quizDisplayInputSchema = Type.Object({
 export const explainInputBase = Type.Object({
 	question: Type.String({
 		description:
-			"The single question to ask. ONE question per turn: ask, then end your turn — the answer determines the next.",
+			"The single question to ask. ONE question per turn: ask, then end your turn — the answer determines the next. " +
+			"Write the INSTANCE he works on (the matrix, function, numbers) in full HERE or in `details`, never only in `lead`: the sketch view shows only this question and `details`.",
 	}),
 	correctAnswer: Type.String({
 		description:

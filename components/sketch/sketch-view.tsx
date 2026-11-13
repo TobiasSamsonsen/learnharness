@@ -41,6 +41,8 @@ export interface SketchViewProps {
 	label: string;
 	/** The statement (markdown + LaTeX). */
 	statement: string;
+	/** The teaching text the question came with, offered folded in the problem box (floating-problem.tsx). */
+	lessonText?: string;
 	/** The question's or problem's tool-call id: unsent ink is kept per key. */
 	inkKey: string;
 	/** The sketch is ready; the caller finishes dictation and sends, and
@@ -82,6 +84,7 @@ function focusVisible(el: HTMLElement): boolean {
 export function SketchView({
 	label,
 	statement,
+	lessonText,
 	inkKey,
 	onSubmit,
 	onClose,
@@ -379,7 +382,7 @@ export function SketchView({
 						Write or draw here
 					</p>
 				)}
-				<FloatingProblem label={label} statement={statement}>
+				<FloatingProblem label={label} statement={statement} lessonText={lessonText}>
 					{choices}
 				</FloatingProblem>
 				{confirmClear && (
