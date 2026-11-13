@@ -64,6 +64,13 @@ const planInitInput = Type.Object({
 			"The only strict rule: ids are permanent lowercase slugs (a-z, 0-9, hyphens/underscores) — checks reference them via nodeId. " +
 			"Titles are free single-line text; `-->` means 'from = prerequisite' (chains fine); no subgraphs, styles, or classes.",
 	}),
+	sources: Type.Optional(
+		Type.String({
+			description:
+				"In a course lesson with sources: one or two sentences on what you found when you searched them for this skill (what the exams ask, the course's definitions and notation) and what the plan uses from it, cited as (name, p. N). " +
+				"If they do not cover the skill, say what you searched for. Required on the first plan of such a lesson; omit it elsewhere.",
+		}),
+	),
 	visual: Type.Object(
 		{
 			use: Type.Union([Type.Literal("visual"), Type.Literal("demo"), Type.Literal("none")], {
@@ -95,7 +102,8 @@ export function planTools(ctx: PlanToolContext): Record<string, AgentTool<any>> 
 				"A mermaid graph block (any direction): one node per line (`slug[Short Title]` — slugs are permanent lowercase ids: a-z, 0-9, hyphens/underscores), " +
 				"`-->` edges meaning 'from must be understood before to' (chains fine). As many nodes as the subject needs: a map, not a syllabus — structural landmarks, not one node per turn of teaching. " +
 				"Every check you fire names the node it assesses via `nodeId`; where the lesson stands derives from those tags. " +
-				"Every plan also carries a `visual` decision (visual / demo / none, with a reason): consider honestly whether a picture would make the concept easier.",
+				"Every plan also carries a `visual` decision (visual / demo / none, with a reason): consider honestly whether a picture would make the concept easier. " +
+				"In a course lesson with sources, search them first and say in `sources` what you found.",
 			parameters: planInitInput,
 			execute: serverExecute("plan_init", planInitInput, async ({ mermaid, visual }) => {
 				const { chatId, chatStore } = ctx;

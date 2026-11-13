@@ -45,6 +45,7 @@ import { difficultySection, type Difficulty } from "../core/difficulty.ts";
 import { practiceGradeHook } from "./practice-grade.ts";
 import { lessonGradeHook } from "./lesson-grade.ts";
 import { finishGateProblem, finishGateReason } from "../core/final-problem.ts";
+import { sourcesGateProblem, sourcesGateReason } from "../core/sources-gate.ts";
 
 /**
  * The two teaching-side agents (docs/archive/probe-teach-split.md): the PROBER and
@@ -325,8 +326,9 @@ function baseAgentOptions(
 	},
 	/** The grader's hook (fork): the practice agent's runs after a conclude, a course lesson's teacher's after finish_lesson. */
 	afterToolCall?: ReturnType<typeof practiceGradeHook>,
-	/** A course Learn session's teacher (owner, 2026-11-13): finish_lesson waits for an answered final problem. */
-	finishGate = false,
+	/** A course Learn session's teacher (owner, 2026-11-13): finish_lesson waits for an answered final problem, and
+	 *  plan_init for a look in the course's sources. */
+	lessonGates = false,
 ) {
 	// Practice never reaches the role fallback (the handler ALWAYS injects
 	// the session's conversation engine — practice rides the same
@@ -436,9 +438,16 @@ function baseAgentOptions(
 						if (refused) return refused;
 						// The finish gate (owner, 2026-11-13 — core/final-problem.ts): a course lesson finishes only after an
 						// answered final problem. Same refusal cap as the gates above.
-						const finishProblem = finishGate ? finishGateProblem(context.messages, toolCall.name, toolCall.id) : null;
+						const finishProblem = lessonGates ? finishGateProblem(context.messages, toolCall.name, toolCall.id) : null;
 						const finishRefused = finishProblem ? refuse("finish", true, finishGateReason(finishProblem)) : undefined;
 						if (finishRefused) return finishRefused;
+						// The sources gate (owner, 2026-11-13 — core/sources-gate.ts): the plan of a course lesson comes after a look
+						// in the course's sources.
+						const sourcesProblem = lessonGates
+							? sourcesGateProblem(context.messages, toolCall.name, call.args, (context.tools ?? []).map((t) => t.name), assistantMessage, toolCall.id)
+							: null;
+						const sourcesRefused = sourcesProblem ? refuse("sources", true, sourcesGateReason(sourcesProblem)) : undefined;
+						if (sourcesRefused) return sourcesRefused;
 					}
 					const guarded = await narrationHooks?.beforeToolCall?.(call, signal);
 					if (guarded?.block) return guarded;

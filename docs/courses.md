@@ -280,6 +280,13 @@ A concluded problem that ended taught / moved on / surrendered shows a "Learn <s
 per again-graded skill: it opens a Learn session on that skill, and Next problem continues
 the review on return.
 
+**Sources before the plan (owner, 2026-11-13, `core/sources-gate.ts`).** In 22 tablet chats the tutor
+searched the course's sources once, and only after the learner asked for the full syllabus. In a course
+Learn session whose tutor has `material_search`, `plan_init` is now refused until a lookup
+(`material_search` or `material_read`) has succeeded, and the FIRST plan must carry a `sources` field
+saying what the lookup showed and what the plan uses (a later rewrite of the map does not need it again).
+Same refusal cap as the other teacher gates (3 per run), and the planning prompt says the same.
+
 **Exam date, weights and Today (owner, 2026-11-13, `core/exam-plan.ts`).** A course may carry an
 exam date and a weight per skill, so the learner spends the time left on what the exams use:
 
