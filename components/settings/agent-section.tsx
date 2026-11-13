@@ -85,7 +85,9 @@ import {
 	isBuiltinProfile,
 	profileList,
 	profileMissingProviders,
+	quizMechanicsSetting,
 	type BackgroundModelRole,
+	type QuizMechanicsSetting,
 	type RoleModelOverride,
 	type SearchEngineId,
 } from "@/src/core";
@@ -229,8 +231,10 @@ export function composeWorkerRequestConcurrency(
  *  free-recall (explain in, quiz out); anything else is multiple choice.
  *  `quiz` itself is never written (mechanics-managed — see quizMechanics
  *  in agent/tools.ts). Pure — exported for tests. */
-export function composeQuizMechanics(agent: AgentSettings | undefined, mechanics: "choice" | "free"): AgentSettings {
-	return { ...agent, tools: { ...agent?.tools, explain: mechanics === "free" } };
+export function composeQuizMechanics(agent: AgentSettings | undefined, mechanics: QuizMechanicsSetting): AgentSettings {
+	// "mixed" (Tutor decides, owner 2026-11-13) and "choice" differ in `quizMix`; free recall leaves it as it was.
+	const { quizMix: _mix, ...tools } = (agent?.tools ?? {}) as Record<string, boolean | undefined>;
+	return { ...agent, tools: { ...tools, explain: mechanics === "free", ...(mechanics === "free" ? {} : { quizMix: mechanics === "mixed" }) } };
 }
 
 /** Compose the prober graph-tools toggle (wave 7): its own key in the
@@ -1124,9 +1128,10 @@ export function AgentSection({
 				{/* The quizzing mechanic (owner 2026-09-27): segmented — exactly one
 				    of Multiple choice / Free recall is active; the choice swaps which
 				    quizzing tool BOTH agents carry (prober checks + teach checks).
-				    Persisted as agent.tools.explain; absent = Multiple choice. */}
+				    Three choices since 2026-11-13: Tutor decides (the default; the lesson tutor has both and picks per
+				    question), Multiple choice, Free recall. Persisted as agent.tools.explain + agent.tools.quizMix. */}
 				{(() => {
-					const free = agent?.tools?.explain === true;
+					const current = quizMechanicsSetting(agent?.tools as { explain?: boolean; quizMix?: boolean } | undefined);
 					return (
 						<SettingsRow
 							label="Quizzing"
@@ -1138,8 +1143,8 @@ export function AgentSection({
 								aria-label="Quizzing mechanics"
 								className="flex rounded-lg border border-border/60 bg-muted/30 p-0.5"
 								>
-								{(["choice", "free"] as const).map((m) => {
-									const active = m === "free" ? free : !free;
+								{(["mixed", "choice", "free"] as const).map((m) => {
+									const active = m === current;
 									return (
 										<button
 											key={m}
@@ -1153,7 +1158,7 @@ export function AgentSection({
 												active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
 											)}
 										>
-											{m === "choice" ? "Multiple choice" : "Free recall"}
+											{m === "mixed" ? "Tutor decides" : m === "choice" ? "Multiple choice" : "Free recall"}
 										</button>
 									);
 								})}

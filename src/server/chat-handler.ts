@@ -72,7 +72,7 @@ import { courseForTurn } from "./courses.ts";
 import { finishLessonTool, finishSessionTool } from "../agent/tools/course.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
 import { asAgentMessages, type LhMessage } from "../core/native-messages.ts";
-import { QUESTION_TOOLS } from "../core/pending.ts";
+import { QUESTION_TOOLS, withQuizDefault } from "../core/pending.ts";
 import {
 	ChatInputError,
 	assertPluginQuestionInputAllowed,
@@ -770,7 +770,8 @@ export async function handleChatInput(
 			return asAgentMessages(updates);
 		},
 		onUsage: collectUsage,
-		toolToggles: effective.agent.tools,
+		// The quizzing default made explicit (owner, 2026-11-13): Tutor decides unless the learner chose otherwise.
+		toolToggles: withQuizDefault(effective.agent.tools),
 		// Debug (owner, 2026-10-04): teacher/prober raw provider events under
 		// LH_PROVIDER_EVENTS=1 (provider-events.ts); no-op otherwise.
 		chatId,

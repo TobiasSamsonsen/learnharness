@@ -935,13 +935,14 @@ function QuestionDockForm({
 				</div>
 			)}
 
-			{/* A course lesson's FINAL PROBLEM (owner, 2026-11-13): free-form, unaided, and it may be given up. */}
-			{kind === "explain" && qd.questionType === "final" && (
+			{/* A lesson's free-form question may be given up like a multiple-choice one (owner, 2026-11-13: with Tutor decides,
+			    calculations are free-form). A course lesson's FINAL PROBLEM also says what it is. */}
+			{kind === "explain" && toolName === "explain" && (
 				<div
 					className={cn("flex items-center justify-between gap-3 border-t border-border/60 px-4 py-2 text-xs text-muted-foreground", wordingOnly && "hidden")}
 					data-testid="final-problem-row"
 				>
-					<span>No hints. Sets your first rating.</span>
+					<span>{qd.questionType === "final" ? "No hints. Sets your first rating." : ""}</span>
 					<button
 						type="button"
 						disabled={compactionRunning || preparing}

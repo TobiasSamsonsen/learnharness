@@ -221,7 +221,7 @@ const FINAL_ONLY_DESCRIPTION =
 	"may name the method, remind him of a step or show part of the answer. Set `nodeId` (required) to the plan node the skill " +
 	"ends on. After his answer, say what was right and wrong, then call finish_lesson. ONE question per turn.";
 
-function explainDescription(name: "explain" | "recall", nodeId: boolean, scope: ExplainScope = "checks"): string {
+function explainDescription(name: "explain" | "recall", nodeId: boolean, scope: ExplainScope = "checks", mixed = false): string {
 	if (scope === "finalOnly") return FINAL_ONLY_DESCRIPTION;
 	return (
 		"Ask the learner to EXPLAIN something in his own words — a graded check with NO options: he types a free-text " +
@@ -239,7 +239,8 @@ function explainDescription(name: "explain" | "recall", nodeId: boolean, scope: 
 		(scope === "all"
 			? " In this course lesson, `type` final poses the lesson's FINAL PROBLEM: one unaided problem taking the whole skill, with no hint " +
 				"anywhere in `lead`, `question` or `details`; after his answer, say what was right and wrong, then call finish_lesson."
-			: "")
+			: "") +
+		(mixed ? QUIZ_FORM_RULE : "")
 	);
 }
 
@@ -279,11 +280,12 @@ export const probeQuizTool: AgentTool<typeof probeQuizInputSchema> = {
 export function teachExplainToolFor(
 	ctx: Pick<PlanToolContext, "chatId" | "chatStore">,
 	scope: ExplainScope = "checks",
+	mixed = false,
 ): AgentTool<typeof explainInputObject> {
 	return {
 		name: "explain",
 		label: "explain",
-		description: explainDescription("explain", true, scope),
+		description: explainDescription("explain", true, scope, mixed),
 		parameters: explainInputObject,
 		prepareArguments: prepareTeachQuestionArguments,
 		executionMode: "sequential",
@@ -435,11 +437,11 @@ function nodeIdProblem(ctx: Pick<PlanToolContext, "chatId" | "chatStore">, nodeI
  *  nodeId is REQUIRED (owner ruling 2026-09-26): the untagged ad-hoc quiz is
  *  gone — off-map checks route through ask_user_question, and the teach
  *  seam (first tagged quiz) is structurally guaranteed. */
-export function teachQuizToolFor(ctx: Pick<PlanToolContext, "chatId" | "chatStore">): AgentTool<typeof quizInputObject> {
+export function teachQuizToolFor(ctx: Pick<PlanToolContext, "chatId" | "chatStore">, mixed = false): AgentTool<typeof quizInputObject> {
 	return {
 		name: "quiz",
 		label: "quiz",
-		description: quizDescription({ name: "quiz", nodeId: true, types: true }),
+		description: quizDescription({ name: "quiz", nodeId: true, types: true }) + (mixed ? QUIZ_FORM_RULE : ""),
 		parameters: quizInputObject,
 		prepareArguments: prepareTeachQuestionArguments,
 		executionMode: "sequential",
@@ -488,15 +490,26 @@ export interface TeacherToolContext extends PlanToolContext {
  *  managed, NOT individually toggleable: quiz/explain never pass through
  *  filterEnabledTools (the 2026-09-19 wedge ruling stands — a quiz-less
  *  prober collapses its assessment flow). */
-export function quizMechanics(enabled?: EnabledTools): "choice" | "free" {
-	return enabled?.explain === true ? "free" : "choice";
+export function quizMechanics(enabled?: EnabledTools): "choice" | "free" | "mixed" {
+	if (enabled?.explain === true) return "free";
+	// Tutor decides (owner, 2026-11-13): the lesson teacher carries BOTH tools and picks per question. Only an explicit
+	// `quizMix: true` arms it (chat-handler makes the settings default explicit: core/pending.ts withQuizDefault).
+	return (enabled as { quizMix?: boolean } | undefined)?.quizMix === true ? "mixed" : "choice";
 }
+
+/** The rule for picking the form of a question, when the teacher has both tools (owner-approved text, 2026-11-13). */
+export const QUIZ_FORM_RULE =
+	" CHOOSING THE FORM: you have both `quiz` (multiple choice) and `explain` (free-form). Choose per question. Use `explain` whenever the answer " +
+	"is something he works out or produces: a calculation, a derivation, a proof step, code he writes, a definition or statement from memory. " +
+	"Options would hand him the form of the answer, and recognising a result is not producing it. Use `quiz` for predictions, and for concept " +
+	"checks and quick discriminations where the wrong models are the point. Test: could he pick the right option by eliminating the others, " +
+	"without doing the work? Then it is `explain`.";
 
 /** Strip the mechanics keys so filterEnabledTools can never drop the
  *  quizzing tools (the derivation above is their only switch). */
 function withoutMechanics(enabled?: EnabledTools): EnabledTools | undefined {
 	if (!enabled) return undefined;
-	const { explain: _e, quiz: _q, ...rest } = enabled;
+	const { explain: _e, quiz: _q, quizMix: _m, ...rest } = enabled as EnabledTools & { quizMix?: boolean };
 	return rest;
 }
 
@@ -512,10 +525,14 @@ export function createTeacherTools(
 	// two differently-typed literals collapses into an unusable union type.
 	// A course lesson's final problem is always free-form (owner, 2026-11-13): a multiple-choice lesson keeps quiz for
 	// its checks and gets explain for the final problem alone.
+	// Tutor decides (mixed): both tools, with the rule for choosing in each description.
+	const scope: ExplainScope = ctx.lesson ? "all" : "checks";
 	const quizzing: Record<string, AgentTool<any>> =
 		mechanics === "free"
-			? { explain: teachExplainToolFor(ctx, ctx.lesson ? "all" : "checks") }
-			: { quiz: teachQuizToolFor(ctx), ...(ctx.lesson ? { explain: teachExplainToolFor(ctx, "finalOnly") } : {}) };
+			? { explain: teachExplainToolFor(ctx, scope) }
+			: mechanics === "mixed"
+				? { quiz: teachQuizToolFor(ctx, true), explain: teachExplainToolFor(ctx, scope, true) }
+				: { quiz: teachQuizToolFor(ctx), ...(ctx.lesson ? { explain: teachExplainToolFor(ctx, "finalOnly") } : {}) };
 	// healToolRecord — same standard as the prober's registry (above).
 	return healToolRecord(
 		filterEnabledTools(

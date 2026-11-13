@@ -91,7 +91,25 @@ export const TOGGLEABLE_TOOLS = ["research", "demo", "visual", "pdf"] as const;
  *  free-recall quizzing and drops the MC quiz — see quizMechanics in
  *  agent/tools.ts; owner 2026-09-27). `quiz` itself stays unwritable:
  *  mechanics-managed, never individually toggleable. */
-export const WRITABLE_TOOL_KEYS = [...TOGGLEABLE_TOOLS, "explain"] as const;
+export const WRITABLE_TOOL_KEYS = [...TOGGLEABLE_TOOLS, "explain", "quizMix"] as const;
+
+/** The quizzing mechanic's three settings (owner, 2026-11-13): "mixed" = Tutor decides (the lesson teacher has both
+ *  quiz and explain and picks per question; the default), "choice" = multiple choice only, "free" = free recall only.
+ *  Stored as two keys of agent.tools: `explain: true` is free; otherwise `quizMix: false` is choice and anything else
+ *  (absent included) is mixed. */
+export type QuizMechanicsSetting = "mixed" | "choice" | "free";
+
+export function quizMechanicsSetting(tools: { explain?: boolean; quizMix?: boolean } | undefined): QuizMechanicsSetting {
+	if (tools?.explain === true) return "free";
+	return tools?.quizMix === false ? "choice" : "mixed";
+}
+
+/** The tool toggles as the agent factories read them: the stored ones with the quizzing default made explicit
+ *  (`quizMix: true` unless the learner chose multiple choice or free recall). The factories themselves treat an
+ *  absent `quizMix` as multiple choice, so bare registries (tests) keep one quizzing tool. */
+export function withQuizDefault<T extends { explain?: boolean; quizMix?: boolean }>(tools: T | undefined): T & { quizMix: boolean } {
+	return { ...(tools ?? ({} as T)), quizMix: quizMechanicsSetting(tools) === "mixed" };
+}
 
 /** The resolved settings → factory seam shape (Platform wires chat-handler
  *  to pass this through from the settings record; storage and defaults are
