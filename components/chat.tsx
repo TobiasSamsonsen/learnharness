@@ -135,11 +135,12 @@ import {
 	teachStepIndex,
 	toolQuestionKind,
 	questionNeedsReveal,
+	retryFallbackModel,
 } from "@/src/core";
 import { ReadingThinkingField } from "@/components/reading-thinking";
 import { FinishLessonButton, LessonFinishedLine, courseOfView } from "@/components/lesson-finish";
 import { LessonResultCard } from "@/components/lesson-result-card";
-import { TurnErrorText } from "@/components/turn-error";
+import { RetryOnFallback, TurnErrorText } from "@/components/turn-error";
 import { ComposerEdge } from "@/components/composer-edge";
 import { currentUserThinkingOpen, setAllUserThinkingOpen } from "@/components/thinking-block";
 
@@ -1213,6 +1214,8 @@ export function Chat({
 	// recovers from it. Later compaction requires new input instead.
 	const retryable = !pluginOwnsDock && (status === "ready" || status === "error") && !busy && !compacting && endsInFailedTurn(nativeMessages);
 	const retryFailedTurn = () => retryFailedResponse(send, draftRef);
+	// "Retry on <model>" (owner, 2026-11-13): offered, never automatic, between API-key models only.
+	const fallbackTarget = useMemo(() => retryFallbackModel({ error: error?.message, session: sessionModel, catalog: modelCatalog }), [error?.message, sessionModel, modelCatalog]);
 	const sendAllowed = !pluginOwnsDock && reconciliation === "ready" && !pending && !activeProblem && !compacting && !submissionRunner.occupied;
 	const pendingTextTarget = textTarget();
 	const pendingTextInput = !!pendingTextTarget && !!pluginManager?.hasPendingSubmissionInput(pendingTextTarget);
@@ -2214,9 +2217,22 @@ export function Chat({
 								<div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm">
 									<TurnErrorText message={error.message} />
 									{retryable && (
-										<Button variant="outline" size="xs" data-testid="retry-failed-turn" onClick={retryFailedTurn}>
-											Retry
-										</Button>
+										<span className="flex shrink-0 items-center gap-2">
+											<Button variant="outline" size="xs" data-testid="retry-failed-turn" onClick={retryFailedTurn}>
+												Retry
+											</Button>
+											{fallbackTarget && (
+												<RetryOnFallback
+													chatId={chatId}
+													target={fallbackTarget}
+													onSwitched={(model) => {
+														setSessionModel(model);
+														recordSelectedModel(model);
+														retryFailedTurn();
+													}}
+												/>
+											)}
+										</span>
 									)}
 								</div>
 							)}

@@ -719,7 +719,8 @@ describe("explainInputBase / explainInputProblems (the commitment contract)", ()
 		// least, and the order doubles as the authoring order (role, target,
 		// then the question). Mirrors the quiz reorder (see above).
 		const keys = Object.keys(explainInputObject.properties);
-		assert.deepEqual(keys, ["type", "nodeId", "lead", ...Object.keys(explainInputBase.properties)]);
+		// `skill` (a lesson's recall opener, 2026-11-13) is optional and trails; the required fields still lead
+		assert.deepEqual(keys, ["type", "nodeId", "lead", ...Object.keys(explainInputBase.properties), "skill"]);
 	});
 
 	it("an empty commitment is the one authoring problem", () => {

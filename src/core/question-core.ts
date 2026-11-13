@@ -405,12 +405,13 @@ export const explainInputObject = Type.Object({
 			"For off-map checks use ask_user_question.",
 	}),
 	lead: leadField,
+	...explainInputBase.properties,
+	// optional and LAST: the required fields lead the property order (the authoring order, owner 2026-10-09)
 	skill: Type.Optional(
 		Type.String({
 			description: "Only with type recall: the id of the earlier skill the opener tests (one of the learned prerequisites the session context lists). Omit otherwise.",
 		}),
 	),
-	...explainInputBase.properties,
 });
 
 /** The DISPLAY parse for persisted explain calls (tool-parts.ts): the

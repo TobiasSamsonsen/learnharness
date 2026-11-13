@@ -316,6 +316,13 @@ the finish result as `details.openers`; the fold reads each as a `solved` review
 grading that fails adds nothing. "Practice all" poses the learning skills in a shuffled order (`shuffled`), so
 the session interleaves them; the context marker says "in a mixed order".
 
+**Retry on another model (owner, 2026-11-13, `core/turn-fallback.ts`).** When a turn fails with a recognised
+provider failure, the banner offers "Retry on <Cheap slot model>" beside Retry: one press moves THIS session
+to that model (its other settings kept) and retries. It is never automatic, and only between API-key models:
+a subscription session (Claude Code, ChatGPT, Copilot, ...) gets no button and a subscription is never the
+target, so the rule that subscriptions do not fall back stays. The target must have a key and differ from the
+model that failed.
+
 **Exam date, weights and Today (owner, 2026-11-13, `core/exam-plan.ts`).** A course may carry an
 exam date and a weight per skill, so the learner spends the time left on what the exams use:
 

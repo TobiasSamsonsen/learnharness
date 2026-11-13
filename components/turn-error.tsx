@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import type { ChatSettings, FallbackTarget } from "@/src/core";
 import { turnErrorDisplay } from "@/src/core";
 
 /**
@@ -18,5 +21,39 @@ export function TurnErrorText({ message }: { message: string }) {
 				<span className="break-words">{detail}</span>
 			</details>
 		</span>
+	);
+}
+
+/** "Retry on <model>": moves this session to the fallback model (the rest of its settings kept), then retries. Never
+ *  automatic (src/core/turn-fallback.ts). */
+export function RetryOnFallback({ chatId, target, onSwitched }: { chatId: string; target: FallbackTarget; onSwitched: (model: string) => void }) {
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const press = async () => {
+		if (busy) return;
+		setBusy(true);
+		setError(null);
+		try {
+			const view = (await (await fetch(`/api/chats/${encodeURIComponent(chatId)}`, { cache: "no-store" })).json()) as { settings?: ChatSettings };
+			const next: ChatSettings = { ...(view.settings ?? {}), model: { provider: target.provider, id: target.id } };
+			const res = await fetch(`/api/chats/${encodeURIComponent(chatId)}/settings`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) });
+			if (!res.ok) {
+				setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `rejected (${res.status})`);
+				return;
+			}
+			onSwitched(`${target.provider}:${target.id}`);
+		} catch {
+			setError("Could not reach the server — try again.");
+		} finally {
+			setBusy(false);
+		}
+	};
+	return (
+		<>
+			<Button variant="outline" size="xs" data-testid="retry-on-fallback" disabled={busy} onClick={() => void press()}>
+				Retry on {target.id}
+			</Button>
+			{error && <span role="alert" className="text-xs text-destructive">{error}</span>}
+		</>
 	);
 }

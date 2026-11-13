@@ -80,6 +80,8 @@ export * from "./pace.ts";
 export * from "./difficulty.ts";
 // Why a practice grading failed, for the concluded card (fork addition, 2026-11-13).
 export * from "./grade-failure.ts";
+// "Retry on <model>" for a failed turn (fork addition, 2026-11-13).
+export * from "./turn-fallback.ts";
 // Exam date, skill weights and the Today plan (fork addition, 2026-11-13).
 export * from "./exam-plan.ts";
 // The Hint button on a lesson question (fork addition, 2026-11-13).
