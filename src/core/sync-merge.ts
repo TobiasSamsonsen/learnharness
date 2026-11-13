@@ -289,6 +289,8 @@ function mergeChat(i: MergeInput & { local: string; remote: string }): MergeResu
 const COURSE_VERSION = 1;
 /** Fields that move together (an approval sets all four): taken from one side as a unit. */
 const COURSE_UNIT = ["status", "skills", "draft", "error"] as const;
+/** The weighing pass's fields move together too (fork addition, 2026-11-13): weights, its summary, when and why it failed. */
+const COURSE_WEIGHTS_UNIT = ["skillWeights", "weightsSummary", "weightsAt", "weightsError"] as const;
 
 function mergeCourse(i: MergeInput & { local: string; remote: string }): MergeResult {
 	const l = parseObj(i.local);
@@ -307,7 +309,7 @@ function mergeCourse(i: MergeInput & { local: string; remote: string }): MergeRe
 		notes.push(`the course's ${what} was changed on both devices; kept the newer`);
 	};
 
-	for (const key of ["title", "language", "note", "pace"]) {
+	for (const key of ["title", "language", "note", "pace", "examDate"]) {
 		const m = threeWay(b?.[key], l[key], r[key], newer, b !== null);
 		if (m.value === undefined) delete out[key];
 		else out[key] = m.value;
@@ -323,6 +325,11 @@ function mergeCourse(i: MergeInput & { local: string; remote: string }): MergeRe
 	for (const k of COURSE_UNIT) delete out[k];
 	Object.assign(out, unit.value as Obj);
 	if (unit.conflict) overridden("approval state");
+	const wpick = (side: Obj) => Object.fromEntries(COURSE_WEIGHTS_UNIT.filter((k) => k in side).map((k) => [k, side[k]]));
+	const weights = threeWay(b ? wpick(b) : null, wpick(l), wpick(r), newer, b !== null);
+	for (const k of COURSE_WEIGHTS_UNIT) delete out[k];
+	Object.assign(out, weights.value as Obj);
+	if (weights.conflict) overridden("exam weights");
 
 	out.drafts = unionBy(arr(l.drafts), arr(r.drafts), (d) => (isObj(d) ? str(d.startedAt) : null), (d) => (isObj(d) ? (str(d.startedAt) ?? "") : ""));
 	if (arr(out.drafts).length === 0) delete out.drafts;

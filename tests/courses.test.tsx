@@ -1169,6 +1169,8 @@ describe("the UI", () => {
 		stability: null,
 		lastReview: null,
 		missing: [] as string[],
+		weight: 1,
+		priority: 1,
 		propositions: [],
 		...over,
 	});
@@ -1177,6 +1179,8 @@ describe("the UI", () => {
 		skills: [skillView("a", { understanding: 6, learned: true, known: true, needsReview: false, reviewAt: "2099-01-01T00:00:00Z" }), skillView("b", { requires: ["a"] })],
 		review: [],
 		reviewBatch: 0,
+		notExamined: [],
+		plan: { skillsLeft: 0, reviewDue: 0, reviewBatch: 0, lessons: [] },
 		nextUp: ["b"],
 		learning: [],
 		locked: [],

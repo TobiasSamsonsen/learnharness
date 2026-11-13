@@ -12,6 +12,7 @@
 
 import type { LessonLanguage } from "../language.ts";
 import type { Pace } from "../pace.ts";
+import type { CoursePlan, SkillWeights } from "../exam-plan.ts";
 import type { ExtractionStageUsage } from "./chat.ts";
 
 // ─── Skills (the graph's second node kind) ──────────────────────────────────
@@ -103,6 +104,18 @@ export interface CourseRecord {
 	/** The course's default pace (fork addition, 2026-11-09, core/pace.ts): stamped on sessions started from
 	 *  the course (a Learn start's own pick wins). Absent = the global default (general.pace). */
 	pace?: Pace;
+	/** The exam date, "YYYY-MM-DD" (fork addition, 2026-11-13, core/exam-plan.ts): the course page counts down to it and
+	 *  says whether the recent pace gets through the remaining skills. */
+	examDate?: string;
+	/** How much the course's exams use each skill (0-3), from a "Weigh by exams" pass or the learner's own edit.
+	 *  Absent skill = weight 1. Moves with the next three fields as one unit in a sync. */
+	skillWeights?: SkillWeights;
+	/** The weighing pass's own summary (it says when it found no past exams). */
+	weightsSummary?: string;
+	/** ISO — when the weighing pass last finished. */
+	weightsAt?: string;
+	/** Why the last weighing pass failed. */
+	weightsError?: string;
 	/** Why the last drafting run failed. */
 	error?: string;
 	/** Append-only planner usage log. */
@@ -146,6 +159,21 @@ export interface CourseSummary {
 	progress: number;
 	/** Skills that need review now (retrievability below the FSRS target). */
 	needsReview: number;
+	/** The exam date, when set. */
+	examDate?: string;
+}
+
+/** One line of the sidebar's Today list (GET /api/today): a course with something to do. */
+export interface TodayCourse {
+	courseId: string;
+	title: string;
+	examDate?: string;
+	daysLeft?: number;
+	/** Reviews due, and how many the next review takes (0 = none due). */
+	reviewDue: number;
+	reviewBatch: number;
+	/** The lessons to take today, in order. */
+	lessons: Array<{ skillId: string; name: string; weight: number }>;
 }
 
 /** One skill's state in a course view. */
@@ -171,6 +199,11 @@ export interface CourseSkillView {
 	lastReview: string | null;
 	/** The prerequisites not learned yet (locked skills). */
 	missing: string[];
+	/** The skill's exam weight in this course (0-3; 1 = unknown) and who set it; `priority` also counts what it unlocks. */
+	weight: number;
+	weightBy?: "model" | "learner";
+	weightReason?: string;
+	priority: number;
 	/** The propositions it rests on: stored links ∪ derived from Learn sessions. */
 	propositions: Array<{ id: string; name: string; statement: string; sessions: Array<{ id: string; title: string }> }>;
 }
@@ -184,8 +217,12 @@ export interface CourseView {
 	review: string[];
 	/** How many of `review` the next Review session takes (the session cap). */
 	reviewBatch: number;
-	/** Not learned, prerequisites learned — what to learn next. */
+	/** Not learned, prerequisites learned — what to learn next, by exam priority (core/exam-plan.ts). */
 	nextUp: string[];
+	/** Next-up skills the exams never use and that unlock nothing examined (weight 0): kept apart, still learnable. */
+	notExamined: string[];
+	/** The exam countdown, forecast and today's lessons. */
+	plan: CoursePlan;
 	/** Learned, not known yet — what to practice. */
 	learning: string[];
 	locked: string[];

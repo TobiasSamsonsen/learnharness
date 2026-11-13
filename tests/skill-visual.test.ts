@@ -39,6 +39,8 @@ function skill(over: Partial<CourseSkillView> & { name?: string } = {}): CourseS
 		stability: null,
 		lastReview: null,
 		missing: [],
+		weight: 1,
+		priority: 1,
 		propositions: [],
 		...over,
 	};

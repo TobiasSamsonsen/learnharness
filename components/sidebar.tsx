@@ -9,6 +9,7 @@ import type { ChatDeleteMode, ThemeMode } from "@/src/core";
 import { CheckIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoursesSection } from "@/components/courses-section";
+import { TodaySection } from "@/components/today-section";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
 import { BrailleSpinner } from "@/components/braille-spinner";
@@ -855,6 +856,9 @@ function SessionsSidebar() {
 						<span className="sr-only">create a new practice session</span>
 					</button>
 				</PluginSidebarActions>
+
+				{/* Today (fork addition, 2026-11-13): the next step, above the courses it comes from. */}
+				<TodaySection />
 
 				{/* Courses (fork addition — docs/courses.md §6): above the
 				    sessions, which they are made of. */}

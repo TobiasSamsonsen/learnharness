@@ -80,6 +80,8 @@ export * from "./pace.ts";
 export * from "./difficulty.ts";
 // Why a practice grading failed, for the concluded card (fork addition, 2026-11-13).
 export * from "./grade-failure.ts";
+// Exam date, skill weights and the Today plan (fork addition, 2026-11-13).
+export * from "./exam-plan.ts";
 // The Hint button on a lesson question (fork addition, 2026-11-13).
 export * from "./hints.ts";
 // Learner profile: stored shape and caps (fork addition, 2026-11-11).

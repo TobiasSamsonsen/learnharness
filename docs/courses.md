@@ -280,6 +280,37 @@ A concluded problem that ended taught / moved on / surrendered shows a "Learn <s
 per again-graded skill: it opens a Learn session on that skill, and Next problem continues
 the review on return.
 
+**Exam date, weights and Today (owner, 2026-11-13, `core/exam-plan.ts`).** A course may carry an
+exam date and a weight per skill, so the learner spends the time left on what the exams use:
+
+- **Stored** on the course record: `examDate` ("YYYY-MM-DD"), `skillWeights` (skill id → `{w: 0-3,
+  reason?, by: "model" | "learner"}`), and the weighing pass's `weightsSummary`, `weightsAt`,
+  `weightsError`. A skill without a weight counts as 1, so a course with no weights behaves exactly as
+  before. Weights belong to the course, not the skill (a skill two courses share is weighed in each).
+- **Weigh by exams** (`agent/subagents/exam-weigher.ts`, role `coursePlanner`, started by
+  `POST /api/courses/[id]/weigh`, runs in the background like drafting): one pass over the sources (past
+  exams first, then exam-preparation sets, then the syllabus; it reads them with the lookup tools) and
+  the approved skill list; every skill gets 0 (never examined), 1 (sometimes, or unknown), 2 (several
+  exams) or 3 (nearly every exam) with a one-line reason, and the summary says when no past exams were
+  found. The submit check refuses a missing, repeated or unknown skill. A re-weigh keeps every weight the
+  learner set by hand (`mergeModelWeights`). The skill map itself is never touched.
+- **Priority.** A skill's priority is the highest weight among itself and everything it unlocks, so
+  the prerequisites of heavily examined skills come first. **Next up** is ordered by priority (ties keep
+  the topological order). A next-up skill with priority 0 (not examined, and nothing examined builds on
+  it) moves to a collapsed **Not examined** group; it can still be learned.
+- **Countdown and forecast.** With an exam date the page shows the days left, the skills left (Next up
+  and Locked, not examined ones left out), the lessons a day they need, and the recent pace: Learn
+  finishes over the last 14 days (fewer, at least 3, while the course is young). "On track" when the pace
+  covers the need, "behind" when not. The exam day itself is not a study day.
+- **Today.** Reviews due, then enough lessons to hold the pace (1 to 3; 1 without an exam date), taken
+  from the ordered Next up. It shows on the course page (Start / Learn buttons) and as a list above
+  Courses in the sidebar (`GET /api/today`, courses with the soonest exam first, five lines at most): a
+  review line starts the review, a lesson line opens the course page on that lesson's pace dialog
+  (`?learn=<skill id>`).
+- **By hand.** `PATCH /api/courses/[id]` takes `examDate` (null clears) and `weights` ({skill id: 0-3 |
+  null}); a skill's detail panel has 0-3 buttons and Reset. The sync merges `examDate` per field and the
+  weights, their summary, time and failure as one unit (`COURSE_WEIGHTS_UNIT`).
+
 **Derived proposition links:** a skill's propositions = stored `restsOn` ∪ every
 proposition whose provenance includes a chat with `course.mode === "learn"` and
 that skill in `skillIds`.

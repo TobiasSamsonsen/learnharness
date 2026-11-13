@@ -72,6 +72,7 @@ export { addLinkMaterial, addUploadedMaterial, listMaterials, removeMaterial } f
 export {
 	approveCourse,
 	courseDrafting,
+	courseWeighing,
 	courseView,
 	createCourse,
 	createCourseSession,
@@ -82,6 +83,12 @@ export {
 	setCourseLanguage,
 	setCourseNote,
 	setCoursePace,
+	setCourseExamDate,
+	setCourseSkillWeights,
+	parseExamDateField,
+	parseWeightsField,
+	startCourseWeighing,
+	todayCourses,
 	graphSkillLayer,
 	startCourseDraft,
 } from "./courses.ts";

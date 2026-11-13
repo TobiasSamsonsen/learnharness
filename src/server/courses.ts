@@ -12,7 +12,23 @@ import type {
 	GraphSkillLayer,
 	GraphSkillNode,
 	Skill,
+	TodayCourse,
 } from "../core/contracts.ts";
+import {
+	daysUntil,
+	forecast,
+	lessonsPerDay,
+	lessonsToday,
+	mergeModelWeights,
+	orderNextUp,
+	parseExamDate,
+	parseWeightValue,
+	priorities,
+	sanitizeWeights,
+	weightOf,
+	type CoursePlan,
+	type SkillWeights,
+} from "../core/exam-plan.ts";
 import { approveDraft, draftProblems, type DraftCheckContext } from "../core/course-draft.ts";
 import {
 	courseFirstMessage,
@@ -46,6 +62,7 @@ import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { mergeSkillLines } from "../core/skills.ts";
 import { piEngineForSpec } from "../agent/models.ts";
 import { draftCourse } from "../agent/subagents/course-planner.ts";
+import { weighCourse } from "../agent/subagents/exam-weigher.ts";
 import { callUsage } from "../agent/subagents/extraction.ts";
 import { materialTools } from "../agent/tools/materials.ts";
 import { plannerGraphTools } from "../agent/tools/planner-graph.ts";
@@ -169,6 +186,7 @@ export function listCourseSummaries(): CourseSummary[] {
 				return state ? understandingOf(state) : 0;
 			})),
 			needsReview: p.review.length,
+			...(course.examDate ? { examDate: course.examDate } : {}),
 		};
 	});
 }
@@ -215,6 +233,63 @@ export function graphSkillLayer(): GraphSkillLayer | undefined {
 	return { nodes, edges, regions };
 }
 
+/** The exam plan of a course (core/exam-plan.ts): priorities, the ordered Next up, the countdown, the forecast and today's
+ *  lessons. `ids` are the course's skills in topological order. */
+function examPlanOf(course: CourseRecord, p: SkillPartition, ctx: ReadContext): { plan: CoursePlan; nextUp: string[]; notExamined: string[]; priority: Map<string, number> } {
+	const weights = sanitizeWeights(course.skillWeights);
+	const priority = priorities(p.order, (id) => ctx.skills.get(id)?.requires ?? [], weights);
+	const { nextUp, notExamined } = orderNextUp(p.nextUp, priority);
+	const skillsLeft = nextUp.length + p.locked.filter((id) => (priority.get(id) ?? 1) > 0).length;
+	const events = ctx.byCourse.get(course.id) ?? [];
+	const finishes = events.filter((e) => e.outcome === "finished").map((e) => e.at);
+	const firstActivity = events.length > 0 ? Math.min(...events.map((e) => e.at)) : undefined;
+	const daysLeft = course.examDate ? daysUntil(course.examDate, ctx.now) : undefined;
+	const f = daysLeft === undefined ? undefined : forecast({ skillsLeft, daysLeft, pacePerDay: lessonsPerDay(finishes, ctx.now, firstActivity) });
+	const lessons = nextUp.slice(0, lessonsToday(f ? f.neededPerDay : null, nextUp.length));
+	const plan: CoursePlan = {
+		...(course.examDate ? { examDate: course.examDate } : {}),
+		...(daysLeft !== undefined ? { daysLeft } : {}),
+		skillsLeft,
+		...(f ? { forecast: f } : {}),
+		reviewDue: p.review.length,
+		reviewBatch: Math.min(p.review.length, REVIEW_SESSION_SIZE),
+		lessons,
+	};
+	return { plan, nextUp, notExamined, priority };
+}
+
+/** The sidebar's Today list (GET /api/today, owner 2026-11-13): per active course with something to do, the reviews
+ *  that are due and the lessons to take today. Courses with the soonest exam first, then the rest by recent use. */
+export function todayCourses(): TodayCourse[] {
+	const courses = stores.courseStore.listCourses().filter((c) => c.status === "active" && c.skills.length > 0);
+	if (courses.length === 0) return [];
+	const ctx = readContext();
+	const out: Array<TodayCourse & { updatedAt: string }> = [];
+	for (const course of courses) {
+		const p = partitionOf(course, ctx);
+		const { plan } = examPlanOf(course, p, ctx);
+		if (plan.reviewDue === 0 && plan.lessons.length === 0) continue;
+		const weights = sanitizeWeights(course.skillWeights);
+		out.push({
+			courseId: course.id,
+			title: course.title,
+			...(plan.examDate ? { examDate: plan.examDate } : {}),
+			...(plan.daysLeft !== undefined ? { daysLeft: plan.daysLeft } : {}),
+			reviewDue: plan.reviewDue,
+			reviewBatch: plan.reviewBatch,
+			lessons: plan.lessons.map((id) => ({ skillId: id, name: ctx.skills.get(id)?.name ?? id, weight: weightOf(weights, id) })),
+			updatedAt: course.updatedAt,
+		});
+	}
+	const upcoming = (c: TodayCourse): boolean => c.daysLeft !== undefined && c.daysLeft >= 0;
+	out.sort((a, b) => {
+		if (upcoming(a) !== upcoming(b)) return upcoming(a) ? -1 : 1;
+		if (upcoming(a) && upcoming(b)) return (a.daysLeft ?? 0) - (b.daysLeft ?? 0);
+		return b.updatedAt.localeCompare(a.updatedAt);
+	});
+	return out.map(({ updatedAt: _updatedAt, ...rest }) => rest);
+}
+
 export function courseView(courseId: string): CourseView | null {
 	const found = stores.courseStore.getCourse(courseId);
 	if (!found) return null;
@@ -224,6 +299,8 @@ export function courseView(courseId: string): CourseView | null {
 	const learnChats = learnChatsBySkill();
 	const titles = new Map(stores.chatStore.listChats().map((c) => [c.id, c.title]));
 	const nodes = new Map(ctx.graph.nodes.map((n) => [n.id, n]));
+	const exam = examPlanOf(course, p, ctx);
+	const weights = sanitizeWeights(course.skillWeights);
 	const skills: CourseSkillView[] = p.order.map((id) => {
 		const skill = ctx.skills.get(id)!;
 		const s = p.states.get(id)!;
@@ -240,6 +317,10 @@ export function courseView(courseId: string): CourseView | null {
 			stability: s.state ? s.state.stability : null,
 			lastReview: s.state ? new Date(s.state.lastReview).toISOString() : null,
 			missing: s.missing,
+			weight: weightOf(weights, id),
+			...(weights?.[id] ? { weightBy: weights[id]!.by } : {}),
+			...(weights?.[id]?.reason ? { weightReason: weights[id]!.reason } : {}),
+			priority: exam.priority.get(id) ?? weightOf(weights, id),
 			propositions: skillPropositionIds(skill, ctx, learnChats).map((nid) => {
 				const node = nodes.get(nid)!;
 				const sessions = [...new Set(node.provenance.map((pt) => pt.chatId))]
@@ -271,7 +352,9 @@ export function courseView(courseId: string): CourseView | null {
 		skills,
 		review: p.review,
 		reviewBatch: Math.min(p.review.length, REVIEW_SESSION_SIZE),
-		nextUp: p.nextUp,
+		nextUp: exam.nextUp,
+		notExamined: exam.notExamined,
+		plan: exam.plan,
 		learning: p.learning,
 		locked: p.locked,
 		known: p.known,
@@ -309,6 +392,46 @@ export function setCoursePace(courseId: string, pace: Pace | undefined): CourseR
 	return stores.courseStore.updateCourse(courseId, { pace });
 }
 
+/** Parse the PATCH body's `examDate`: a real calendar date, or null to clear it. */
+export function parseExamDateField(raw: unknown): { ok: true; date: string | undefined } | { ok: false; error: string } {
+	if (raw === null || raw === "") return { ok: true, date: undefined };
+	const date = parseExamDate(raw);
+	return date ? { ok: true, date } : { ok: false, error: "examDate must be a date like 2026-12-12, or null" };
+}
+
+/** Set or clear a course's exam date (fork addition, 2026-11-13 — core/exam-plan.ts). */
+export function setCourseExamDate(courseId: string, examDate: string | undefined): CourseRecord | null {
+	return stores.courseStore.updateCourse(courseId, { examDate });
+}
+
+/** Parse the PATCH body's `weights`: { skillId: 0-3 | null }, null clearing a skill's entry. */
+export function parseWeightsField(raw: unknown): { ok: true; weights: Record<string, number | null> } | { ok: false; error: string } {
+	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { ok: false, error: "weights must be an object of skill id to 0-3 or null" };
+	const out: Record<string, number | null> = {};
+	for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+		if (value === null) out[id] = null;
+		else if (parseWeightValue(value) !== null) out[id] = value as number;
+		else return { ok: false, error: `the weight of ${id} must be 0, 1, 2, 3 or null` };
+	}
+	return { ok: true, weights: out };
+}
+
+/** The learner sets (or clears) skills' exam weights by hand; a hand edit survives a re-weigh. Only the course's own skills. */
+export function setCourseSkillWeights(courseId: string, edits: Record<string, number | null>): Result<CourseRecord> {
+	const course = stores.courseStore.getCourse(courseId);
+	if (!course) return { ok: false, status: 404, error: "Unknown course" };
+	const own = new Set(course.skills);
+	const stranger = Object.keys(edits).find((id) => !own.has(id));
+	if (stranger) return { ok: false, status: 400, error: `${stranger} is not a skill of this course` };
+	const next: SkillWeights = { ...(sanitizeWeights(course.skillWeights) ?? {}) };
+	for (const [id, value] of Object.entries(edits)) {
+		if (value === null) delete next[id];
+		else next[id] = { w: parseWeightValue(value)!, by: "learner" };
+	}
+	const updated = stores.courseStore.updateCourse(courseId, { skillWeights: Object.keys(next).length > 0 ? next : undefined })!;
+	return { ok: true, value: updated };
+}
+
 /** Set or clear a course's time note (fork addition, 2026-11-01 — core/pace.ts). Blank clears it. */
 export function setCourseNote(courseId: string, note: string | undefined): CourseRecord | null {
 	return stores.courseStore.updateCourse(courseId, { note: normalizePaceNote(note) });
@@ -319,6 +442,7 @@ export function setCourseNote(courseId: string, note: string | undefined): Cours
 export function deleteCourse(courseId: string): boolean {
 	if (!stores.courseStore.getCourse(courseId)) return false;
 	draftRuns().get(courseId)?.abort();
+	weighRuns().get(courseId)?.abort();
 	for (const m of stores.materialStore.list(courseId)) removeMaterial(courseId, m.id);
 	stores.materialStore.removeAll(courseId);
 	return stores.courseStore.deleteCourse(courseId);
@@ -341,6 +465,75 @@ export function courseDraftCount(): number {
 /** Is a drafting run live for this course? */
 export function courseDrafting(courseId: string): boolean {
 	return draftRuns().has(courseId);
+}
+
+// ─── weighing by exams (owner, 2026-11-13 — agent/subagents/exam-weigher.ts) ─
+
+const WEIGH_KEY = Symbol.for("lh.courseWeighRuns");
+function weighRuns(): Map<string, AbortController> {
+	const g = globalThis as Record<symbol, Map<string, AbortController> | undefined>;
+	g[WEIGH_KEY] ??= new Map();
+	return g[WEIGH_KEY];
+}
+
+/** Is a weighing pass live for this course? */
+export function courseWeighing(courseId: string): boolean {
+	return weighRuns().has(courseId);
+}
+
+/** Start the "Weigh by exams" pass. Returns at once; the run writes the weights on the record and announces it. */
+export function startCourseWeighing(courseId: string): Result<CourseRecord> {
+	const course = stores.courseStore.getCourse(courseId);
+	if (!course) return { ok: false, status: 404, error: "Unknown course" };
+	if (course.skills.length === 0) return { ok: false, status: 400, error: "Approve the skill map first" };
+	if (weighRuns().has(courseId)) return { ok: false, status: 409, error: "The skills are already being weighed" };
+	if (listMaterials(courseId).length === 0) return { ok: false, status: 400, error: "Add the curriculum first (past exams count most)" };
+	const controller = new AbortController();
+	weighRuns().set(courseId, controller);
+	const updated = stores.courseStore.updateCourse(courseId, { weightsError: undefined })!;
+	void runWeigh(courseId, controller).finally(() => weighRuns().delete(courseId));
+	return { ok: true, value: updated };
+}
+
+async function runWeigh(courseId: string, controller: AbortController): Promise<void> {
+	const settle = (patch: Partial<CourseRecord>) => {
+		if (stores.courseStore.getCourse(courseId)) stores.courseStore.updateCourse(courseId, patch);
+	};
+	try {
+		await waitForMaterials(courseId);
+		const course = stores.courseStore.getCourse(courseId);
+		if (!course || controller.signal.aborted) return;
+		const spec = resolveRoleSpec("coursePlanner", stores.settingsStore.readSettings());
+		if (!spec) {
+			settle({ weightsError: "No model is configured for the course planner (Settings → Agent: the strong slot or a Course planner override)" });
+			return;
+		}
+		const materials = listMaterials(courseId);
+		const materialsSection = `<curriculum>\n${materials.map((m) => materialBlock(m, stores.materialStore.filePath(courseId, m))).join("\n\n")}\n</curriculum>`;
+		const ctx = readContext();
+		const skills = course.skills
+			.map((id) => ctx.skills.get(id))
+			.filter((s): s is Skill => s !== undefined)
+			.map((s) => ({ id: s.id, name: s.name, statement: s.statement }));
+		const result = await weighCourse(
+			{ title: course.title, materialsSection, skills, language: courseLanguage(course) },
+			{
+				engine: piEngineForSpec(spec),
+				signal: controller.signal,
+				tools: materialTools({ chatId: courseId, store: stores.materialStore }),
+				onStep: () => {},
+				courseId,
+			},
+		);
+		const fresh = stores.courseStore.getCourse(courseId);
+		if (!fresh) return; // deleted mid-run
+		// a hand edit made while the pass ran (or before it) stays: the pass only fills in the model's weights
+		const merged = mergeModelWeights(sanitizeWeights(fresh.skillWeights), result.weights, fresh.skills);
+		settle({ skillWeights: merged, weightsSummary: result.summary, weightsAt: new Date().toISOString(), weightsError: undefined });
+	} catch (err) {
+		if (controller.signal.aborted) return;
+		settle({ weightsError: err instanceof Error ? err.message : String(err) });
+	}
 }
 
 /** A course left "drafting" by a run that no longer exists (the process

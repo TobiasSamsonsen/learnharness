@@ -26,6 +26,7 @@ import {
 	type Pace,
 	type PlanNodeStatus,
 	type SkillSelection,
+	type SkillWeightValue,
 } from "@/src/core";
 import { DistributionStrip, DueChip, DueTimeline, SkillViewControls, UnderstandingBar, useNow, type SkillView } from "@/components/skill-visuals";
 import { LanguageControl } from "@/components/language-control";
@@ -33,6 +34,7 @@ import { MaterialsControl } from "@/components/materials-control";
 import { CourseTimeNote } from "@/components/course-time-note";
 import { CoursePace } from "@/components/course-pace";
 import { LearnPaceDialog } from "@/components/learn-pace-dialog";
+import { ExamPlanSection, WeightChip, WeightEditContext, WeightEditor } from "@/components/exam-plan";
 import { SkillMap } from "@/components/skill-map";
 import { SidebarToggle } from "@/components/sidebar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
@@ -50,7 +52,7 @@ import { RichLine, RichText } from "@/components/rich-text";
  * turn settle (a concluded practice problem moves understanding).
  */
 
-export type CoursePayload = CourseView & { drafting: boolean };
+export type CoursePayload = CourseView & { drafting: boolean; weighing?: boolean };
 
 /** A skill's state word. Pure — exported for render tests. */
 export function skillStateLabel(skill: Pick<CourseSkillView, "understanding" | "learned" | "known" | "missing">): string {
@@ -171,6 +173,7 @@ function SkillRow({
 					<span className="flex items-center gap-2">
 						<RichLine prose>{skill.name}</RichLine>
 						{isDue(skill, now) && <DueChip />}
+						<WeightChip skill={skill} />
 					</span>
 					<span className="block text-xs text-muted-foreground">
 						{skillStateLabel(skill)}
@@ -192,6 +195,7 @@ function SkillRow({
 					{skill.requires.length > 0 && (
 						<p className="text-muted-foreground">Requires: {skill.requires.map((id) => names.get(id) ?? id).join(", ")}</p>
 					)}
+					<WeightEditor skill={skill} />
 					{skill.propositions.length === 0 ? (
 						<p className="text-muted-foreground">No propositions from your graph yet — a Learn session on this skill adds them.</p>
 					) : (
@@ -363,6 +367,7 @@ export function CourseBody({
 	materialCount,
 	placementSkipped = false,
 	onSkipPlacement,
+	onChanged,
 }: {
 	data: CoursePayload;
 	busy: boolean;
@@ -375,6 +380,8 @@ export function CourseBody({
 	/** The learner chose "Start from the beginning" (per-viewer). */
 	placementSkipped?: boolean;
 	onSkipPlacement?: () => void;
+	/** The exam date or a weight changed on the server: refetch. */
+	onChanged?: () => void;
 }) {
 	// The map opens where the learner is: what is due, then what is next.
 	const mapFocus = useMemo(
@@ -427,6 +434,7 @@ export function CourseBody({
 		[skills, selection, weakestFirst, now],
 	);
 	const dueNow = skills.filter((s) => isDue(s, now)).length;
+	const hasWeights = !!course.skillWeights && Object.keys(course.skillWeights).length > 0;
 	const nextUpIds = new Set(data.nextUp);
 	const contextIds = new Set(data.contextCheck);
 	const learnPractice = (s: CourseSkillView) => (
@@ -499,6 +507,23 @@ export function CourseBody({
 
 			{skills.length > 0 && (
 				<>
+					<ExamPlanSection
+						courseId={course.id}
+						plan={data.plan}
+						names={names}
+						weightOf={(id) => byId.get(id)?.weight ?? 1}
+						examDate={course.examDate}
+						hasWeights={hasWeights}
+						weightsSummary={course.weightsSummary}
+						weightsAt={course.weightsAt}
+						weightsError={course.weightsError}
+						weighing={data.weighing === true}
+						canWeigh={!drafting && materialCount > 0}
+						busy={busy}
+						onStart={onStart}
+						onChanged={() => onChanged?.()}
+					/>
+
 					{data.sessions.length === 0 && !placementSkipped && skills.length > data.contextCheck.length && (
 						<PlacementOffer total={skills.length - data.contextCheck.length} busy={busy} onTake={() => onStart("placement")} onSkip={() => onSkipPlacement?.()} />
 					)}
@@ -579,7 +604,7 @@ export function CourseBody({
 
 					<section data-testid="course-next">
 						<div className="mb-2 flex items-center justify-between">
-							<span className={cn(SECTION_HEAD, "mb-0")}>Next up · {data.nextUp.length}</span>
+							<span className={cn(SECTION_HEAD, "mb-0")}>Next up · {data.nextUp.length}{hasWeights ? " · by exam weight" : ""}</span>
 						</div>
 						{data.nextUp.length === 0 ? (
 							<p className="text-xs text-muted-foreground">
@@ -599,6 +624,18 @@ export function CourseBody({
 							</div>
 						)}
 					</section>
+
+					{data.notExamined.length > 0 && (
+						<details data-testid="course-not-examined">
+							<summary className={cn(SECTION_HEAD, "cursor-pointer")}>Not examined · {data.notExamined.length}</summary>
+							<p className="mb-2 text-xs text-muted-foreground">The sources never use these in an exam, and nothing examined builds on them. You can still learn them.</p>
+							<div className="space-y-1.5">
+								{list(data.notExamined).map((s) => (
+									<SkillRow key={s.id} skill={s} names={names} now={now} actions={learnPractice(s)} />
+								))}
+							</div>
+						</details>
+					)}
 
 					{data.contextCheck.length > 0 && (
 						<section data-testid="course-context-check">
@@ -749,6 +786,27 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 	// A Learn start asks for its pace first (fork addition, 2026-11-09); every other mode starts straight away.
 	const [learnSkill, setLearnSkill] = useState<string | null>(null);
 	const onMaterials = useCallback((materials: LessonMaterial[]) => setMaterialCount(materials.length), []);
+	// A hand edit of a skill's exam weight (owner, 2026-11-13): 0-3, or null to reset it.
+	const editWeight = useCallback(
+		async (skillId: string, weight: SkillWeightValue | null) => {
+			try {
+				const res = await fetch(`/api/courses/${courseId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ weights: { [skillId]: weight } }) });
+				if (!res.ok) setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `weight rejected (${res.status})`);
+			} catch {
+				setError("Could not reach the server — try again.");
+			}
+			void refresh();
+		},
+		[courseId, refresh],
+	);
+	// The sidebar's Today opens a lesson's pace dialog through ?learn=<skill id>.
+	useEffect(() => {
+		const wanted = new URLSearchParams(window.location.search).get("learn");
+		if (!wanted) return;
+		if (data.skills.some((s) => s.id === wanted)) setLearnSkill(wanted);
+		router.replace(`/course/${courseId}`);
+		// once, on arrival
+	}, []);
 
 	const commitTitle = async () => {
 		const t = title.trim();
@@ -828,6 +886,7 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 						}}
 					/>
 				)}
+				<WeightEditContext.Provider value={(id, w) => void editWeight(id, w)}>
 				<CourseBody
 data={data}
 					busy={busy}
@@ -845,7 +904,9 @@ data={data}
 						writePlacementSkipped(courseId);
 						setPlacementSkipped(true);
 					}}
+					onChanged={() => void refresh()}
 				/>
+				</WeightEditContext.Provider>
 				<div className="mt-12 border-t border-border/60 pt-4">
 					<button
 						type="button"
