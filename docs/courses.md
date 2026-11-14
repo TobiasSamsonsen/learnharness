@@ -443,8 +443,8 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
 
 ## 6. UI
 
-- **Sidebar → Courses** (above sessions): one row per course with title and %
-  known, plus "+ New course". The new-course row creates "Untitled course" and
+- **Sidebar → Courses** (above sessions): one row per course with its title and a meta line, plus
+  "+ New course". The new-course row creates "Untitled course" and
   opens its page. Session rows from a course show the course name as a small
   label.
   - **Folders (owner, 2026-11-14).** The list is courses with no folder (by name), then one collapsible header per
@@ -458,7 +458,11 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
     course onto a folder header moves it, onto the "Courses" header takes it out (fine pointers only, so it never
     meets the touch swipe). The list scrolls in a box capped at 35% of the window height, so the sessions keep
     their room. The sidebar's "Search sessions…" also filters courses by title or folder name, opening every folder
-    with a match. A course with an exam date ends its meta line with "exam 12 d", "exam today" or "exam passed".
+    with a match.
+  - **The meta line (owner, 2026-11-14)** has three left-aligned columns: the progress percent, the days to the
+    exam ("12 d", "today", "passed"; the column stays empty without an exam date, so the percent and the days line up
+    from row to row), then "4 due", which is left out at 0. While the skill map drafts the line reads "drafting…";
+    a draft waiting for review or a failed draft keeps its own words; a course with no skill map shows no line.
   - The session list puts finished sessions (✓) in a collapsed "Finished · N" group at its bottom
     (`lh:finished-open`, per device); searching opens it.
 - **`/course/[id]`**:

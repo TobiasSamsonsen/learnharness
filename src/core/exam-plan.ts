@@ -145,12 +145,12 @@ export function daysUntil(examDate: string, now: number): number {
 	return Math.round((Date.UTC(y, m - 1, d) - localDayStart(now)) / DAY_MS);
 }
 
-/** The course row's countdown (owner, 2026-11-14): "exam 12 d", "exam today", "exam passed". Pure. */
-export function examCountdownLabel(examDate: string, now: number): string {
+/** The course row's days column (owner, 2026-11-14): "12 d", "today", "passed". Pure. */
+export function examDaysLabel(examDate: string, now: number): string {
 	const days = daysUntil(examDate, now);
-	if (days < 0) return "exam passed";
-	if (days === 0) return "exam today";
-	return `exam ${days} d`;
+	if (days < 0) return "passed";
+	if (days === 0) return "today";
+	return `${days} d`;
 }
 
 // ─── pace and forecast ──────────────────────────────────────────────────────

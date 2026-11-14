@@ -1147,13 +1147,15 @@ describe("the course planner (scripted model)", () => {
 describe("the UI", () => {
 	const summary = { id: "course_a", title: "Calc", status: "active" as const, updatedAt: "t", total: 12, known: 7, progress: 58, needsReview: 2 };
 
-	it("the sidebar row reads known/total, percent and due", () => {
-		assert.equal(courseMeta(summary), "7/12 known · 58% · 2 due");
-		assert.equal(courseMeta({ ...summary, status: "drafting" }), "Drafting skill map…");
+	it("the sidebar row reads percent, days to the exam and due", () => {
+		assert.equal(courseMeta(summary), "58% · 2 due");
+		assert.equal(courseMeta({ ...summary, status: "drafting" }), "drafting…");
 		assert.equal(courseMeta({ ...summary, total: 0, known: 0, progress: 0, needsReview: 0, status: "draft" }), "Draft ready to review");
 		const html = renderToStaticMarkup(<CourseRow course={summary} active={false} onOpen={() => {}} />);
 		assert.match(html, /Calc/);
-		assert.match(html, /7\/12 known/);
+		assert.match(html, /<span>58%<\/span>/);
+		assert.match(html, /<span>2 due<\/span>/);
+		assert.doesNotMatch(html, /known/);
 	});
 
 	const skillView = (id: string, over: Partial<CoursePayload["skills"][number]> = {}) => ({

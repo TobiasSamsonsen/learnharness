@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { CourseRenameRow, DeleteCourseDialog } from "@/components/course-row-actions";
 import { CourseMenu, FolderMenu, FolderRenameRow, type CourseMenuView } from "@/components/course-folder-menus";
 import { SwipeRow } from "@/components/swipe-row";
-import { examCountdownLabel, filterGroups, folderKey, folderNames, groupCourses } from "@/src/core";
+import { examDaysLabel, filterGroups, folderKey, folderNames, groupCourses } from "@/src/core";
 
 /**
  * The sidebar's Courses section (fork addition, 2026-10-24 — docs/courses.md
@@ -57,17 +57,32 @@ function remember(key: string, value: string) {
 	}
 }
 
-/** The row's meta line, with the exam countdown when the course has an exam date. Pure — exported for render tests. */
-export function courseMeta(course: CourseSummary, now: number = Date.now()): string {
-	const base = baseMeta(course);
-	if (!course.examDate || course.status === "drafting") return base;
-	return `${base} · ${examCountdownLabel(course.examDate, now)}`;
+/**
+ * The row's meta line in three columns (owner, 2026-11-14): percent, days to the exam, due count. The percent and the
+ * days sit in fixed columns so they line up from row to row; the due count comes last and is absent at 0. A course with
+ * no exam date leaves the days column empty. While the skill map is drafting, failed or waiting for review the row
+ * shows that status instead. Pure — exported for render tests.
+ */
+export type CourseMetaParts = { status: string | null; percent: string | null; days: string | null; due: string | null };
+
+export function courseMetaParts(course: CourseSummary, now: number = Date.now()): CourseMetaParts {
+	const none = { percent: null, days: null, due: null };
+	if (course.status === "drafting") return { status: "drafting…", ...none };
+	if (course.total === 0) {
+		return { status: course.status === "draft" ? "Draft ready to review" : course.status === "error" ? "Drafting failed" : null, ...none };
+	}
+	return {
+		status: null,
+		percent: `${course.progress}%`,
+		days: course.examDate ? examDaysLabel(course.examDate, now) : null,
+		due: course.needsReview > 0 ? `${course.needsReview} due` : null,
+	};
 }
 
-function baseMeta(course: CourseSummary): string {
-	if (course.status === "drafting") return "Drafting skill map…";
-	if (course.total === 0) return course.status === "draft" ? "Draft ready to review" : course.status === "error" ? "Drafting failed" : "No skill map yet";
-	return `${course.known}/${course.total} known · ${course.progress}%${course.needsReview > 0 ? ` · ${course.needsReview} due` : ""}`;
+/** The meta as one plain string: for the accessible name and the render tests. */
+export function courseMeta(course: CourseSummary, now: number = Date.now()): string {
+	const p = courseMetaParts(course, now);
+	return [p.status, p.percent, p.days, p.due].filter((part): part is string => part !== null).join(" · ");
 }
 
 export function CourseRow({
@@ -87,6 +102,7 @@ export function CourseRow({
 	onDragStart?: (e: React.DragEvent<HTMLButtonElement>) => void;
 	onDragEnd?: () => void;
 }) {
+	const meta = courseMetaParts(course);
 	return (
 		<button
 			type="button"
@@ -105,7 +121,15 @@ export function CourseRow({
 		>
 			<span className="min-w-0 flex-1">
 				<span className="block truncate font-prose text-(length:--lh-prose-size)">{course.title}</span>
-				<span className="block truncate text-xs text-muted-foreground">{courseMeta(course)}</span>
+				{meta.status !== null ? (
+					<span className="block truncate text-xs text-muted-foreground">{meta.status}</span>
+				) : meta.percent !== null ? (
+					<span className="grid grid-cols-[4.5ch_6.5ch_auto] gap-x-2 truncate text-xs text-muted-foreground" aria-label={courseMeta(course)}>
+						<span>{meta.percent}</span>
+						<span>{meta.days}</span>
+						<span>{meta.due}</span>
+					</span>
+				) : null}
 			</span>
 		</button>
 	);
