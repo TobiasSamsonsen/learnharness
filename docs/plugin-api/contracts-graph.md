@@ -642,7 +642,7 @@ clusters: Cluster[];
 
 ### GraphSnapshot courseClusters
 
-The HULL + LABEL partition (owner, 2026-11-14): one region per course
+The hull and label partition: one region per course
 (id the course id, label the course title) holding every session of
 that course, plus the per-session clusters of sessions with no course.
 The layout pull keeps using `clusters` above. Set by the server;
