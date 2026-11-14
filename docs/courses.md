@@ -491,8 +491,7 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
     opens by itself while the skill map is missing, drafting, failed or waiting for review, since the curriculum
     controls are then the whole page. The old time note field is gone (the teacher gets the exam date and the days
     left from the exam date instead).
-  - **Today and Exam, side by side** (`components/exam-plan.tsx`): Today on the left (the review and the lessons,
-    left out when there is nothing to do), the exam card on the right: the days left as one big figure ("30 d",
+  - **Next up and Exam, side by side** (`components/exam-plan.tsx`): Next up on the left: the review due, **Learn today** (the lessons that hold the pace), **More to learn** (the next four skills by exam priority, each with its own Learn button, so a bulk session starts without opening a row) and, with several skills being learned, a **Practice · n learning** row; left out when there is nothing to do, the exam card on the right: the days left as one big figure ("30 d",
     "today", "passed") with the date, the exam readiness score (below: the percent, a bar with a tick where the foundation and the
     most tested skills end, and "based on 3 past exams"), the skills left, the forecast, and — once weighed — one line, "Skills weighed
     by exam importance." Without an exam date the card holds the date field; before the course is weighed it holds

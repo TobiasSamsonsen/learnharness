@@ -66,6 +66,10 @@ export function WeightEditor({ skill }: { skill: Pick<CourseSkillView, "id" | "w
 // ─── the section ────────────────────────────────────────────────────────────
 
 const CARD = "min-w-0 space-y-2.5 rounded-xl border border-border/60 bg-card/50 p-4";
+/** A part inside the Next up box ("Learn today", "More to learn"): below the box heading, above its rows. */
+const BOX_HEAD = "mb-0.5 text-[11px] uppercase tracking-widest text-muted-foreground/70";
+/** How many more next-up skills the box lists after today's lessons. */
+export const MORE_NEXT_UP = 4;
 
 /** The exam card's big figure: "30 d", "today", "passed". Pure. */
 export function examCountdown(daysLeft: number): string {
@@ -142,9 +146,13 @@ function useExamActions(courseId: string, onChanged: () => void) {
 export interface ExamPlanSectionProps {
 	courseId: string;
 	plan: CoursePlan;
-	/** Skill names by id, for today's lessons. */
+	/** Skill names by id, for the lessons. */
 	names: ReadonlyMap<string, string>;
 	weightOf: (skillId: string) => number;
+	/** Next up, by exam priority (the course view's nextUp): the box lists the first few not already in today's lessons. */
+	nextUp: readonly string[];
+	/** Learned skills not yet known: the box offers to practice them together when there are several. */
+	learningCount: number;
 	examDate?: string;
 	/** The exam readiness score, null while the course has not been weighed (core/exam-plan.ts examReadiness). */
 	readiness: Readiness | null;
@@ -160,25 +168,40 @@ export interface ExamPlanSectionProps {
 }
 
 /**
- * Today and the exam, side by side (owner, 2026-11-14). Today holds the reviews due and the lessons to hold the pace
- * and is left out when there is nothing to do; the exam card shows the countdown, the skills left and the forecast. With
+ * Next up and the exam, side by side (owner, 2026-11-14). Next up holds the review due, today's lessons (to hold the
+ * pace), the next few skills by exam priority and, with several skills still being learned, one row to practice them
+ * together, each with its own button so a bulk session starts without opening a row; it is left out when there is
+ * nothing to do. The exam card shows the countdown, the skills left and the forecast. With
  * no exam date it holds the date field; with an exam date the field and Clear sit in the course settings. Before the
  * course is weighed the card holds "Weigh by exams"; afterwards it says so in one line and "Weigh again" is a setting.
  */
 export function ExamPlanSection(props: ExamPlanSectionProps) {
-	const { courseId, plan, names, weightOf, examDate, readiness, hasWeights, weightsError, weighing, canWeigh, busy, onStart, onChanged } = props;
+	const { courseId, plan, names, weightOf, nextUp, learningCount, examDate, readiness, hasWeights, weightsError, weighing, canWeigh, busy, onStart, onChanged } = props;
 	const { error, starting, patch, weigh } = useExamActions(courseId, onChanged);
 
 	const f = plan.forecast;
-	const todayHasItems = plan.reviewDue > 0 || plan.lessons.length > 0;
+	const more = nextUp.filter((id) => !plan.lessons.includes(id)).slice(0, MORE_NEXT_UP);
+	const practiceAll = learningCount > 1;
+	const boxHasItems = plan.reviewDue > 0 || plan.lessons.length > 0 || more.length > 0 || practiceAll;
+	const learnRow = (id: string, testid: string) => (
+		<div key={id} className="flex items-center justify-between gap-2 py-1.5 text-sm" data-testid={testid}>
+			<span className="min-w-0 flex-1 truncate">
+				{names.get(id) ?? id}
+				{weightOf(id) !== 1 && <span className="ml-2 text-xs text-muted-foreground">w{weightOf(id)}</span>}
+			</span>
+			<button type="button" className={BTN} disabled={busy} onClick={() => onStart("learn", id)}>
+				Learn
+			</button>
+		</div>
+	);
 	return (
-		<section data-testid="course-exam-plan" className={cn("grid gap-3", todayHasItems && "md:grid-cols-[1.25fr_1fr]")}>
-			{todayHasItems && (
-				<div data-testid="course-today" className={CARD}>
-					<div className={PAGE_HEAD}>Today</div>
-					<div className="divide-y divide-border/50">
+		<section data-testid="course-exam-plan" className={cn("grid gap-3", boxHasItems && "md:grid-cols-[1.25fr_1fr]")}>
+			{boxHasItems && (
+				<div data-testid="course-next-up" className={CARD}>
+					<div className={PAGE_HEAD}>Next up</div>
+					<div className="space-y-3">
 						{plan.reviewDue > 0 && (
-							<div className="flex items-center justify-between gap-2 py-2 text-sm first:pt-0" data-testid="course-today-review">
+							<div className="flex items-center justify-between gap-2 text-sm" data-testid="course-today-review">
 								<span className="flex items-center gap-2">
 									<span aria-hidden className="size-2 rounded-full" style={{ backgroundColor: "var(--lh-due)" }} />
 									{plan.reviewBatch < plan.reviewDue ? `Review · ${plan.reviewBatch} of ${plan.reviewDue} due` : `Review · ${plan.reviewDue} due`}
@@ -188,17 +211,26 @@ export function ExamPlanSection(props: ExamPlanSectionProps) {
 								</button>
 							</div>
 						)}
-						{plan.lessons.map((id) => (
-							<div key={id} className="flex items-center justify-between gap-2 py-2 text-sm first:pt-0" data-testid={`course-today-lesson-${id}`}>
-								<span className="min-w-0 flex-1 truncate">
-									Learn: {names.get(id) ?? id}
-									{weightOf(id) !== 1 && <span className="ml-2 text-xs text-muted-foreground">w{weightOf(id)}</span>}
-								</span>
-								<button type="button" className={BTN} disabled={busy} onClick={() => onStart("learn", id)}>
-									Learn
+						{plan.lessons.length > 0 && (
+							<div data-testid="course-today">
+								<div className={BOX_HEAD}>Learn today</div>
+								<div className="divide-y divide-border/50">{plan.lessons.map((id) => learnRow(id, `course-today-lesson-${id}`))}</div>
+							</div>
+						)}
+						{more.length > 0 && (
+							<div data-testid="course-next-more">
+								<div className={BOX_HEAD}>More to learn</div>
+								<div className="divide-y divide-border/50">{more.map((id) => learnRow(id, `course-next-more-${id}`))}</div>
+							</div>
+						)}
+						{practiceAll && (
+							<div className="flex items-center justify-between gap-2 border-t border-border/50 pt-3 text-sm" data-testid="course-next-practice">
+								<span>Practice · {learningCount} learning</span>
+								<button type="button" className={BTN} disabled={busy} onClick={() => onStart("practice")}>
+									Practice
 								</button>
 							</div>
-						))}
+						)}
 					</div>
 				</div>
 			)}

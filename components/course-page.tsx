@@ -504,6 +504,8 @@ export function CourseBody({
 					plan={data.plan}
 					names={names}
 					weightOf={(id) => byId.get(id)?.weight ?? 1}
+					nextUp={data.nextUp}
+					learningCount={data.learning.length}
 					examDate={course.examDate}
 					readiness={readiness}
 					hasWeights={weighed}

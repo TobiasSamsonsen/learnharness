@@ -424,7 +424,7 @@ describe("the exam plan on the page", () => {
 	const names = new Map([["sk_a", "Taylor series"], ["sk_b", "Row reduction"]]);
 	const basePlan = { skillsLeft: 27, reviewDue: 4, reviewBatch: 4, lessons: ["sk_a", "sk_b"] };
 	const props = (over: Record<string, unknown> = {}) => ({
-		courseId: "course_1", plan: basePlan, names, weightOf: (id: string) => (id === "sk_a" ? 3 : 1), readiness: null, hasWeights: false, weighing: false, canWeigh: true, busy: false, onStart: () => {}, onChanged: () => {}, ...over,
+		courseId: "course_1", plan: basePlan, names, weightOf: (id: string) => (id === "sk_a" ? 3 : 1), readiness: null, nextUp: [] as string[], learningCount: 0, hasWeights: false, weighing: false, canWeigh: true, busy: false, onStart: () => {}, onChanged: () => {}, ...over,
 	});
 
 	it("labels days, dates and skills left", () => {
@@ -444,9 +444,9 @@ describe("the exam plan on the page", () => {
 		assert.match(html, /27 skills left/);
 		assert.match(html, /needs 1 lesson\/day · your pace 1\.2\/day · on track/);
 		assert.match(html, /Review · 4 due/);
-		assert.match(html, /Learn: Taylor series/);
+		assert.match(html, /Learn today[\s\S]*Taylor series/);
 		assert.match(html, /w3/);
-		assert.ok(html.indexOf("course-today") < html.indexOf("course-exam-countdown"), "Today first, the exam beside it");
+		assert.ok(html.indexOf("course-next-up") < html.indexOf("course-exam-countdown"), "Next up first, the exam beside it");
 		assert.match(html, />Weigh by exams</, "unweighed: the card holds the button");
 		assert.ok(!html.includes('data-testid="course-exam-date"'), "with a date set the field is a setting, not on the card");
 		assert.ok(!html.includes("reads your past exams"), "no long explainer");
@@ -522,6 +522,28 @@ describe("the exam plan on the page", () => {
 	it("a lone review batch smaller than what is due says so; nothing to do hides Today", () => {
 		assert.match(renderToStaticMarkup(<examUi.ExamPlanSection {...props({ plan: { ...basePlan, reviewDue: 9, reviewBatch: 6, lessons: [] } })} />), /Review · 6 of 9 due/);
 		assert.ok(!renderToStaticMarkup(<examUi.ExamPlanSection {...props({ plan: { ...basePlan, reviewDue: 0, lessons: [] } })} />).includes("course-today"));
+	});
+
+	it("the Next up box lists the review, today's lessons, then the next four skills not already listed, each with Learn", () => {
+		const ids = ["sk_a", "sk_b", "sk_c", "sk_d", "sk_e", "sk_f", "sk_g"];
+		const many = new Map(ids.map((id) => [id, `Skill ${id.slice(3)}`]));
+		const html = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ names: many, nextUp: ids })} />);
+		assert.match(html, /data-testid="course-next-up"[\s\S]*>Next up</);
+		assert.match(html, /Review · 4 due/);
+		assert.match(html, /Learn today[\s\S]*Skill a[\s\S]*Skill b/);
+		assert.match(html, /More to learn[\s\S]*Skill c[\s\S]*Skill d[\s\S]*Skill e[\s\S]*Skill f/);
+		assert.ok(!html.includes("Skill g"), "four more, no more");
+		assert.equal(html.match(/data-testid="course-next-more-/g)?.length, 4);
+		assert.equal(html.match(/>Learn</g)?.length, 6, "a Learn button on each of the two lessons and the four more");
+		assert.ok(html.indexOf("Learn today") < html.indexOf("More to learn"), "today's lessons come first");
+	});
+
+	it("the Next up box offers one row to practice several learning skills together, and is left out when there is nothing", () => {
+		const none = { ...basePlan, reviewDue: 0, lessons: [] as string[] };
+		const withPractice = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ plan: none, learningCount: 8 })} />);
+		assert.match(withPractice, /data-testid="course-next-practice"[\s\S]*Practice · 8 learning[\s\S]*>Practice</);
+		assert.ok(!renderToStaticMarkup(<examUi.ExamPlanSection {...props({ plan: none, learningCount: 1 })} />).includes("course-next-practice"), "a single learning skill has its own button");
+		assert.ok(!renderToStaticMarkup(<examUi.ExamPlanSection {...props({ plan: none })} />).includes("course-next-up"), "nothing to do: no box");
 	});
 
 	it("a skill row's weight chip appears when set or not the default; the editor says where the weight came from", () => {
