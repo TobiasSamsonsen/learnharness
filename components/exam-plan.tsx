@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState } from "react";
 import { Loader2Icon } from "lucide-react";
-import { examDateLabel, forecastLine, SKILL_WEIGHTS, WEIGHT_LABELS, type CoursePlan, type CourseMode, type CourseSkillView, type SkillWeightValue } from "@/src/core";
+import { examDateLabel, forecastLine, readinessBasis, type Readiness, SKILL_WEIGHTS, WEIGHT_LABELS, type CoursePlan, type CourseMode, type CourseSkillView, type SkillWeightValue } from "@/src/core";
 import { cn } from "@/lib/utils";
 import { PAGE_HEAD, SECTION_HEAD } from "@/components/section-heads";
 
@@ -78,23 +78,27 @@ export function skillsLeftLabel(skillsLeft: number): string {
 	return skillsLeft === 1 ? "1 skill left" : `${skillsLeft} skills left`;
 }
 
-/** How many of the course's skills are known (understanding 6 or more), as one thin bar and its words. */
-function KnownStrip({ known, total }: { known: number; total: number }) {
+/**
+ * The exam readiness score (owner, 2026-11-14, core/exam-plan.ts examReadiness): the percent, one bar with a tick where the
+ * foundation and the most tested skills end, and what the score rests on.
+ */
+function ReadinessStrip({ readiness }: { readiness: Readiness }) {
+	const percent = Math.round(readiness.score * 100);
+	const key = Math.round(readiness.key * 100);
 	return (
-		<div className="space-y-1" data-testid="course-exam-known">
-			<span
-				role="meter"
-				aria-label="Skills known"
-				aria-valuemin={0}
-				aria-valuemax={total}
-				aria-valuenow={known}
-				className="block h-1.5 w-full overflow-hidden rounded-full bg-border/50"
-			>
-				<span className="block h-full rounded-full" style={{ width: `${(known / total) * 100}%`, backgroundColor: "var(--lh-understanding-8)" }} />
+		<div className="space-y-1.5" data-testid="course-exam-readiness">
+			<div className="flex items-baseline justify-between gap-2">
+				<span className="text-sm text-muted-foreground">Readiness</span>
+				<span className="font-mono text-xl leading-none">{percent}%</span>
+			</div>
+			<span role="meter" aria-label="Exam readiness" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="relative block h-2 w-full rounded-full bg-border/50">
+				<span className="block h-full rounded-full" style={{ width: `${percent}%`, backgroundColor: "var(--lh-understanding-8)" }} />
+				<span aria-hidden className="absolute -top-1 block h-4 w-px bg-foreground/70" style={{ left: `${key}%` }} data-testid="course-exam-readiness-key" />
 			</span>
-			<span className="block text-xs text-foreground">
-				{known} of {total} skills known
-			</span>
+			<div className="flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
+				<span>{readinessBasis(readiness)}</span>
+				<span>key skills {key}%</span>
+			</div>
 		</div>
 	);
 }
@@ -142,9 +146,9 @@ export interface ExamPlanSectionProps {
 	names: ReadonlyMap<string, string>;
 	weightOf: (skillId: string) => number;
 	examDate?: string;
-	/** All the course's skills, and how many of them are known: the strip on the exam card. */
-	totalSkills: number;
-	knownSkills: number;
+	/** The exam readiness score, null while the course has not been weighed (core/exam-plan.ts examReadiness). */
+	readiness: Readiness | null;
+	/** The course has been weighed (a weighing pass ran), not just edited by hand. */
 	hasWeights: boolean;
 	weightsError?: string;
 	weighing: boolean;
@@ -162,7 +166,7 @@ export interface ExamPlanSectionProps {
  * course is weighed the card holds "Weigh by exams"; afterwards it says so in one line and "Weigh again" is a setting.
  */
 export function ExamPlanSection(props: ExamPlanSectionProps) {
-	const { courseId, plan, names, weightOf, examDate, totalSkills, knownSkills, hasWeights, weightsError, weighing, canWeigh, busy, onStart, onChanged } = props;
+	const { courseId, plan, names, weightOf, examDate, readiness, hasWeights, weightsError, weighing, canWeigh, busy, onStart, onChanged } = props;
 	const { error, starting, patch, weigh } = useExamActions(courseId, onChanged);
 
 	const f = plan.forecast;
@@ -215,7 +219,7 @@ export function ExamPlanSection(props: ExamPlanSectionProps) {
 						className="rounded-md border bg-background px-2 py-1 text-xs outline-none"
 					/>
 				)}
-				{examDate && totalSkills > 0 && <KnownStrip known={knownSkills} total={totalSkills} />}
+				{readiness && <ReadinessStrip readiness={readiness} />}
 				{(examDate || plan.skillsLeft > 0) && (
 					<p className="text-xs text-muted-foreground" data-testid="course-plan-headline">
 						{skillsLeftLabel(plan.skillsLeft)}
@@ -235,6 +239,11 @@ export function ExamPlanSection(props: ExamPlanSectionProps) {
 				{hasWeights && !weighing && (
 					<p className="text-xs text-muted-foreground" data-testid="course-weights-summary">
 						Skills weighed by exam importance.
+					</p>
+				)}
+				{!hasWeights && !weighing && !starting && (
+					<p className="text-xs text-muted-foreground" data-testid="course-exam-readiness-prompt">
+						Weigh by exams to get a readiness score.
 					</p>
 				)}
 				{!hasWeights && (

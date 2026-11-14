@@ -356,6 +356,19 @@ exam date and a weight per skill, so the learner spends the time left on what th
   and Locked, not examined ones left out), the lessons a day they need, and the recent pace: Learn
   finishes over the last 14 days (fewer, at least 3, while the course is young). "On track" when the pace
   covers the need, "behind" when not. The exam day itself is not a study day.
+- **Exam readiness (owner, 2026-11-14, `examReadiness` in `core/exam-plan.ts`).** One percent for how ready the learner is
+  for the exam, shown on the exam card of a course that has been weighed (a weighing pass ran: a hand edit does not
+  count; before that the card says "Weigh by exams to get a readiness score"). Each skill's credit (understanding over
+  6, capped at 1, as in the course percent) is weighted by how likely the skill is to matter on the next exam:
+  `(frequency × exams + 1) / (exams + 2)`, where the frequency is assumed from the skill's **priority** (3 every exam,
+  2 half of them, 1 a fifth, 0 none: `READINESS_FREQUENCY`) and *exams* is the number of past exams the weighing found
+  (`pastExams`, stored with the weights and synced in the same unit; a weighing from before it was recorded assumes 3
+  and says "assuming 3 past exams" until Weigh again). Priority already counts what a skill unlocks, so a prerequisite
+  no exam asks about directly (the product rule) weighs like the skills built on it. Fewer exams leave the rarely tested
+  skills more of the score (two exams: about 41% in Matte 1; five: about 8% in Kyb Intro), a higher priority always
+  weighs more, and 100% needs every skill, never-tested ones included. The **tick** on the bar is the score if every
+  priority 2-3 skill were known and nothing else (ADE 75%, Kyb Intro 92%, Matte 1 59%); the 80/20 idea is an outcome of
+  the weights, not a fixed split, because the foundation and the most tested skills are 52-84% of a course's skills.
 - **Today.** Reviews due, then enough lessons to hold the pace (1 to 3; 1 without an exam date), taken
   from the ordered Next up. It shows on the course page (Start / Learn buttons) and as a list above
   Courses in the sidebar (`GET /api/today`, courses with the soonest exam first, five lines at most): a
@@ -480,8 +493,8 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
     left from the exam date instead).
   - **Today and Exam, side by side** (`components/exam-plan.tsx`): Today on the left (the review and the lessons,
     left out when there is nothing to do), the exam card on the right: the days left as one big figure ("30 d",
-    "today", "passed") with the date, a thin bar of how many skills are known ("15 of 32 skills known": understanding 6 or more, the
-    same count as the header; it does not move with the days), the skills left, the forecast, and — once weighed — one line, "Skills weighed
+    "today", "passed") with the date, the exam readiness score (below: the percent, a bar with a tick where the foundation and the
+    most tested skills end, and "based on 3 past exams"), the skills left, the forecast, and — once weighed — one line, "Skills weighed
     by exam importance." Without an exam date the card holds the date field; before the course is weighed it holds
     **Weigh by exams**.
   - Right after approval, while the course has no sessions: **Find your starting point** — Take the placement test / Start from the beginning (the skip is remembered per browser).

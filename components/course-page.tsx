@@ -7,6 +7,8 @@ import { CheckIcon, ChevronDownIcon, ChevronRightIcon, Loader2Icon } from "lucid
 import {
 	COURSE_MODE_LABEL,
 	courseProgressPercent,
+	examReadiness,
+	knownShare,
 	DUE_BUCKET_LABEL,
 	isDue,
 	KNOWN_UNDERSTANDING,
@@ -419,6 +421,9 @@ export function CourseBody({
 	);
 	const dueNow = skills.filter((s) => isDue(s, now)).length;
 	const hasWeights = !!course.skillWeights && Object.keys(course.skillWeights).length > 0;
+	// A weighing pass ran (a hand edit does not set weightsAt): only then is there a readiness score (core/exam-plan.ts).
+	const weighed = !!course.weightsAt;
+	const readiness = weighed ? examReadiness(skills.map((s) => ({ priority: s.priority, credit: knownShare(s.understanding) })), course.pastExams) : null;
 	const nextUpIds = new Set(data.nextUp);
 	const contextIds = new Set(data.contextCheck);
 	const learnPractice = (s: CourseSkillView) => (
@@ -471,7 +476,7 @@ export function CourseBody({
 				onPlacement={() => onStart("placement")}
 				exam={
 					skills.length > 0
-						? { examDate: course.examDate, hasWeights, weighing: data.weighing === true, canWeigh: !drafting && materialCount > 0, weightsSummary: course.weightsSummary, weightsAt: course.weightsAt }
+						? { examDate: course.examDate, hasWeights: weighed, weighing: data.weighing === true, canWeigh: !drafting && materialCount > 0, weightsSummary: course.weightsSummary, weightsAt: course.weightsAt }
 						: undefined
 				}
 			/>
@@ -486,9 +491,8 @@ export function CourseBody({
 					names={names}
 					weightOf={(id) => byId.get(id)?.weight ?? 1}
 					examDate={course.examDate}
-					totalSkills={skills.length}
-							knownSkills={data.known.length}
-					hasWeights={hasWeights}
+					readiness={readiness}
+					hasWeights={weighed}
 					weightsError={course.weightsError}
 					weighing={data.weighing === true}
 					canWeigh={!drafting && materialCount > 0}

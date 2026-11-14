@@ -424,7 +424,7 @@ describe("the exam plan on the page", () => {
 	const names = new Map([["sk_a", "Taylor series"], ["sk_b", "Row reduction"]]);
 	const basePlan = { skillsLeft: 27, reviewDue: 4, reviewBatch: 4, lessons: ["sk_a", "sk_b"] };
 	const props = (over: Record<string, unknown> = {}) => ({
-		courseId: "course_1", plan: basePlan, names, weightOf: (id: string) => (id === "sk_a" ? 3 : 1), totalSkills: 32, knownSkills: 5, hasWeights: false, weighing: false, canWeigh: true, busy: false, onStart: () => {}, onChanged: () => {}, ...over,
+		courseId: "course_1", plan: basePlan, names, weightOf: (id: string) => (id === "sk_a" ? 3 : 1), readiness: null, hasWeights: false, weighing: false, canWeigh: true, busy: false, onStart: () => {}, onChanged: () => {}, ...over,
 	});
 
 	it("labels days, dates and skills left", () => {
@@ -442,7 +442,6 @@ describe("the exam plan on the page", () => {
 		);
 		assert.match(html, /data-testid="course-exam-countdown"[^>]*>[\s\S]*?29 d[\s\S]*?12 Dec 2026/);
 		assert.match(html, /27 skills left/);
-		assert.match(html, /role="meter"[^>]*aria-valuenow="5"[\s\S]*5 of 32 skills known/, "the strip counts known skills, not skills left");
 		assert.match(html, /needs 1 lesson\/day · your pace 1\.2\/day · on track/);
 		assert.match(html, /Review · 4 due/);
 		assert.match(html, /Learn: Taylor series/);
@@ -457,7 +456,40 @@ describe("the exam plan on the page", () => {
 		const html = renderToStaticMarkup(<examUi.ExamPlanSection {...props()} />);
 		assert.match(html, /<input[^>]*type="date"[^>]*data-testid="course-exam-date"/);
 		assert.ok(!html.includes("course-exam-countdown"));
-		assert.ok(!html.includes("course-exam-known"), "no exam date, no strip");
+	});
+
+	const readiness = { score: 0.5, key: 0.75, pastExams: 3, assumed: false };
+
+	it("a weighed course shows its readiness: the percent, a bar with a tick for the key skills, and what it rests on", () => {
+		const html = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ examDate: "2026-12-12", plan: { ...basePlan, daysLeft: 29 }, hasWeights: true, readiness })} />);
+		assert.match(html, /data-testid="course-exam-readiness"[\s\S]*Readiness[\s\S]*50%/);
+		assert.match(html, /role="meter"[^>]*aria-label="Exam readiness"[^>]*aria-valuenow="50"/);
+		assert.match(html, /data-testid="course-exam-readiness-key"/);
+		assert.match(html, /left:75%/, "the tick sits where the key skills end");
+		assert.match(html, /based on 3 past exams/);
+		assert.match(html, /key skills 75%/);
+		assert.ok(!html.includes("skills known"), "the known-skills line is gone from the card");
+		assert.ok(!html.includes("course-exam-readiness-prompt"));
+	});
+
+	it("a weighing that recorded no count says it assumes three", () => {
+		const html = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ hasWeights: true, readiness: { ...readiness, assumed: true } })} />);
+		assert.match(html, /assuming 3 past exams/);
+	});
+
+	it("a weighed course shows its readiness even without an exam date, under the date field", () => {
+		const html = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ hasWeights: true, readiness })} />);
+		assert.match(html, /data-testid="course-exam-date"[\s\S]*course-exam-readiness"/);
+		assert.ok(!html.includes("course-exam-countdown"));
+	});
+
+	it("an unweighed course gets no score, a prompt to weigh and the button", () => {
+		const html = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ examDate: "2026-12-12", plan: { ...basePlan, daysLeft: 29 } })} />);
+		assert.ok(!html.includes("course-exam-readiness\""), "no score");
+		assert.ok(!html.includes('role="meter"'));
+		assert.match(html, /data-testid="course-exam-readiness-prompt"[^>]*>\s*Weigh by exams to get a readiness score\./);
+		assert.match(html, />Weigh by exams</);
+		assert.ok(!renderToStaticMarkup(<examUi.ExamPlanSection {...props({ weighing: true })} />).includes("course-exam-readiness-prompt"), "no prompt while it runs");
 	});
 
 	it("once weighed the card says so in one line and keeps no button; a failure and the spinner still show", () => {
