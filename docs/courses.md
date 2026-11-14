@@ -474,14 +474,14 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
   - Header: editable title, *n/m known* and the **Review (n)** button.
   - **Course settings (owner, 2026-11-14)** — one closed line under the header (`components/course-settings.tsx`) holding
     what is set up rarely: the pace, the curriculum (Sources, language, **Draft / Re-draft skill map**), the exam
-    date with **Clear** and **Weigh again** (with what the last weighing found), and the **Placement test**. It
+    date with **Clear** and **Weigh again** (with what the last weighing found, as one line cut at the edge; a long press shows all of it), and the **Placement test**. It
     opens by itself while the skill map is missing, drafting, failed or waiting for review, since the curriculum
     controls are then the whole page. The old time note field is gone (the teacher gets the exam date and the days
     left from the exam date instead).
   - **Today and Exam, side by side** (`components/exam-plan.tsx`): Today on the left (the review and the lessons,
     left out when there is nothing to do), the exam card on the right: the days left as one big figure ("30 d",
-    "today", "passed") with the date, a thin bar of how many skills are ready for the exam ("23 of 32 skills ready":
-    all but the ones still to learn), the skills left, the forecast, and — once weighed — one line, "Skills weighed
+    "today", "passed") with the date, a thin bar of how many skills are known ("15 of 32 skills known": understanding 6 or more, the
+    same count as the header; it does not move with the days), the skills left, the forecast, and — once weighed — one line, "Skills weighed
     by exam importance." Without an exam date the card holds the date field; before the course is weighed it holds
     **Weigh by exams**.
   - Right after approval, while the course has no sessions: **Find your starting point** — Take the placement test / Start from the beginning (the skip is remembered per browser).
