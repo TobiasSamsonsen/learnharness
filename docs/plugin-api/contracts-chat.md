@@ -418,8 +418,8 @@ pace?: Pace;
 ### ChatSettings paceNote
 
 The learner's time note for a session with no course ("exam Thursday, 4
-concepts"); a course session reads a line built from the course's exam date
-instead ("The learner's exam: 14 Dec 2026, 30 days left. …").
+concepts"); a course session is told its exam, from the course's exam
+date, instead.
 
 ```ts
 paceNote?: string;

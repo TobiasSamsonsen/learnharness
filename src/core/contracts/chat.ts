@@ -133,7 +133,8 @@ export interface ChatSettings {
 	 *  from the default (GeneralSettings.pace); absent = Thorough. */
 	pace?: Pace;
 	/** The learner's time note for a session with no course ("exam Thursday, 4
-	 *  concepts"); a course session reads the course's note instead. */
+	 *  concepts"); a course session is told its exam, from the course's exam
+	 *  date, instead. */
 	paceNote?: string;
 	/** The session's problem difficulty (fork addition — core/difficulty.ts): stamped at
 	 *  birth from the default (GeneralSettings.difficulty); absent = Short. Practice sessions only. */

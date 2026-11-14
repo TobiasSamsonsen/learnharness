@@ -10,8 +10,9 @@
  * that overrides the method's "thorough, not coverage" for that session.
  *
  * A time note ("exam Thursday, 4 concepts") rides along as data about the
- * learner: it lives on the COURSE when the session belongs to one (a test
- * usually covers several concepts), else on the session itself.
+ * learner: it lives on the session itself. A COURSE session is not told a
+ * note the learner wrote: it is told its exam, stated plainly from the
+ * course's exam date ("The learner's exam: 14 Dec 2026, 30 days left").
  */
 
 export type Pace = "thorough" | "efficient" | "crash";
