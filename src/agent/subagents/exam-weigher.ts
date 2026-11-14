@@ -10,7 +10,7 @@
 import { Type, type Static } from "typebox";
 import type { Usage } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { parseWeightValue, type SkillWeightValue } from "../../core/exam-plan.ts";
+import { parseWeightValue, sanitizePastExams, type SkillWeightValue } from "../../core/exam-plan.ts";
 import { withLanguageDirective, type LessonLanguage } from "../../core/language.ts";
 import type { PiEngine } from "../models.ts";
 import { runSubmitAgent } from "./submit-agent.ts";
@@ -24,10 +24,11 @@ Give every skill one weight:
  0  in the syllabus but never examined, or explicitly excluded
 A skill a heavy problem cannot be solved without counts with that problem. Give a one-line reason naming the evidence ("Exam 2025 task 3, 2024 task 2"). Say plainly in the summary when you found no past exams.
 
-DELIVERABLE: ONE submit_weights call: a short summary (2-3 sentences: which sources you used, how many past exams you found) and one entry for EVERY listed skill, by its id.`;
+DELIVERABLE: ONE submit_weights call: a short summary (2-3 sentences: which sources you used, how many past exams you found), pastExams (the number of past exams you found and used, 0 if the sources show none), and one entry for EVERY listed skill, by its id.`;
 
 const weightsSchema = Type.Object({
 	summary: Type.String({ minLength: 1, description: "2-3 sentences: the sources used, how many past exams were found" }),
+	pastExams: Type.Optional(Type.Integer({ minimum: 0, maximum: 50, description: "How many past exams you found and used for the weights; 0 if the sources show none" })),
 	weights: Type.Array(
 		Type.Object({
 			skill: Type.String({ minLength: 1, description: "A skill id from the list" }),
@@ -42,12 +43,15 @@ type WeightsInput = Static<typeof weightsSchema>;
 
 export interface WeighedCourse {
 	summary: string;
+	/** The number of past exams the pass found and used (core/exam-plan.ts examReadiness); absent when the pass did not say. */
+	pastExams?: number;
 	weights: Array<{ skill: string; weight: SkillWeightValue; reason: string }>;
 }
 
 function fillWeights(input: WeightsInput): WeighedCourse {
 	return {
 		summary: input.summary.trim(),
+		...(sanitizePastExams(input.pastExams) !== undefined ? { pastExams: sanitizePastExams(input.pastExams) } : {}),
 		weights: input.weights.flatMap((w) => {
 			const weight = parseWeightValue(w.weight);
 			return weight === null ? [] : [{ skill: w.skill.trim(), weight, reason: w.reason.trim() }];

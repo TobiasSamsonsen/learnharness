@@ -584,7 +584,7 @@ async function runWeigh(courseId: string, controller: AbortController): Promise<
 		if (!fresh) return; // deleted mid-run
 		// a hand edit made while the pass ran (or before it) stays: the pass only fills in the model's weights
 		const merged = mergeModelWeights(sanitizeWeights(fresh.skillWeights), result.weights, fresh.skills);
-		settle({ skillWeights: merged, weightsSummary: result.summary, weightsAt: new Date().toISOString(), weightsError: undefined });
+		settle({ skillWeights: merged, weightsSummary: result.summary, weightsAt: new Date().toISOString(), pastExams: result.pastExams, weightsError: undefined });
 	} catch (err) {
 		if (controller.signal.aborted) return;
 		settle({ weightsError: err instanceof Error ? err.message : String(err) });

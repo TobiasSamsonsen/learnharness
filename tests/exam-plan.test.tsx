@@ -133,6 +133,14 @@ describe("the exam weigher (scripted model)", () => {
 		assert.equal(out.summary, "Used Exam 2025.");
 	});
 
+	it("keeps the past-exam count the pass reports, and leaves it out when the pass does not say", async () => {
+		const entries = [{ skill: "sk_a", weight: 3, reason: "r" }, { skill: "sk_b", weight: 0, reason: "r" }];
+		const withCount = await weighCourse({ title: "T", materialsSection: "", skills, language: "en" }, deps([submit({ summary: "s", pastExams: 2, weights: entries }, "c1")]));
+		assert.equal(withCount.pastExams, 2);
+		const without = await weighCourse({ title: "T", materialsSection: "", skills, language: "en" }, deps([submit({ summary: "s", weights: entries }, "c1")]));
+		assert.equal("pastExams" in without, false);
+	});
+
 	it("reads a weights array the model sent as one JSON string", async () => {
 		const stringified = { summary: "s", weights: JSON.stringify([{ skill: "sk_a", weight: 1, reason: "r" }, { skill: "sk_b", weight: 2, reason: "r" }]) };
 		const out = await weighCourse({ title: "T", materialsSection: "", skills, language: "en" }, deps([submit(stringified, "c1")]));
@@ -285,6 +293,7 @@ describe("sync: the exam date per field, the weights as one unit", () => {
 			skillWeights: { a: { w: 3, by: "model", reason: "Exam 2025" } },
 			weightsSummary: "Used one exam.",
 			weightsAt: "2026-01-02T00:00:00Z",
+			pastExams: 1,
 			updatedAt: "2026-01-02T00:00:00Z",
 		});
 		const renamed = course({ title: "Renamed", updatedAt: "2026-01-03T00:00:00Z" });
@@ -293,6 +302,7 @@ describe("sync: the exam date per field, the weights as one unit", () => {
 			assert.deepEqual(out.skillWeights, { a: { w: 3, by: "model", reason: "Exam 2025" } });
 			assert.equal(out.weightsSummary, "Used one exam.");
 			assert.equal(out.weightsAt, "2026-01-02T00:00:00Z");
+			assert.equal(out.pastExams, 1, "the past-exam count moves with the weights");
 			assert.equal(out.title, "Renamed");
 		}
 	});
@@ -321,6 +331,86 @@ describe("what the teacher is told about the exam", () => {
 
 	it("formats a date the same way the page does", () => {
 		assert.equal(plan.examDateLabel("2026-12-12"), "12 Dec 2026");
+	});
+});
+
+describe("exam readiness", () => {
+	const skill = (priority: number, credit: number) => ({ priority, credit });
+
+	it("a stored past-exam count is an integer from 0 to 50, anything else is unknown", () => {
+		assert.equal(plan.sanitizePastExams(3), 3);
+		assert.equal(plan.sanitizePastExams(0), 0);
+		assert.equal(plan.sanitizePastExams(50), 50);
+		for (const bad of [51, -1, 2.5, "3", null, undefined, NaN]) assert.equal(plan.sanitizePastExams(bad), undefined, String(bad));
+	});
+
+	it("a skill's weight is (frequency x exams + 1) / (exams + 2), higher for a higher priority", () => {
+		assert.equal(plan.readinessWeight(3, 3), 0.8);
+		assert.equal(plan.readinessWeight(2, 3), 0.5);
+		assert.ok(Math.abs(plan.readinessWeight(1, 3) - 0.32) < 1e-9);
+		assert.equal(plan.readinessWeight(0, 3), 0.2);
+		for (const exams of [1, 2, 3, 5, 10, 50]) {
+			const w = [0, 1, 2, 3].map((p) => plan.readinessWeight(p, exams));
+			assert.ok(w[0]! < w[1]! && w[1]! < w[2]! && w[2]! < w[3]!, `with ${exams} exams a higher priority always weighs more: ${w.join(" < ")}`);
+		}
+	});
+
+	it("with no past exams every skill weighs the same, so readiness is the plain average credit", () => {
+		for (const p of [0, 1, 2, 3]) assert.equal(plan.readinessWeight(p, 0), 0.5);
+		const r = plan.examReadiness([skill(3, 1), skill(0, 0), skill(1, 0.5), skill(2, 0)], 0)!;
+		assert.ok(Math.abs(r.score - 0.375) < 1e-9);
+		assert.equal(r.assumed, false);
+		assert.equal(r.pastExams, 0);
+	});
+
+	it("scores 0 with nothing learned and 1 only when every skill is fully known, even the never-tested ones", () => {
+		const all = (credit: number) => [3, 3, 2, 2, 2, 1, 1, 0].map((p) => skill(p, credit));
+		assert.equal(plan.examReadiness(all(0), 3)!.score, 0);
+		assert.equal(plan.examReadiness(all(1), 3)!.score, 1);
+		const noTail = [3, 3, 2, 2, 2, 1, 1, 0].map((p) => skill(p, p >= 1 ? 1 : 0));
+		assert.ok(plan.examReadiness(noTail, 3)!.score < 1, "leaving the priority 0 skill out of reach keeps it under 100%");
+	});
+
+	it("the key point is the score with every priority 2-3 skill known and nothing else", () => {
+		const skills = [skill(3, 0), skill(2, 0), skill(2, 0), skill(1, 0), skill(0, 0)];
+		const r = plan.examReadiness(skills, 3)!;
+		const knownCore = plan.examReadiness(skills.map((s) => skill(s.priority, s.priority >= 2 ? 1 : 0)), 3)!;
+		assert.ok(Math.abs(r.key - knownCore.score) < 1e-9);
+		assert.ok(r.key > 0.5 && r.key < 1);
+	});
+
+	it("fewer past exams leave the rarely tested skills more of the score", () => {
+		const skills = [3, 3, 2, 2, 2, 1, 1, 1, 0, 0].map((p) => skill(p, 0));
+		const tail = (exams: number) => 1 - plan.examReadiness(skills, exams)!.key;
+		assert.ok(tail(2) > tail(3) && tail(3) > tail(5) && tail(5) > tail(20), "the tail share falls as the evidence grows");
+	});
+
+	it("a prerequisite that no exam asks for directly weighs like the skills built on it", () => {
+		// product rule (weight 0, never a question itself) -> chain rule (weight 3): the product rule's PRIORITY is 3
+		const requires: Record<string, string[]> = { chain: ["product"], product: [] };
+		const weights = { chain: { w: 3 as const, by: "model" as const }, product: { w: 0 as const, by: "model" as const } };
+		const priority = plan.priorities(["product", "chain"], (id) => requires[id] ?? [], weights);
+		assert.equal(priority.get("product"), 3);
+		assert.equal(plan.readinessWeight(priority.get("product")!, 3), plan.readinessWeight(priority.get("chain")!, 3));
+		const missingFoundation = plan.examReadiness([skill(priority.get("product")!, 0), skill(priority.get("chain")!, 1)], 3)!;
+		assert.ok(Math.abs(missingFoundation.score - 0.5) < 1e-9, "not knowing the foundation costs as much as not knowing the tested skill");
+	});
+
+	it("a course whose weighing recorded no count assumes three and says so", () => {
+		const r = plan.examReadiness([skill(3, 1), skill(1, 0)])!;
+		assert.equal(r.assumed, true);
+		assert.equal(r.pastExams, plan.DEFAULT_PAST_EXAMS);
+		assert.equal(plan.examReadiness([skill(3, 1)], 99)!.assumed, true, "an out-of-range count is not trusted");
+		assert.equal(plan.examReadiness([], 3), null);
+	});
+
+	it("credit is clamped to 0-1, and the line under the score names its basis", () => {
+		assert.equal(plan.examReadiness([skill(2, 5)], 3)!.score, 1);
+		assert.equal(plan.examReadiness([skill(2, -5)], 3)!.score, 0);
+		assert.equal(plan.readinessBasis({ pastExams: 3, assumed: true }), "assuming 3 past exams");
+		assert.equal(plan.readinessBasis({ pastExams: 2, assumed: false }), "based on 2 past exams");
+		assert.equal(plan.readinessBasis({ pastExams: 1, assumed: false }), "based on 1 past exam");
+		assert.match(plan.readinessBasis({ pastExams: 0, assumed: false }), /^no past exams found/);
 	});
 });
 

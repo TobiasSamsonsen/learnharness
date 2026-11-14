@@ -112,12 +112,15 @@ export interface CourseRecord {
 	 *  says whether the recent pace gets through the remaining skills. */
 	examDate?: string;
 	/** How much the course's exams use each skill (0-3), from a "Weigh by exams" pass or the learner's own edit.
-	 *  Absent skill = weight 1. Moves with the next three fields as one unit in a sync. */
+	 *  Absent skill = weight 1. Moves with the next four fields as one unit in a sync. */
 	skillWeights?: SkillWeights;
 	/** The weighing pass's own summary (it says when it found no past exams). */
 	weightsSummary?: string;
 	/** ISO — when the weighing pass last finished. */
 	weightsAt?: string;
+	/** How many past exams the weighing pass found and used (2026-11-14, core/exam-plan.ts examReadiness). Absent on a
+	 *  weighing from before it was recorded: the readiness score then assumes DEFAULT_PAST_EXAMS. */
+	pastExams?: number;
 	/** Why the last weighing pass failed. */
 	weightsError?: string;
 	/** Why the last drafting run failed. */

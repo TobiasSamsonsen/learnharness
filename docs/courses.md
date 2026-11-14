@@ -474,7 +474,7 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
   - Header: editable title, *n/m known* and the **Review (n)** button.
   - **Course settings (owner, 2026-11-14)** — one closed line under the header (`components/course-settings.tsx`) holding
     what is set up rarely: the pace, the curriculum (Sources, language, **Draft / Re-draft skill map**), the exam
-    date with **Clear** and **Weigh again** (with what the last weighing found, as one line cut at the edge; a long press shows all of it), and the **Placement test**. It
+    date with **Clear** and **Weigh again** (with what the last weighing found, as one line cut at the edge; a mouse hover shows all of it, a touch screen does not), and the **Placement test**. It
     opens by itself while the skill map is missing, drafting, failed or waiting for review, since the curriculum
     controls are then the whole page. The old time note field is gone (the teacher gets the exam date and the days
     left from the exam date instead).

@@ -290,7 +290,7 @@ const COURSE_VERSION = 1;
 /** Fields that move together (an approval sets all four): taken from one side as a unit. */
 const COURSE_UNIT = ["status", "skills", "draft", "error"] as const;
 /** The weighing pass's fields move together too (fork addition, 2026-11-13): weights, its summary, when and why it failed. */
-const COURSE_WEIGHTS_UNIT = ["skillWeights", "weightsSummary", "weightsAt", "weightsError"] as const;
+const COURSE_WEIGHTS_UNIT = ["skillWeights", "weightsSummary", "weightsAt", "pastExams", "weightsError"] as const;
 
 function mergeCourse(i: MergeInput & { local: string; remote: string }): MergeResult {
 	const l = parseObj(i.local);

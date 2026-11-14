@@ -119,6 +119,75 @@ export function orderNextUp(ids: readonly string[], priority: ReadonlyMap<string
 	return { nextUp: examined.map((x) => x.id), notExamined: indexed.filter((x) => x.p === 0).map((x) => x.id) };
 }
 
+// ─── exam readiness (owner, 2026-11-14) ─────────────────────────────────────
+
+/**
+ * How much of the exam a skill of each PRIORITY is assumed to appear in: every exam (3), half of them (2), a fifth (1),
+ * none (0). A priority already counts what a skill unlocks, so a prerequisite weighs like the skills built on it.
+ * These are assumptions, not measurements: tune them here.
+ */
+export const READINESS_FREQUENCY: Record<SkillWeightValue, number> = { 3: 1, 2: 0.5, 1: 0.2, 0: 0 };
+
+/** The number of past exams a readiness score assumes when the weighing did not record one (a weighing from before the
+ *  count was stored). */
+export const DEFAULT_PAST_EXAMS = 3;
+
+/** The most past exams a count may hold. */
+export const PAST_EXAMS_MAX = 50;
+
+/** A stored or foreign past-exam count: an integer 0-PAST_EXAMS_MAX, else undefined. */
+export function sanitizePastExams(raw: unknown): number | undefined {
+	return typeof raw === "number" && Number.isInteger(raw) && raw >= 0 && raw <= PAST_EXAMS_MAX ? raw : undefined;
+}
+
+/** A skill's weight in the readiness score: (frequency x exams + 1) / (exams + 2). The "+1 / +2" keeps a skill no exam has
+ *  shown from weighing nothing while the evidence is thin: with few exams the rarely tested skills keep real weight, with
+ *  many they fade. With no exams every skill weighs the same. */
+export function readinessWeight(priority: number, pastExams: number): number {
+	const p = parseWeightValue(priority) ?? DEFAULT_WEIGHT;
+	return (READINESS_FREQUENCY[p] * pastExams + 1) / (pastExams + 2);
+}
+
+export interface Readiness {
+	/** 0-1: the weighted average credit of every skill. */
+	score: number;
+	/** 0-1: the score if every priority 2-3 skill were known (credit 1) and nothing else: where "the foundation and the
+	 *  most tested skills" end on the bar. */
+	key: number;
+	/** The past-exam count the weights used. */
+	pastExams: number;
+	/** The course's weighing recorded no count, so DEFAULT_PAST_EXAMS stood in. */
+	assumed: boolean;
+}
+
+/**
+ * The exam readiness score: each skill's credit (0-1, its known share) weighted by how likely it is to matter on the next
+ * exam, shrunk by how many past exams the weighing found. Priority 0 skills count too, so 100% needs every skill. Null for a
+ * course with no skills. Pure.
+ */
+export function examReadiness(skills: ReadonlyArray<{ priority: number; credit: number }>, pastExams?: number): Readiness | null {
+	if (skills.length === 0) return null;
+	const count = sanitizePastExams(pastExams);
+	const exams = count ?? DEFAULT_PAST_EXAMS;
+	let total = 0;
+	let earned = 0;
+	let key = 0;
+	for (const s of skills) {
+		const w = readinessWeight(s.priority, exams);
+		total += w;
+		earned += w * Math.min(1, Math.max(0, s.credit));
+		if (s.priority >= 2) key += w;
+	}
+	return { score: earned / total, key: key / total, pastExams: exams, assumed: count === undefined };
+}
+
+/** The line under the score: what it rests on. Pure. */
+export function readinessBasis(r: Pick<Readiness, "pastExams" | "assumed">): string {
+	if (r.assumed) return `assuming ${r.pastExams} past exams`;
+	if (r.pastExams === 0) return "no past exams found, every skill counts the same";
+	return `based on ${r.pastExams} past ${r.pastExams === 1 ? "exam" : "exams"}`;
+}
+
 // ─── the exam date ──────────────────────────────────────────────────────────
 
 /** A calendar date "YYYY-MM-DD", or null when it is not a real one. */
