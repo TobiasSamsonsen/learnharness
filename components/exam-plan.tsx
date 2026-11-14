@@ -78,6 +78,27 @@ export function skillsLeftLabel(skillsLeft: number): string {
 	return skillsLeft === 1 ? "1 skill left" : `${skillsLeft} skills left`;
 }
 
+/** How many of the course's skills are ready for the exam (all but the ones still to learn), as one thin bar and its words. */
+function ReadyStrip({ ready, total }: { ready: number; total: number }) {
+	return (
+		<div className="space-y-1" data-testid="course-exam-ready">
+			<span
+				role="meter"
+				aria-label="Skills ready for the exam"
+				aria-valuemin={0}
+				aria-valuemax={total}
+				aria-valuenow={ready}
+				className="block h-1.5 w-full overflow-hidden rounded-full bg-border/50"
+			>
+				<span className="block h-full rounded-full" style={{ width: `${(ready / total) * 100}%`, backgroundColor: "var(--lh-understanding-8)" }} />
+			</span>
+			<span className="block text-xs text-foreground">
+				{ready} of {total} skills ready
+			</span>
+		</div>
+	);
+}
+
 /** The exam date's PATCH and the Weigh by exams POST, shared by the card and the settings. */
 function useExamActions(courseId: string, onChanged: () => void) {
 	const [error, setError] = useState<string | null>(null);
@@ -121,6 +142,8 @@ export interface ExamPlanSectionProps {
 	names: ReadonlyMap<string, string>;
 	weightOf: (skillId: string) => number;
 	examDate?: string;
+	/** All the course's skills: the strip shows how many of them are ready for the exam. */
+	totalSkills: number;
 	hasWeights: boolean;
 	weightsError?: string;
 	weighing: boolean;
@@ -138,7 +161,7 @@ export interface ExamPlanSectionProps {
  * course is weighed the card holds "Weigh by exams"; afterwards it says so in one line and "Weigh again" is a setting.
  */
 export function ExamPlanSection(props: ExamPlanSectionProps) {
-	const { courseId, plan, names, weightOf, examDate, hasWeights, weightsError, weighing, canWeigh, busy, onStart, onChanged } = props;
+	const { courseId, plan, names, weightOf, examDate, totalSkills, hasWeights, weightsError, weighing, canWeigh, busy, onStart, onChanged } = props;
 	const { error, starting, patch, weigh } = useExamActions(courseId, onChanged);
 
 	const f = plan.forecast;
@@ -191,6 +214,7 @@ export function ExamPlanSection(props: ExamPlanSectionProps) {
 						className="rounded-md border bg-background px-2 py-1 text-xs outline-none"
 					/>
 				)}
+				{examDate && totalSkills > 0 && <ReadyStrip ready={Math.max(0, totalSkills - plan.skillsLeft)} total={totalSkills} />}
 				{(examDate || plan.skillsLeft > 0) && (
 					<p className="text-xs text-muted-foreground" data-testid="course-plan-headline">
 						{skillsLeftLabel(plan.skillsLeft)}

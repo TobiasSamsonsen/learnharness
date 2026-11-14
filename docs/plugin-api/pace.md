@@ -24,9 +24,12 @@ A time note ("exam Thursday, 4 concepts") rides along as data about the
 learner: it lives on the session itself. A COURSE session is not told a note
 the learner wrote (the course page has no time note field since 2026-11-14,
 and the stored course `note` is no longer read): it gets a line built from
-the course's exam date, "Exam: 14 Dec 2026, 30 days left" (`examNote` in
-`core/exam-plan.ts`; "tomorrow" or "today" near the day; nothing without a date
-or after the exam), read fresh every turn.
+the course's exam date, stated plainly ("The learner's exam: 14 Dec 2026, 30
+days left. Use it to judge how much to cover and what to cut, but keep the
+usual depth unless he asks to move faster." for Thorough; the last clause is
+left out for the other paces), from `examWhen` in `core/exam-plan.ts`
+("tomorrow" or "today" near the day; nothing without a date or after the
+exam), read fresh every turn. `paceSection` takes it as its fourth argument.
 
 ```ts
 export type Pace = "thorough" | "efficient" | "crash";

@@ -90,6 +90,15 @@ describe("the pace core", () => {
 		assert.equal(JSON.parse(quoted), hostile, "and it reads back exactly");
 	});
 
+	it("the exam is stated plainly, not quoted as a note, and Thorough keeps the usual depth", () => {
+		const thorough = paceSection("teacher", "thorough", undefined, "14 Dec 2026, 30 days left");
+		assert.match(thorough, /^<pace>\nThe learner's exam: 14 Dec 2026, 30 days left\. Use it to judge how much to cover and what to cut, but keep the usual depth unless he asks to move faster\.\n<\/pace>$/);
+		assert.doesNotMatch(thorough, /own note|quoted as data/);
+		const crash = paceSection("teacher", "crash", undefined, "14 Dec 2026, 30 days left");
+		assert.match(crash, /CRASH COURSE[\s\S]*The learner's exam: 14 Dec 2026, 30 days left\. Use it to judge how much to cover and what to cut\.\n<\/pace>$/);
+		assert.equal(paceSection("teacher", "thorough", undefined, undefined), "", "no exam, nothing");
+	});
+
 	it("a note with Thorough keeps the usual depth", () => {
 		const section = paceSection("teacher", "thorough", "exam Thursday, 4 concepts");
 		assert.match(section, /keep the usual depth unless he asks to move faster/);
@@ -214,17 +223,18 @@ describe("the course's time note", () => {
 	it("is no longer read by the teacher: the exam date is what reaches a course session's turn, read fresh", async () => {
 		const course = stores.courseStore.createCourse("Statistics");
 		const chat = chatStore.createChat("learn", undefined, { courseId: course.id, mode: "learn", skillIds: [] });
-		assert.equal(courseForTurn(chat.id)?.note, undefined, "no exam date, nothing to say");
+		assert.equal(courseForTurn(chat.id)?.exam, undefined, "no exam date, nothing to say");
 		stores.courseStore.updateCourse(course.id, { note: "test on Monday" });
-		assert.equal(courseForTurn(chat.id)?.note, undefined, "a stored time note is not injected any more");
+		assert.equal(courseForTurn(chat.id)?.exam, undefined, "a stored time note is not injected any more");
+		assert.equal((courseForTurn(chat.id) as { note?: string } | undefined)?.note, undefined, "and is not carried as a note either");
 		const inDays = (n: number) => {
 			const d = new Date(Date.now() + n * 86_400_000);
 			return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 		};
 		stores.courseStore.updateCourse(course.id, { examDate: inDays(30) });
-		assert.match(courseForTurn(chat.id)?.note ?? "", /^Exam: \d{1,2} \w{3} \d{4}, 30 days left$/);
+		assert.match(courseForTurn(chat.id)?.exam ?? "", /^\d{1,2} \w{3} \d{4}, 30 days left$/);
 		stores.courseStore.updateCourse(course.id, { examDate: inDays(-2) });
-		assert.equal(courseForTurn(chat.id)?.note, undefined, "a passed exam says nothing");
+		assert.equal(courseForTurn(chat.id)?.exam, undefined, "a passed exam says nothing");
 	});
 });
 

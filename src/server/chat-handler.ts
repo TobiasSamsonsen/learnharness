@@ -783,8 +783,8 @@ export async function handleChatInput(
 		// lessons born before languages existed.
 		language: resolveLessonLanguage(record.settings),
 		// The session's pace and time note (fork addition, 2026-11-01): read fresh each turn, so a change
-		// takes effect on the next one. A course's note wins over the session's own.
-		pace: { level: resolvePace(record.settings), note: course?.note ?? record.settings?.paceNote },
+		// takes effect on the next one. A course session is also told its exam (2026-11-14, from the course's exam date).
+		pace: { level: resolvePace(record.settings), note: record.settings?.paceNote, ...(course?.exam ? { exam: course.exam } : {}) },
 		// The session's problem difficulty (fork addition, 2026-11-07): the practice agent's problem size.
 		difficulty: resolveDifficulty(record.settings),
 		// The learner profile (fork addition, 2026-11-11): the block frozen into the record at birth, never recomputed

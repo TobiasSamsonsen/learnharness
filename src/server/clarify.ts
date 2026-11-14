@@ -224,7 +224,7 @@ export async function tutorSideCall(
 	const systemPrompt = agentSystemPrompt(kindOf(record), {
 		promptSwitches: effective.agent.prompts,
 		language: resolveLessonLanguage(record.settings),
-		pace: { level: resolvePace(record.settings), note: course?.note ?? record.settings?.paceNote },
+		pace: { level: resolvePace(record.settings), note: record.settings?.paceNote, ...(course?.exam ? { exam: course.exam } : {}) },
 		difficulty: resolveDifficulty(record.settings),
 		materials: materialsForTurn(chatId),
 		...(course ? { course: { section: course.section } } : {}),

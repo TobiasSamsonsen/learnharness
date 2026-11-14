@@ -177,7 +177,7 @@ export interface AgentBuildOptions {
 	language?: LessonLanguage;
 	/** The session's pace and the learner's time note (fork addition, 2026-11-01 — core/pace.ts). Only the prober and the
 	 *  teacher are paced; Thorough with no note adds nothing to the prompt. */
-	pace?: { level: Pace; note?: string };
+	pace?: { level: Pace; note?: string; /** A course session's exam, "14 Dec 2026, 30 days left" (core/exam-plan.ts examWhen). */ exam?: string };
 	/** The session's problem difficulty (fork addition, 2026-11-07 — core/difficulty.ts). Only the practice
 	 *  agent is sized by it; absent adds nothing. */
 	difficulty?: Difficulty;
@@ -282,7 +282,7 @@ const hasGatedTool = (list: ReadonlyArray<{ name: string }> | undefined): boolea
  *  placement test have their own prompts); "" when there is nothing to add. */
 function paceFor(kind: AgentKind, pace: AgentBuildOptions["pace"]): string {
 	if (!pace || (kind !== "prober" && kind !== "teacher")) return "";
-	return paceSection(kind, pace.level, pace.note);
+	return paceSection(kind, pace.level, pace.note, pace.exam);
 }
 
 /** The difficulty section: only the practice agent is sized by it (the teacher and the prober are not);

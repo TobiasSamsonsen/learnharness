@@ -486,6 +486,7 @@ export function CourseBody({
 					names={names}
 					weightOf={(id) => byId.get(id)?.weight ?? 1}
 					examDate={course.examDate}
+					totalSkills={skills.length}
 					hasWeights={hasWeights}
 					weightsError={course.weightsError}
 					weighing={data.weighing === true}

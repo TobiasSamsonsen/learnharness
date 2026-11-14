@@ -152,16 +152,16 @@ export function examDateLabel(examDate: string): string {
 }
 
 /**
- * What the course teacher is told about the exam (owner, 2026-11-14): "Exam: 12 Dec 2026, 30 days left", "…, tomorrow",
+ * When the exam is, as the course teacher is told (owner, 2026-11-14): "12 Dec 2026, 30 days left", "…, tomorrow",
  * "…, today". Nothing without an exam date or once the exam has passed (it no longer shapes a lesson). It replaces the
  * old free-text time note, which carried the date and what the exam covers. Pure.
  */
-export function examNote(examDate: string | undefined, now: number): string | undefined {
+export function examWhen(examDate: string | undefined, now: number): string | undefined {
 	if (!examDate) return undefined;
 	const days = daysUntil(examDate, now);
 	if (days < 0) return undefined;
 	const left = days === 0 ? "today" : days === 1 ? "tomorrow" : `${days} days left`;
-	return `Exam: ${examDateLabel(examDate)}, ${left}`;
+	return `${examDateLabel(examDate)}, ${left}`;
 }
 
 /** The course row's days column (owner, 2026-11-14): "12 d", "today", "passed". Pure. */

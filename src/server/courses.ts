@@ -19,7 +19,7 @@ import type {
 import { FOLDER_NAME_MAX, canonicalFolderName, normalizeFolderName, removeFolderChanges, renameFolderChanges } from "../core/course-folders.ts";
 import {
 	daysUntil,
-	examNote,
+	examWhen,
 	forecast,
 	lessonsPerDay,
 	lessonsToday,
@@ -907,23 +907,23 @@ export function courseSessionSkillNames(chatId: string): { courseId: string; ski
  *  tool may tag. Undefined for other sessions, or when the course is gone. */
 export function courseForTurn(
 	chatId: string,
-): { section: string; mode: CourseMode; note?: string; skills?: () => ReadonlyArray<{ id: string; name: string }>; lessonSkill?: { id: string; name: string }; openerSkills?: Array<{ id: string; name: string }> } | undefined {
+): { section: string; mode: CourseMode; exam?: string; skills?: () => ReadonlyArray<{ id: string; name: string }>; lessonSkill?: { id: string; name: string }; openerSkills?: Array<{ id: string; name: string }> } | undefined {
 	const link = stores.chatStore.getChat(chatId)?.course;
 	if (!link) return undefined;
 	const course = stores.courseStore.getCourse(link.courseId);
 	const ctx = readContext();
 	const skills = link.skillIds.filter((id) => ctx.skills.has(id)).map((id) => sessionSkill(id, ctx));
 	const section = coursePromptSection(link.mode, course?.title ?? "(deleted course)", skills);
-	// The exam date becomes the teacher's note ("Exam: 12 Dec 2026, 30 days left"), read fresh every turn so a changed
+	// The exam date becomes the teacher's exam line ("12 Dec 2026, 30 days left"), read fresh every turn so a changed
 	// date, and each passing day, reach the sessions already running. The course's stored time note is no longer read.
-	const note = examNote(course?.examDate, Date.now());
+	const exam = examWhen(course?.examDate, Date.now());
 	// a lesson's one skill: the final problem is graded for it (core/final-problem.ts)
 	const lessonSkill = skills[0] ? { id: skills[0].id, name: skills[0].name } : undefined;
 	// the learned prerequisites of the lesson's skill: what its recall opener may test (core/final-problem.ts)
 	const openerSkills = link.mode === "learn" && skills[0]
 		? (ctx.skills.get(skills[0].id)?.requires ?? []).filter((r) => ctx.skillStates.has(r) && ctx.skills.has(r)).map((r) => ({ id: r, name: ctx.skills.get(r)!.name }))
 		: [];
-	if (link.mode === "learn") return { section, mode: link.mode, ...(note ? { note } : {}), ...(lessonSkill ? { lessonSkill } : {}), ...(openerSkills.length > 0 ? { openerSkills } : {}) };
+	if (link.mode === "learn") return { section, mode: link.mode, ...(exam ? { exam } : {}), ...(lessonSkill ? { lessonSkill } : {}), ...(openerSkills.length > 0 ? { openerSkills } : {}) };
 	const tags = skills.map((s) => ({ id: s.id, name: s.name }));
-	return { section, mode: link.mode, ...(note ? { note } : {}), skills: () => tags };
+	return { section, mode: link.mode, ...(exam ? { exam } : {}), skills: () => tags };
 }

@@ -309,14 +309,14 @@ describe("what the teacher is told about the exam", () => {
 	const NOON = new Date(2026, 10, 14, 12, 0, 0).getTime();
 
 	it("names the date and the days left, or tomorrow or today", () => {
-		assert.equal(plan.examNote("2026-12-14", NOON), "Exam: 14 Dec 2026, 30 days left");
-		assert.equal(plan.examNote("2026-11-15", NOON), "Exam: 15 Nov 2026, tomorrow");
-		assert.equal(plan.examNote("2026-11-14", NOON), "Exam: 14 Nov 2026, today");
+		assert.equal(plan.examWhen("2026-12-14", NOON), "14 Dec 2026, 30 days left");
+		assert.equal(plan.examWhen("2026-11-15", NOON), "15 Nov 2026, tomorrow");
+		assert.equal(plan.examWhen("2026-11-14", NOON), "14 Nov 2026, today");
 	});
 
 	it("says nothing without an exam date or once the exam has passed", () => {
-		assert.equal(plan.examNote(undefined, NOON), undefined);
-		assert.equal(plan.examNote("2026-11-13", NOON), undefined);
+		assert.equal(plan.examWhen(undefined, NOON), undefined);
+		assert.equal(plan.examWhen("2026-11-13", NOON), undefined);
 	});
 
 	it("formats a date the same way the page does", () => {
@@ -334,7 +334,7 @@ describe("the exam plan on the page", () => {
 	const names = new Map([["sk_a", "Taylor series"], ["sk_b", "Row reduction"]]);
 	const basePlan = { skillsLeft: 27, reviewDue: 4, reviewBatch: 4, lessons: ["sk_a", "sk_b"] };
 	const props = (over: Record<string, unknown> = {}) => ({
-		courseId: "course_1", plan: basePlan, names, weightOf: (id: string) => (id === "sk_a" ? 3 : 1), hasWeights: false, weighing: false, canWeigh: true, busy: false, onStart: () => {}, onChanged: () => {}, ...over,
+		courseId: "course_1", plan: basePlan, names, weightOf: (id: string) => (id === "sk_a" ? 3 : 1), totalSkills: 32, hasWeights: false, weighing: false, canWeigh: true, busy: false, onStart: () => {}, onChanged: () => {}, ...over,
 	});
 
 	it("labels days, dates and skills left", () => {
@@ -352,6 +352,7 @@ describe("the exam plan on the page", () => {
 		);
 		assert.match(html, /data-testid="course-exam-countdown"[^>]*>[\s\S]*?29 d[\s\S]*?12 Dec 2026/);
 		assert.match(html, /27 skills left/);
+		assert.match(html, /role="meter"[^>]*aria-valuenow="5"[\s\S]*5 of 32 skills ready/, "the strip: 32 skills, 27 left, 5 ready");
 		assert.match(html, /needs 1 lesson\/day · your pace 1\.2\/day · on track/);
 		assert.match(html, /Review · 4 due/);
 		assert.match(html, /Learn: Taylor series/);
@@ -366,6 +367,7 @@ describe("the exam plan on the page", () => {
 		const html = renderToStaticMarkup(<examUi.ExamPlanSection {...props()} />);
 		assert.match(html, /<input[^>]*type="date"[^>]*data-testid="course-exam-date"/);
 		assert.ok(!html.includes("course-exam-countdown"));
+		assert.ok(!html.includes("course-exam-ready"), "no exam date, no strip");
 	});
 
 	it("once weighed the card says so in one line and keeps no button; a failure and the spinner still show", () => {
