@@ -33,6 +33,8 @@ const REVEAL = { animation: "fadeIn", duration: 250, stagger: 12 } as const;
 const BUBBLE_GAP = 36;
 const CARD_WIDTH = 416;
 const CARD_MAX_HEIGHT = 460;
+/** Where the card fills the page's height (tablet and desktop); phones keep the card at the marked line. */
+const FILL_QUERY = "(min-width: 768px)";
 const CARD_MIN_HEIGHT = 220;
 /** The least card worth showing above a tall dock. */
 const CARD_FLOOR_HEIGHT = 120;
@@ -46,6 +48,8 @@ interface CardPlace {
 	bottom?: number;
 	width: number;
 	maxHeight: number;
+	/** The card spans from `top` to `bottom` (both set): full height, instead of hanging at its content's height. */
+	fill?: boolean;
 }
 
 /** Where a card goes: left of its bubble (over the text), inside the viewport and the scroller, above the dock. A bubble
@@ -54,7 +58,7 @@ interface CardPlace {
 export function placeCard(
 	bubble: { left: number; top: number; bottom: number },
 	view: { width: number; height: number },
-	limits: { minTop: number; dockTop: number | null },
+	limits: { minTop: number; dockTop: number | null; fill?: boolean },
 ): CardPlace {
 	const minTop = limits.minTop + 8;
 	// above the dock when there is room for a card there; with the keyboard up the dock sits high and the room is gone, so the
@@ -64,6 +68,11 @@ export function placeCard(
 	const limitBottom = dockRoom ? Math.min(viewBottom, limits.dockTop! - 8) : viewBottom;
 	const width = Math.min(CARD_WIDTH, view.width - 16);
 	const left = Math.max(8, bubble.left - width - 8);
+	// Wide screens (owner, 2026-11-14): the card takes the whole height, from the bottom of the header down to the top of the
+	// question box (the dock), wherever the bubble is. With no usable room it falls through to the rules below.
+	if (limits.fill && limitBottom - minTop >= CARD_FLOOR_HEIGHT) {
+		return { left, top: minTop, bottom: view.height - limitBottom, width, maxHeight: limitBottom - minTop, fill: true };
+	}
 	// A bubble in the dock (the wording of the question being asked about): its card goes above the dock with whatever room is
 	// there, never over the question. A tall dock leaves little (about 200px on a phone); the card scrolls inside. Only with no
 	// usable room (the keyboard is up, the dock sits high) does the card fall back to the rule below.
@@ -207,9 +216,9 @@ export function ClarifyLayer({ threads, busyKey, error, ask, draft, onDraftDone,
 			{ left: r.left, top: r.top, bottom: r.bottom },
 			// the keyboard shrinks the visual viewport; the card must stay above it
 			{ width: window.innerWidth, height: Math.min(window.innerHeight, window.visualViewport?.height ?? window.innerHeight) },
-			{ minTop: scroller?.getBoundingClientRect().top ?? 0, dockTop: dock ? dock.getBoundingClientRect().top : null },
+			{ minTop: scroller?.getBoundingClientRect().top ?? 0, dockTop: dock ? dock.getBoundingClientRect().top : null, fill: window.matchMedia(FILL_QUERY).matches },
 		);
-		setPlace((prev) => (prev && next && prev.left === next.left && prev.top === next.top && prev.bottom === next.bottom && prev.width === next.width && prev.maxHeight === next.maxHeight ? prev : next));
+		setPlace((prev) => (prev && next && prev.left === next.left && prev.top === next.top && prev.bottom === next.bottom && prev.width === next.width && prev.maxHeight === next.maxHeight && prev.fill === next.fill ? prev : next));
 	}, [openKey]);
 
 	useLayoutEffect(() => {
@@ -395,7 +404,7 @@ function ClarifyCard({
 			data-clarify-card=""
 			data-session-find-exclude=""
 			data-testid="clarify-card"
-			style={{ position: "fixed", left: place.left, top: place.bottom === undefined ? place.top : undefined, bottom: place.bottom, width: place.width, maxHeight: place.maxHeight }}
+			style={{ position: "fixed", left: place.left, top: place.bottom === undefined || place.fill ? place.top : undefined, bottom: place.bottom, width: place.width, maxHeight: place.maxHeight }}
 			className="z-50 flex flex-col overflow-hidden rounded-xl border border-border bg-popover text-sm text-popover-foreground shadow-xl"
 			onKeyDown={(e) => {
 				if (e.key === "Escape") {

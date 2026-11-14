@@ -73,6 +73,23 @@ describe("placeCard — where the thread card goes", () => {
 		assert.equal(place.top + place.maxHeight, 700 - 8);
 	});
 
+	it("fill (wide screens): the card spans from the bottom of the header to the top of the dock, wherever the bubble is", () => {
+		const place = placeCard({ left: 500, top: 300, bottom: 320 }, VIEW, { minTop: 100, dockTop: 700, fill: true });
+		assert.equal(place.fill, true);
+		assert.equal(place.top, 100 + 8);
+		assert.equal(place.bottom, 800 - (700 - 8));
+		assert.equal(place.top + place.maxHeight, 700 - 8, "no 460px cap");
+		const noDock = placeCard({ left: 500, top: 300, bottom: 320 }, VIEW, { minTop: 100, dockTop: null, fill: true });
+		assert.equal(noDock.top + noDock.maxHeight, 800 - 8, "without a dock it ends above the viewport bottom");
+	});
+
+	it("fill with no usable room above the dock (keyboard up) spans from the header down to the keyboard", () => {
+		const place = placeCard({ left: 500, top: 397, bottom: 441 }, { width: 1000, height: 464 }, { minTop: 98, dockTop: 232, fill: true });
+		assert.equal(place.fill, true);
+		assert.equal(place.top, 98 + 8);
+		assert.equal(place.top + place.maxHeight, 464 - 8, "ends above the keyboard");
+	});
+
 	it("a bubble inside the dock (question wording) gets the full card height above the dock, not the minimum", () => {
 		const place = placeCard({ left: 500, top: 750, bottom: 770 }, VIEW, { minTop: 100, dockTop: 700 });
 		assert.equal(place.top + place.maxHeight, 700 - 8, "ends above the dock");
