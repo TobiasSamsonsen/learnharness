@@ -490,7 +490,7 @@ A long set titles the session with three names and "+n more".
   - The session list puts finished sessions (✓) in a collapsed "Finished · N" group at its bottom
     (`lh:finished-open`, per device); searching opens it.
 - **`/course/[id]`**:
-  - Header: editable title, *n/m known* and the **Review (n)** button.
+  - Header: the editable title, *n/m known* and the **Review (n)** button. The title is large (30 px) and never clips (`components/fit-title-input.tsx`): it shrinks to fit its width down to 16 px, and only a title still too long there wraps, onto up to three lines.
   - **Course settings (owner, 2026-11-14)** — one closed line under the header (`components/course-settings.tsx`) holding
     what is set up rarely: the pace, the curriculum (Sources, language, **Draft / Re-draft skill map**), the exam
     date with **Clear** and **Weigh again** (with what the last weighing found, as one line cut at the edge; a mouse hover shows all of it, a touch screen does not), and the **Placement test**. It

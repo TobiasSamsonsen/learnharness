@@ -39,6 +39,7 @@ import { SidebarToggle } from "@/components/sidebar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { cn } from "@/lib/utils";
 import { PAGE_HEAD, SECTION_HEAD } from "@/components/section-heads";
+import { FitTitleInput } from "@/components/fit-title-input";
 import { RichLine, RichText } from "@/components/rich-text";
 
 /**
@@ -965,7 +966,7 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 		<div className="relative h-dvh overflow-y-auto">
 			<header className="lh-drag sticky top-0 z-10 flex items-center gap-3 bg-background/85 px-3 pb-2 pt-[calc(0.5rem+var(--lh-safe-top))] backdrop-blur">
 				<SidebarToggle />
-				<input
+				<FitTitleInput
 					value={title}
 					onChange={(e) => setTitle(e.target.value)}
 					onBlur={() => void commitTitle()}
@@ -978,7 +979,7 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 					}}
 					aria-label="Course title"
 					data-testid="course-title"
-					className="lh-no-drag min-w-0 flex-1 bg-transparent font-title text-lg outline-none"
+					className="lh-no-drag min-w-0 flex-1 resize-none overflow-y-auto bg-transparent font-title leading-tight outline-none"
 				/>
 				{progress && (
 					<span className="shrink-0 text-xs text-muted-foreground" data-testid="course-progress">
