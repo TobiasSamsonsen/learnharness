@@ -16,6 +16,7 @@ import type {
 	Skill,
 	TodayCourse,
 } from "../core/contracts.ts";
+import { FOLDER_NAME_MAX, canonicalFolderName, normalizeFolderName, removeFolderChanges, renameFolderChanges } from "../core/course-folders.ts";
 import {
 	daysUntil,
 	forecast,
@@ -207,6 +208,7 @@ export function listCourseSummaries(): CourseSummary[] {
 			})),
 			needsReview: p.review.length,
 			...(course.examDate ? { examDate: course.examDate } : {}),
+			...(course.folder ? { folder: course.folder } : {}),
 		};
 	});
 }
@@ -411,6 +413,32 @@ export function renameCourse(courseId: string, title: string): CourseRecord | nu
 /** Set or clear (undefined) a course's default pace (fork addition, 2026-11-09 — core/pace.ts). Cleared = the global default. */
 export function setCoursePace(courseId: string, pace: Pace | undefined): CourseRecord | null {
 	return stores.courseStore.updateCourse(courseId, { pace });
+}
+
+/** Parse the PATCH body's `folder`: a valid name, or null (or blank text) to take the course out of its folder. */
+export function parseFolderField(raw: unknown): { ok: true; folder: string | undefined } | { ok: false; error: string } {
+	if (raw === null || (typeof raw === "string" && raw.trim() === "")) return { ok: true, folder: undefined };
+	const name = normalizeFolderName(raw);
+	return name ? { ok: true, folder: name } : { ok: false, error: `folder must be 1 to ${FOLDER_NAME_MAX} characters, or null` };
+}
+
+/** Put a course in a folder, or take it out (undefined). The name takes the spelling an existing folder already has
+ *  (core/course-folders.ts), so two devices never make two folders of "2026 Høst" and "2026 høst". */
+export function setCourseFolder(courseId: string, folder: string | undefined): CourseRecord | null {
+	const course = stores.courseStore.getCourse(courseId);
+	if (!course) return null;
+	const named = folder === undefined ? undefined : canonicalFolderName(folder, stores.courseStore.listCourses().flatMap((c) => (c.folder ? [c.folder] : [])));
+	return stores.courseStore.updateCourse(courseId, { folder: named });
+}
+
+/** Rename a folder (every course in it moves, merging into a folder of the new name) or remove it (its courses leave it;
+ *  none is deleted). Returns how many courses changed. */
+export function changeCourseFolders(action: { action: "rename"; from: string; to: string } | { action: "remove"; name: string }): Result<{ changed: number }> {
+	const courses = stores.courseStore.listCourses();
+	const changes = action.action === "rename" ? renameFolderChanges(courses, action.from, action.to) : removeFolderChanges(courses, action.name);
+	if (changes === null) return { ok: false, status: 400, error: `a folder name is 1 to ${FOLDER_NAME_MAX} characters` };
+	for (const change of changes) stores.courseStore.updateCourse(change.id, { folder: change.folder });
+	return { ok: true, value: { changed: changes.length } };
 }
 
 /** Parse the PATCH body's `examDate`: a real calendar date, or null to clear it. */

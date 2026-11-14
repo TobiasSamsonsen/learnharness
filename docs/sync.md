@@ -84,7 +84,7 @@ edit keeps the edit (owner).
   drop the grades; the problem then shows "Not graded" again.
   `turns`, `extractions`, `clarifyThreads` union by id; `title`, `settings`,
   `tree` take whichever side changed since the base.
-- **Courses**: `title`, `language`, `note`, `pace`, `examDate` per field; `skillWeights/weightsSummary/weightsAt/weightsError`
+- **Courses**: `title`, `language`, `note`, `pace`, `examDate`, `folder` per field; `skillWeights/weightsSummary/weightsAt/weightsError`
   as one unit (a weighing pass sets them together); `status/skills/draft/error`
   as one unit (an approval sets all four); `drafts` union.
 - **Graph ledgers**: line-level three-way against the base. A base line

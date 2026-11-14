@@ -104,6 +104,9 @@ export interface CourseRecord {
 	/** The course's default pace (fork addition, 2026-11-09, core/pace.ts): stamped on sessions started from
 	 *  the course (a Learn start's own pick wins). Absent = the global default (general.pace). */
 	pace?: Pace;
+	/** The sidebar folder this course sits in (fork addition, 2026-11-14, core/course-folders.ts): a name, one level, absent =
+	 *  no folder. Case-insensitive; syncs field by field like the title. */
+	folder?: string;
 	/** The exam date, "YYYY-MM-DD" (fork addition, 2026-11-13, core/exam-plan.ts): the course page counts down to it and
 	 *  says whether the recent pace gets through the remaining skills. */
 	examDate?: string;
@@ -161,6 +164,8 @@ export interface CourseSummary {
 	needsReview: number;
 	/** The exam date, when set. */
 	examDate?: string;
+	/** The sidebar folder, when the course is in one. */
+	folder?: string;
 }
 
 /** One line of the sidebar's Today list (GET /api/today): a course with something to do. */

@@ -316,6 +316,17 @@ the finish result as `details.openers`; the fold reads each as a `solved` review
 grading that fails adds nothing. "Practice all" poses the learning skills in a shuffled order (`shuffled`), so
 the session interleaves them; the context marker says "in a mixed order".
 
+**Course folders (owner, 2026-11-14, `core/course-folders.ts`).** The sidebar can separate courses by year or
+semester. A folder is a NAME on each course (`CourseRecord.folder`, 1 to 60 characters, one level), not a
+registry: it exists while a course is in it, you make one by moving a course into "New folder…", and an emptied
+folder is gone. Because it is a course field it syncs per field like the title (`docs/sync.md`), so an older
+build cannot wipe it. Names match case-insensitively and a new name takes the spelling an existing folder has.
+The order depends on the names alone, never on activity: courses with no folder first, by name; then folders,
+HIGHEST name first (name them "2026-2 Høst", "2026-1 Vår" so the newest is on top; numbers compare as numbers);
+courses by name inside a folder. `PATCH /api/courses/[id]` takes `folder` (null or blank takes the course out);
+`POST /api/courses/folders` renames a folder (every course in it moves, merging into a folder of the new name)
+or removes it (its courses leave it; none is deleted).
+
 **Retry on another model (owner, 2026-11-13, `core/turn-fallback.ts`).** When a turn fails with a recognised
 provider failure, the banner offers "Retry on <Cheap slot model>" beside Retry: one press moves THIS session
 to that model (its other settings kept) and retries. It is never automatic, and only between API-key models:
