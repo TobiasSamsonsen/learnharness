@@ -412,11 +412,17 @@ that skill in `skillIds`.
 
 ## 4. Sessions from a course
 
-`POST /api/courses/[id]/sessions { mode, skillId? }` creates the chat with the
+`POST /api/courses/[id]/sessions { mode, skillId?, skillIds?, pace? }` creates the chat with the
 `course` link and a **course-context marker** as message[0] (same mechanism as
 the graph-context marker). The marker lists the session's skills (statement,
 box, due) and their propositions with the chains among them. A generated first
 learner message starts the turn, and the client navigates to `/chat/<id>`.
+
+**Practice on a chosen set (owner, 2026-11-14).** Practice takes one `skillId`, a `skillIds` list, or neither (then every
+skill being learned, mixed). A list may hold any learned skill (known ones too: practice keeps them sharp, and a miss
+lowers them as in any practice) or next-up skill; it is deduped, mixed, and refused when empty (400), when a skill is
+not in the course (400), when a skill is locked (409: learn what it builds on first), or in any mode but practice (400).
+A long set titles the session with three names and "+n more".
 
 | Mode | Kind | Skills in context | First message |
 |---|---|---|---|
@@ -504,10 +510,13 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
       band's count printed on its segment, the bands as labelled chips, and "n due of m". A band narrows the list to the matching skills.
     - **Reviews due** — its own box right below: four equal columns of when reviews fall due (Now, Today, This week, Later), each with its count and a thin bar sized to the biggest. A bucket narrows the list to the matching skills,
       weakest first, with a clearable "Showing" chip; clearing it brings the groups back.
-    - **Skills · n** with a **Map** button: the dependency diagram (white known, learned or next up, gray locked) opens
+    - **Skills · n** with a **Choose skills** button and a **Map** button. **Choose skills** turns every learned or next-up
+      row into a tick box (a tap ticks instead of opening; locked skills cannot be ticked) and shows a bar at the bottom
+      of the window, "3 skills chosen · Cancel · Practice 3", which starts one practice session on the ticked set.
+      **Map**: the dependency diagram (white known, learned or next up, gray locked) opens
       fitted to the whole map, with zoom, fit and expand; it hides again from the same button.
     - **Heading ranks (owner, 2026-11-14).** Attention follows rank (`components/section-heads.ts`): the page title, then the
-      blocks the page is made of (Today, Exam, Understanding, Reviews due, Skills, Sessions, a draft) in one large
+      blocks the page is made of (Next up, Exam, Understanding, Reviews due, Skills, Sessions, a draft) in one large
       heading style, then what sits inside a block (the skill groups under Skills, the groups in Course settings) in
       a small muted one, then a skill's own name.
     - **One grouped list**, two columns on a wide page: **Due for review** (with Review), **Next up**, **Not examined**

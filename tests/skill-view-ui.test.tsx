@@ -321,3 +321,64 @@ test("row buttons live in the opened detail: next up gets Learn and Practice, le
 	await click("practice-h");
 	assert.deepEqual(calls.at(-1), ["practice", "h"], "Practice starts a practice session on H");
 });
+
+/** Tap a skill row's main button (the first row with this id on the page). */
+async function tapRow(skillId: string): Promise<void> {
+	const row = byTestId(`skill-${skillId}`);
+	assert.ok(row, `expected the row skill-${skillId}`);
+	const button = row.querySelector("button") as HTMLElement | null;
+	assert.ok(button, `expected skill-${skillId} to have its row button`);
+	await act(async () => {
+		button.click();
+	});
+}
+
+test("Choose skills: a tap ticks instead of opening, a locked skill cannot be ticked, Practice starts one session on the set", async () => {
+	const sets: string[][] = [];
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () => {
+		root!.render(
+			<InteractionLayersProvider>
+				<CourseBody
+					data={data}
+					busy={false}
+					error={null}
+					onDraft={() => {}}
+					onApprove={() => {}}
+					onStart={() => {}}
+					onPracticeSet={(ids) => {
+						sets.push(ids);
+					}}
+					materialCount={1}
+				/>
+			</InteractionLayersProvider>,
+		);
+	});
+	assert.equal(has("choose-bar"), false, "the mode is off until asked for");
+	await click("choose-toggle");
+	assert.ok(has("choose-bar"));
+	assert.equal(byTestId("choose-count")?.textContent, "Tap skills to practice");
+	assert.equal(byTestId("choose-start")?.hasAttribute("disabled"), true, "nothing ticked yet");
+
+	await tapRow("d"); // known
+	await tapRow("c"); // learning
+	assert.equal(byTestId("skill-detail-d"), null, "a tap ticks, it does not open the row");
+	assert.equal(byTestId("choose-count")?.textContent, "2 skills chosen");
+	assert.ok(byTestId("choose-box-d"), "each row shows a box while choosing");
+
+	await tapRow("a"); // locked: not selectable
+	assert.equal(byTestId("choose-count")?.textContent, "2 skills chosen", "a locked skill stays unticked");
+
+	await tapRow("c"); // untick
+	assert.equal(byTestId("choose-count")?.textContent, "1 skill chosen");
+	await tapRow("c");
+	await click("choose-start");
+	assert.deepEqual(sets.map((s) => [...s].sort()), [["c", "d"]], "one session on the two ticked skills, the known one included");
+
+	await click("choose-cancel");
+	assert.equal(has("choose-bar"), false, "Cancel leaves the mode");
+	await tapRow("d");
+	assert.ok(byTestId("skill-detail-d"), "and a tap opens the row again");
+});

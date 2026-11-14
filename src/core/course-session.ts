@@ -198,11 +198,16 @@ export function newCourseContextMessage(opts: {
 	};
 }
 
+/** How many skill names a session title lists before "+n more". */
+const TITLE_SKILLS = 3;
+
 /** The session's title. */
 export function courseSessionTitle(mode: CourseMode, courseTitle: string, skills: readonly { name: string }[]): string {
 	if (mode === "review") return `Review: ${courseTitle}`;
 	if (mode === "placement") return `Placement: ${courseTitle}`;
-	const names = skills.map((s) => s.name).join(", ");
+	// a long set (a chosen practice session) keeps the title readable: three names, then how many more
+	const shown = skills.slice(0, TITLE_SKILLS).map((s) => s.name).join(", ");
+	const names = skills.length > TITLE_SKILLS ? `${shown} +${skills.length - TITLE_SKILLS} more` : shown;
 	return `${COURSE_MODE_LABEL[mode]}: ${names || courseTitle}`;
 }
 

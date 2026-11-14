@@ -791,6 +791,61 @@ describe("the course service (src/server/courses.ts)", () => {
 		assert.deepEqual(chatStore.getChat(practice.value.id)!.course!.skillIds, [a], "practice all = learning");
 	});
 
+	it("practice on a chosen set (owner, 2026-11-14): a known, a learning and a next-up skill together, deduped and mixed", () => {
+		const { courseId, a, b, c } = approvedCourse();
+		// a confident answer on B: B known, A learned (inferred), C next up
+		const placement = courses.createCourseSession(courseId, "placement");
+		assert.ok(placement.ok);
+		const record = chatStore.getChat(placement.value.id)!;
+		const at = Date.now() - 1000;
+		chatStore.saveMessages(placement.value.id, [
+			...record.messages,
+			assistant([{ id: "pq1", name: "probe", args: { skill: b, question: "Q" } }], at),
+			{ ...result("pq1", "probe", at), details: { kind: "quiz", dontKnow: false, answers: [], answeredAt: "t", correct: true, confidence: 90 } } as LhMessage,
+		]);
+		const view = courses.courseView(courseId)!;
+		assert.deepEqual([view.known, view.learning, view.nextUp], [[b], [a], [c]]);
+		const chosen = courses.createCourseSession(courseId, "practice", undefined, undefined, [b, a, c, b]);
+		assert.ok(chosen.ok, "a known skill can be chosen, with learning and next-up ones");
+		assert.deepEqual([...chatStore.getChat(chosen.value.id)!.course!.skillIds].sort(), [a, b, c].sort(), "each once");
+		assert.equal(chatStore.getChat(chosen.value.id)!.course!.mode, "practice");
+		assert.match(chosen.value.title, /^Practice: /);
+		const known = courses.createCourseSession(courseId, "practice", undefined, undefined, [b]);
+		assert.ok(known.ok, "a known skill alone");
+		assert.deepEqual(chatStore.getChat(known.value.id)!.course!.skillIds, [b]);
+	});
+
+	it("a chosen set refuses a locked skill, a stranger, an empty choice and any mode but practice", async () => {
+		const { courseId, a, b } = approvedCourse();
+		// nothing learned yet: A is next up, B and C are locked
+		const locked = courses.createCourseSession(courseId, "practice", undefined, undefined, [a, b]);
+		assert.ok(!locked.ok);
+		assert.equal(locked.status, 409);
+		assert.match(locked.error, /locked/);
+		const stranger = courses.createCourseSession(courseId, "practice", undefined, undefined, ["sk_nope"]);
+		assert.ok(!stranger.ok);
+		assert.equal(stranger.status, 400);
+		const empty = courses.createCourseSession(courseId, "practice", undefined, undefined, []);
+		assert.ok(!empty.ok);
+		assert.equal(empty.status, 400);
+		const wrongMode = courses.createCourseSession(courseId, "review", undefined, undefined, [a]);
+		assert.ok(!wrongMode.ok);
+		assert.equal(wrongMode.status, 400);
+		assert.ok(courses.createCourseSession(courseId, "practice", undefined, undefined, [a]).ok, "a next-up skill alone is fine");
+		const { POST } = await import("../app/api/courses/[id]/sessions/route.ts");
+		const post = (body: unknown) =>
+			POST(new Request("http://test/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }), { params: Promise.resolve({ id: courseId }) });
+		assert.equal((await post({ mode: "practice", skillIds: "a" })).status, 400, "not a list");
+		assert.equal((await post({ mode: "practice", skillIds: [a, 3] })).status, 400, "not all strings");
+		assert.equal((await post({ mode: "practice", skillIds: [a] })).status, 201);
+	});
+
+	it("a long practice set keeps its title readable: three names, then how many more", () => {
+		const names = ["A", "B", "C", "D", "E"].map((name) => ({ name }));
+		assert.equal(session.courseSessionTitle("practice", "Calc", names), "Practice: A, B, C +2 more");
+		assert.equal(session.courseSessionTitle("practice", "Calc", names.slice(0, 3)), "Practice: A, B, C");
+	});
+
 	it("a skill had from another course: offered a context check (never forced), skipped by placement, cleared by one problem here", () => {
 		const { courseId, a } = approvedCourse();
 		const learn = courses.createCourseSession(courseId, "learn", a);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, Loader2Icon } from "lucide-react";
@@ -127,6 +127,17 @@ const DETAILS_HEAD = "lh-touch flex cursor-pointer list-none items-center gap-1.
 const ITEM_TYPE = "[--lh-prose-size:var(--text-xs)] [--lh-prose-leading:1.625]";
 
 /**
+ * The "Choose skills" practice mode (owner, 2026-11-14): while `choosing`, a tap on a skill row ticks it instead of
+ * opening it, and the rows that can be practiced (learned or next-up, not locked) can be ticked.
+ */
+const SkillChooseContext = createContext<{
+	choosing: boolean;
+	chosen: ReadonlySet<string>;
+	canChoose: (skillId: string) => boolean;
+	toggle: (skillId: string) => void;
+} | null>(null);
+
+/**
  * One skill, one quiet line (owner, 2026-11-14): its name, a thin understanding bar and a dot when it is due. A tap opens
  * the detail: the state line, the Learn / Practice / Quick check buttons, the exam weight and everything below.
  */
@@ -142,17 +153,30 @@ function SkillRow({
 	actions?: React.ReactNode;
 }) {
 	const [open, setOpen] = useState(false);
+	const choose = useContext(SkillChooseContext);
+	const choosing = choose?.choosing === true;
+	const can = choose?.canChoose(skill.id) === true;
+	const checked = choose?.chosen.has(skill.id) === true;
 	const due = dueLine(skill, now);
 	return (
 		<div className="break-inside-avoid border-b border-border/40" data-testid={`skill-${skill.id}`}>
 			<button
 				type="button"
-				onClick={() => setOpen((o) => !o)}
-				aria-expanded={open}
-				aria-label={open ? `Collapse ${skill.name}` : `Expand ${skill.name}`}
-				className="lh-touch flex w-full items-center gap-2 py-2 text-left"
+				onClick={choosing ? () => (can ? choose?.toggle(skill.id) : undefined) : () => setOpen((o) => !o)}
+				{...(choosing
+					? { role: "checkbox", "aria-checked": checked, "aria-disabled": !can, "aria-label": `Choose ${skill.name}` }
+					: { "aria-expanded": open, "aria-label": open ? `Collapse ${skill.name}` : `Expand ${skill.name}` })}
+				className={cn("lh-touch flex w-full items-center gap-2 py-2 text-left", choosing && !can && "opacity-50")}
 			>
-				{open ? <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" /> : <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground" />}
+				{choosing ? (
+					<span aria-hidden data-testid={`choose-box-${skill.id}`} className={cn("flex size-4 shrink-0 items-center justify-center rounded border", checked ? "border-foreground bg-foreground text-background" : "border-border")}>
+						{checked && <CheckIcon className="size-3" />}
+					</span>
+				) : open ? (
+					<ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+				) : (
+					<ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground" />
+				)}
 				<span className="min-w-0 flex-1 truncate">
 					<RichLine prose>{skill.name}</RichLine>
 				</span>
@@ -161,7 +185,7 @@ function SkillRow({
 					<UnderstandingBar skill={skill} now={now} className="mt-0" />
 				</span>
 			</button>
-			{open && (
+			{open && !choosing && (
 				<div className="space-y-2 pb-3 pl-5 text-xs" data-testid={`skill-detail-${skill.id}`}>
 					<p className="flex flex-wrap items-center gap-2 text-muted-foreground">
 						<span>
@@ -365,6 +389,7 @@ export function CourseBody({
 	onDraft,
 	onApprove,
 	onStart,
+	onPracticeSet,
 	onMaterials,
 	materialCount,
 	placementSkipped = false,
@@ -377,6 +402,8 @@ export function CourseBody({
 	onDraft: (feedback?: string) => void;
 	onApprove: () => void;
 	onStart: (mode: CourseMode, skillId?: string) => void;
+	/** Start one practice session on the chosen skills ("Choose skills" mode). */
+	onPracticeSet?: (skillIds: string[]) => void;
 	onMaterials?: (materials: LessonMaterial[]) => void;
 	materialCount: number;
 	/** The learner chose "Start from the beginning" (per-viewer). */
@@ -408,6 +435,27 @@ export function CourseBody({
 	const now = useNow();
 	const [selection, setSelection] = useState<SkillSelection>(NO_SELECTION);
 	const [showMap, setShowMap] = useState(false);
+	// "Choose skills" (owner, 2026-11-14): tick skills, then one practice session on them. Locked skills cannot be ticked.
+	const [choosing, setChoosing] = useState(false);
+	const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
+	const canChoose = (id: string) => {
+		const s = byId.get(id);
+		return s !== undefined && (s.learned || s.missing.length === 0);
+	};
+	const toggleChosen = (id: string) =>
+		setChosen((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	const stopChoosing = () => {
+		setChoosing(false);
+		setChosen(new Set());
+	};
+	const chosenIds = [...chosen].filter(canChoose);
+	const chooseCount = chosenIds.length;
+	const choose = { choosing, chosen, canChoose, toggle: toggleChosen };
 	const narrow = (next: SkillSelection) => setSelection(next);
 	const narrowed = !!(selection.band || selection.bucket);
 	const flat = useMemo(
@@ -473,6 +521,7 @@ export function CourseBody({
 		return undefined;
 	};
 	return (
+		<SkillChooseContext.Provider value={choose}>
 		<div className="space-y-8">
 			<CourseSettings
 				courseId={course.id}
@@ -535,9 +584,16 @@ export function CourseBody({
 
 					<div className="flex flex-wrap items-center gap-2">
 						<h2 className={cn(PAGE_HEAD, "pb-0")}>Skills · {skills.length}</h2>
-						<button type="button" className={cn(BTN, "ml-auto")} aria-expanded={showMap} data-testid="map-toggle" onClick={() => setShowMap((v) => !v)}>
-							{showMap ? "Hide map" : "Map"}
+						<span className="ml-auto flex items-center gap-2">
+					{skills.some((s) => canChoose(s.id)) && (
+						<button type="button" className={BTN} aria-pressed={choosing} data-testid="choose-toggle" onClick={() => (choosing ? stopChoosing() : setChoosing(true))}>
+							{choosing ? "Done" : "Choose skills"}
 						</button>
+					)}
+					<button type="button" className={BTN} aria-expanded={showMap} data-testid="map-toggle" onClick={() => setShowMap((v) => !v)}>
+						{showMap ? "Hide map" : "Map"}
+					</button>
+				</span>
 					</div>
 
 					{showMap && (
@@ -682,8 +738,31 @@ export function CourseBody({
 				</>
 			)}
 
-{data.sessions.length > 0 && <SessionsSection sessions={data.sessions} />}
+			{choosing && (
+				<div data-testid="choose-bar" className="sticky bottom-3 z-20 flex items-center justify-between gap-3 rounded-xl border border-border bg-background/95 px-4 py-3 shadow-lg backdrop-blur">
+					<span className="text-sm" data-testid="choose-count">
+						{chooseCount === 0 ? "Tap skills to practice" : `${chooseCount} skill${chooseCount === 1 ? "" : "s"} chosen`}
+					</span>
+					<span className="flex items-center gap-2">
+						<button type="button" className={BTN} data-testid="choose-cancel" onClick={stopChoosing}>
+							Cancel
+						</button>
+						<button
+							type="button"
+							className={cn(BTN, "border-foreground/40 text-foreground")}
+							disabled={busy || chooseCount === 0 || !onPracticeSet}
+							data-testid="choose-start"
+							onClick={() => onPracticeSet?.(chosenIds)}
+						>
+							Practice {chooseCount}
+						</button>
+					</span>
+				</div>
+			)}
+
+			{data.sessions.length > 0 && <SessionsSection sessions={data.sessions} />}
 		</div>
+		</SkillChooseContext.Provider>
 	);
 }
 
@@ -762,6 +841,13 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 	const onApprove = () => void call(`/api/courses/${courseId}/approve`, {});
 	const onStart = async (mode: CourseMode, skillId?: string, pace?: Pace) => {
 		const res = await call(`/api/courses/${courseId}/sessions`, { mode, ...(skillId ? { skillId } : {}), ...(pace ? { pace } : {}) });
+		if (!res) return;
+		const { id, prompt } = (await res.json()) as { id: string; prompt: string };
+		router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}`);
+	};
+	// "Choose skills": one practice session on the ticked skills (owner, 2026-11-14)
+	const onPracticeSet = async (skillIds: string[]) => {
+		const res = await call(`/api/courses/${courseId}/sessions`, { mode: "practice", skillIds });
 		if (!res) return;
 		const { id, prompt } = (await res.json()) as { id: string; prompt: string };
 		router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}`);
@@ -876,6 +962,7 @@ data={data}
 						else void onStart(mode, skillId);
 					}}
 					onMaterials={onMaterials}
+					onPracticeSet={(ids) => void onPracticeSet(ids)}
 					materialCount={materialCount}
 					placementSkipped={placementSkipped}
 					onSkipPlacement={() => {

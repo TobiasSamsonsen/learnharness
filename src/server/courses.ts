@@ -823,6 +823,8 @@ export function createCourseSession(
 	skillId?: string,
 	/** The Learn dialog's pick (fork addition, 2026-11-09): this session's pace. Else the course's, else the global default. */
 	pace?: Pace,
+	/** A chosen set to practice (2026-11-14): learned or next-up skills, known ones too; locked skills are refused. */
+	skillIds?: readonly string[],
 ): Result<{ id: string; title: string; prompt: string }> {
 	const course = stores.courseStore.getCourse(courseId);
 	if (!course) return { ok: false, status: 404, error: "Unknown course" };
@@ -830,6 +832,15 @@ export function createCourseSession(
 	const ctx = readContext();
 	const p = partitionOf(course, ctx);
 	if (skillId !== undefined && !p.order.includes(skillId)) return { ok: false, status: 400, error: "That skill is not in this course" };
+	let chosen: string[] | undefined;
+	if (skillIds !== undefined) {
+		if (mode !== "practice") return { ok: false, status: 400, error: "skillIds is only for practice" };
+		chosen = [...new Set(skillIds)];
+		if (chosen.length === 0) return { ok: false, status: 400, error: "Choose at least one skill to practice" };
+		if (chosen.some((id) => !p.order.includes(id))) return { ok: false, status: 400, error: "A chosen skill is not in this course" };
+		// a locked skill cannot be taught from its prerequisites: it has to be learned first
+		if (chosen.some((id) => p.locked.includes(id))) return { ok: false, status: 409, error: "A locked skill cannot be practiced — learn what it builds on first" };
+	}
 	let ids: string[];
 	switch (mode) {
 		case "learn":
@@ -839,7 +850,8 @@ export function createCourseSession(
 		case "practice":
 			// "Practice all" practices what is learned but not known yet
 			// "Practice all" mixes its order (owner, 2026-11-13): practice that interleaves skills holds better than a block
-			ids = skillId !== undefined ? [skillId] : shuffled(p.learning);
+			// a chosen set (any learned or next-up skill) is mixed the same way
+			ids = chosen !== undefined ? shuffled(chosen) : skillId !== undefined ? [skillId] : shuffled(p.learning);
 			if (ids.length === 0) return { ok: false, status: 409, error: "Nothing to practice yet — finish a lesson first" };
 			break;
 		case "review":
