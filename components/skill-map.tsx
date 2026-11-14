@@ -31,10 +31,12 @@ const PAD = GRAPH_PAD;
 
 /** The inline viewport's height for a padded map box at this width: the
  *  map's own height at the zoom it opens with, capped. Pure. */
-export function mapViewportHeight(box: { w: number; h: number }, width: number): number {
+export function mapViewportHeight(box: { w: number; h: number }, width: number, fitted = false): number {
 	if (!box.w || !width) return MAP_MAX_H;
-	const zoom = Math.min(1, Math.max(READABLE_ZOOM, (width - FIT_PAD) / box.w));
-	return Math.min(MAP_MAX_H, Math.ceil(box.h * zoom + FIT_PAD));
+	// a fitted map opens showing the whole map, so on a phone it is as tall as the map at that (small) zoom, not at READABLE_ZOOM
+	const zoom = Math.min(1, fitted ? (width - FIT_PAD) / box.w : Math.max(READABLE_ZOOM, (width - FIT_PAD) / box.w));
+	// a floor so the zoom buttons never cover a short, wide map
+	return Math.min(MAP_MAX_H, Math.max(fitted ? 200 : 0, Math.ceil(box.h * zoom + FIT_PAD)));
 }
 
 /** The zoom floor: the fit, but never past 1:1 — a small map shows at its
@@ -170,7 +172,7 @@ export function SkillMap({
 		if (size.w && size.h) setView(fitGraphView(box, size, floor));
 	};
 
-	const inlineHeight = mapViewportHeight(box, size.w);
+	const inlineHeight = mapViewportHeight(box, size.w, fitted);
 	const control =
 		"pointer-events-auto flex size-7 items-center justify-center rounded-md border border-border/70 bg-card/80 text-muted-foreground backdrop-blur transition-colors hover:bg-accent hover:text-foreground";
 

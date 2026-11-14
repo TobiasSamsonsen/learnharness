@@ -201,7 +201,7 @@ export function ExamPlanSection(props: ExamPlanSectionProps) {
 	const boxHasItems = plan.reviewDue > 0 || plan.lessons.length > 0 || more.length > 0 || practiceAll;
 	const learnRow = (id: string, testid: string) => (
 		<div key={id} className="flex items-center justify-between gap-2 py-1.5 text-sm" data-testid={testid}>
-			<span className="min-w-0 flex-1 truncate">
+			<span className="min-w-0 flex-1 line-clamp-2 break-words sm:line-clamp-none sm:block sm:truncate">
 				{names.get(id) ?? id}
 				{weightOf(id) !== 1 && <span className="ml-2 text-xs text-muted-foreground">w{weightOf(id)}</span>}
 			</span>

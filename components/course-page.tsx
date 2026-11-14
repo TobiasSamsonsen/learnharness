@@ -258,7 +258,7 @@ function SkillRow({
 						</div>
 					)}
 					<WeightEditor skill={skill} />
-					<div className="max-h-[2.6rem] overflow-hidden" data-testid={`skill-statement-${skill.id}`}>
+					<div className="max-h-[2.6rem] overflow-hidden [&_p]:line-clamp-2" data-testid={`skill-statement-${skill.id}`}>
 						<RichText className={cn(ITEM_TYPE, "text-muted-foreground")}>{skill.statement}</RichText>
 					</div>
 					<button type="button" className="text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground" aria-expanded={more} data-testid={`skill-more-${skill.id}`} onClick={() => setMore((m) => !m)}>
@@ -390,7 +390,7 @@ function SessionLink({ session }: { session: CourseView["sessions"][number] }) {
 	return (
 		<li>
 			<Link href={`/chat/${session.id}`} className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-accent">
-				<span className="min-w-0 flex-1 truncate font-prose">{session.title}</span>
+				<span className="min-w-0 flex-1 line-clamp-2 break-words sm:line-clamp-none sm:block sm:truncate font-prose">{session.title}</span>
 				<span className="shrink-0 text-xs text-muted-foreground">{COURSE_MODE_LABEL[session.mode]}</span>
 				{session.finished && <CheckIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Finished" />}
 			</Link>
@@ -802,17 +802,17 @@ export function CourseBody({
 			)}
 
 			{choosing && (
-				<div data-testid="choose-bar" className="sticky bottom-3 z-20 flex items-center justify-between gap-3 rounded-xl border border-border bg-background/95 px-4 py-3 shadow-lg backdrop-blur">
+				<div data-testid="choose-bar" className="sticky bottom-3 z-20 flex items-center justify-between gap-3 rounded-xl border border-border bg-background/95 px-3 py-3 shadow-lg sm:px-4 backdrop-blur">
 					<span className="text-sm" data-testid="choose-count">
 						{chooseCount === 0 ? "Tap skills to practice" : `${chooseCount} skill${chooseCount === 1 ? "" : "s"} chosen`}
 					</span>
-					<span className="flex items-center gap-2">
+					<span className="flex shrink-0 items-center gap-2">
 						<button type="button" className={BTN} data-testid="choose-cancel" onClick={stopChoosing}>
 							Cancel
 						</button>
 						<button
 							type="button"
-							className={cn(BTN, "border-foreground/40 text-foreground")}
+							className={cn(BTN, "whitespace-nowrap border-foreground/40 text-foreground")}
 							disabled={busy || chooseCount === 0 || !onPracticeSet}
 							data-testid="choose-start"
 							onClick={() => onPracticeSet?.(chosenIds)}
@@ -964,7 +964,7 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 	const hasSkills = data.skills.length > 0;
 	return (
 		<div className="relative h-dvh overflow-y-auto">
-			<header className="lh-drag sticky top-0 z-10 flex items-center gap-3 bg-background/85 px-3 pb-2 pt-[calc(0.5rem+var(--lh-safe-top))] backdrop-blur">
+			<header className="lh-drag z-10 flex flex-wrap items-center gap-x-3 gap-y-1 bg-background/85 sm:sticky sm:top-0 sm:flex-nowrap px-3 pb-2 pt-[calc(0.5rem+var(--lh-safe-top))] backdrop-blur">
 				<SidebarToggle />
 				<FitTitleInput
 					value={title}
@@ -979,10 +979,10 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 					}}
 					aria-label="Course title"
 					data-testid="course-title"
-					className="lh-no-drag min-w-0 flex-1 resize-none overflow-y-auto bg-transparent font-title leading-tight outline-none"
+					className="lh-no-drag order-last min-w-0 basis-full resize-none overflow-y-auto bg-transparent font-title leading-tight outline-none sm:order-none sm:basis-auto sm:flex-1"
 				/>
 				{progress && (
-					<span className="shrink-0 text-xs text-muted-foreground" data-testid="course-progress">
+					<span className="ml-auto shrink-0 text-xs text-muted-foreground sm:ml-0" data-testid="course-progress">
 						{progress}
 					</span>
 				)}
@@ -1000,7 +1000,7 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 					</span>
 				)}
 			</header>
-			<div className="mx-auto max-w-5xl px-6 pb-16 pt-4">
+			<div className="mx-auto max-w-5xl px-4 pb-16 pt-4 sm:px-6">
 				{learnSkill && (
 					<LearnPaceDialog
 						courseId={courseId}
