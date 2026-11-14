@@ -119,6 +119,8 @@ function dueLine(skill: CourseSkillView, now = Date.now()): string | null {
 const BTN =
 	"rounded-md border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50";
 const SECTION_HEAD = "mb-2 text-xs uppercase tracking-widest text-muted-foreground/70";
+/** A closed group's summary: a chevron instead of the browser's marker, the whole line a target. */
+const DETAILS_HEAD = "lh-touch flex cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden";
 /** The page's small type for a rendered name or statement: text-xs, relaxed leading (see rich-text.tsx). */
 const ITEM_TYPE = "[--lh-prose-size:var(--text-xs)] [--lh-prose-leading:1.625]";
 
@@ -587,8 +589,11 @@ export function CourseBody({
 							</section>
 
 							{data.notExamined.length > 0 && (
-								<details data-testid="course-not-examined">
-									<summary className={cn(SECTION_HEAD, "cursor-pointer")}>Not examined · {data.notExamined.length}</summary>
+								<details data-testid="course-not-examined" className="group">
+									<summary className={cn(SECTION_HEAD, DETAILS_HEAD)}>
+										<ChevronRightIcon className="size-3.5 transition-transform group-open:rotate-90" aria-hidden />
+										Not examined · {data.notExamined.length}
+									</summary>
 									<p className="mb-2 text-xs text-muted-foreground">The sources never use these in an exam, and nothing examined builds on them. You can still learn them.</p>
 									<RowList>
 										{list(data.notExamined).map((s) => (
@@ -638,8 +643,11 @@ export function CourseBody({
 							)}
 
 							{data.locked.length > 0 && (
-								<details data-testid="course-locked">
-									<summary className={cn(SECTION_HEAD, "cursor-pointer")}>Locked · {data.locked.length}</summary>
+								<details data-testid="course-locked" className="group">
+									<summary className={cn(SECTION_HEAD, DETAILS_HEAD)}>
+										<ChevronRightIcon className="size-3.5 transition-transform group-open:rotate-90" aria-hidden />
+										Locked · {data.locked.length}
+									</summary>
 									<RowList>{list(data.locked).map((s) => <SkillRow key={s.id} skill={s} names={names} now={now} />)}</RowList>
 								</details>
 							)}
