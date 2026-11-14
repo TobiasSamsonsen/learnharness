@@ -7,9 +7,9 @@ import { CoursePace } from "@/components/course-pace";
 import { ExamSettings, type ExamPlanSectionProps } from "@/components/exam-plan";
 import { LanguageControl } from "@/components/language-control";
 import { MaterialsControl } from "@/components/materials-control";
+import { SECTION_HEAD } from "@/components/section-heads";
 
 const BTN = "rounded-md border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50";
-const SECTION_HEAD = "mb-2 text-xs uppercase tracking-widest text-muted-foreground/70";
 
 /**
  * Everything about a course that is set up rarely, behind one closed line under the page header (owner, 2026-11-14):

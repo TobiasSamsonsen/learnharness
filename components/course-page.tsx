@@ -36,6 +36,7 @@ import { SkillMap } from "@/components/skill-map";
 import { SidebarToggle } from "@/components/sidebar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { cn } from "@/lib/utils";
+import { PAGE_HEAD, SECTION_HEAD } from "@/components/section-heads";
 import { RichLine, RichText } from "@/components/rich-text";
 
 /**
@@ -118,7 +119,6 @@ function dueLine(skill: CourseSkillView, now = Date.now()): string | null {
 
 const BTN =
 	"rounded-md border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50";
-const SECTION_HEAD = "mb-2 text-xs uppercase tracking-widest text-muted-foreground/70";
 /** A closed group's summary: a chevron instead of the browser's marker, the whole line a target. */
 const DETAILS_HEAD = "lh-touch flex cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden";
 /** The page's small type for a rendered name or statement: text-xs, relaxed leading (see rich-text.tsx). */
@@ -247,7 +247,7 @@ function DraftReview({
 	const label = (s: DraftSkill) => s.name;
 	return (
 		<section data-testid="course-draft" className="rounded-xl border border-border bg-card/60 p-4">
-			<div className={SECTION_HEAD}>
+			<div className={PAGE_HEAD}>
 				Draft skill map · {draft.skills.length} skills{reusedCount > 0 ? ` · ${reusedCount} reused` : ""}
 			</div>
 			{draft.feedback && <p className="mb-2 text-xs text-muted-foreground">Answering: “{draft.feedback}”</p>}
@@ -319,7 +319,7 @@ function SessionsSection({ sessions }: { sessions: CourseView["sessions"] }) {
 	const finished = sessions.filter((s) => s.finished);
 	return (
 		<section data-testid="course-sessions">
-			<div className={SECTION_HEAD}>Sessions</div>
+			<div className={PAGE_HEAD}>Sessions</div>
 			{open.length > 0 ? (
 				<ul className="space-y-0.5" data-testid="course-sessions-open">
 					{open.map((s) => (
@@ -502,20 +502,20 @@ export function CourseBody({
 					)}
 
 					<section data-testid="course-overview" className="space-y-3 rounded-xl border border-border/60 bg-card/50 p-4">
-						<div className={cn(SECTION_HEAD, "mb-0 pb-2")}>Understanding · {courseProgressPercent(skills.map((s) => s.understanding))}%</div>
+						<div className={PAGE_HEAD}>Understanding · {courseProgressPercent(skills.map((s) => s.understanding))}%</div>
 						<DistributionStrip skills={skills} due={dueNow} active={selection.band} onPick={(band) => narrow({ ...selection, band })} />
 					</section>
 
 					{skills.some((s) => s.learned) && (
 						<section data-testid="course-due" className="space-y-3 rounded-xl border border-border/60 bg-card/50 p-4">
-							<div className={cn(SECTION_HEAD, "mb-0 pb-2")}>Reviews due</div>
+							<div className={PAGE_HEAD}>Reviews due</div>
 							<DueTimeline skills={skills} now={now} active={selection.bucket} onPick={(bucket) => narrow({ ...selection, bucket })} />
 						</section>
 					)}
 
 					<div className="flex flex-wrap items-center gap-2">
-						<h2 className="text-base uppercase tracking-widest text-foreground">Skills · {skills.length}</h2>
-						<button type="button" className={cn(BTN, "lh-touch ml-auto")} aria-expanded={showMap} data-testid="map-toggle" onClick={() => setShowMap((v) => !v)}>
+						<h2 className={cn(PAGE_HEAD, "pb-0")}>Skills · {skills.length}</h2>
+						<button type="button" className={cn(BTN, "ml-auto")} aria-expanded={showMap} data-testid="map-toggle" onClick={() => setShowMap((v) => !v)}>
 							{showMap ? "Hide map" : "Map"}
 						</button>
 					</div>

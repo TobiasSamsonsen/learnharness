@@ -494,6 +494,10 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
       weakest first, with a clearable "Showing" chip; clearing it brings the groups back.
     - **Skills · n** with a **Map** button: the dependency diagram (white known, learned or next up, gray locked) opens
       fitted to the whole map, with zoom, fit and expand; it hides again from the same button.
+    - **Heading ranks (owner, 2026-11-14).** Attention follows rank (`components/section-heads.ts`): the page title, then the
+      blocks the page is made of (Today, Exam, Understanding, Reviews due, Skills, Sessions, a draft) in one large
+      heading style, then what sits inside a block (the skill groups under Skills, the groups in Course settings) in
+      a small muted one, then a skill's own name.
     - **One grouped list**, two columns on a wide page: **Due for review** (with Review), **Next up**, **Not examined**
       (closed), **From another course**, **Learning** (with Practice all), **Known**, and **Locked · n** as one closed
       group at the end. Each skill is one quiet row: its name, a thin understanding bar (tick at the known line, hatched

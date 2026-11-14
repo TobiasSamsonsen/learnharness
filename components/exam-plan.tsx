@@ -4,6 +4,7 @@ import { createContext, useContext, useState } from "react";
 import { Loader2Icon } from "lucide-react";
 import { examDateLabel, forecastLine, SKILL_WEIGHTS, WEIGHT_LABELS, type CoursePlan, type CourseMode, type CourseSkillView, type SkillWeightValue } from "@/src/core";
 import { cn } from "@/lib/utils";
+import { PAGE_HEAD, SECTION_HEAD } from "@/components/section-heads";
 
 /**
  * The exam plan on the course page (owner, 2026-11-13 — core/exam-plan.ts): today's list and the exam card (the
@@ -12,7 +13,6 @@ import { cn } from "@/lib/utils";
  */
 
 const BTN = "rounded-md border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50";
-const SECTION_HEAD = "mb-2 text-xs uppercase tracking-widest text-muted-foreground/70";
 
 /** A skill's weight chip text ("w3"), shown when someone set it or it is not the default. Pure. */
 export function weightChip(skill: Pick<CourseSkillView, "weight" | "weightBy">): string | null {
@@ -171,7 +171,7 @@ export function ExamPlanSection(props: ExamPlanSectionProps) {
 		<section data-testid="course-exam-plan" className={cn("grid gap-3", todayHasItems && "md:grid-cols-[1.25fr_1fr]")}>
 			{todayHasItems && (
 				<div data-testid="course-today" className={CARD}>
-					<div className={SECTION_HEAD}>Today</div>
+					<div className={PAGE_HEAD}>Today</div>
 					<div className="divide-y divide-border/50">
 						{plan.reviewDue > 0 && (
 							<div className="flex items-center justify-between gap-2 py-2 text-sm first:pt-0" data-testid="course-today-review">
@@ -199,7 +199,7 @@ export function ExamPlanSection(props: ExamPlanSectionProps) {
 				</div>
 			)}
 			<div className={CARD}>
-				<div className={SECTION_HEAD}>Exam</div>
+				<div className={PAGE_HEAD}>Exam</div>
 				{examDate ? (
 					<div className="flex items-baseline gap-2" data-testid="course-exam-countdown">
 						<span className="font-mono text-4xl font-semibold leading-none">{examCountdown(plan.daysLeft ?? 0)}</span>
