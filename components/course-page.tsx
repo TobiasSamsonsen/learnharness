@@ -514,7 +514,7 @@ export function CourseBody({
 					)}
 
 					<div className="flex flex-wrap items-center gap-2">
-						<span className={cn(SECTION_HEAD, "mb-0")}>Skills · {skills.length}</span>
+						<h2 className="text-base uppercase tracking-widest text-foreground">Skills · {skills.length}</h2>
 						<button type="button" className={cn(BTN, "lh-touch ml-auto")} aria-expanded={showMap} data-testid="map-toggle" onClick={() => setShowMap((v) => !v)}>
 							{showMap ? "Hide map" : "Map"}
 						</button>
