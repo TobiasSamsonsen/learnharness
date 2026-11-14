@@ -401,6 +401,13 @@ describe("the sidebar's Today lines", () => {
 		assert.deepEqual(lines.filter((l) => l.kind === "head").map((l) => l.text), ["One", "Two"]);
 	});
 
+	it("the header counts the item lines, not the course headings", () => {
+		const lines = todayUi.todayLines([course("A", { daysLeft: 3, reviewDue: 2, lessons: [lesson("x")] }), course("B", { lessons: [lesson("y")] })]);
+		assert.equal(lines.length, 5);
+		assert.equal(todayUi.todayCount(lines), 3);
+		assert.equal(todayUi.todayCount([]), 0);
+	});
+
 	it("renders nothing until something is due (the section hides itself)", () => {
 		assert.deepEqual(todayUi.todayLines([]), []);
 		assert.deepEqual(todayUi.todayLines([course("Empty")]), []);

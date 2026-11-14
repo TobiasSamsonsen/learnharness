@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { CalendarCheckIcon } from "lucide-react";
+import { CalendarCheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import type { TodayCourse } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { cn } from "@/lib/utils";
@@ -12,7 +12,25 @@ import { cn } from "@/lib/utils";
  * the home screen and inside every session. Per course with something to do, soonest exam first: the reviews that are
  * due (a tap starts the review) and the lessons to take today (a tap opens the course page on that lesson's pace
  * dialog). At most five lines in all. Freshness rides the same events as the course list.
+ *
+ * CLOSED BY DEFAULT (owner, 2026-11-14): open, it took a third of a tablet's sidebar and pushed the sessions out of view,
+ * so it is one header line, "Today · 5", that opens it. The choice is remembered on this device.
  */
+
+const OPEN_KEY = "lh:today-open";
+
+function readOpen(): boolean {
+	try {
+		return globalThis.localStorage?.getItem(OPEN_KEY) === "1";
+	} catch {
+		return false;
+	}
+}
+
+/** The header's count: the item lines (reviews and lessons), not the course headings. Pure. */
+export function todayCount(lines: readonly TodayLine[]): number {
+	return lines.filter((l) => l.kind !== "head").length;
+}
 
 /** Most item lines the list shows. */
 export const TODAY_MAX_LINES = 5;
@@ -53,6 +71,17 @@ export function TodaySection() {
 	const pathname = usePathname();
 	const [courses, setCourses] = useState<TodayCourse[] | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [open, setOpen] = useState(false);
+	useEffect(() => setOpen(readOpen()), []);
+	const toggle = () => {
+		const next = !open;
+		setOpen(next);
+		try {
+			globalThis.localStorage?.setItem(OPEN_KEY, next ? "1" : "0");
+		} catch {
+			// remembering is a convenience
+		}
+	};
 
 	const refresh = useCallback(async () => {
 		try {
@@ -102,11 +131,19 @@ export function TodaySection() {
 	if (lines.length === 0) return null;
 	return (
 		<div className="mx-3 mb-2" data-testid="today-section">
-			<div className="mb-1 flex items-center gap-1.5 text-xs uppercase tracking-widest text-muted-foreground">
+			<button
+				type="button"
+				data-testid="today-toggle"
+				aria-expanded={open}
+				onClick={toggle}
+				className="lh-touch mb-1 flex w-full items-center gap-1.5 text-xs uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground"
+			>
 				<CalendarCheckIcon className="size-3" />
-				Today
-			</div>
-			<div>
+				Today · {todayCount(lines)}
+				{open ? <ChevronDownIcon className="ml-auto size-3" /> : <ChevronRightIcon className="ml-auto size-3" />}
+			</button>
+			{open && (
+			<div data-testid="today-lines">
 				{lines.map((line, i) =>
 					line.kind === "head" ? (
 						<button
@@ -127,13 +164,14 @@ export function TodaySection() {
 							data-testid={line.kind === "review" ? "today-review" : "today-learn"}
 							disabled={busy}
 							onClick={() => (line.kind === "review" ? void startReview(line.courseId) : router.push(`/course/${line.courseId}?learn=${encodeURIComponent(line.skillId)}`))}
-							className={cn("block w-full truncate rounded-lg px-3 py-1 text-left font-prose text-(length:--lh-prose-size) transition-colors hover:bg-accent disabled:opacity-50")}
+							className={cn("block w-full truncate rounded-lg px-3 py-0.5 text-left text-sm transition-colors hover:bg-accent disabled:opacity-50")}
 						>
 							{line.text}
 						</button>
 					),
 				)}
 			</div>
+			)}
 		</div>
 	);
 }
