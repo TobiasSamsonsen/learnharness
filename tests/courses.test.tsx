@@ -1207,11 +1207,12 @@ describe("the UI", () => {
 			/>,
 		);
 
-	it("an active course shows the map, next up with Learn/Practice, known and sessions", () => {
+	it("an active course shows next up, known and sessions, with the map behind a Map button", () => {
 		const html = body(payload());
-		assert.match(html, /data-testid="course-map"/);
-		assert.match(html, /data-testid="learn-b"/);
-		assert.match(html, /data-testid="practice-b"/);
+		assert.match(html, /data-testid="map-toggle"[^>]*>Map</);
+		assert.doesNotMatch(html, /data-testid="course-map"/, "the map is not on the page until asked for");
+		assert.match(html, /data-testid="course-next"[\s\S]*data-testid="skill-b"/, "next up lists B as a quiet row");
+		assert.doesNotMatch(html, /data-testid="learn-b"/, "its Learn and Practice buttons are inside the opened row");
 		assert.match(html, /data-testid="course-known"/);
 		assert.match(html, /Learn: A/);
 		assert.doesNotMatch(html, /course-draft"/);
@@ -1249,7 +1250,7 @@ describe("the UI", () => {
 		assert.match(html, /role="meter"/);
 		assert.match(html, /data-testid="skill-bar"/);
 		assert.match(html, /aria-valuenow="6"/);
-		assert.match(html, /Known · understanding 6\/10/, "the text line still reads the state");
+		assert.doesNotMatch(html, /Known · understanding 6\/10/, "the state line is in the opened row, not on the quiet one");
 		assert.doesNotMatch(html, /data-due="true"/, "a known skill not due has no due marker");
 	});
 
@@ -1265,7 +1266,7 @@ describe("the UI", () => {
 			nextUp: [],
 		});
 		const html = body(data);
-		assert.equal(html.match(/data-testid="skill-due-chip"[^>]*>due</g)?.length, 2, "both due skills carry the word 'due'");
+		assert.equal(html.match(/aria-label="due for review"[^>]*data-testid="skill-due-chip"/g)?.length, 2, "both due skills carry the due dot, named for screen readers");
 		assert.equal(html.match(/data-testid="skill-bar" data-due="true"/g)?.length, 2, "their bars are marked due");
 		assert.equal(html.match(/data-due="true"/g)?.length, 2, "the not-due known skill is not marked");
 	});
@@ -1290,12 +1291,12 @@ describe("the UI", () => {
 		assert.match(html, />6 and up · 1</);
 	});
 
-	it("the visual layer: Sections is the first view, with the By understanding switch and no flat list until chosen", () => {
-		// the flat view and its clicks are client state (a tap or the saved view after mount); static markup shows the default
+	it("the visual layer: one grouped list, no view switch, and the narrowed list only after a band or bucket is tapped", () => {
+		// a tap is client state (tests/skill-view-ui.test.tsx); static markup shows the default
 		const html = body(payload());
-		assert.match(html, /data-testid="view-understanding"/);
-		assert.match(html, /aria-pressed="true"[^>]*data-testid="view-sections"/);
+		assert.doesNotMatch(html, /data-testid="view-understanding"|data-testid="view-sections"|data-testid="sort-direction"|data-testid="chip-all"/);
 		assert.doesNotMatch(html, /data-testid="course-flat"/);
+		assert.match(html, /data-testid="course-overview"[\s\S]*Understanding · 50%/, "the overview heads with the course's percent");
 	});
 
 	it("learned skills sit in Learning with Practice and Learn again; a finished lesson is marked", () => {
@@ -1311,8 +1312,6 @@ describe("the UI", () => {
 		});
 		const html = body(data);
 		assert.match(html, /data-testid="course-learning"[\s\S]*Learning · 2[\s\S]*data-testid="practice-all"/);
-		assert.match(html, /data-testid="practice-a"[\s\S]*Learn again/);
-		assert.match(html, /Learned · understanding 2\/10 · lasts about 2 days/);
 		assert.match(html, /data-testid="course-sessions-open"[\s\S]*Practice: A[\s\S]*aria-expanded="false"[^>]*data-testid="course-sessions-finished-toggle"[^>]*>[\s\S]*Finished · 1/);
 		assert.doesNotMatch(html, /data-testid="course-sessions-finished"/, "finished sessions fold away until opened");
 		const allDone = body({ ...data, sessions: [data.sessions[1]!] });
@@ -1323,7 +1322,7 @@ describe("the UI", () => {
 		const fresh = payload({ sessions: [], known: [], nextUp: ["a"], skills: [skillView("a"), skillView("b", { requires: ["a"], missing: ["a"] })], locked: ["b"] });
 		const html = body(fresh);
 		assert.match(html, /data-testid="placement-offer"[\s\S]*Find your starting point[\s\S]*about one short question for 2 skills/);
-		assert.ok(html.indexOf("placement-offer") < html.indexOf("course-map"), "before the map");
+		assert.ok(html.indexOf("placement-offer") < html.indexOf("course-overview"), "before the overview");
 		assert.match(html, /data-testid="placement-take"/);
 		assert.match(html, /data-testid="placement-skip"[^>]*>Start from the beginning/);
 		assert.doesNotMatch(body(fresh, true), /placement-offer/);
@@ -1338,7 +1337,7 @@ describe("the UI", () => {
 			sessions: [],
 		});
 		const html = body(data);
-		assert.match(html, /data-testid="course-context-check"[\s\S]*From another course · 1[\s\S]*optional, nothing is locked[\s\S]*data-testid="check-a"[^>]*>Quick check/);
+		assert.match(html, /data-testid="course-context-check"[\s\S]*From another course · 1[\s\S]*optional, nothing is locked[\s\S]*data-testid="skill-a"/);
 		assert.doesNotMatch(html, /data-testid="course-known"/, "A shows once — in its own section");
 		assert.match(html, /about one short question for 1 skill,/);
 		assert.doesNotMatch(body({ ...data, skills: [skillView("a", { understanding: 6, learned: true, known: true })], nextUp: [] }), /placement-offer/, "nothing left to place");

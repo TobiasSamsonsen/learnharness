@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, Loader2Icon } from "lucide-react";
 import {
 	COURSE_MODE_LABEL,
+	courseProgressPercent,
 	DUE_BUCKET_LABEL,
 	isDue,
 	KNOWN_UNDERSTANDING,
@@ -27,7 +28,7 @@ import {
 	type SkillSelection,
 	type SkillWeightValue,
 } from "@/src/core";
-import { DistributionStrip, DueChip, DueTimeline, SkillViewControls, UnderstandingBar, useNow, type SkillView } from "@/components/skill-visuals";
+import { DistributionStrip, DueChip, DueTimeline, UnderstandingBar, useNow } from "@/components/skill-visuals";
 import { CourseSettings } from "@/components/course-settings";
 import { LearnPaceDialog } from "@/components/learn-pace-dialog";
 import { ExamPlanSection, WeightChip, WeightEditContext, WeightEditor } from "@/components/exam-plan";
@@ -84,25 +85,6 @@ function writePlacementSkipped(courseId: string): void {
 	}
 }
 
-/** The skill list's view (Sections / By understanding) and sort direction: a per-viewer
- *  convenience (localStorage), not course data. Sections and weakest first when unset or blocked. */
-const SKILL_VIEW_KEY = "lh:skill-view";
-function readSkillView(): { view: SkillView; weakestFirst: boolean } {
-	try {
-		const raw = JSON.parse(window.localStorage.getItem(SKILL_VIEW_KEY) ?? "null") as { view?: unknown; weakestFirst?: unknown } | null;
-		return { view: raw?.view === "understanding" ? "understanding" : "sections", weakestFirst: raw?.weakestFirst !== false };
-	} catch {
-		return { view: "sections", weakestFirst: true };
-	}
-}
-function writeSkillView(value: { view: SkillView; weakestFirst: boolean }): void {
-	try {
-		window.localStorage.setItem(SKILL_VIEW_KEY, JSON.stringify(value));
-	} catch {
-		/* the choice just resets next visit */
-	}
-}
-
 /** The first step after approval (owner, 2026-10-25): find the starting
  *  point with the quick placement test, or start from the beginning. */
 function PlacementOffer({ total, busy, onTake, onSkip }: { total: number; busy: boolean; onTake: () => void; onSkip: () => void }) {
@@ -140,6 +122,10 @@ const SECTION_HEAD = "mb-2 text-xs uppercase tracking-widest text-muted-foregrou
 /** The page's small type for a rendered name or statement: text-xs, relaxed leading (see rich-text.tsx). */
 const ITEM_TYPE = "[--lh-prose-size:var(--text-xs)] [--lh-prose-leading:1.625]";
 
+/**
+ * One skill, one quiet line (owner, 2026-11-14): its name, a thin understanding bar and a dot when it is due. A tap opens
+ * the detail: the state line, the Learn / Practice / Quick check buttons, the exam weight and everything below.
+ */
 function SkillRow({
 	skill,
 	names,
@@ -154,34 +140,34 @@ function SkillRow({
 	const [open, setOpen] = useState(false);
 	const due = dueLine(skill, now);
 	return (
-		<div className="rounded-lg border border-border/60 bg-card/50" data-testid={`skill-${skill.id}`}>
-			<div className="flex items-center gap-2 px-3 py-2">
-				<button
-					type="button"
-					onClick={() => setOpen((o) => !o)}
-					aria-expanded={open}
-					aria-label={open ? `Collapse ${skill.name}` : `Expand ${skill.name}`}
-					className="lh-touch text-muted-foreground hover:text-foreground"
-				>
-					{open ? <ChevronDownIcon className="size-3.5" /> : <ChevronRightIcon className="size-3.5" />}
-				</button>
-				<span className="min-w-0 flex-1">
-					<span className="flex items-center gap-2">
-						<RichLine prose>{skill.name}</RichLine>
-						{isDue(skill, now) && <DueChip />}
-						<WeightChip skill={skill} />
-					</span>
-					<span className="block text-xs text-muted-foreground">
-						{skillStateLabel(skill)}
-						{due ? ` · ${due}` : ""}
-						{skill.missing.length > 0 ? ` · needs ${skill.missing.map((id) => names.get(id) ?? id).join(", ")}` : ""}
-					</span>
-					<UnderstandingBar skill={skill} now={now} />
+		<div className="break-inside-avoid border-b border-border/40" data-testid={`skill-${skill.id}`}>
+			<button
+				type="button"
+				onClick={() => setOpen((o) => !o)}
+				aria-expanded={open}
+				aria-label={open ? `Collapse ${skill.name}` : `Expand ${skill.name}`}
+				className="lh-touch flex w-full items-center gap-2 py-2 text-left"
+			>
+				{open ? <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" /> : <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground" />}
+				<span className="min-w-0 flex-1 truncate">
+					<RichLine prose>{skill.name}</RichLine>
 				</span>
-				{actions && <span className="flex shrink-0 items-center gap-1.5">{actions}</span>}
-			</div>
+				{isDue(skill, now) && <DueChip />}
+				<span className="w-24 shrink-0">
+					<UnderstandingBar skill={skill} now={now} className="mt-0" />
+				</span>
+			</button>
 			{open && (
-				<div className="space-y-2 border-t border-border/60 px-3 py-2 text-xs" data-testid={`skill-detail-${skill.id}`}>
+				<div className="space-y-2 pb-3 pl-5 text-xs" data-testid={`skill-detail-${skill.id}`}>
+					<p className="flex flex-wrap items-center gap-2 text-muted-foreground">
+						<span>
+							{skillStateLabel(skill)}
+							{due ? ` · ${due}` : ""}
+							{skill.missing.length > 0 ? ` · needs ${skill.missing.map((id) => names.get(id) ?? id).join(", ")}` : ""}
+						</span>
+						<WeightChip skill={skill} />
+					</p>
+					{actions && <div className="flex flex-wrap items-center gap-1.5">{actions}</div>}
 					<RichText prose className="[--lh-prose-leading:1.625]">{skill.statement}</RichText>
 					{skill.stability !== null && skill.lastReview !== null && (
 						<p className="text-muted-foreground" data-testid={`skill-recall-${skill.id}`}>
@@ -233,6 +219,11 @@ function SkillRow({
 			)}
 		</div>
 	);
+}
+
+/** A group of skill rows: two columns on a wide page, each row kept whole. */
+function RowList({ children }: { children: React.ReactNode }) {
+	return <div className="md:columns-2 md:gap-x-8">{children}</div>;
 }
 
 function DraftReview({
@@ -408,37 +399,21 @@ export function CourseBody({
 	const learning = data.learning.filter((id) => !fromElsewhere.has(id));
 	const known = data.known.filter((id) => !fromElsewhere.has(id));
 
-	// The visual layer (owner, 2026-11-09): the color bars read `now`; the list is either the sections or one flat list sorted by understanding.
+	// The visual layer (owner, 2026-11-09; one grouped list and a Map button since 2026-11-14): the color bars read `now`; a
+	// tap on a band or a review bucket narrows the list to the skills that match, sorted weakest first.
 	const now = useNow();
-	const [view, setView] = useState<SkillView>("sections");
-	const [weakestFirst, setWeakestFirst] = useState(true);
 	const [selection, setSelection] = useState<SkillSelection>(NO_SELECTION);
-	useEffect(() => {
-		const saved = readSkillView();
-		setView(saved.view);
-		setWeakestFirst(saved.weakestFirst);
-	}, []);
-	const changeView = (next: SkillView) => {
-		setView(next);
-		writeSkillView({ view: next, weakestFirst });
-	};
-	const changeDirection = (next: boolean) => {
-		setWeakestFirst(next);
-		writeSkillView({ view, weakestFirst: next });
-	};
-	// A tap on a strip band or timeline bucket narrows the list, so it opens the flat view where the narrowing shows.
-	const narrow = (next: SkillSelection) => {
-		setSelection(next);
-		if ((next.band || next.bucket) && view === "sections") changeView("understanding");
-	};
+	const [showMap, setShowMap] = useState(false);
+	const narrow = (next: SkillSelection) => setSelection(next);
+	const narrowed = !!(selection.band || selection.bucket);
 	const flat = useMemo(
 		() =>
 			sortByUnderstanding(
 				skills.filter((s) => matchesSelection(s, selection, now)),
-				weakestFirst,
+				true,
 				now,
 			),
-		[skills, selection, weakestFirst, now],
+		[skills, selection, now],
 	);
 	const dueNow = skills.filter((s) => isDue(s, now)).length;
 	const hasWeights = !!course.skillWeights && Object.keys(course.skillWeights).length > 0;
@@ -479,221 +454,201 @@ export function CourseBody({
 	return (
 		<div className="space-y-8">
 			<CourseSettings
+				courseId={course.id}
+				pace={course.pace}
+				hasSkills={skills.length > 0}
+				hasDraft={!!course.draft}
+				drafting={drafting}
+				courseError={course.error}
+				error={error}
+				materialCount={materialCount}
+				busy={busy}
+				onMaterials={onMaterials}
+				onDraft={() => onDraft()}
+				onChanged={onChanged}
+				onPlacement={() => onStart("placement")}
+				exam={
+					skills.length > 0
+						? { examDate: course.examDate, hasWeights, weighing: data.weighing === true, canWeigh: !drafting && materialCount > 0, weightsSummary: course.weightsSummary, weightsAt: course.weightsAt }
+						: undefined
+				}
+			/>
+
+			{course.draft && !drafting && <DraftReview data={data} busy={busy} onFeedback={(f) => onDraft(f)} onApprove={onApprove} />}
+
+		{skills.length > 0 && (
+			<>
+				<ExamPlanSection
 					courseId={course.id}
-					pace={course.pace}
-					hasSkills={skills.length > 0}
-					hasDraft={!!course.draft}
-					drafting={drafting}
-					courseError={course.error}
-					error={error}
-					materialCount={materialCount}
+					plan={data.plan}
+					names={names}
+					weightOf={(id) => byId.get(id)?.weight ?? 1}
+					examDate={course.examDate}
+					hasWeights={hasWeights}
+					weightsError={course.weightsError}
+					weighing={data.weighing === true}
+					canWeigh={!drafting && materialCount > 0}
 					busy={busy}
-					onMaterials={onMaterials}
-					onDraft={() => onDraft()}
-					onChanged={onChanged}
-					onPlacement={() => onStart("placement")}
-					exam={
-						skills.length > 0
-							? { examDate: course.examDate, hasWeights, weighing: data.weighing === true, canWeigh: !drafting && materialCount > 0, weightsSummary: course.weightsSummary, weightsAt: course.weightsAt }
-							: undefined
-					}
+					onStart={onStart}
+					onChanged={() => onChanged?.()}
 				/>
-
-				{course.draft && !drafting && <DraftReview data={data} busy={busy} onFeedback={(f) => onDraft(f)} onApprove={onApprove} />}
-
-			{skills.length > 0 && (
-				<>
-					<ExamPlanSection
-						courseId={course.id}
-						plan={data.plan}
-						names={names}
-						weightOf={(id) => byId.get(id)?.weight ?? 1}
-						examDate={course.examDate}
-						hasWeights={hasWeights}
-						weightsError={course.weightsError}
-						weighing={data.weighing === true}
-						canWeigh={!drafting && materialCount > 0}
-						busy={busy}
-						onStart={onStart}
-						onChanged={() => onChanged?.()}
-					/>
 
 					{data.sessions.length === 0 && !placementSkipped && skills.length > data.contextCheck.length && (
 						<PlacementOffer total={skills.length - data.contextCheck.length} busy={busy} onTake={() => onStart("placement")} onSkip={() => onSkipPlacement?.()} />
 					)}
 
-					<section data-testid="course-overview" className="space-y-3">
-						<div className={SECTION_HEAD}>Understanding</div>
+					<section data-testid="course-overview" className="space-y-3 rounded-xl border border-border/60 bg-card/50 p-4">
+						<div className={cn(SECTION_HEAD, "mb-0")}>Understanding · {courseProgressPercent(skills.map((s) => s.understanding))}%</div>
 						<DistributionStrip skills={skills} due={dueNow} active={selection.band} onPick={(band) => narrow({ ...selection, band })} />
 						{skills.some((s) => s.learned) && (
 							<DueTimeline skills={skills} now={now} active={selection.bucket} onPick={(bucket) => narrow({ ...selection, bucket })} />
 						)}
 					</section>
 
-					<section data-testid="course-map">
-						<div className={SECTION_HEAD}>Skill map</div>
-						<SkillMap
-							nodes={nodes}
-							edges={edges}
-							statusOf={(id) => {
-								const s = byId.get(id);
-								return s ? diagramStatus(s) : "upcoming";
-							}}
-							focusIds={mapFocus}
-						/>
-						<p className="mt-1 text-[11px] text-muted-foreground/80">White: known, learned or next up · gray: locked behind a prerequisite.</p>
-					</section>
+					<div className="flex flex-wrap items-center gap-2">
+						<span className={cn(SECTION_HEAD, "mb-0")}>Skills · {skills.length}</span>
+						<button type="button" className={cn(BTN, "lh-touch ml-auto")} aria-expanded={showMap} data-testid="map-toggle" onClick={() => setShowMap((v) => !v)}>
+							{showMap ? "Hide map" : "Map"}
+						</button>
+					</div>
 
-					<SkillViewControls
-						view={view}
-						onView={changeView}
-						selection={selection}
-						onSelection={setSelection}
-						weakestFirst={weakestFirst}
-						onWeakestFirst={changeDirection}
-					/>
+					{showMap && (
+						<section data-testid="course-map">
+							<SkillMap
+								nodes={nodes}
+								edges={edges}
+								statusOf={(id) => {
+									const s = byId.get(id);
+									return s ? diagramStatus(s) : "upcoming";
+								}}
+								focusIds={mapFocus}
+								fitted
+							/>
+							<p className="mt-1 text-[11px] text-muted-foreground/80">White: known, learned or next up · gray: locked behind a prerequisite.</p>
+						</section>
+					)}
 
-					{view === "understanding" ? (
+					{narrowed ? (
 						<section data-testid="course-flat">
-							{(selection.band || selection.bucket) && (
-								<div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-									Showing
-									{selection.band && (
-										<button type="button" className={BTN} data-testid="clear-band" onClick={() => setSelection({ ...selection, band: null })}>
-											{SKILL_BAND_LABEL[selection.band]} ×
-										</button>
-									)}
-									{selection.bucket && (
-										<button type="button" className={BTN} data-testid="clear-bucket" onClick={() => setSelection({ ...selection, bucket: null })}>
-											Due: {DUE_BUCKET_LABEL[selection.bucket]} ×
-										</button>
-									)}
-								</div>
-							)}
+							<div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+								Showing
+								{selection.band && (
+									<button type="button" className={BTN} data-testid="clear-band" onClick={() => setSelection({ ...selection, band: null })}>
+										{SKILL_BAND_LABEL[selection.band]} ×
+									</button>
+								)}
+								{selection.bucket && (
+									<button type="button" className={BTN} data-testid="clear-bucket" onClick={() => setSelection({ ...selection, bucket: null })}>
+										Due: {DUE_BUCKET_LABEL[selection.bucket]} ×
+									</button>
+								)}
+							</div>
 							{flat.length === 0 ? (
 								<p className="text-xs text-muted-foreground" data-testid="flat-empty">
 									No skill matches.
 								</p>
 							) : (
-								<div className="space-y-1.5">
+								<RowList>
 									{flat.map((s) => (
 										<SkillRow key={s.id} skill={s} names={names} now={now} actions={actionsFor(s)} />
 									))}
-								</div>
+								</RowList>
 							)}
 						</section>
 					) : (
 						<>
-					{data.review.length > 0 && (
-						<section data-testid="course-review">
-							<div className="mb-2 flex items-center justify-between">
-								<span className={cn(SECTION_HEAD, "mb-0")}>Due for review · {data.review.length}</span>
-								<button type="button" className={BTN} disabled={busy} onClick={() => onStart("review")}>
-									{data.reviewBatch < data.review.length ? reviewLabel(data) : "Review"}
-								</button>
-							</div>
-							<div className="space-y-1.5">{list(data.review).map((s) => <SkillRow key={s.id} skill={s} names={names} now={now} />)}</div>
-						</section>
-					)}
+							{data.review.length > 0 && (
+								<section data-testid="course-review">
+									<div className="mb-2 flex items-center justify-between">
+										<span className={cn(SECTION_HEAD, "mb-0")}>Due for review · {data.review.length}</span>
+										<button type="button" className={BTN} disabled={busy} onClick={() => onStart("review")}>
+											{data.reviewBatch < data.review.length ? reviewLabel(data) : "Review"}
+										</button>
+									</div>
+									<RowList>{list(data.review).map((s) => <SkillRow key={s.id} skill={s} names={names} now={now} actions={actionsFor(s)} />)}</RowList>
+								</section>
+							)}
 
-					<section data-testid="course-next">
-						<div className="mb-2 flex items-center justify-between">
-							<span className={cn(SECTION_HEAD, "mb-0")}>Next up · {data.nextUp.length}{hasWeights ? " · by exam weight" : ""}</span>
-						</div>
-						{data.nextUp.length === 0 ? (
-							<p className="text-xs text-muted-foreground">
-								{data.known.length === skills.length ? "Every skill is known." : data.locked.length === 0 ? "Every skill is learned — practice makes them known." : "Nothing is next up."}
-							</p>
-						) : (
-							<div className="space-y-1.5">
-								{list(data.nextUp).map((s) => (
-									<SkillRow
-										key={s.id}
-										skill={s}
-										names={names}
-										now={now}
-										actions={learnPractice(s)}
-									/>
-								))}
-							</div>
-						)}
-					</section>
-
-					{data.notExamined.length > 0 && (
-						<details data-testid="course-not-examined">
-							<summary className={cn(SECTION_HEAD, "cursor-pointer")}>Not examined · {data.notExamined.length}</summary>
-							<p className="mb-2 text-xs text-muted-foreground">The sources never use these in an exam, and nothing examined builds on them. You can still learn them.</p>
-							<div className="space-y-1.5">
-								{list(data.notExamined).map((s) => (
-									<SkillRow key={s.id} skill={s} names={names} now={now} actions={learnPractice(s)} />
-								))}
-							</div>
-						</details>
-					)}
-
-					{data.contextCheck.length > 0 && (
-						<section data-testid="course-context-check">
-							<div className={SECTION_HEAD}>From another course · {data.contextCheck.length}</div>
-							<p className="mb-2 text-xs text-muted-foreground">
-								You already have these from another course. A short check confirms each one works the same way here — optional, nothing is locked behind it.
-							</p>
-							<div className="space-y-1.5">
-								{list(data.contextCheck).map((s) => (
-									<SkillRow
-										key={s.id}
-										skill={s}
-										names={names}
-										now={now}
-										actions={quickCheck(s)}
-									/>
-								))}
-							</div>
-						</section>
-					)}
-
-					{learning.length > 0 && (
-						<section data-testid="course-learning">
-							<div className="mb-2 flex items-center justify-between">
-								<span className={cn(SECTION_HEAD, "mb-0")}>Learning · {learning.length}</span>
-								{data.learning.length > 1 && (
-									<button type="button" className={BTN} disabled={busy} data-testid="practice-all" onClick={() => onStart("practice")}>
-										Practice all
-									</button>
+							<section data-testid="course-next">
+								<div className="mb-2 flex items-center justify-between">
+									<span className={cn(SECTION_HEAD, "mb-0")}>Next up · {data.nextUp.length}{hasWeights ? " · by exam weight" : ""}</span>
+								</div>
+								{data.nextUp.length === 0 ? (
+									<p className="text-xs text-muted-foreground">
+										{data.known.length === skills.length ? "Every skill is known." : data.locked.length === 0 ? "Every skill is learned — practice makes them known." : "Nothing is next up."}
+									</p>
+								) : (
+									<RowList>
+										{list(data.nextUp).map((s) => (
+											<SkillRow key={s.id} skill={s} names={names} now={now} actions={learnPractice(s)} />
+										))}
+									</RowList>
 								)}
-							</div>
-							<div className="space-y-1.5">
-								{list(learning).map((s) => (
-									<SkillRow
-										key={s.id}
-										skill={s}
-										names={names}
-										now={now}
-										actions={practiceLearnAgain(s)}
-									/>
-								))}
-							</div>
-						</section>
-					)}
+							</section>
 
-					{data.locked.length > 0 && (
-						<section data-testid="course-locked">
-							<div className={SECTION_HEAD}>Locked · {data.locked.length}</div>
-							<div className="space-y-1.5">{list(data.locked).map((s) => <SkillRow key={s.id} skill={s} names={names} now={now} />)}</div>
-						</section>
-					)}
+							{data.notExamined.length > 0 && (
+								<details data-testid="course-not-examined">
+									<summary className={cn(SECTION_HEAD, "cursor-pointer")}>Not examined · {data.notExamined.length}</summary>
+									<p className="mb-2 text-xs text-muted-foreground">The sources never use these in an exam, and nothing examined builds on them. You can still learn them.</p>
+									<RowList>
+										{list(data.notExamined).map((s) => (
+											<SkillRow key={s.id} skill={s} names={names} now={now} actions={learnPractice(s)} />
+										))}
+									</RowList>
+								</details>
+							)}
 
-					{known.length > 0 && (
-						<section data-testid="course-known">
-							<div className={SECTION_HEAD}>Known · {known.length}</div>
-							<div className="space-y-1.5">{list(known).map((s) => <SkillRow key={s.id} skill={s} names={names} now={now} />)}</div>
-						</section>
-					)}
+							{data.contextCheck.length > 0 && (
+								<section data-testid="course-context-check">
+									<div className={SECTION_HEAD}>From another course · {data.contextCheck.length}</div>
+									<p className="mb-2 text-xs text-muted-foreground">
+										You already have these from another course. A short check confirms each one works the same way here — optional, nothing is locked behind it.
+									</p>
+									<RowList>
+										{list(data.contextCheck).map((s) => (
+											<SkillRow key={s.id} skill={s} names={names} now={now} actions={quickCheck(s)} />
+										))}
+									</RowList>
+								</section>
+							)}
+
+							{learning.length > 0 && (
+								<section data-testid="course-learning">
+									<div className="mb-2 flex items-center justify-between">
+										<span className={cn(SECTION_HEAD, "mb-0")}>Learning · {learning.length}</span>
+										{data.learning.length > 1 && (
+											<button type="button" className={BTN} disabled={busy} data-testid="practice-all" onClick={() => onStart("practice")}>
+												Practice all
+											</button>
+										)}
+									</div>
+									<RowList>
+										{list(learning).map((s) => (
+											<SkillRow key={s.id} skill={s} names={names} now={now} actions={practiceLearnAgain(s)} />
+										))}
+									</RowList>
+								</section>
+							)}
+
+							{known.length > 0 && (
+								<section data-testid="course-known">
+									<div className={SECTION_HEAD}>Known · {known.length}</div>
+									<RowList>{list(known).map((s) => <SkillRow key={s.id} skill={s} names={names} now={now} />)}</RowList>
+								</section>
+							)}
+
+							{data.locked.length > 0 && (
+								<details data-testid="course-locked">
+									<summary className={cn(SECTION_HEAD, "cursor-pointer")}>Locked · {data.locked.length}</summary>
+									<RowList>{list(data.locked).map((s) => <SkillRow key={s.id} skill={s} names={names} now={now} />)}</RowList>
+								</details>
+							)}
 						</>
 					)}
 				</>
 			)}
 
-			{data.sessions.length > 0 && <SessionsSection sessions={data.sessions} />}
+{data.sessions.length > 0 && <SessionsSection sessions={data.sessions} />}
 		</div>
 	);
 }

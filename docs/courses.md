@@ -485,7 +485,20 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
   - Right after approval, while the course has no sessions: **Find your starting point** — Take the placement test / Start from the beginning (the skip is remembered per browser).
   - Curriculum: the existing Sources control (materials-control) bound to the course, plus **Draft skill map**.
   - Draft state: the draft's summary, its skills (reused ones marked, with citations and prerequisites), a feedback box with **Ask for changes**, and **Approve**.
-  - Active state: the **skill map** as a mermaid dependency diagram (the existing mermaid renderer) coloured by state (known, learning, not started, locked), then **Next up** (Learn / Practice per skill), **Learning** (Practice / Learn again, plus Practice all), **Locked** (with the missing prerequisites), and **Known**. Each skill expands to show its statement, box, next due date and the propositions it rests on (name + statement, with links to the sessions they came from).
+  - **Active state: the overview and one list (owner, 2026-11-14).** Below Today and Exam:
+    - **Understanding · p%** — one bar of the skills spread over four bands (not learned, under 3, 3 to 6, 6 and up) with each
+      band's count printed on its segment, the bands as labelled chips, and "n due of m". Under it a strip of when
+      reviews fall due: Now, Today, This week, Later. A band or a bucket narrows the list to the matching skills,
+      weakest first, with a clearable "Showing" chip; clearing it brings the groups back.
+    - **Skills · n** with a **Map** button: the dependency diagram (white known, learned or next up, gray locked) opens
+      fitted to the whole map, with zoom, fit and expand; it hides again from the same button.
+    - **One grouped list**, two columns on a wide page: **Due for review** (with Review), **Next up**, **Not examined**
+      (closed), **From another course**, **Learning** (with Practice all), **Known**, and **Locked · n** as one closed
+      group at the end. Each skill is one quiet row: its name, a thin understanding bar (tick at the known line, hatched
+      when locked) and a sky dot when it is due. A tap opens the detail: the state line (with "needs …" when locked), the
+      exam weight, the Learn / Practice / Learn again / Quick check buttons, its statement, recall, prerequisites, the
+      last lesson and the propositions it rests on (name + statement, with links to the sessions they came from). There
+      is no Sections / By understanding switch, sort, or filter pills any more.
 - The home canvas is unchanged.
 
 ## 7. Docs and tests

@@ -1,8 +1,7 @@
 /**
- * The course page's skill list in a real client mount (linkedom + react-dom):
- * the Sections default, the By understanding flat list and its sort direction
- * (persisted in localStorage "lh:skill-view"), the header strip and due
- * timeline narrowing it, and the filter chips. The rules themselves are pure in
+ * The course page's skill list in a real client mount (linkedom + react-dom): the grouped list (Due, Next up, Learning,
+ * Known, and one closed Locked group), the band bar and the due strip narrowing it to one weakest-first list, the Map
+ * button, and the row buttons inside a skill's opened detail. The rules themselves are pure in
  * src/core/skill-visual.ts (tests/skill-visual.test.ts); this pins the wiring.
  */
 import React, { act } from "react";
@@ -143,9 +142,15 @@ function listedAnywhere(): string[] {
 		.map((id) => id.slice("skill-".length));
 }
 
-function persisted(): unknown {
-	const raw = store.get("lh:skill-view");
-	return raw === undefined ? undefined : JSON.parse(raw);
+/** Open a skill row's detail (the row is one tap target; its buttons live in the detail). */
+async function expand(skillId: string): Promise<void> {
+	const row = byTestId(`skill-${skillId}`);
+	assert.ok(row, `expected the row skill-${skillId}`);
+	const toggle = row.querySelector("button[aria-expanded]") as HTMLElement | null;
+	assert.ok(toggle, `expected skill-${skillId} to have its row button`);
+	await act(async () => {
+		toggle.click();
+	});
 }
 
 beforeEach(() => {
@@ -162,66 +167,78 @@ afterEach(async () => {
 	store.clear();
 });
 
-test("default view is Sections: the review section shows and the flat list does not", async () => {
+test("the list is grouped by default: the review section shows and the narrowed list does not", async () => {
 	await mount();
-	assert.ok(has("course-review"), "the Sections view shows the due-for-review section");
-	assert.equal(has("course-flat"), false, "the flat list is not shown by default");
-	assert.equal(persisted(), undefined, "a default mount writes nothing to localStorage");
+	assert.ok(has("course-review"), "the due-for-review group shows");
+	assert.ok(has("course-learning") && has("course-known"), "Learning and Known are groups");
+	assert.equal(has("course-flat"), false, "the narrowed list is not shown by default");
+	assert.equal(store.has("lh:skill-view"), false, "nothing is saved: there is one list, no view to remember");
+	assert.equal(has("view-sections") || has("view-understanding") || has("sort-direction") || has("chip-all"), false, "the view switch, sort and filter pills are gone");
 });
 
-test("By understanding lists weakest first; sort-direction flips it and both choices persist", async () => {
+test("Locked is one closed group at the end, listing the locked skills", async () => {
 	await mount();
-	await click("view-understanding");
-	assert.ok(has("course-flat"), "the flat list appears");
-	assert.deepEqual(listed("course-flat"), ["a", "b", "c", "d"], "weakest first");
-	assert.deepEqual(persisted(), { view: "understanding", weakestFirst: true });
-
-	await click("sort-direction");
-	assert.deepEqual(listed("course-flat"), ["d", "c", "b", "a"], "strongest first after the flip");
-	assert.deepEqual(persisted(), { view: "understanding", weakestFirst: false });
+	const locked = byTestId("course-locked");
+	assert.ok(locked, "the locked group is there");
+	assert.equal(locked.hasAttribute("open"), false, "closed by default");
+	assert.deepEqual(listed("course-locked"), ["a"]);
+	const groups = [...document.querySelectorAll("[data-testid^='course-']")].map((el) => el.getAttribute("data-testid"));
+	assert.ok(groups.indexOf("course-locked") > groups.indexOf("course-known"), "after Known, at the end of the list");
 });
 
-test("the header strip's band narrows the Sections view to the flat list; clear-band restores all four", async () => {
+test("a band on the bar narrows the list to the matching skills; clear-band brings the groups back", async () => {
 	await mount();
 	await click("strip-known");
-	assert.ok(has("course-flat"), "tapping a band switches to the flat view");
-	assert.equal(has("course-review"), false, "the Sections view is gone");
+	assert.ok(has("course-flat"), "tapping a band shows the narrowed list");
+	assert.equal(has("course-review"), false, "the groups are replaced");
 	assert.deepEqual(listed("course-flat"), ["d"], "only the 6-and-up skill is listed");
 	assert.ok(has("clear-band"), "the active band is shown as a clearable chip");
 
 	await click("clear-band");
-	assert.deepEqual(listed("course-flat"), ["a", "b", "c", "d"], "clearing the band lists all four again");
+	assert.equal(has("course-flat"), false, "clearing the band shows the groups again");
+	assert.ok(has("course-review") && has("course-learning"));
 	assert.equal(has("clear-band"), false);
 });
 
-test("the filter chips narrow the flat list: due, locked, learning, known", async () => {
+test("the narrowed list is sorted weakest first", async () => {
 	await mount();
-	await click("view-understanding");
-
-	await click("chip-due");
-	assert.deepEqual(listed("course-flat"), ["b"], "due: only B is past its review line");
-
-	await click("chip-locked");
-	assert.deepEqual(listed("course-flat"), ["a"], "locked: only A");
-
-	await click("chip-learning");
-	assert.deepEqual(listed("course-flat"), ["b", "c"], "learning: learned but not known");
-
-	await click("chip-known");
-	assert.deepEqual(listed("course-flat"), ["d"], "known: only D");
+	await click("timeline-later");
+	assert.deepEqual(listed("course-flat"), ["c", "d"], "the two skills not due this week, weakest first");
 });
 
-test("the due timeline's Now bucket switches to the flat view showing only the due skill", async () => {
+test("the due strip's Now bucket narrows the list to the due skill and saves nothing", async () => {
 	await mount();
 	assert.equal(has("course-flat"), false);
 	await click("timeline-now");
-	assert.ok(has("course-flat"), "tapping a timeline bucket switches to the flat view");
+	assert.ok(has("course-flat"));
 	assert.deepEqual(listed("course-flat"), ["b"], "only B is due now");
-	assert.deepEqual(persisted(), { view: "understanding", weakestFirst: true });
+	assert.equal(store.has("lh:skill-view"), false);
 	assert.equal(listedAnywhere().length, 1, "no other skill row is on the page");
+	assert.ok(has("clear-bucket"));
+	await click("clear-bucket");
+	assert.equal(has("course-flat"), false);
 });
 
-test("the flat view's row buttons: next up gets Learn and Practice, learned-not-known gets Practice and Learn again, a context-check skill gets Quick check, a known skill gets none", async () => {
+test("the Map button shows the skill map, fitted, and hides it again", async () => {
+	await mount();
+	assert.equal(has("course-map"), false, "the map is not on the page until asked for");
+	await click("map-toggle");
+	assert.ok(has("course-map") && has("skill-map"), "the map appears");
+	await click("map-toggle");
+	assert.equal(has("course-map"), false, "and goes away again");
+});
+
+test("a due skill carries a dot and its row opens to the state line", async () => {
+	await mount();
+	const row = byTestId("skill-b");
+	assert.ok(row?.querySelector("[data-testid='skill-due-chip']"), "B is due: its row has the due dot");
+	assert.equal(byTestId("skill-detail-b"), null, "the detail is closed");
+	await expand("b");
+	assert.match(byTestId("skill-detail-b")?.textContent ?? "", /Learned · understanding 2\/10/);
+	assert.match(byTestId("skill-detail-b")?.textContent ?? "", /due now/);
+});
+
+test("row buttons live in the opened detail: next up gets Learn and Practice, learned-not-known gets Practice and Learn again, a context-check skill gets Quick check, a known skill gets none", async () => {
 	// e: next up. f: from another course (contextCheck), learned and known as the server sends it. g: learned, not known. h: known.
 	const extra: CoursePayload = {
 		course: { id: "course_b", title: "Extra", createdAt: "t", updatedAt: "t", status: "active", skills: ["e", "f", "g", "h"] },
@@ -263,23 +280,26 @@ test("the flat view's row buttons: next up gets Learn and Practice, learned-not-
 			/></InteractionLayersProvider>,
 		);
 	});
-	await click("view-understanding");
-	assert.ok(has("course-flat"), "the flat list appears");
 
+	assert.equal(has("learn-e") || has("practice-e"), false, "a closed row shows no buttons");
+	await expand("e");
 	assert.ok(has("learn-e") && has("practice-e"), "next up E shows Learn and Practice");
 	assert.equal(has("check-e"), false, "next up E has no quick check");
 	await click("learn-e");
 	await click("practice-e");
 	assert.deepEqual(calls, [["learn", "e"], ["practice", "e"]], "E's buttons start learn and practice on E");
 
+	await expand("g");
 	assert.ok(has("practice-g") && has("learn-g"), "learned-not-known G shows Practice and Learn again");
 	assert.equal(has("check-g"), false);
 
+	await expand("f");
 	assert.ok(has("check-f"), "the context-check skill F shows Quick check");
 	assert.equal(has("learn-f") || has("practice-f"), false, "F shows only the quick check");
 	await click("check-f");
 	assert.deepEqual(calls.at(-1), ["check", "f"], "Quick check starts a check on F");
 
+	await expand("h");
 	assert.ok(has("skill-h"), "the known skill row is listed");
 	assert.equal(has("learn-h") || has("practice-h") || has("check-h"), false, "known H has no learn, practice or check button");
 });

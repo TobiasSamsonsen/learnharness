@@ -68,12 +68,15 @@ export function SkillMap({
 	edges,
 	statusOf,
 	focusIds,
+	fitted = false,
 }: {
 	nodes: readonly LayoutNode[];
 	edges: ReadonlyArray<{ from: string; to: string }>;
 	statusOf: (id: string) => PlanNodeStatus;
 	/** Where the map opens: the skills next up / due. */
 	focusIds: readonly string[];
+	/** Open showing the whole map (the course page's Map view, 2026-11-14) instead of centered on `focusIds`. */
+	fitted?: boolean;
 }) {
 	const markerId = useId().replace(/[^a-zA-Z0-9-]/g, "");
 	const layout = useMemo(() => blockLayout(nodes, edges), [nodes, edges]);
@@ -120,10 +123,10 @@ export function SkillMap({
 	}, [expanded]);
 	useEffect(() => {
 		if (userAdjustedRef.current || !size.w || !size.h) return;
-		setView(initialMapView(box, size, focus));
+		setView(fitted ? fitGraphView(box, size, floor) : initialMapView(box, size, focus));
 		const raf = requestAnimationFrame(() => setSettled(true));
 		return () => cancelAnimationFrame(raf);
-	}, [box, size, focus, expanded]);
+	}, [box, size, focus, expanded, fitted, floor]);
 
 	useEffect(() => {
 		const el = viewportRef.current;

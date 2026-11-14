@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
 import {
 	bandCounts,
 	bucketCounts,
@@ -12,24 +11,19 @@ import {
 	MAX_UNDERSTANDING,
 	SKILL_BAND_LABEL,
 	SKILL_BANDS,
-	SKILL_CHIP_LABEL,
-	SKILL_CHIPS,
 	understandingColor,
 	type CourseSkillView,
 	type DueBucket,
 	type SkillBand,
-	type SkillChip,
-	type SkillSelection,
 } from "@/src/core";
 import { cn } from "@/lib/utils";
 
 /**
- * The course page's visual skill layer (owner, 2026-11-09): a color bar per
- * skill, a header strip of how the skills spread over understanding, a
- * timeline of when reviews fall due, and the Sections / By understanding
- * switch. Color is the quick read, never the only one: every bar sits next to
- * the number and the word, every segment carries its label and count. All the
- * cut-points are in core/skill-visual.ts; the ramp is --lh-understanding-N.
+ * The course page's visual skill layer (owner, 2026-11-09; the overview redone 2026-11-14): a color bar per skill, one
+ * bar showing how the skills spread over understanding with each band's count printed on it, band chips and a strip of
+ * when reviews fall due (both tap to narrow the list). Color is the quick read, never the only one: every bar sits next
+ * to a word or a number, every segment carries its count. All the cut-points are in core/skill-visual.ts; the ramp is
+ * --lh-understanding-N.
  */
 
 const DUE_COLOR = "var(--lh-due)";
@@ -46,7 +40,15 @@ export function useNow(everyMs = 60_000): number {
 
 /** One skill's understanding as a bar: filled to understanding/10 in the ramp color, a tick at the known line (6),
  *  dimmed with a dashed sky outline when recall has fallen below the review line, a hatched empty track when locked. */
-export function UnderstandingBar({ skill, now }: { skill: Pick<CourseSkillView, "understanding" | "learned" | "needsReview" | "reviewAt" | "missing">; now: number }) {
+export function UnderstandingBar({
+	skill,
+	now,
+	className,
+}: {
+	skill: Pick<CourseSkillView, "understanding" | "learned" | "needsReview" | "reviewAt" | "missing">;
+	now: number;
+	className?: string;
+}) {
 	const color = understandingColor(skill.understanding);
 	const due = isDue(skill, now);
 	const locked = !skill.learned && skill.missing.length > 0;
@@ -59,7 +61,7 @@ export function UnderstandingBar({ skill, now }: { skill: Pick<CourseSkillView, 
 			aria-valuenow={skill.understanding}
 			data-testid="skill-bar"
 			data-due={due ? "true" : undefined}
-			className="relative mt-1.5 block h-1.5 w-full rounded-full bg-border/50"
+			className={cn("relative mt-1.5 block h-1.5 w-full rounded-full bg-border/50", className)}
 			style={{
 				...(due ? { outline: `1px dashed ${DUE_COLOR}`, outlineOffset: 2 } : {}),
 				...(locked
@@ -78,16 +80,17 @@ export function UnderstandingBar({ skill, now }: { skill: Pick<CourseSkillView, 
 	);
 }
 
-/** The word chip beside a due skill's name: the sky marker never stands without its word. */
+/** The marker beside a due skill's name: a sky dot that carries its word for screen readers and a long press. */
 export function DueChip() {
 	return (
 		<span
+			role="img"
+			aria-label="due for review"
+			title="Due for review"
 			data-testid="skill-due-chip"
-			className="shrink-0 rounded-sm border px-1.5 text-[11px] uppercase tracking-wider"
-			style={{ color: DUE_COLOR, borderColor: DUE_COLOR }}
-		>
-			due
-		</span>
+			className="size-2 shrink-0 rounded-full"
+			style={{ backgroundColor: DUE_COLOR }}
+		/>
 	);
 }
 
@@ -99,8 +102,8 @@ const BAND_COLOR: Record<SkillBand, string> = {
 	known: "var(--lh-understanding-8)",
 };
 
-/** How the course's skills spread over the understanding bands: a segmented bar, and under it each band's label and
- *  count as a toggle that filters the flat list. */
+/** How the course's skills spread over the understanding bands: one bar with each band's count printed on its segment,
+ *  and under it each band's label and count as a toggle that narrows the list. */
 export function DistributionStrip({
 	skills,
 	due,
@@ -117,16 +120,18 @@ export function DistributionStrip({
 	const total = skills.length;
 	return (
 		<div data-testid="skill-strip">
-			<div className="flex h-2.5 gap-0.5 overflow-hidden rounded-full" aria-hidden>
+			<div className="flex h-6 gap-0.5 overflow-hidden rounded-md" aria-hidden>
 				{SKILL_BANDS.filter((b) => counts[b] > 0).map((b) => (
 					<button
 						key={b}
 						type="button"
 						tabIndex={-1}
 						onClick={() => onPick(active === b ? null : b)}
-						className={cn("h-full transition-opacity", active && active !== b && "opacity-40")}
-						style={{ flexGrow: counts[b], flexBasis: 0, backgroundColor: BAND_COLOR[b] }}
-					/>
+						className={cn("flex h-full min-w-0 items-center px-2 text-xs font-medium transition-opacity", active && active !== b && "opacity-40")}
+						style={{ flexGrow: counts[b], flexBasis: 0, backgroundColor: BAND_COLOR[b], color: b === "new" ? "var(--muted-foreground)" : "var(--background)" }}
+					>
+						{counts[b]}
+					</button>
 				))}
 			</div>
 			<div className="mt-2 flex flex-wrap items-center gap-x-1 gap-y-1">
@@ -143,7 +148,7 @@ export function DistributionStrip({
 							active === b ? "border-foreground/50 text-foreground" : "border-transparent text-muted-foreground",
 						)}
 					>
-						<span aria-hidden className="size-2 rounded-full" style={{ backgroundColor: BAND_COLOR[b] }} />
+						<span aria-hidden className="size-2 rounded-sm" style={{ backgroundColor: BAND_COLOR[b] }} />
 						{SKILL_BAND_LABEL[b]} · {counts[b]}
 					</button>
 				))}
@@ -158,7 +163,7 @@ export function DistributionStrip({
 	);
 }
 
-/** When the learned skills come due: Now / Today / This week / Later, each a toggle that filters the flat list. */
+/** When the learned skills come due, as one small strip: Now / Today / This week / Later, each a toggle that narrows the list. */
 export function DueTimeline({
 	skills,
 	now,
@@ -171,9 +176,9 @@ export function DueTimeline({
 	onPick: (bucket: DueBucket | null) => void;
 }) {
 	const counts = bucketCounts(skills, now);
-	const max = Math.max(1, ...DUE_BUCKETS.map((b) => counts[b]));
 	return (
-		<div className="grid grid-cols-4 gap-1.5" data-testid="due-timeline">
+		<div className="flex flex-wrap items-center gap-1.5" data-testid="due-timeline">
+			<span className="pr-1 text-xs text-muted-foreground">Reviews due</span>
 			{DUE_BUCKETS.map((b) => (
 				<button
 					key={b}
@@ -183,94 +188,16 @@ export function DueTimeline({
 					disabled={counts[b] === 0}
 					onClick={() => onPick(active === b ? null : b)}
 					className={cn(
-						"lh-touch rounded-md border px-2 py-1.5 text-left transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-40",
+						"lh-touch flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-40",
 						active === b ? "border-foreground/50" : "border-border/60",
 					)}
 				>
-					<span className="block text-xs text-muted-foreground">{DUE_BUCKET_LABEL[b]}</span>
-					<span className="block text-lg leading-tight" style={b === "now" && counts.now > 0 ? { color: DUE_COLOR } : undefined}>
+					<span className="text-muted-foreground">{DUE_BUCKET_LABEL[b]}</span>
+					<span className="font-medium" style={b === "now" && counts.now > 0 ? { color: DUE_COLOR } : undefined}>
 						{counts[b]}
-					</span>
-					<span aria-hidden className="mt-1 block h-0.5 rounded-full bg-border/40">
-						<span
-							className="block h-full rounded-full"
-							style={{ width: `${(counts[b] / max) * 100}%`, backgroundColor: b === "now" ? DUE_COLOR : "var(--muted-foreground)" }}
-						/>
 					</span>
 				</button>
 			))}
-		</div>
-	);
-}
-
-export type SkillView = "sections" | "understanding";
-
-/** The Sections / By understanding switch, and in the flat view the filter chips and the sort direction. */
-export function SkillViewControls({
-	view,
-	onView,
-	selection,
-	onSelection,
-	weakestFirst,
-	onWeakestFirst,
-}: {
-	view: SkillView;
-	onView: (view: SkillView) => void;
-	selection: SkillSelection;
-	onSelection: (selection: SkillSelection) => void;
-	weakestFirst: boolean;
-	onWeakestFirst: (weakestFirst: boolean) => void;
-}) {
-	const seg = (active: boolean) =>
-		cn("lh-touch px-3 py-1 text-xs transition-colors", active ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground");
-	return (
-		<div className="space-y-2" data-testid="skill-view-controls">
-			<div className="flex flex-wrap items-center gap-2">
-				<div role="group" aria-label="Skill view" className="flex overflow-hidden rounded-md border border-border">
-					<button type="button" aria-pressed={view === "sections"} data-testid="view-sections" className={seg(view === "sections")} onClick={() => onView("sections")}>
-						Sections
-					</button>
-					<button
-						type="button"
-						aria-pressed={view === "understanding"}
-						data-testid="view-understanding"
-						className={cn(seg(view === "understanding"), "border-l border-border")}
-						onClick={() => onView("understanding")}
-					>
-						By understanding
-					</button>
-				</div>
-				{view === "understanding" && (
-					<button
-						type="button"
-						data-testid="sort-direction"
-						className="lh-touch flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
-						onClick={() => onWeakestFirst(!weakestFirst)}
-					>
-						{weakestFirst ? <ArrowUpIcon className="size-3.5" /> : <ArrowDownIcon className="size-3.5" />}
-						{weakestFirst ? "Weakest first" : "Strongest first"}
-					</button>
-				)}
-			</div>
-			{view === "understanding" && (
-				<div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter skills">
-					{SKILL_CHIPS.map((c: SkillChip) => (
-						<button
-							key={c}
-							type="button"
-							aria-pressed={selection.chip === c}
-							data-testid={`chip-${c}`}
-							onClick={() => onSelection({ ...selection, chip: c })}
-							className={cn(
-								"lh-touch rounded-full border px-2.5 py-1 text-xs transition-colors hover:bg-muted",
-								selection.chip === c ? "border-foreground/50 text-foreground" : "border-border text-muted-foreground",
-							)}
-						>
-							{SKILL_CHIP_LABEL[c]}
-						</button>
-					))}
-				</div>
-			)}
 		</div>
 	);
 }
