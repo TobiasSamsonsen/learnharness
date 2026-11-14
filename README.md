@@ -6,23 +6,52 @@
   </picture>
 </p>
 
-<p align="center"><strong>An agent harness for learning.</strong></p>
+<p align="center"><strong>An agent harness for learning, built for courses and exams.</strong></p>
 
 <p align="center">
-  <a href="https://learnharness.ai">Download</a> ·
+  <a href="#install-this-fork">Install</a> ·
+  <a href="#what-this-fork-adds">What this fork adds</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="docs/README.md">Documentation</a> ·
-  <a href="https://github.com/amosblomqvist/learnharness/issues">Issues</a> ·
-  <a href="https://discord.gg/5tCHHQEB2e">Discord</a>
+  <a href="#upstream">Upstream</a>
 </p>
 
-LearnHarness uses AI agents to plan and teach lessons from your current understanding to your goal. It builds a detailed picture of what you understand and how you reason. That picture is updated as you learn.
+This is a fork of [LearnHarness](https://github.com/amosblomqvist/learnharness) by Amos Blomqvist (AGPL-3.0). It keeps upstream's teaching engine and builds a study system around it.
 
-Instead of just giving you an explanation, it uses your answers and thinking to decide what you need next. Teaching builds understanding one reasoning step at a time. Practice makes it usable. A persistent knowledge graph carries it across sessions.
+Give it a curriculum and an exam date. It drafts a map of the skills, finds where you start, teaches what is missing, schedules spaced practice, and shows how ready you are for the exam. It runs on desktop, on an Android tablet or phone with stylus handwriting, and on your Claude subscription.
 
 ![LearnHarness teaching session](docs/assets/teaching-session.png)
 
+## What this fork adds
+
+**Courses and exam preparation** ([docs/courses.md](docs/courses.md))
+- A curriculum (PDFs, notes, links) becomes a map of checkable skills with prerequisites. A placement test finds your starting point.
+- Learn, practice and review sessions for each skill. Spaced practice (FSRS) gives every skill an understanding from 0 to 10 and brings it back when your memory fades.
+- An exam date and exam weights order what to learn. An **exam readiness score** counts what the exams test and the foundations they rest on, and says how many past exams it is based on.
+- A **Next up** box with the review due, today's lessons and the next skills, each with its own button. **Choose skills** practices any set you tick, known skills included. Courses go in folders, and a Today list sits in the sidebar.
+
+**Teaching and practice**
+- The tutor picks the question type (calculations free-form, concept checks multiple choice), offers hints that never give the answer, and checks every answer key before you see the question.
+- **Pace** (Thorough, Efficient, Crash course), **problem difficulty** up to exam level, and a **learner profile** that adapts to your mistakes.
+- [Figures](docs/figures.md): plots, block diagrams, circuits and logic diagrams, shown only when the tutor decides they help.
+
+**Writing, speaking and sources**
+- **Sketch answers** with a stylus: the agent reads your handwriting back to you and you confirm it before it counts. Photos from the camera work as answers and as sources.
+- Lessons in **English or Norwegian**, and **local dictation** on your GPU (Whisper, offline after a download).
+- **Source material** (PDFs, notes, images, links) sets a lesson's scope and is searched by the teacher.
+
+**Models**
+- Run every agent on your **Claude Pro/Max subscription** through the Claude Code CLI, with a usage pill for your plan.
+
+**Devices**
+- An **Android app** for tablets and phones, with an on-device server, stylus ink, a tablet layout and an in-app Claude sign-in ([docs/android/STATUS.md](docs/android/STATUS.md)).
+- [GitHub sync](docs/sync.md) across devices, a headless server with an access token, a Windows installer you build from this fork, and a notice when upstream publishes a release.
+
 ## How it works
+
+The teaching engine is upstream's. LearnHarness uses AI agents to plan and teach lessons from your current understanding to your goal. It builds a detailed picture of what you understand and how you reason. That picture is updated as you learn.
+
+Instead of just giving you an explanation, it uses your answers and thinking to decide what you need next. Teaching builds understanding one reasoning step at a time. Practice makes it usable. A persistent knowledge graph carries it across sessions.
 
 1. **Measure.** Before teaching, the agent finds where your understanding ends on each part the lesson depends on. Your answers, confidence, and thinking show it where to start.
 2. **Plan.** It works out a dependency map from that starting point to your goal. You can see the plan, and the lesson adapts when your understanding turns out different.
@@ -39,27 +68,25 @@ The agent can also research questions in the background, create visual explanati
 
 What you are taught accumulates as propositions and reasoning chains: individual claims and the premises that lead to them. The graph shows this structure, with links back to the source sessions. You can also import notes.
 
-Future teaching sessions can read the graph instead of starting from scratch. Practice sessions can draw their material from it. It stores the ideas and their connections, not ratings of your ability.
+Future teaching sessions can read the graph instead of starting from scratch. Practice sessions can draw their material from it. It stores the ideas and their connections, not ratings of your ability. The skills of a [course](#courses-a-curriculum-to-learn-in-full) show an understanding score, worked out from your practice records.
 
 ![LearnHarness knowledge graph](docs/assets/knowledge-graph.png)
 
-## Download and get started
+## Install this fork
 
-**[Download from learnharness.ai](https://learnharness.ai)** · [GitHub Releases](https://github.com/amosblomqvist/learnharness/releases)
+This fork does not publish desktop builds. Use the Android app, build the Windows installer yourself, or run it from source.
 
-- **macOS (Apple Silicon):** signed and notarized DMG. Drag the app to Applications.
-- **Windows (x64):** run the installer. It is currently unsigned; Windows may show an “unknown publisher” or SmartScreen warning.
-- **Linux (x64):** make the AppImage executable and open it, or install the Debian/Ubuntu `.deb`.
+- **Android (tablet or phone):** download `learnharness-android-debug.apk` from the [android-latest release](https://github.com/TobiasSamsonsen/learnharness/releases/tag/android-latest) and install it. It is debug-signed, so Android asks you to allow installs from the app you download it with. On first run the app downloads its Linux environment and server, then offers an in-app Claude sign-in. Device notes and status: [docs/android/STATUS.md](docs/android/STATUS.md).
+- **Windows:** build the installer (below).
+- **macOS and Linux:** run from source ([development](docs/development.md)).
 
 Choose your models, then start a session with what you want to understand. You can use provider API keys, supported subscription connections in the desktop app, an installed [Claude Code CLI](docs/claude-code.md), or a [custom OpenAI-compatible endpoint](docs/custom-providers.md), including a local model server. Dictation runs locally on your machine by default (see below); web search and the optional cloud dictation engine use separate service keys. Web research can use a Tavily, Brave, Exa, Firecrawl, or Ollama key in Settings → Providers → Search. Ollama search uses its hosted service, not a local model server.
 
 See [Getting started](docs/getting-started.md) for model setup, dictation, files, and notes imports, and [context, caching, and costs](docs/compaction-accounting.md) for advanced cache preferences.
 
-All three platforms support in-app updates.
+### Windows
 
-### Install this fork on Windows
-
-The upstream download is upstream's build. To get this fork's features, build the installer yourself on the Windows machine (Node 24+ and Git):
+Build the installer on the Windows machine (Node 24+ and Git):
 
 ```sh
 git clone https://github.com/TobiasSamsonsen/learnharness.git
@@ -126,21 +153,35 @@ A lesson can carry source material: **PDFs** (textbooks, slides, past exams), **
 - To quote exactly, the teacher looks passages up in the material itself (`material_search`, `material_read`); math-heavy PDF pages can be read visually.
 - Material added mid-lesson is announced to the teacher once, so it can adjust the plan. Removing an item takes effect from the next turn.
 
+### Handwriting: sketch answers
+
+On a question or a practice problem, **Open in sketch** gives you a full-screen canvas with the problem floating above it. Write a derivation or draw a diagram with a stylus (or a mouse) and submit. The agent reads it first and shows you what it read ("I read: …", with any symbol it is unsure of); a solved problem is not graded until the reading is clear, and "That's not what I wrote" sends it back to re-read. Native ink on Android keeps the pen responsive on long pages. See [docs/android/plan.md](docs/android/plan.md).
+
+### Pace, difficulty and your learner profile
+
+- **Pace** sets how far a lesson goes before moving on: *Thorough* (the original), *Efficient* (fewer questions, trust a correct answer) or *Crash course* (key idea and procedure, one check each). Set a default in Settings, a pace per course, or change it for a session.
+- **Problem difficulty** sets the size of practice problems, from short single-skill ones up to exam level that combine four to six skills.
+- **Learner profile** (Settings → Learner): a note about you that every lesson reads, plus a record of the mistakes you tend to make. **Adapt** updates it from your recent sessions when you ask.
+
+### Sync between devices
+
+Keep one learner's chats, graph and courses in step across devices through a private GitHub repo you create: add the repo and a fine-grained token in Settings → Sync. It pulls and pushes every few minutes; a public repo is refused. See [docs/sync.md](docs/sync.md).
+
 ### Courses: a curriculum to learn in full
 
-A **course** turns a curriculum into a map of skills and tracks how much of it you know. Create one with **Courses → New** in the sidebar.
+A **course** turns a curriculum into a map of skills and tracks how much of it you know. Create one with **Courses → New** in the sidebar, and group courses in folders from a course's menu (swipe, right-click or long-press).
 
 1. **Add the curriculum** (PDFs, notes, a syllabus, links) with the Sources pill on the course page, then **Draft skill map**. The course planner reads it and drafts specific, checkable skills ("Differentiate a composition with the chain rule"), with the prerequisites between them. It reuses skills other courses already have, and links each skill to what your knowledge graph already holds.
 2. **Review the draft.** Ask for changes in your own words, or **Approve**: the skills join your knowledge graph, shared with every course that needs them.
 3. **Find your starting point.** Right after approval the course offers a quick **placement test**: short multiple-choice questions, about one for every three skills, hardest first. A confident correct answer marks the skill and everything it requires as known, so you start at your weak spots instead of the most basic skill.
-4. **Follow the route.** The course page shows **Next up** (skills whose prerequisites you have learned), **Learning** (learned, not yet known), **Locked** skills and what they need, **Known** skills, and skills **due for review**. Start a **Learn** lesson on one skill, **Practice** what you are learning, or **Review** what's due. A lesson ends with **Finish lesson** (top bar), or when the teacher sees you can do it: the skill is then learned, and the skills that build on it unlock.
+4. **Follow the route.** The course page opens on **Next up**: the review due today, today's lessons and the next skills to learn, each with its own button, so you can start without hunting for a skill. Below it, your skills are grouped (due for review, next up, learning, known, locked), each as a bar; tap one for its understanding, recall, due date, what it needs and its exam weight, with **Learn**, **Practice** or **Quick check**. **Choose skills** lets you tick any learned or next-up skill and practice them in one session, known skills included. A lesson ends with **Finish lesson** (top bar), or when the teacher sees you can do it: the skill is then learned, and the skills that build on it unlock.
 5. **Skills you already have from another course** are listed under **From another course** with a **Quick check**: one or two problems in this course's terms, explaining only what works differently here. It's optional, and nothing is locked behind it.
 
 The skills you know show in the **knowledge graph** beside the ideas you have learned: each one a gold square (solid when known, faint while still being learned), linked to its prerequisite skills and to the propositions it rests on, grouped by course. When a lesson finishes, whatever it taught goes into the graph, however short the lesson.
 
 **Answer keys are checked before you see a question.** A question with Python code is run, and its real output must match the answer key. Anything that can't be run (math, concepts) is solved independently by a second model that never sees the key; set which model under Settings → Agent → **Answer checker** (a different, stronger model catches more). A question that fails goes back to the teacher to fix. The check needs Python 3 on your machine for code questions (`LH_PYTHON` picks a specific interpreter; `LH_ANSWER_CHECK=0` turns the whole check off).
 
-**Known** is measured by spaced practice with an FSRS memory model: every skill has an understanding from 0 to 10 (how long it lasts; 10 is a year) and counts as known from 6, about a month of memory. A lesson ends with one unaided final problem, and the grade it earns is the skill's first rating (learned). In course practice sessions every problem is tagged with the skills it tests, and a separate grader model rates each skill from the whole problem: a clean solve on a later day grows the understanding, a hinted one grows it less, and giving up sets it back. A skill that needs review (recall below 90%) comes back in a Review session. A course can carry an exam date and per-skill exam weights, so Next up is ordered by what the exams use and a Today list shows the reviews and lessons for today. In the placement test, a correct answer at confidence 70 or more marks the skill and all its prerequisites as known; a less sure correct answer marks it learned; a wrong answer changes nothing, except that a skill you got wrong is never marked known just because it is a prerequisite of one you got right.
+**Known** is measured by spaced practice with an FSRS memory model: every skill has an understanding from 0 to 10 (how long it lasts; 10 is a year) and counts as known from 6, about a month of memory. A lesson ends with one unaided final problem, and the grade it earns is the skill's first rating (learned). In course practice sessions every problem is tagged with the skills it tests, and a separate grader model rates each skill from the whole problem: a clean solve on a later day grows the understanding, a hinted one grows it less, and giving up sets it back. A skill that needs review (recall below 90%) comes back in a Review session. A course can carry an exam date and per-skill exam weights (press **Weigh by exams** once; it reads your past exams), so Next up is ordered by what the exams use and a Today list shows the reviews and lessons for today. The **exam readiness** score weighs each skill by how likely the exams are to use it (a prerequisite counts like the skills built on it) and by how many past exams the weighing found: with few exams the rarely tested skills keep real weight, so 100% needs every skill. A tick on its bar marks where the foundation and the most tested skills end. In the placement test, a correct answer at confidence 70 or more marks the skill and all its prerequisites as known; a less sure correct answer marks it learned; a wrong answer changes nothing, except that a skill you got wrong is never marked known just because it is a prerequisite of one you got right.
 
 ### Local dictation
 
@@ -188,6 +229,10 @@ Run the standalone server (`node .next/standalone/server.js`) on a device you re
 
 `GET /api/health` is public (Host-checked only) and returns `{ok, version, tokenMode}`. The Electron app ignores `LH_ACCESS_TOKEN` and keeps its own per-launch secret. CI builds a linux-arm64 tarball for this setup (`.github/workflows/android-server.yml`, run by hand or on a version tag), and `node scripts/smoke-headless.mjs` checks the token mode and a chat turn against a fake `claude` after `npm run build` and `node scripts/build-server.mjs`.
 
+## Upstream
+
+This fork tracks [amosblomqvist/learnharness](https://github.com/amosblomqvist/learnharness) and keeps its version number. Upstream's own site, downloads, [Issues](https://github.com/amosblomqvist/learnharness/issues) and [Discord](https://discord.gg/5tCHHQEB2e) are at [learnharness.ai](https://learnharness.ai); they cover upstream's app, not the fork's additions.
+
 ## Your keys, your data
 
 - **Your keys and models.** No LearnHarness subscription or markup. Billing depends on your provider, CLI configuration, subscription, or local setup. The live cost meter estimates known API costs, not subscription, CLI, or custom-endpoint charges.
@@ -208,7 +253,7 @@ See the [documentation index](docs/README.md) for all guides, [development](docs
 
 For trusted local plugins, start with the [authoring guide and capability map](docs/plugin-authoring.md). It links the question, practice-problem, submission, view-context and UI contracts. Use [`examples/plugins/`](examples/plugins/) for small runnable templates, [`plugins/`](plugins/) for feature source projects, and the [host architecture](docs/plugin-architecture.md) for internals.
 
-Questions, bug reports, and feature requests: [GitHub Issues](https://github.com/amosblomqvist/learnharness/issues).
+Issues are switched off on this fork. For questions about the teaching engine itself, use [upstream's Issues](https://github.com/amosblomqvist/learnharness/issues).
 
 Security vulnerabilities: report privately as described in [SECURITY.md](SECURITY.md), not in public issues.
 
@@ -216,4 +261,4 @@ Security vulnerabilities: report privately as described in [SECURITY.md](SECURIT
 
 [AGPL-3.0](LICENSE)
 
-The app is free and open forever. If we ever charge for anything, it will be for convenience — managed keys, hosting — never for features you can run locally.
+Upstream's pledge: the app is free and open forever. If they ever charge for anything, it will be for convenience — managed keys, hosting — never for features you can run locally.
