@@ -1,12 +1,12 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode, ThemeMode } from "@/src/core";
-import { CheckIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoursesSection } from "@/components/courses-section";
 import { TodaySection } from "@/components/today-section";
@@ -496,7 +496,7 @@ function SessionsSidebar() {
 	/* FUZZY (owner round 8, 2026-10-05): subsequence match ranked by
 	 * fuzzyScore — prefix beats word-boundary beats scattered. Empty query
 	 * keeps the natural list order (scores are all 0, sort is stable). */
-	const shown = useMemo(() => {
+	const matched = useMemo(() => {
 		const q = query.trim();
 		let list = chats;
 		if (list && kindFilter !== "all") {
@@ -510,6 +510,56 @@ function SessionsSidebar() {
 			.sort((a, b) => b.score - a.score)
 			.map((r) => r.c);
 	}, [chats, query, kindFilter]);
+
+	/* FINISHED SESSIONS (owner, 2026-11-14): a finished course session (the ✓ ones) sits in a collapsed "Finished · N"
+	 * group at the bottom of the list, so a long history never pushes the live sessions away. The choice is remembered on
+	 * this device; searching opens it (a match must not hide). `shown` is what is on screen, in order: it is also what
+	 * the search's keyboard walk indexes. */
+	const [finishedOpen, setFinishedOpen] = useState(false);
+	useEffect(() => {
+		try {
+			setFinishedOpen(globalThis.localStorage?.getItem("lh:finished-open") === "1");
+		} catch {
+			// remembering is a convenience
+		}
+	}, []);
+	const toggleFinished = () => {
+		const next = !finishedOpen;
+		setFinishedOpen(next);
+		try {
+			globalThis.localStorage?.setItem("lh:finished-open", next ? "1" : "0");
+		} catch {
+			// remembering is a convenience
+		}
+	};
+	const finishedExpanded = finishedOpen || query.trim() !== "";
+	const finishedCount = matched?.filter((c) => c.finished).length ?? 0;
+	const shown = useMemo(
+		() => (matched ? [...matched.filter((c) => !c.finished), ...(finishedExpanded ? matched.filter((c) => c.finished) : [])] : matched),
+		[matched, finishedExpanded],
+	);
+
+	/** The group's header. A div role=button, not a <button>: the keyboard walk indexes the row buttons. */
+	const finishedHeader = (
+		<div
+			role="button"
+			tabIndex={0}
+			data-testid="finished-toggle"
+			aria-expanded={finishedExpanded}
+			onClick={toggleFinished}
+			onKeyDown={(e) => {
+				if (e.key === "Enter" || e.key === " ") {
+					e.preventDefault();
+					toggleFinished();
+				}
+			}}
+			className="lh-touch mb-0.5 mt-1 flex w-full cursor-pointer items-center gap-1.5 rounded-lg px-1 py-1 text-xs uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground"
+		>
+			<CheckIcon className="size-3" />
+			Finished · {finishedCount}
+			{finishedExpanded ? <ChevronDownIcon className="size-3" /> : <ChevronRightIcon className="size-3" />}
+		</div>
+	);
 
 	const refreshInFlightRef = useRef(false);
 	const refresh = useCallback(async () => {
@@ -862,7 +912,7 @@ function SessionsSidebar() {
 
 				{/* Courses (fork addition — docs/courses.md §6): above the
 				    sessions, which they are made of. */}
-				<CoursesSection onCourses={setCourses} />
+				<CoursesSection onCourses={setCourses} query={query} />
 
 				<div className="mx-3 mb-2 flex items-center gap-2">
 					<Hint label="Search sessions" action="sessions-search" side="bottom">
@@ -956,13 +1006,15 @@ function SessionsSidebar() {
 				<div ref={listRef} className="flex-1 overflow-y-auto p-2">
 					{shown === null ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
-					) : shown.length === 0 ? (
-						<div className="px-2 py-4 text-xs text-muted-foreground">
-							{query.trim() ? "No sessions match." : "No sessions yet."}
-						</div>
 					) : (
-						shown.map((c, i) =>
-							renamingId === c.id ? (
+						<>
+						{matched!.length === 0 && (
+							<div className="px-2 py-4 text-xs text-muted-foreground">
+								{query.trim() ? "No sessions match." : "No sessions yet."}
+							</div>
+						)}
+						{shown.map((c, i) => {
+							const row = renamingId === c.id ? (
 								<RenameRow
 									key={c.id}
 									chat={c}
@@ -993,8 +1045,18 @@ function SessionsSidebar() {
 										courseTitle={c.course ? courses.find((k) => k.id === c.course!.courseId)?.title : undefined}
 									/>
 								</SwipeRow>
-							),
-						)
+							);
+							return c.finished && i === shown.findIndex((x) => x.finished) ? (
+								<Fragment key={c.id}>
+									{finishedHeader}
+									{row}
+								</Fragment>
+							) : (
+								row
+							);
+						})}
+						{finishedCount > 0 && !shown.some((c) => c.finished) && finishedHeader}
+						</>
 					)}
 				</div>
 

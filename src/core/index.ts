@@ -84,6 +84,7 @@ export * from "./grade-failure.ts";
 export * from "./turn-fallback.ts";
 // Exam date, skill weights and the Today plan (fork addition, 2026-11-13).
 export * from "./exam-plan.ts";
+export * from "./course-folders.ts";
 // The Hint button on a lesson question (fork addition, 2026-11-13).
 export * from "./hints.ts";
 // Learner profile: stored shape and caps (fork addition, 2026-11-11).
