@@ -515,7 +515,7 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
       (closed), **From another course**, **Learning** (with Practice all), **Known**, and **Locked · n** as one closed
       group at the end. Each skill is one quiet row: its name, a thin understanding bar (tick at the known line, hatched
       when locked) and a sky dot when it is due. A tap opens the detail: the state line (with "needs …" when locked), the
-      exam weight, the Learn / Practice / Learn again / Quick check buttons, its statement, recall, prerequisites, the
+      exam weight, the Learn / Practice / Learn again / Quick check buttons (a known skill can be practiced too), its statement, recall, prerequisites, the
       last lesson and the propositions it rests on (name + statement, with links to the sessions they came from). There
       is no Sections / By understanding switch, sort, or filter pills any more.
 - The home canvas is unchanged.

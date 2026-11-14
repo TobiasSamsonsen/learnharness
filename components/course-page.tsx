@@ -451,11 +451,25 @@ export function CourseBody({
 			Quick check
 		</button>
 	);
+	/** A known skill can be practiced too (owner, 2026-11-14): keeping it sharp before the exam. */
+	const practiceOnly = (s: CourseSkillView) => (
+		<button type="button" className={cn(BTN, "lh-touch")} disabled={busy} data-testid={`practice-${s.id}`} onClick={() => onStart("practice", s.id)}>
+			Practice
+		</button>
+	);
+	/** A skill had from another course: the quick check, and practice since it is known. */
+	const contextActions = (s: CourseSkillView) => (
+		<>
+			{quickCheck(s)}
+			{practiceOnly(s)}
+		</>
+	);
 	/** The flat list's per-row button: the same one the section the skill would sit in shows. */
 	const actionsFor = (s: CourseSkillView) => {
-		if (contextIds.has(s.id)) return quickCheck(s);
+		if (contextIds.has(s.id)) return contextActions(s);
 		if (nextUpIds.has(s.id)) return learnPractice(s);
 		if (s.learned && !s.known) return practiceLearnAgain(s);
+		if (s.learned && s.known) return practiceOnly(s);
 		return undefined;
 	};
 	return (
@@ -621,7 +635,7 @@ export function CourseBody({
 									</p>
 									<RowList>
 										{list(data.contextCheck).map((s) => (
-											<SkillRow key={s.id} skill={s} names={names} now={now} actions={quickCheck(s)} />
+											<SkillRow key={s.id} skill={s} names={names} now={now} actions={contextActions(s)} />
 										))}
 									</RowList>
 								</section>
@@ -648,7 +662,7 @@ export function CourseBody({
 							{known.length > 0 && (
 								<section data-testid="course-known">
 									<div className={SECTION_HEAD}>Known · {known.length}</div>
-									<RowList>{list(known).map((s) => <SkillRow key={s.id} skill={s} names={names} now={now} />)}</RowList>
+									<RowList>{list(known).map((s) => <SkillRow key={s.id} skill={s} names={names} now={now} actions={practiceOnly(s)} />)}</RowList>
 								</section>
 							)}
 

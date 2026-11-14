@@ -250,7 +250,7 @@ test("a due skill carries a dot and its row opens to the state line", async () =
 	assert.match(byTestId("skill-detail-b")?.textContent ?? "", /due now/);
 });
 
-test("row buttons live in the opened detail: next up gets Learn and Practice, learned-not-known gets Practice and Learn again, a context-check skill gets Quick check, a known skill gets none", async () => {
+test("row buttons live in the opened detail: next up gets Learn and Practice, learned-not-known gets Practice and Learn again, a known or context-check skill gets Practice (a context-check skill also Quick check)", async () => {
 	// e: next up. f: from another course (contextCheck), learned and known as the server sends it. g: learned, not known. h: known.
 	const extra: CoursePayload = {
 		course: { id: "course_b", title: "Extra", createdAt: "t", updatedAt: "t", status: "active", skills: ["e", "f", "g", "h"] },
@@ -307,11 +307,17 @@ test("row buttons live in the opened detail: next up gets Learn and Practice, le
 
 	await expand("f");
 	assert.ok(has("check-f"), "the context-check skill F shows Quick check");
-	assert.equal(has("learn-f") || has("practice-f"), false, "F shows only the quick check");
+	assert.ok(has("practice-f"), "and, being known, Practice");
+	assert.equal(has("learn-f"), false, "but no Learn");
 	await click("check-f");
 	assert.deepEqual(calls.at(-1), ["check", "f"], "Quick check starts a check on F");
+	await click("practice-f");
+	assert.deepEqual(calls.at(-1), ["practice", "f"], "Practice starts a practice session on the known skill F");
 
 	await expand("h");
 	assert.ok(has("skill-h"), "the known skill row is listed");
-	assert.equal(has("learn-h") || has("practice-h") || has("check-h"), false, "known H has no learn, practice or check button");
+	assert.ok(has("practice-h"), "a known skill can be practiced");
+	assert.equal(has("learn-h") || has("check-h"), false, "known H has no Learn or Quick check");
+	await click("practice-h");
+	assert.deepEqual(calls.at(-1), ["practice", "h"], "Practice starts a practice session on H");
 });
