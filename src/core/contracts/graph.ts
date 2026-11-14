@@ -266,6 +266,19 @@ export interface IdentityLink {
  *  auditor never rejects; the extractor is fully trusted (2026-09-27). */
 export interface AuditVerdicts {
 	links: IdentityLink[];
+	/** BRIDGES (owner, 2026-11-14 — reverses the 2026-09-28 "the auditor
+	 *  never mints edges" ruling, because the graph stayed in islands: a
+	 *  newer session could not lean on an older session's idea). Optional:
+	 *  absent = none. Each is a single-premise chain with ONE endpoint a
+	 *  finding id and the other an existing node, in either direction. */
+	bridges?: AuditBridge[];
+}
+
+/** One bridging edge: `premise` entails `conclusion`. Exactly one of the two
+ *  is a finding's local id ("p1"), the other an existing graph node id. */
+export interface AuditBridge {
+	premise: string;
+	conclusion: string;
 }
 
 /** Rendered cluster in a graph snapshot. Members are proposition node IDs;
@@ -319,6 +332,12 @@ export interface GraphSnapshot {
 	 * nodes are never partitioned. Purely provenance-derived — never
 	 * depends on layout. */
 	clusters: Cluster[];
+	/** The HULL + LABEL partition (owner, 2026-11-14): one region per course
+	 *  (id the course id, label the course title) holding every session of
+	 *  that course, plus the per-session clusters of sessions with no course.
+	 *  The layout pull keeps using `clusters` above. Set by the server;
+	 *  absent → the view draws `clusters`. */
+	courseClusters?: Cluster[];
 	/** Resting layout positions per node id, when a positions ledger
 	 *  exists (core/layout.ts settle writes it). Absent on a fresh graph —
 	 *  the view then falls back to its own one-shot forceAtlas2 pass. */

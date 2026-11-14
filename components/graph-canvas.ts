@@ -52,7 +52,7 @@
  */
 
 import { select } from "d3-selection";
-import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
+import { zoom, zoomIdentity, zoomTransform, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
 import type { Simulation, SimulationLinkDatum } from "d3-force";
 import { clusterHue, type Pt } from "./cluster-geometry.ts";
 import type { RenderedMode } from "@/src/core";
@@ -114,6 +114,9 @@ export interface CanvasCluster {
 	id: string;
 	label: string | null;
 	members: string[];
+	/** The id the hue is hashed from, when it is not the cluster's own: a
+	 *  session label takes its COURSE's hue (owner, 2026-11-14). */
+	hueKey?: string;
 }
 
 /** Cluster region + label lightness (HSL %), per rendered mode — the
@@ -153,7 +156,16 @@ export interface CanvasData {
 	/** The imp chain linkage — the depth pass anchors each junction at
 	 *  the premises/conclusion midpoint (owner, 2026-09-30). */
 	impLinks?: ReadonlyArray<{ id: string; premises: ReadonlyArray<string>; conclusion: string }>;
+	/** Hulls + labels. */
 	clusters: CanvasCluster[];
+	/** The layout pull's groups (owner, 2026-11-14: hulls are per course, the
+	 *  pull stays per session); absent → `clusters`. */
+	pullClusters?: CanvasCluster[];
+	/** The per-course centring pull's groups (owner, 2026-11-14); absent → off. */
+	coursePullClusters?: CanvasCluster[];
+	/** The label anchors + text (owner, 2026-11-14: hulls are per course, each
+	 *  island is still named by its session); absent → `clusters`. */
+	labelClusters?: CanvasCluster[];
 	colors: CanvasColors;
 	/** Body font family (labels must match the app typography). */
 	fontFamily: string;
@@ -293,6 +305,27 @@ export function applyClusterLabels(
 			: null;
 	}
 	return true;
+}
+/** True when two label boxes overlap. Exported for tests. */
+export function labelBoxesOverlap(
+	a: { x0: number; x1: number; y0: number; y1: number },
+	b: { x0: number; x1: number; y0: number; y1: number },
+): boolean {
+	return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+}
+
+/** True when the world bbox, seen through the camera, overlaps the viewport at all. Exported for tests. */
+export function bboxOnScreen(
+	bbox: { minX: number; maxX: number; minY: number; maxY: number },
+	t: { k: number; x: number; y: number },
+	w: number,
+	h: number,
+): boolean {
+	const x0 = t.x + t.k * bbox.minX;
+	const x1 = t.x + t.k * bbox.maxX;
+	const y0 = t.y + t.k * bbox.minY;
+	const y1 = t.y + t.k * bbox.maxY;
+	return x1 >= 0 && x0 <= w && y1 >= 0 && y0 <= h;
 }
 const LABEL_MAX_WIDTH = 170; // wrap width at the reference label size, world units
 const LABEL_GAP = 2.9; // world units between node edge and first label line (the 2px-at-fit reference ÷ 0.69)
@@ -611,6 +644,8 @@ export class GraphCanvasRenderer {
 	private transform: ZoomTransform = zoomIdentity;
 	/** Set once the first fit happens; the camera then survives setData. */
 	private hasFit = false;
+	/** The restored camera was checked against the graph once (see setData). */
+	private cameraChecked = false;
 	/** Last-synced CSS size — the resize anchor computes the world point
 	 *  under the PRE-resize viewport center from these (ResizeObserver
 	 *  callbacks already see the NEW size in clientWidth/Height). */
@@ -811,6 +846,17 @@ export class GraphCanvasRenderer {
 			if (n.y > maxY) maxY = n.y;
 		}
 		this.worldBBox = { minX, maxX, minY, maxY };
+		// A restored camera that frames NOTHING of the graph (layout moved since
+		// it was saved: a re-settle, a fresh bridge pass) is a blank canvas, not
+		// the user's view — re-frame once, on the first data (owner, 2026-11-14).
+		if (!this.cameraChecked && this.hasFit && data.nodes.length > 0) {
+			const w = this.canvas.clientWidth;
+			const h = this.canvas.clientHeight;
+			if (w >= 10 && h >= 10) {
+				this.cameraChecked = true;
+				if (!bboxOnScreen(this.worldBBox, zoomTransform(this.canvas), w, h)) this.hasFit = false;
+			}
+		}
 		if (!this.hasFit && data.nodes.length > 0) this.fit();
 		// The camera may be user-restored (constructor initialCamera) — the
 		// gate's "1×" reference still needs the fresh bbox's fit zoom.
@@ -890,14 +936,14 @@ export class GraphCanvasRenderer {
 		// No settings yet → nothing is drawn; patch the data side only and
 		// let the next build derive the wrap (same guard the build uses).
 		if (!settings) {
-			applyClusterLabels(data.clusters, [], labels, REGION_LABEL_MAX_WIDTH, REGION_LABEL_MAX_LINES, () => 0);
+			applyClusterLabels(data.labelClusters ?? data.clusters, [], labels, REGION_LABEL_MAX_WIDTH, REGION_LABEL_MAX_LINES, () => 0);
 			return;
 		}
 		const ctx = this.ctx;
 		const prevFont = ctx.font;
 		ctx.font = `${LABEL_WEIGHT} ${settings.clusterLabelSize}px ${data.fontFamily}`;
 		const changed = applyClusterLabels(
-			data.clusters,
+			data.labelClusters ?? data.clusters,
 			this.regionMeta,
 			labels,
 			REGION_LABEL_MAX_WIDTH,
@@ -1389,7 +1435,13 @@ export class GraphCanvasRenderer {
 			linkStrength: t.linkStrength,
 			linkDistance: t.linkDistance,
 			clusterPull:
-				data.clusters.length > 0 ? { clusters: data.clusters, strength: t.clusterPull } : undefined,
+				(data.pullClusters ?? data.clusters).length > 0
+					? { clusters: data.pullClusters ?? data.clusters, strength: t.clusterPull }
+					: undefined,
+			coursePull:
+				data.coursePullClusters && data.coursePullClusters.length > 0
+					? { clusters: data.coursePullClusters, strength: t.coursePull }
+					: undefined,
 			depthAnchor:
 				t.depthMode === "off"
 					? undefined
@@ -1463,7 +1515,7 @@ export class GraphCanvasRenderer {
 		// cluster labels follow their own `clusterLabels` setting and must
 		// survive the region paint being turned off.
 		this.regionMeta = [];
-		data.clusters.forEach((cluster) => {
+		(data.labelClusters ?? data.clusters).forEach((cluster) => {
 			let members = 0;
 			let sumX = 0;
 			let sumY = 0;
@@ -1481,7 +1533,7 @@ export class GraphCanvasRenderer {
 					label: cluster.label || null,
 					cx: sumX / members,
 					cy: sumY / members,
-					hue: clusterHue(cluster.id),
+					hue: clusterHue(cluster.hueKey ?? cluster.id),
 					lines: null,
 				});
 			}
@@ -1807,8 +1859,17 @@ export class GraphCanvasRenderer {
 			// Screen px ÷ k = world units — the lines stay evenly spaced
 			// at a constant on-screen pitch at any zoom.
 			const lineH = (settings.clusterLabelSize * REGION_LABEL_LINE_HEIGHT) / k;
+			// Overlap guard (owner, 2026-11-14): regionMeta is biggest-first, and a
+			// label that would sit on an already-placed one is skipped (it comes
+			// back as you zoom in and the labels move apart on screen).
+			const placed: Array<{ x0: number; x1: number; y0: number; y1: number }> = [];
 			for (const rm of this.regionMeta) {
 				if (!rm.lines) continue;
+				const boxW = Math.max(...rm.lines.map((l) => ctx.measureText(l).width));
+				const boxH = rm.lines.length * lineH;
+				const box = { x0: rm.cx - boxW / 2, x1: rm.cx + boxW / 2, y0: rm.cy - boxH / 2, y1: rm.cy + boxH / 2 };
+				if (placed.some((p) => labelBoxesOverlap(p, box))) continue;
+				placed.push(box);
 				ctx.fillStyle = `hsla(${rm.hue}, 55%, ${data.colors.clusterLightness.label}%, 0.85)`;
 				const firstOffset = (-(rm.lines.length - 1) / 2) * lineH;
 				for (let i = 0; i < rm.lines.length; i++) {

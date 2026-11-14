@@ -69,6 +69,7 @@ import { PluginGraphActions } from "@/components/plugin-chrome";
 import { SettingsSlider as SettingSlider } from "@/components/settings/controls";
 import Link from "next/link";
 import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
+import { clusterHue } from "./cluster-geometry.ts";
 import { incrementalLayout, isSkillNodeId, MAX_UNDERSTANDING, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
 import { planCostLabel } from "@/components/usage-format";
 import { CLUSTER_LIGHTNESS, GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
@@ -227,6 +228,26 @@ export function SkillDetail({
  *  label itself goes through the renderer's label-only channel
  *  (setClusterLabels). Exported for tests; pure display state only —
  *  the server derives the same join on its next read. */
+/** A session's title as an island label (owner, 2026-11-14): the mode prefix
+ *  is dropped ("Learn: Komplekse tall" → "Komplekse tall"). Exported for tests. */
+export function sessionHullLabel(title: string | null): string | null {
+	if (title === null) return null;
+	const stripped = title.replace(/^(Learn|Practice|Review|Check|Placement|Exam)\b[^:]*:\s*/i, "").trim();
+	return stripped === "" ? title : stripped;
+}
+
+/** The course region (hull) that holds a session cluster, so its label takes
+ *  the course's hue. Undefined when the session has no course region. */
+export function courseHueKey(
+	session: { members: string[] },
+	courseClusters: ReadonlyArray<{ id: string; members: string[] }>,
+	sessionIds: ReadonlySet<string>,
+): string | undefined {
+	const first = session.members[0];
+	if (first === undefined) return undefined;
+	return courseClusters.find((c) => !sessionIds.has(c.id) && c.members.includes(first))?.id;
+}
+
 export function renameSessionsPatch(snapshot: Pick<GraphSnapshot, "sessions">, id: string, title: string): void {
 	snapshot.sessions[id] = title;
 }
@@ -787,6 +808,19 @@ function GraphSettingsControl({
 									}))}
 							/>
 							<SettingSlider
+								label="Course pull"
+								min={0}
+								max={100}
+								step={5}
+								value={toOffSliderPosition(physicsTuning.coursePull, CLUSTER_PULL_RANGE.min, CLUSTER_PULL_RANGE.max)}
+								display={physicsTuning.coursePull <= 0 ? "off" : sizeDisplay(physicsTuning.coursePull)}
+								onChange={(p) =>
+									changeSettings((cur) => ({
+										...cur,
+										physics: { ...cur.physics, coursePull: fromOffSliderPosition(p, CLUSTER_PULL_RANGE.min, CLUSTER_PULL_RANGE.max) },
+									}))}
+							/>
+							<SettingSlider
 								label="Friction"
 								min={0}
 								max={100}
@@ -1155,7 +1189,9 @@ export function GraphView({
 		fetch("/api/graph")
 			.then((res) => res.json() as Promise<GraphSnapshot>)
 			.then((data) => {
-				if (!cancelled) setSnapshot(withSkillLayer(data));
+				// Skills are left out of the graph (owner, 2026-11-14: they made it look
+				// worse). withSkillLayer is kept so this is one line to undo.
+				if (!cancelled) setSnapshot(data);
 			})
 			.catch((err) => console.error("[graph] fetch failed:", err));
 		return () => {
@@ -1291,7 +1327,7 @@ export function GraphView({
 			if (typeof id !== "string" || typeof title !== "string" || id === "" || title === "") return;
 			const snap = snapshotRef.current;
 			if (snap != null) renameSessionsPatch(snap, id, title);
-			rendererRef.current?.setClusterLabels(new Map([[id, title]]));
+			rendererRef.current?.setClusterLabels(new Map([[id, sessionHullLabel(title)]]));
 			setLabelTick((t) => t + 1);
 		};
 		const onSourceRenamed = (event: Event) => {
@@ -1499,7 +1535,29 @@ export function GraphView({
 			edges: snapshot.edges.map((e) => ({ from: e.from, to: e.to })),
 			logicalEdges: snapshot.logicalEdges.map((e) => ({ from: e.from, to: e.to })),
 			impLinks: snapshot.impLinks,
-			clusters: snapshot.clusters.map((c) => ({ id: c.id, label: c.label, members: c.members })),
+			clusters: (snapshot.courseClusters ?? snapshot.clusters).map((c) => ({ id: c.id, label: c.label, members: c.members })),
+			pullClusters: snapshot.clusters.map((c) => ({ id: c.id, label: c.label, members: c.members })),
+			// One centring pull per COURSE: only the merged course regions, never a course-less session.
+			...(snapshot.courseClusters
+				? {
+						coursePullClusters: snapshot.courseClusters
+							.filter((c) => !snapshot.clusters.some((s) => s.id === c.id))
+							.map((c) => ({ id: c.id, label: c.label, members: c.members })),
+					}
+				: {}),
+			// Each island is named by its session, in its course's hue.
+			...(snapshot.courseClusters
+				? {
+						labelClusters: (() => {
+							const sessionIds = new Set(snapshot.clusters.map((c) => c.id));
+							const courses = snapshot.courseClusters;
+							return snapshot.clusters.map((c) => {
+								const hueKey = courseHueKey(c, courses, sessionIds);
+								return { id: c.id, label: sessionHullLabel(c.label), members: c.members, ...(hueKey ? { hueKey } : {}) };
+							});
+						})(),
+					}
+				: {}),
 			colors: {
 				node: tokenHex(NODE_COLOR_TOKEN),
 				edge: tokenHex("--muted-foreground"),
@@ -1708,6 +1766,20 @@ export function GraphView({
 			))}
 			</div>
 			</div>
+
+			{/* Course legend (owner, 2026-11-14): the hull colour is the course. */}
+			{!isEmpty && snapshot?.courseClusters && (
+				<div className="pointer-events-none absolute bottom-4 left-4 z-10 flex flex-col gap-1 text-xs text-muted-foreground" data-testid="course-legend">
+					{snapshot.courseClusters
+						.filter((c) => c.label && !snapshot.clusters.some((s) => s.id === c.id))
+						.map((c) => (
+							<div key={c.id} className="flex items-center gap-2">
+								<span className="size-2.5 rounded-full" style={{ background: `hsl(${clusterHue(c.id)} 55% 60%)` }} />
+								<span>{c.label}</span>
+							</div>
+						))}
+				</div>
+			)}
 
 			{selected && !isEmpty && (
 				<div

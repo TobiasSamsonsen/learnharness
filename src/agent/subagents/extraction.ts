@@ -27,7 +27,7 @@ import type {
 import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps } from "../../core/graph.ts";
 import type { GraphStore } from "../../core/ports.ts";
 import { emit } from "../../core/events.ts";
-import { settleGraphLayout } from "../../core/layout-settle.ts";
+import { courseOfSession, settleGraphLayout } from "../../core/layout-settle.ts";
 import { batchRuns, coverageOf, messageViewLines } from "../../core/coverage.ts";
 import { failedOutputCallIds, type LhMessage } from "../../core/native-messages.ts";
 import { prepareAuditorReview } from "../tools/graph.ts";
@@ -243,10 +243,11 @@ type FindingsSubmit = Static<typeof findingsSchema>;
 type SessionFindingsSubmit = Static<typeof sessionFindingsSchema>;
 
 // VERDICTS-ONLY (owner, 2026-09-28): the auditor never alters the
-// extractor's findings, so it does not restate them — links are its
-// ENTIRE deliverable (owner, 2026-09-28 evening: the edges argument is
-// GONE; the auditor never mints edges. The graph connects across sources
-// solely through identified equivalences — a link, never an inference).
+// extractor's findings, so it does not restate them. Its deliverable is
+// the identity links plus, since 2026-11-14 (owner, reversing the
+// 2026-09-28 evening "the auditor never mints edges" ruling — the graph
+// stayed in islands), up to MAX_BRIDGES single-premise BRIDGE edges
+// between a finding and an existing node, either direction.
 const auditSchema = Type.Object({
 	links: Type.Array(
 		Type.Object({
@@ -258,7 +259,45 @@ const auditSchema = Type.Object({
 		}),
 		{ description: "Identity verdicts — which findings propositions ARE existing graph nodes. A proposition absent from here = create a new node. Pass [] when none — never omit the field." },
 	),
+	bridges: Type.Optional(Type.Array(
+		Type.Object({
+			premise: Type.String({ description: "The id of the idea that is needed to derive the conclusion: a finding id (\"p1\") OR an existing graph node id (\"n_…\")." }),
+			conclusion: Type.String({ description: "The id of the derived idea: an existing graph node id when the premise is a finding, a finding id when the premise is an existing node." }),
+		}),
+		{ description: "Bridging edges, at most 5: one existing idea that is genuinely needed to derive a finding (existing → finding), or a finding that is needed to derive an existing idea (finding → existing). Exactly one endpoint is a finding id. Pass [] when none is clear." },
+	)),
 });
+
+/** The most bridges one session may add (owner, 2026-11-14). */
+export const MAX_BRIDGES = 5;
+
+/** The bridge law at the submit seam (error-back channel): exactly one
+ *  endpoint is a finding id and the other an existing node id; at most
+ *  MAX_BRIDGES; no duplicates; and a finding that is identity-linked is
+ *  already an existing node, so a bridge on it would be old-to-old. */
+export function validateBridges(
+	value: { links: Array<{ id: string; linkTo: string }>; bridges?: Array<{ premise: string; conclusion: string }> },
+	findingIds: ReadonlySet<string>,
+	existingIds: ReadonlySet<string>,
+): string | null {
+	const bridges = value.bridges ?? [];
+	if (bridges.length > MAX_BRIDGES) return `bridges: at most ${MAX_BRIDGES} per session, keep only the clearest.`;
+	const linked = new Set(value.links.map((l) => l.id));
+	const seen = new Set<string>();
+	for (const b of bridges) {
+		const key = `${b.premise}>${b.conclusion}`;
+		if (seen.has(key)) return `bridges: "${b.premise}" → "${b.conclusion}" appears twice.`;
+		seen.add(key);
+		const premiseIsFinding = findingIds.has(b.premise);
+		const conclusionIsFinding = findingIds.has(b.conclusion);
+		if (premiseIsFinding === conclusionIsFinding) return `bridges: "${b.premise}" → "${b.conclusion}" must have exactly ONE finding id as an endpoint (the other an existing graph node id).`;
+		const finding = premiseIsFinding ? b.premise : b.conclusion;
+		const existing = premiseIsFinding ? b.conclusion : b.premise;
+		if (!existingIds.has(existing)) return `bridges: "${existing}" is not an existing graph node id.`;
+		if (linked.has(finding)) return `bridges: "${finding}" is identity-linked to an existing node, so a bridge on it would join two existing nodes — bridge only new findings.`;
+	}
+	return null;
+}
 
 // The notes front door's wire shape is the session shape MINUS the
 // messageId anchor (owner, 2026-10-13: only the SESSION door demands
@@ -367,6 +406,7 @@ const asSessionFindings = (
 function fillAudit(raw: Static<typeof auditSchema>): AuditVerdicts {
 	return {
 		links: raw.links,
+		bridges: raw.bridges ?? [],
 	};
 }
 
@@ -582,7 +622,13 @@ continues its fixed query. Once a finding is decided, revisit it only if another
 Complete this task by CALLING the submit_review TOOL with its links argument. A text message, including JSON
 printed as text, does not submit a review. Each link supplies the finding's id and the existing record's id as linkTo.
 Include only useful matches to existing records you have seen. Omitted findings become new nodes; use "links": []
-when none match. Do not restate findings, invent relations, or justify verdicts in the output. The merger retains the
+when none match. Do not restate findings or justify verdicts in the output.
+
+BRIDGES: after the links, you may add up to 5 bridges: a single existing idea that is genuinely needed to derive a new
+finding (existing → finding), or a new finding that is needed to derive an existing idea (finding → existing). Only
+entailment counts: the premise must be a real step in the derivation, not just the same subject. Use find_candidates
+to look for such an existing idea. Bridge only findings you left new (not linked). Return "bridges": [] when none
+is clear. The merger retains the
 existing record's name and statement and adds the incoming wording as an alias with its provenance.`;
 
 /** The auditor — one shape for both front doors now (the notes schema was
@@ -595,15 +641,18 @@ function runAuditor(
 	signal: AbortSignal | undefined,
 	onStep: (usage: Usage, model: string, step: number, finishReason: string, tools: string) => void,
 	tools: Record<string, AgentTool<any>>,
+	findingIds: ReadonlySet<string>,
+	existingIds: ReadonlySet<string>,
 ): Promise<AuditVerdicts> {
 	return runSubmitAgent({
 		role: "auditor",
 		// Debug recorder key: same source id as the extractor run.
 		chatId: sourceId,
 		toolName: "submit_review",
-		toolDescription: "Submit the identity verdicts ONLY (links) — never the propositions themselves.",
+		toolDescription: "Submit the identity verdicts (links) and any bridges — never the propositions themselves.",
 		parameters: auditSchema,
 		fill: fillAudit,
+		validate: (value) => validateBridges(value, findingIds, existingIds),
 		systemPrompt: AUDITOR_INSTRUCTIONS,
 		prompt,
 		engine,
@@ -1004,10 +1053,12 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 				console.info(`[extraction] auditor step ${step}: ${finishReason}, tools: ${tools}`);
 			},
 			review.tools,
+			new Set(findings.propositions.map((p) => p.id)),
+			new Set(graph.nodes.map((n) => n.id)),
 		);
 		console.info(
 			`[extraction ${jobKey}] audit: ${findings.propositions.length} propositions through, ` +
-				`${auditResult.links.length} linked to existing nodes`,
+				`${auditResult.links.length} linked to existing nodes, ${auditResult.bridges?.length ?? 0} bridges`,
 		);
 		console.info(`[extraction ${jobKey}] auditor done in ${Math.round(performance.now() - t0)}ms`);
 		return auditResult;
@@ -1211,7 +1262,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 								});
 								// The layout ledger evolves with the merge (sync — the
 								// next snapshot fetch must already reflect the new nodes).
-								settleGraphLayout(graphStore);
+								settleGraphLayout(graphStore, courseOfSession(chatStore));
 								console.info(
 									`[extraction ${jobKey}] merged: ${batchStats.nodes} nodes, ${batchStats.chains ?? 0} chains`,
 								);

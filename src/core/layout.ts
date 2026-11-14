@@ -200,6 +200,13 @@ export interface SimOptions {
 		clusters: ReadonlyArray<{ members: ReadonlyArray<string> }>;
 		strength: number;
 	};
+	/** The same centroid pull over a COARSER partition (owner, 2026-11-14:
+	 *  one centring force per course, beside the per-session pull). Its own
+	 *  strength; same depth-mode rules; absent or 0 = off. */
+	coursePull?: {
+		clusters: ReadonlyArray<{ members: ReadonlyArray<string> }>;
+		strength: number;
+	};
 }
 
 /** Link input: edges are undirected for layout purposes. */
@@ -248,6 +255,12 @@ export const INCREMENTAL_GRAVITY = 0.12;
  *  compact enough to read as blobs, weak enough that cluster shape is
  *  still the edge network's). */
 export const CLUSTER_PULL_STRENGTH = 0.15;
+/** Default per-course pull (owner, 2026-11-14): gentler than the session pull, so the sessions stay readable. */
+export const COURSE_PULL_STRENGTH = 0.06;
+/** Spring stiffness (× the link-strength tuning, capped at 1) of an edge between two sessions. */
+export const CROSS_LINK_STRENGTH = 1;
+/** Linked-session pull, as a multiple of the cluster pull strength (see createGraphSimulation). */
+export const LINKED_SESSION_PULL = 2;
 
 /**
  * The one force set. Returns a STOPPED simulation — callers drive it
@@ -269,6 +282,17 @@ export function createGraphSimulation(
 	}
 	const linkStrength = options.linkStrength ?? 1;
 	const linkDistance = options.linkDistance ?? LINK_DISTANCE;
+	// CROSS-SESSION edges (owner, 2026-11-14: "a long connection moving around
+	// the whole graph"): a bridge between two sessions is ONE weak spring
+	// (strength / min degree) against the session pull, the repulsion and the
+	// course pull, so it stretched across the whole graph. An edge whose ends
+	// sit in different clusters of the PRIMARY partition gets a flat, stiffer
+	// spring instead, which draws related sessions together (topics emerge).
+	const clusterOf = new Map<string, number>();
+	options.clusterPull?.clusters.forEach((c, i) => {
+		for (const id of c.members) clusterOf.set(id, i);
+	});
+	const crossStrength = Math.min(1, linkStrength * CROSS_LINK_STRENGTH);
 
 	const sim = forceSimulation<LayoutNode, SimLink>(nodes)
 		.force(
@@ -287,11 +311,14 @@ export function createGraphSimulation(
 							? linkDistance / 2
 							: linkDistance,
 				)
-				.strength(
-					(l) =>
-						(linkStrength * 1) /
-						Math.min(degree.get((l.source as LayoutNode).id) ?? 1, degree.get((l.target as LayoutNode).id) ?? 1),
-				),
+				.strength((l) => {
+					const a = (l.source as LayoutNode).id;
+					const b = (l.target as LayoutNode).id;
+					const ca = clusterOf.get(a);
+					const cb = clusterOf.get(b);
+					if (ca !== undefined && cb !== undefined && ca !== cb) return crossStrength;
+					return (linkStrength * 1) / Math.min(degree.get(a) ?? 1, degree.get(b) ?? 1);
+				}),
 		)
 		.force("charge", forceManyBody<LayoutNode>().strength(options.chargeStrength ?? CHARGE_STRENGTH))
 		.alphaDecay(options.alphaDecay ?? 0.0228)
@@ -397,7 +424,10 @@ export function createGraphSimulation(
 	// Cluster centroid pull: the membership index is resolved ONCE (nodes
 	// don't change clusters mid-sim); each tick is two allocation-free
 	// O(n) passes (sum, then pull). Singletons (<2 members) skip themselves.
-	const cp = options.clusterPull;
+	for (const [forceName, cp] of [
+		["clusterPull", options.clusterPull],
+		["coursePull", options.coursePull],
+	] as const) {
 	if (cp && cp.strength > 0 && cp.clusters.length > 0) {
 		const clusterIdx = new Map<string, number>();
 		cp.clusters.forEach((c, i) => {
@@ -416,7 +446,7 @@ export function createGraphSimulation(
 		// spread, which is all clustering needs to do there).
 		const ringCx = options.depthAnchor?.center?.x ?? 0;
 		const ringCy = options.depthAnchor?.center?.y ?? 0;
-		sim.force("clusterPull", (alpha: number) => {
+		sim.force(forceName, (alpha: number) => {
 			sumX.fill(0);
 			sumY.fill(0);
 			cnt.fill(0);
@@ -458,6 +488,96 @@ export function createGraphSimulation(
 				}
 			}
 		});
+	}
+	}
+
+	// ── Linked-session pull (owner, 2026-11-14: "if it is connected to that
+	// session, it should be right next to it") ───────────────────────────────
+	// Edges between two clusters of the primary partition pull the CLUSTERS
+	// together: each cluster's members drift toward the link-weighted mean of
+	// the clusters it is connected to. This is what orders the islands, most of
+	// all on the ring (radial), where each island otherwise picks its own angle
+	// and a linked pair can land on opposite sides. Same mode projections as
+	// the cluster pull (vertical → x only; radial → tangential only).
+	const lp = options.clusterPull;
+	if (lp && lp.strength > 0 && lp.clusters.length > 1) {
+		const idx = new Map<string, number>();
+		lp.clusters.forEach((c, i) => {
+			for (const id of c.members) idx.set(id, i);
+		});
+		const k = lp.clusters.length;
+		const weight = new Map<number, Map<number, number>>();
+		for (const e of edges) {
+			const a = idx.get(e.from);
+			const b = idx.get(e.to);
+			if (a === undefined || b === undefined || a === b) continue;
+			for (const [p, q] of [[a, b], [b, a]] as const) {
+				const row = weight.get(p) ?? new Map<number, number>();
+				row.set(q, (row.get(q) ?? 0) + 1);
+				weight.set(p, row);
+			}
+		}
+		if (weight.size > 0) {
+			const members: number[][] = Array.from({ length: k }, () => []);
+			nodes.forEach((n, i) => {
+				const ci = idx.get(n.id);
+				if (ci !== undefined) members[ci]!.push(i);
+			});
+			const cx = new Float64Array(k);
+			const cy = new Float64Array(k);
+			const ringCx2 = options.depthAnchor?.center?.x ?? 0;
+			const ringCy2 = options.depthAnchor?.center?.y ?? 0;
+			const strength = lp.strength * LINKED_SESSION_PULL;
+			sim.force("linkedSessions", (alpha: number) => {
+				for (let c = 0; c < k; c++) {
+					const list = members[c]!;
+					if (list.length === 0) continue;
+					let sx = 0;
+					let sy = 0;
+					for (const i of list) {
+						sx += nodes[i]!.x ?? 0;
+						sy += nodes[i]!.y ?? 0;
+					}
+					cx[c] = sx / list.length;
+					cy[c] = sy / list.length;
+				}
+				for (const [c, row] of weight) {
+					const list = members[c]!;
+					if (list.length < 2) continue;
+					let total = 0;
+					let tx = 0;
+					let ty = 0;
+					for (const [o, w] of row) {
+						if ((members[o]?.length ?? 0) < 1) continue;
+						total += w;
+						tx += w * cx[o]!;
+						ty += w * cy[o]!;
+					}
+					if (total === 0) continue;
+					const ux = tx / total - cx[c]!;
+					const uy = ty / total - cy[c]!;
+					for (const i of list) {
+						if (orphan && orphan[i]) continue;
+						const n = nodes[i]!;
+						if (mode === "vertical") {
+							n.vx = (n.vx ?? 0) + ux * strength * alpha;
+						} else if (mode === "radial") {
+							const rx = (n.x ?? 0) - ringCx2;
+							const ry = (n.y ?? 0) - ringCy2;
+							const r2 = rx * rx + ry * ry;
+							if (r2 > 1e-9) {
+								const dot = (ux * rx + uy * ry) / r2;
+								n.vx = (n.vx ?? 0) + (ux - dot * rx) * strength * alpha;
+								n.vy = (n.vy ?? 0) + (uy - dot * ry) * strength * alpha;
+							}
+						} else {
+							n.vx = (n.vx ?? 0) + ux * strength * alpha;
+							n.vy = (n.vy ?? 0) + uy * strength * alpha;
+						}
+					}
+				}
+			});
+		}
 	}
 
 	// ── Inference-depth anchoring ────────────────────────────────────────
@@ -524,6 +644,11 @@ export interface IncrementalLayoutOptions {
 	clusters?: ReadonlyArray<{ members: ReadonlyArray<string> }>;
 	/** Cluster centroid pull strength (default CLUSTER_PULL_STRENGTH). */
 	clusterPullStrength?: number;
+	/** Coarser partition for the per-course centring pull (owner, 2026-11-14);
+	 *  absent = no course pull. */
+	courseClusters?: ReadonlyArray<{ members: ReadonlyArray<string> }>;
+	/** Course pull strength (default COURSE_PULL_STRENGTH). */
+	coursePullStrength?: number;
 	/** Inference-depth anchoring (see DepthAnchor). `center` defaults to
 	 *  the anchored core's centroid. */
 	depthAnchor?: DepthAnchor;
@@ -664,6 +789,9 @@ export function incrementalLayout(
 		},
 		clusterPull: options.clusters
 			? { clusters: options.clusters, strength: options.clusterPullStrength ?? CLUSTER_PULL_STRENGTH }
+			: undefined,
+		coursePull: options.courseClusters
+			? { clusters: options.courseClusters, strength: options.coursePullStrength ?? COURSE_PULL_STRENGTH }
 			: undefined,
 		depthAnchor:
 			options.depthAnchor && options.depthAnchor.mode !== "off"

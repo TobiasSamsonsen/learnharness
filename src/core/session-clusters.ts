@@ -32,7 +32,7 @@
  * core barrel — the shell reads clusters from the snapshot; only the
  * server-side derivations (snapshot, settle) and tests import this.
  */
-import type { GraphChain, GraphNode } from "./contracts.ts";
+import type { Cluster, GraphChain, GraphNode } from "./contracts.ts";
 
 /** One birth-session cluster: the session id + the SORTED member node
  *  ids born in it. The shape is deliberately the { members } contract
@@ -101,6 +101,49 @@ export function impClusterKey(
 	// Tie → the chain's own birth; if even that is missing, the
 	// alphabetically-first winner (last-resort determinism).
 	return own ?? winners.sort()[0]!;
+}
+
+/**
+ * COURSE REGIONS (owner, 2026-11-14 — "group the existing groups by
+ * courses"): the HULL + LABEL partition. Every birth session that belongs to
+ * a course merges into ONE region per course (id the course id, label
+ * the course title); sessions without a course keep their own cluster. The
+ * layout pull is NOT affected: it keeps reading the per-session clusters.
+ * A region needs MIN_CLUSTER_SIZE propositions in total (small sessions of
+ * one course may reach it together). Derived imp nodes follow their chain's
+ * session into its course region. `sessionClusters` are the already-built,
+ * hull-filtered session clusters; the ones a region absorbs are dropped from
+ * the result. Pure.
+ */
+export function courseRegions(
+	graph: { nodes: readonly GraphNode[]; chains: readonly GraphChain[] },
+	sessionClusters: readonly Cluster[],
+	courseOf: (sessionId: string) => string | null,
+	titleOf: (courseId: string) => string | null,
+	minSize: number,
+): Cluster[] {
+	const communities = birthSessionPartition(graph.nodes);
+	const propCount = new Map(communities.map((c) => [c.id, c.members.length]));
+	attachImpToCommunities(communities, graph.nodes, graph.chains);
+	const byCourse = new Map<string, { members: string[]; props: number; sessions: string[] }>();
+	for (const community of communities) {
+		const courseId = courseOf(community.id);
+		if (courseId === null) continue;
+		const entry = byCourse.get(courseId) ?? { members: [], props: 0, sessions: [] };
+		entry.members.push(...community.members);
+		entry.props += propCount.get(community.id) ?? 0;
+		entry.sessions.push(community.id);
+		byCourse.set(courseId, entry);
+	}
+	const regions: Cluster[] = [];
+	const absorbed = new Set<string>();
+	for (const [courseId, entry] of byCourse) {
+		if (entry.props < minSize) continue;
+		regions.push({ id: courseId, label: titleOf(courseId), members: entry.members.sort() });
+		for (const id of entry.sessions) absorbed.add(id);
+	}
+	regions.sort((a, b) => b.members.length - a.members.length || (a.id < b.id ? -1 : 1));
+	return [...regions, ...sessionClusters.filter((c) => !absorbed.has(c.id))];
 }
 
 /** Attach derived imp nodes to communities IN PLACE (the shared seam for

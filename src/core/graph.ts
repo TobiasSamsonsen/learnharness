@@ -83,7 +83,7 @@ function newGraphNodeId(): string {
 
 /** "arg_" + 12 hex chars — the implication-node namespace (a chain's id
  *  IS its derived node's id; collision-free with n_ by construction). */
-function newGraphChainId(): string {
+export function newGraphChainId(): string {
 	return `arg_${randomBytes(6).toString("hex")}`;
 }
 
@@ -120,6 +120,24 @@ export interface MergeSource {
  *  legacy/core callers lacking an anchor keep "" (chat-level). */
 function pointOf(chatId: string, messageId?: string): ProvenancePoint[] {
 	return [{ chatId, messageId: messageId ?? "" }];
+}
+
+/** True when `from` already leads to `to` through the chain ledger (some
+ *  chain has `from` among its premises, and so on transitively up to `to`).
+ *  Exported for tests. */
+export function leadsTo(chains: ReadonlyArray<Pick<GraphChain, "premises" | "conclusion">>, from: string, to: string): boolean {
+	const seen = new Set<string>([from]);
+	const queue = [from];
+	while (queue.length > 0) {
+		const at = queue.pop()!;
+		for (const c of chains) {
+			if (!c.premises.includes(at) || seen.has(c.conclusion)) continue;
+			if (c.conclusion === to) return true;
+			seen.add(c.conclusion);
+			queue.push(c.conclusion);
+		}
+	}
+	return false;
 }
 
 const samePoint = (a: ProvenancePoint, b: ProvenancePoint): boolean =>
@@ -253,7 +271,26 @@ export function mergeFindings(
 		assertedByChat.add(key);
 		stats.chains!++;
 	};
-	for (const chain of findings.chains) emitChain(chain); // the extractor's chains — the one chain source (digest-aware, owner 2026-09-30)
+	for (const chain of findings.chains) emitChain(chain); // the extractor's chains (digest-aware, owner 2026-09-30)
+
+	// 2a. BRIDGES (owner, 2026-11-14): the auditor's cross-source edges,
+	//     single-premise chains that go through the same emit path (mixed
+	//     namespace, per-chat dedupe, provenance). A bridge that would
+	//     close a cycle in the ledger (its conclusion already leads to its
+	//     premise) is skipped: the graph reads upward, never in a loop.
+	for (const bridge of verdicts.bridges ?? []) {
+		const premise = mapping.get(bridge.premise) ?? (existingIds.has(bridge.premise) ? bridge.premise : undefined);
+		const conclusion = mapping.get(bridge.conclusion) ?? (existingIds.has(bridge.conclusion) ? bridge.conclusion : undefined);
+		if (premise === undefined || conclusion === undefined || premise === conclusion) continue;
+		const ledger = ledgers.readChains();
+		if (leadsTo(ledger, conclusion, premise)) continue;
+		// Already derivable: a bridge P → C beside an extractor chain [P, Q] → C
+		// would make simplifyChains drop the two-premise chain (fewest premises
+		// wins) and strand Q, so a premise that already leads to the conclusion
+		// adds nothing.
+		if (leadsTo(ledger, premise, conclusion)) continue;
+		emitChain({ premises: [bridge.premise], conclusion: bridge.conclusion });
+	}
 
 	// 2b. Simplification (owner, 2026-09-30 evening) — the deterministic
 	//     dedupe pass over the WHOLE chain ledger (this merge runs inside

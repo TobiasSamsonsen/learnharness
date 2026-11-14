@@ -35,6 +35,7 @@
 import {
 	CHARGE_STRENGTH,
 	CLUSTER_PULL_STRENGTH,
+	COURSE_PULL_STRENGTH,
 	INCREMENTAL_GRAVITY,
 	LINK_DISTANCE,
 	type DepthAnchorMode,
@@ -203,6 +204,8 @@ export interface PhysicsTuning {
 	gravity: number;
 	/** Per-cluster pull toward the cluster centroid. 0 = off. */
 	clusterPull: number;
+	/** Per-COURSE pull toward the course's centroid (owner, 2026-11-14). 0 = off. */
+	coursePull: number;
 	/** Per-tick velocity damping (d3 default 0.4). */
 	velocityDecay: number;
 	/** Inference-depth anchoring mode (see DepthAnchor in core). */
@@ -221,6 +224,7 @@ export const DEFAULT_PHYSICS_TUNING: PhysicsTuning = {
 	linkDistance: LINK_DISTANCE,
 	gravity: INCREMENTAL_GRAVITY,
 	clusterPull: CLUSTER_PULL_STRENGTH,
+	coursePull: COURSE_PULL_STRENGTH,
 	velocityDecay: 0.4,
 	depthMode: "off",
 	// 0.8 by sweep on the real graph: 215/216 arrows read upward with
@@ -242,6 +246,7 @@ export function sanitizePhysicsTuning(input: Partial<PhysicsTuning> | null | und
 		linkDistance: Math.min(Math.max(num(input?.linkDistance, d.linkDistance), LINK_DISTANCE_RANGE.min), LINK_DISTANCE_RANGE.max),
 		gravity: Math.min(Math.max(num(input?.gravity, d.gravity), GRAVITY_RANGE.min), GRAVITY_RANGE.max),
 		clusterPull: Math.min(Math.max(num(input?.clusterPull, d.clusterPull), 0), CLUSTER_PULL_RANGE.max),
+		coursePull: Math.min(Math.max(num(input?.coursePull, d.coursePull), 0), CLUSTER_PULL_RANGE.max),
 		velocityDecay: Math.min(Math.max(num(input?.velocityDecay, d.velocityDecay), VELOCITY_DECAY_RANGE.min), VELOCITY_DECAY_RANGE.max),
 		depthMode: input?.depthMode === "vertical" || input?.depthMode === "radial" ? input.depthMode : "off",
 		depthStrength: Math.min(Math.max(num(input?.depthStrength, d.depthStrength), DEPTH_STRENGTH_RANGE.min), DEPTH_STRENGTH_RANGE.max),

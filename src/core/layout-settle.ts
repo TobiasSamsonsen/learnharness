@@ -23,12 +23,20 @@ import { deriveView, getGraph } from "./graph.ts";
  * Server code imports it DIRECTLY; it is never re-exported through
  * src/core/index.ts.
  */
+/** A birth session's course id, from the chat record (null for a notes source,
+ *  a deleted chat, or a session with no course). */
+export function courseOfSession(chatStore: {
+	getChat(id: string): { course?: { courseId: string } } | null | undefined;
+}): (sessionId: string) => string | null {
+	return (sessionId) => chatStore.getChat(sessionId)?.course?.courseId ?? null;
+}
+
 export function settleGraphLayout(graphStore: {
 	readNodes(): GraphNode[];
 	readChains(): GraphChain[];
 	readPositions(): Record<string, Position>;
 	writePositions(positions: Record<string, Position>): void;
-}): void {
+}, courseOf?: (sessionId: string) => string | null): void {
 	const graph = getGraph(graphStore);
 	if (graph.nodes.length === 0) return;
 	const view = deriveView(graph);
@@ -45,8 +53,21 @@ export function settleGraphLayout(graphStore: {
 	// tick would fight the settle. Unfiltered here (settle pulls every
 	// community, hulls are a canvas-only concern).
 	attachImpToCommunities(communities, graph.nodes, graph.chains);
+	// One centring pull per COURSE (owner, 2026-11-14): the sessions of a course
+	// merge into one group, so the saved layout agrees with the live sim.
+	let courseClusters: Array<{ members: string[] }> | undefined;
+	if (courseOf) {
+		const byCourse = new Map<string, string[]>();
+		for (const community of communities) {
+			const courseId = courseOf(community.id);
+			if (courseId === null) continue;
+			byCourse.set(courseId, [...(byCourse.get(courseId) ?? []), ...community.members]);
+		}
+		if (byCourse.size > 0) courseClusters = [...byCourse.values()].map((members) => ({ members }));
+	}
 	const next = incrementalLayout(view.nodes, view.edges, previous, {
 		clusters: communities,
+		...(courseClusters ? { courseClusters } : {}),
 		logicalEdges: view.logicalEdges,
 		impLinks: view.impLinks,
 	});

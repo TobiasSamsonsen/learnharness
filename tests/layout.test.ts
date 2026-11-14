@@ -488,3 +488,62 @@ describe("depthAnchor force", () => {
 		assert.ok(r("loner") < 60, `the orphan follows gravity to the center, not the ring (r=${r("loner").toFixed(0)})`);
 	});
 });
+
+describe("coursePull (the per-course centring force)", () => {
+	it("pulls two sessions of one course together, while no pull leaves them apart", () => {
+		const nodes = ["a1", "a2", "b1", "b2"].map((id, i) => ({ id, x: i < 2 ? -100 + i * 5 : 100 + i * 5, y: 0 }));
+		const run = (coursePull?: { clusters: Array<{ members: string[] }>; strength: number }) => {
+			const sim = createGraphSimulation(
+				nodes.map((n) => ({ ...n })),
+				[],
+				{ gravity: { x: 0, y: 0, strength: 0 }, chargeStrength: 0, ...(coursePull ? { coursePull } : {}) },
+			);
+			for (let i = 0; i < 200; i++) sim.tick();
+			const at = Object.fromEntries(sim.nodes().map((n) => [n.id, n]));
+			return Math.abs(at.a1!.x! - at.b1!.x!);
+		};
+		const apart = run();
+		const together = run({ clusters: [{ members: ["a1", "a2", "b1", "b2"] }], strength: 0.5 });
+		assert.ok(together < apart * 0.5, `course pull should halve the gap: ${together} vs ${apart}`);
+	});
+});
+
+describe("cross-session links (a bridge draws its two sessions together)", () => {
+	it("ends closer than the same graph laid out with no session partition", () => {
+		const ids = ["a1", "a2", "a3", "b1", "b2", "b3"];
+		const edges = [
+			{ from: "a1", to: "a2" }, { from: "a2", to: "a3" }, { from: "a1", to: "a3" },
+			{ from: "b1", to: "b2" }, { from: "b2", to: "b3" }, { from: "b1", to: "b3" },
+			{ from: "a3", to: "b1" }, // the one bridge
+		];
+		const clusters = [{ members: ["a1", "a2", "a3"] }, { members: ["b1", "b2", "b3"] }];
+		const gap = (withClusters: boolean) => {
+			const nodes = ids.map((id, i) => ({ id, x: (i < 3 ? -400 : 400) + i * 7, y: i * 5 }));
+			const sim = createGraphSimulation(nodes, edges, {
+				gravity: { x: 0, y: 0, strength: 0.02 },
+				...(withClusters ? { clusterPull: { clusters, strength: 0.15 } } : {}),
+			});
+			for (let i = 0; i < 300; i++) sim.tick();
+			const at = Object.fromEntries(sim.nodes().map((n) => [n.id, n]));
+			return Math.hypot(at.a3!.x! - at.b1!.x!, at.a3!.y! - at.b1!.y!);
+		};
+		assert.ok(gap(true) < gap(false), `bridge should be shorter with the session partition: ${gap(true)} vs ${gap(false)}`);
+	});
+});
+
+describe("linked-session pull (connected sessions end up next to each other)", () => {
+	it("pulls session B toward the session it is linked to rather than the unlinked one", () => {
+		const mk = (p: string, n: number, x: number, y: number) => Array.from({ length: n }, (_, i) => ({ id: `${p}${i}`, x: x + i * 6, y: y + (i % 2) * 6 }));
+		const A = mk("a", 3, -300, 0), B = mk("b", 3, 0, 300), C = mk("c", 3, 300, 0);
+		const nodes = [...A, ...B, ...C];
+		const chain = (p: string) => [{ from: `${p}0`, to: `${p}1` }, { from: `${p}1`, to: `${p}2` }];
+		const edges = [...chain("a"), ...chain("b"), ...chain("c"), { from: "a2", to: "b0" }];
+		const clusters = ["a", "b", "c"].map((p) => ({ members: [0, 1, 2].map((i) => `${p}${i}`) }));
+		const sim = createGraphSimulation(nodes, edges, { gravity: { x: 0, y: 0, strength: 0.02 }, clusterPull: { clusters, strength: 0.15 } });
+		for (let i = 0; i < 400; i++) sim.tick();
+		const at = Object.fromEntries(sim.nodes().map((n) => [n.id, n]));
+		const centre = (p: string) => ({ x: [0, 1, 2].reduce((s, i) => s + at[`${p}${i}`]!.x!, 0) / 3, y: [0, 1, 2].reduce((s, i) => s + at[`${p}${i}`]!.y!, 0) / 3 });
+		const d = (p: string, q: string) => Math.hypot(centre(p).x - centre(q).x, centre(p).y - centre(q).y);
+		assert.ok(d("a", "b") < d("b", "c"), `linked sessions should be closer: ${d("a", "b")} vs ${d("b", "c")}`);
+	});
+});

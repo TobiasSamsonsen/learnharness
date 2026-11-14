@@ -3,8 +3,9 @@ import { LEDGER_FILES, POSITIONS_FILE } from "../../config.ts";
 import type { GraphSnapshot } from "../core/contracts.ts";
 import type { GraphCostSummary } from "../core/cost-summary.ts";
 import { graphCostSummary } from "../core/cost-summary.ts";
-import { graphSnapshot } from "../core/graph.ts";
-import { birthSessionPartition } from "../core/session-clusters.ts";
+import { getGraph, graphSnapshot } from "../core/graph.ts";
+import { MIN_CLUSTER_SIZE } from "../core/clusters.ts";
+import { birthSessionPartition, courseRegions } from "../core/session-clusters.ts";
 import {
 	deleteNodeTraces,
 	type NodeDeletionStats,
@@ -27,7 +28,20 @@ export function graphView(): GraphSnapshot {
 	// The skills layer (owner, 2026-10-25): the held skills ride the same
 	// payload — the canvas draws them beside the propositions.
 	const skills = graphSkillLayer();
-	return skills ? { ...snapshot, skills } : snapshot;
+	// One hull + label per course (owner, 2026-11-14); the layout pull keeps
+	// the per-session clusters.
+	const titles = new Map(stores.courseStore.listCourses().map((c) => [c.id, c.title]));
+	const courseClusters = courseRegions(
+		getGraph(stores.graphStore),
+		snapshot.clusters,
+		(sessionId) => {
+			const courseId = stores.chatStore.getChat(sessionId)?.course?.courseId;
+			return courseId !== undefined && titles.has(courseId) ? courseId : null;
+		},
+		(courseId) => titles.get(courseId) ?? null,
+		MIN_CLUSTER_SIZE,
+	);
+	return { ...snapshot, courseClusters, ...(skills ? { skills } : {}) };
 }
 
 /** The graph view's cost surface (GET /api/graph/costs — the 2026-09 cost

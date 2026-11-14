@@ -414,3 +414,23 @@ describe("applyClusterLabels (the label-only rename channel)", () => {
 		assert.equal(changed, false);
 	});
 });
+
+describe("labelBoxesOverlap", () => {
+	it("is true for overlapping boxes and false for disjoint or merely touching ones", async () => {
+		const { labelBoxesOverlap } = await import("../components/graph-canvas.ts");
+		const box = { x0: 0, x1: 10, y0: 0, y1: 10 };
+		assert.equal(labelBoxesOverlap(box, { x0: 5, x1: 15, y0: 5, y1: 15 }), true);
+		assert.equal(labelBoxesOverlap(box, { x0: 10, x1: 20, y0: 0, y1: 10 }), false);
+		assert.equal(labelBoxesOverlap(box, { x0: 0, x1: 10, y0: 20, y1: 30 }), false);
+	});
+});
+
+describe("bboxOnScreen (a restored camera that frames nothing is re-fitted)", () => {
+	const bbox = { minX: 0, maxX: 100, minY: 0, maxY: 100 };
+	it("is true when the graph overlaps the viewport and false when it is entirely off-screen", async () => {
+		const { bboxOnScreen } = await import("../components/graph-canvas.ts");
+		assert.equal(bboxOnScreen(bbox, { k: 1, x: 50, y: 50 }, 800, 600), true);
+		assert.equal(bboxOnScreen(bbox, { k: 1, x: 5000, y: 0 }, 800, 600), false);
+		assert.equal(bboxOnScreen(bbox, { k: 2, x: 0, y: -900 }, 800, 600), false);
+	});
+});
