@@ -7,6 +7,7 @@ import {
 	type Model,
 	type Models,
 	type MutableModels,
+	type SimpleStreamOptions,
 	type StreamFunction,
 } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
@@ -129,6 +130,28 @@ function defaultThinkingLevel(model: Model<Api>): ThinkingLevel {
  *  key is resolved by pi-ai itself from the environment per request (the
  *  keys seam reflects file-saved keys into env), so the engine never
  *  hardcodes OpenRouter's. */
+type OnPayload = NonNullable<SimpleStreamOptions["onPayload"]>;
+
+/** The request body with its thinking text switched off, or undefined when it has no thinking to switch (owner, 2026-11-14). */
+export function withOmittedThinking(body: unknown): unknown {
+	const thinking = (body as { thinking?: { type?: unknown } } | null | undefined)?.thinking;
+	if (!body || typeof body !== "object" || !thinking || typeof thinking !== "object" || thinking.type === "disabled") return undefined;
+	return { ...(body as object), thinking: { ...thinking, display: "omitted" } };
+}
+
+/** Request options that keep the model's thinking text out of the transcript (owner, 2026-11-14). Only the Anthropic Messages
+ *  transport has the knob, and pi-ai's streamSimple drops `thinkingDisplay` (only stream() forwards it; found by a live run: the
+ *  option changed nothing), so the request body is edited in the payload hook, after any hook the caller set. Other transports get nothing. */
+export function omitThinkingText(api: string, inner?: OnPayload): { onPayload?: OnPayload } {
+	if (api !== "anthropic-messages") return {};
+	return {
+		onPayload: async (raw, nativeModel) => {
+			const replacement = await inner?.(raw, nativeModel);
+			return withOmittedThinking(replacement === undefined ? raw : replacement) ?? replacement;
+		},
+	};
+}
+
 export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (() => boolean) = true, lifecycle?: ChatGPTDispatchLifecycle, cacheRetention?: () => CacheRetention | undefined): PiEngine {
 	const models: Models = piModels();
 	const nativeId = nativeSubscriptionId(spec.provider);
@@ -163,6 +186,9 @@ export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (
 			const requestOptions = {
 				...options,
 				...(retention !== undefined ? { cacheRetention: retention } : {}),
+				// Owner, 2026-11-14: the app never shows thinking text. The CLI path passes --thinking-display omitted; the
+				// direct Anthropic API defaults to "summarized", which put the tutor's planning in the thinking rows.
+				...omitThinkingText(requestModel.api, options?.onPayload),
 				reasoning: level === "off" ? undefined : level,
 			};
 			if (custom) {

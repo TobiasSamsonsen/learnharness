@@ -2,14 +2,13 @@ import type { ToolCallHooks } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { QUESTION_TOOLS } from "../core/pending.ts";
 import { SEND_TO_USER_TOOL, sendToUserText } from "../core/native-messages.ts";
-import { LEAD_FLOOR_CHARS } from "../core/lead-floor-gate.ts";
-import { leadOf } from "../core/tutor-prose.ts";
+import { isNarrationSignature } from "../core/narration-signature.ts";
 import { sendToUserApplies } from "./tools/send-to-user.ts";
 
 export const NARRATION_GUARD_MAX_BLOCKS = 2;
 
 export const NARRATION_BLOCK_REASON =
-	"This response contains narration but no delivered learner-facing prose. Put the explanation or commentary the learner needs in the question's `lead` (or send it through `send_to_user`), then retry this question. Deliver learner-facing content, not internal reasoning.";
+	"This response contains narration: hidden text that never reaches the learner, and what you meant to tell him (a correction, an explanation) may be in it. Put everything the learner needs in the question's `lead` (or send it through `send_to_user`) and keep it out of narration, then retry this question. Deliver learner-facing content, not internal reasoning.";
 
 export const SEND_TO_USER_DELIVERY_RULE =
 	"## Delivering your prose\n\n" +
@@ -27,20 +26,16 @@ export function narrationGuardApplies(
 }
 
 export function isNarrationBlock(block: { type: string; thinkingSignature?: string }): boolean {
-	if (block.type !== "thinking" || typeof block.thinkingSignature !== "string") return false;
-	try {
-		return Buffer.from(block.thinkingSignature, "base64").subarray(0, 60).includes("narration");
-	} catch {
-		return false;
-	}
+	return block.type === "thinking" && isNarrationSignature(block.thinkingSignature);
 }
 
 export function questionLacksDeliveredProse(message: AssistantMessage, toolName: string, delivered = false): boolean {
 	if (!(QUESTION_TOOLS as readonly string[]).includes(toolName)) return false;
 	if (!message.content.some(isNarrationBlock as (b: AssistantMessage["content"][number]) => boolean)) return false;
-	// A question's `lead` is rendered to the learner, so a SUBSTANTIAL one (the lead floor's length) is delivered prose too.
-	// A one-line filler lead ("Check it:") is not: it is what the guard exists to catch.
-	return !delivered && !message.content.some((b) => (b.type === "text" && b.text.trim().length > 0) || leadOf(b).trim().length >= LEAD_FLOOR_CHARS);
+	// Owner, 2026-11-14: a narration block means the tutor's reply may have gone into hidden text, so a lead no longer
+	// counts as delivery, however long (a 230-character lead beside a narration block carried none of the correction, and the
+	// learner read the correction in the thinking row). Only a text block or a delivered send_to_user does.
+	return !delivered && !message.content.some((b) => b.type === "text" && b.text.trim().length > 0);
 }
 
 export function makeNarrationGuard(): ToolCallHooks {

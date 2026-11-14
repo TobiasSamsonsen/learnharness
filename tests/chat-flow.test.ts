@@ -641,6 +641,10 @@ describe("teacher chat flow (scripted model)", () => {
 		// text is never dropped, and only the empty block of a pair goes
 		const mixed = message([{ type: "thinking", thinking: "" }, { type: "thinking", thinking: "Real thought." }, call]);
 		assert.deepEqual(kinds(projectView([user, mixed])), ["reasoning", "tool-quiz"], "one row for the one block with text");
+		// owner, 2026-11-14: a narration block (the reply text in disguise) is never a thinking row, text or not
+		const narrationSig = Buffer.from("\x08\x04\x12\x10\n\x11\x08\x13\x18\x028\x01B\tnarration\x12\x0cpayload").toString("base64");
+		const narrated = message([{ type: "thinking", thinking: "Egenverdiene blir rettet til 3 og -1." , thinkingSignature: narrationSig }, call]);
+		assert.deepEqual(kinds(projectView([user, narrated])), ["tool-quiz"], "narration renders no thinking row");
 	});
 
 	it("a cancelled view NEVER aborts the turn — it runs to completion (owner ruling 2026-09-25)", async () => {

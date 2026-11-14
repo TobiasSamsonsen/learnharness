@@ -43,6 +43,7 @@ import { isFinishRequest } from "./course-session.ts";
 import { leadOf } from "./tutor-prose.ts";
 import type { SubagentArtifactData, SubagentResultMeta } from "./contracts/jobs.ts";
 import type { PlanBlockData } from "./contracts/chat.ts";
+import { isNarrationSignature } from "./narration-signature.ts";
 import { FIGURE_TOOLS, SHOW_FIGURE_TOOL, figureDispatchShown, figureSteerOf, figuresOf, hiddenFigureDispatches } from "./figure-show.ts";
 
 /** One projected transcript part consumed by host renderers and phase/input
@@ -289,6 +290,8 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 					// thinking text (an empty block that carries only a signature), so a multi-step turn stacked one empty
 					// "Agent's thinking" row per step. A message still streaming keeps its row (the spinner is the working signal).
 					if (block.thinking.trim() === "" && !streamingMessage) continue;
+					// Owner, 2026-11-14: a narration block is the tutor's reply text in disguise, never the learner's to read as thinking.
+					if (isNarrationSignature(block.thinkingSignature)) continue;
 					reasoning.push({ type: "reasoning", id: `${m.id}-r${reasoningN++}`, text: block.thinking, state: "done" });
 				} else if (block.type === "toolCall") {
 					const annotation = readPluginQuestionMessageAnnotation(m, contentIndex);
