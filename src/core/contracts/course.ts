@@ -98,8 +98,9 @@ export interface CourseRecord {
 	 *  what its sessions are taught in. Stamped from the default language at creation; absent (a
 	 *  course made before languages) = the current default language. */
 	language?: LessonLanguage;
-	/** The learner's time note for this course ("exam Thursday, 4 concepts", fork addition 2026-11-01).
-	 *  Read every turn by the course's sessions as data about the learner (core/pace.ts). */
+	/** The learner's time note for this course ("exam Thursday, 4 concepts", fork addition 2026-11-01). The page no
+	 *  longer edits it and the teacher no longer reads it (2026-11-14): the exam date is what a course session is
+	 *  told (core/exam-plan.ts examNote). Kept stored and synced so nothing already written is lost. */
 	note?: string;
 	/** The course's default pace (fork addition, 2026-11-09, core/pace.ts): stamped on sessions started from
 	 *  the course (a Learn start's own pick wins). Absent = the global default (general.pace). */

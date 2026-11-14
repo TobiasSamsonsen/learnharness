@@ -19,6 +19,7 @@ import type {
 import { FOLDER_NAME_MAX, canonicalFolderName, normalizeFolderName, removeFolderChanges, renameFolderChanges } from "../core/course-folders.ts";
 import {
 	daysUntil,
+	examNote,
 	forecast,
 	lessonsPerDay,
 	lessonsToday,
@@ -913,8 +914,9 @@ export function courseForTurn(
 	const ctx = readContext();
 	const skills = link.skillIds.filter((id) => ctx.skills.has(id)).map((id) => sessionSkill(id, ctx));
 	const section = coursePromptSection(link.mode, course?.title ?? "(deleted course)", skills);
-	// The course's time note is read fresh every turn, so editing it reaches the sessions already running.
-	const note = course?.note;
+	// The exam date becomes the teacher's note ("Exam: 12 Dec 2026, 30 days left"), read fresh every turn so a changed
+	// date, and each passing day, reach the sessions already running. The course's stored time note is no longer read.
+	const note = examNote(course?.examDate, Date.now());
 	// a lesson's one skill: the final problem is graded for it (core/final-problem.ts)
 	const lessonSkill = skills[0] ? { id: skills[0].id, name: skills[0].name } : undefined;
 	// the learned prerequisites of the lesson's skill: what its recall opener may test (core/final-problem.ts)

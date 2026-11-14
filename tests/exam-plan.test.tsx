@@ -305,6 +305,25 @@ describe("sync: the exam date per field, the weights as one unit", () => {
 	});
 });
 
+describe("what the teacher is told about the exam", () => {
+	const NOON = new Date(2026, 10, 14, 12, 0, 0).getTime();
+
+	it("names the date and the days left, or tomorrow or today", () => {
+		assert.equal(plan.examNote("2026-12-14", NOON), "Exam: 14 Dec 2026, 30 days left");
+		assert.equal(plan.examNote("2026-11-15", NOON), "Exam: 15 Nov 2026, tomorrow");
+		assert.equal(plan.examNote("2026-11-14", NOON), "Exam: 14 Nov 2026, today");
+	});
+
+	it("says nothing without an exam date or once the exam has passed", () => {
+		assert.equal(plan.examNote(undefined, NOON), undefined);
+		assert.equal(plan.examNote("2026-11-13", NOON), undefined);
+	});
+
+	it("formats a date the same way the page does", () => {
+		assert.equal(plan.examDateLabel("2026-12-12"), "12 Dec 2026");
+	});
+});
+
 // ─── the page pieces ────────────────────────────────────────────────────────
 
 const { renderToStaticMarkup } = await import("react-dom/server");
@@ -323,7 +342,6 @@ describe("the exam plan on the page", () => {
 		assert.equal(examUi.examCountdown(1), "1 d");
 		assert.equal(examUi.examCountdown(0), "today");
 		assert.equal(examUi.examCountdown(-3), "passed");
-		assert.equal(examUi.examDateLabel("2026-12-12"), "12 Dec 2026");
 		assert.equal(examUi.skillsLeftLabel(27), "27 skills left");
 		assert.equal(examUi.skillsLeftLabel(1), "1 skill left");
 	});

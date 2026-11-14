@@ -361,6 +361,10 @@ exam date and a weight per skill, so the learner spends the time left on what th
   Courses in the sidebar (`GET /api/today`, courses with the soonest exam first, five lines at most): a
   review line starts the review, a lesson line opens the course page on that lesson's pace dialog
   (`?learn=<skill id>`).
+- **What the teacher is told (owner, 2026-11-14).** The course's sessions get one line from the exam date,
+  "Exam: 14 Dec 2026, 30 days left" ("tomorrow" or "today" near the day; nothing without a date or after the
+  exam), in the `<pace>` section, read fresh every turn (`examNote`). The old free-text time note is no longer
+  edited or read; its stored field and sync stay.
 - **By hand.** `PATCH /api/courses/[id]` takes `examDate` (null clears) and `weights` ({skill id: 0-3 |
   null}); a skill's detail panel has 0-3 buttons and Reset. The sync merges `examDate` per field and the
   weights, their summary, time and failure as one unit (`COURSE_WEIGHTS_UNIT`).

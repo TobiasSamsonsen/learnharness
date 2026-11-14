@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState } from "react";
 import { Loader2Icon } from "lucide-react";
-import { forecastLine, SKILL_WEIGHTS, WEIGHT_LABELS, type CoursePlan, type CourseMode, type CourseSkillView, type SkillWeightValue } from "@/src/core";
+import { examDateLabel, forecastLine, SKILL_WEIGHTS, WEIGHT_LABELS, type CoursePlan, type CourseMode, type CourseSkillView, type SkillWeightValue } from "@/src/core";
 import { cn } from "@/lib/utils";
 
 /**
@@ -13,12 +13,6 @@ import { cn } from "@/lib/utils";
 
 const BTN = "rounded-md border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50";
 const SECTION_HEAD = "mb-2 text-xs uppercase tracking-widest text-muted-foreground/70";
-
-/** "12 Dec 2026" from "2026-12-12", independent of the machine's time zone. Pure. */
-export function examDateLabel(examDate: string): string {
-	const [y, m, d] = examDate.split("-").map(Number) as [number, number, number];
-	return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
-}
 
 /** A skill's weight chip text ("w3"), shown when someone set it or it is not the default. Pure. */
 export function weightChip(skill: Pick<CourseSkillView, "weight" | "weightBy">): string | null {

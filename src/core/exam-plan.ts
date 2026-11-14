@@ -145,6 +145,25 @@ export function daysUntil(examDate: string, now: number): number {
 	return Math.round((Date.UTC(y, m - 1, d) - localDayStart(now)) / DAY_MS);
 }
 
+/** "12 Dec 2026" from "2026-12-12", independent of the machine's time zone. Pure. */
+export function examDateLabel(examDate: string): string {
+	const [y, m, d] = examDate.split("-").map(Number) as [number, number, number];
+	return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+/**
+ * What the course teacher is told about the exam (owner, 2026-11-14): "Exam: 12 Dec 2026, 30 days left", "…, tomorrow",
+ * "…, today". Nothing without an exam date or once the exam has passed (it no longer shapes a lesson). It replaces the
+ * old free-text time note, which carried the date and what the exam covers. Pure.
+ */
+export function examNote(examDate: string | undefined, now: number): string | undefined {
+	if (!examDate) return undefined;
+	const days = daysUntil(examDate, now);
+	if (days < 0) return undefined;
+	const left = days === 0 ? "today" : days === 1 ? "tomorrow" : `${days} days left`;
+	return `Exam: ${examDateLabel(examDate)}, ${left}`;
+}
+
 /** The course row's days column (owner, 2026-11-14): "12 d", "today", "passed". Pure. */
 export function examDaysLabel(examDate: string, now: number): string {
 	const days = daysUntil(examDate, now);

@@ -211,12 +211,20 @@ describe("the course's time note", () => {
 		assert.equal((await patch("course_missing", { note: "x" })).status, 404);
 	});
 
-	it("reaches a course session's turn, read fresh so an edit reaches a running session", async () => {
+	it("is no longer read by the teacher: the exam date is what reaches a course session's turn, read fresh", async () => {
 		const course = stores.courseStore.createCourse("Statistics");
 		const chat = chatStore.createChat("learn", undefined, { courseId: course.id, mode: "learn", skillIds: [] });
-		assert.equal(courseForTurn(chat.id)?.note, undefined);
+		assert.equal(courseForTurn(chat.id)?.note, undefined, "no exam date, nothing to say");
 		stores.courseStore.updateCourse(course.id, { note: "test on Monday" });
-		assert.equal(courseForTurn(chat.id)?.note, "test on Monday");
+		assert.equal(courseForTurn(chat.id)?.note, undefined, "a stored time note is not injected any more");
+		const inDays = (n: number) => {
+			const d = new Date(Date.now() + n * 86_400_000);
+			return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+		};
+		stores.courseStore.updateCourse(course.id, { examDate: inDays(30) });
+		assert.match(courseForTurn(chat.id)?.note ?? "", /^Exam: \d{1,2} \w{3} \d{4}, 30 days left$/);
+		stores.courseStore.updateCourse(course.id, { examDate: inDays(-2) });
+		assert.equal(courseForTurn(chat.id)?.note, undefined, "a passed exam says nothing");
 	});
 });
 
