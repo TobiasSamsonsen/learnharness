@@ -33,6 +33,7 @@ import type { PluginToolContext } from "../core/plugins.ts";
 import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL, type SketchImageResolver } from "../core/native-messages.ts";
 import { PROSE_GATED_TOOLS, proseGateBlocks, proseGateReason, proseGateRefusedLast } from "../core/prose-gate.ts";
 import { leadFloorBlocks, leadFloorReason } from "../core/lead-floor-gate.ts";
+import { verdictGateProblem, verdictGateReason } from "../core/verdict-gate.ts";
 import { VISUAL_GATE_REASON, visualGateBlocks } from "../core/visual-gate.ts";
 import { SHOW_FIGURE_TOOL } from "../core/figure-show.ts";
 import { createShowFigureTool } from "./tools/show-figure.ts";
@@ -436,6 +437,10 @@ function baseAgentOptions(
 								VISUAL_GATE_REASON,
 							);
 						if (refused) return refused;
+						// The verdict gate (owner, 2026-11-14 — core/verdict-gate.ts): after a miss the next question stays on the node.
+						const verdictProblem = verdictGateProblem(context.messages, assistantMessage, toolCall.name, call.args);
+						const verdictRefused = verdictProblem ? refuse("verdict", true, verdictGateReason(verdictProblem)) : undefined;
+						if (verdictRefused) return verdictRefused;
 						// The finish gate (owner, 2026-11-13 — core/final-problem.ts): a course lesson finishes only after an
 						// answered final problem. Same refusal cap as the gates above.
 						const finishProblem = lessonGates ? finishGateProblem(context.messages, toolCall.name, toolCall.id) : null;

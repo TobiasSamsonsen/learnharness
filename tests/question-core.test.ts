@@ -73,7 +73,7 @@ describe("the schema's argument order (reasoning before the pick)", () => {
 				`explanation must precede options and correctAnswer in the emitted schema (got: ${keys.join(", ")})`,
 			);
 			assert.deepEqual(keys, schema === quizInputSchema
-				? ["type", "nodeId", "lead", "question", "explanation", "verify", "figureCheck", "options", "multiSelect", "correctAnswer", "details"]
+				? ["type", "nodeId", "lead", "previous", "question", "explanation", "verify", "figureCheck", "options", "multiSelect", "correctAnswer", "details"]
 				: ["question", "explanation", "verify", "figureCheck", "options", "multiSelect", "correctAnswer", "details"]);
 		}
 	});
@@ -720,7 +720,7 @@ describe("explainInputBase / explainInputProblems (the commitment contract)", ()
 		// then the question). Mirrors the quiz reorder (see above).
 		const keys = Object.keys(explainInputObject.properties);
 		// `skill` (a lesson's recall opener, 2026-11-13) is optional and trails; the required fields still lead
-		assert.deepEqual(keys, ["type", "nodeId", "lead", ...Object.keys(explainInputBase.properties), "skill"]);
+		assert.deepEqual(keys, ["type", "nodeId", "lead", "previous", ...Object.keys(explainInputBase.properties), "skill"]);
 	});
 
 	it("an empty commitment is the one authoring problem", () => {

@@ -57,11 +57,17 @@ export function leadFloorReason(toolName: string): string {
  */
 function isMiss(result: ToolResultMessage): boolean {
 	if (result.toolName === "explain") return true;
-	const readable = (value: unknown): boolean | undefined => {
+	return readAnswerVerdict(result) === "miss";
+}
+
+/** The verdict the answer result itself carries: "miss" (wrong or "don't know"), "hit" (correct), or undefined when it
+ *  carries none (a free-recall `explain` answer, which the tutor grades in its reply). Shared with the verdict gate. */
+export function readAnswerVerdict(result: ToolResultMessage): "miss" | "hit" | undefined {
+	const readable = (value: unknown): "miss" | "hit" | undefined => {
 		if (!value || typeof value !== "object") return undefined;
 		const answer = value as { correct?: unknown; dontKnow?: unknown };
-		if (answer.correct === false || answer.dontKnow === true) return true;
-		if (answer.correct === true) return false;
+		if (answer.correct === false || answer.dontKnow === true) return "miss";
+		if (answer.correct === true) return "hit";
 		return undefined;
 	};
 	for (const block of result.content) {
@@ -73,7 +79,7 @@ function isMiss(result: ToolResultMessage): boolean {
 			// not JSON: fall through to the record
 		}
 	}
-	return readable(result.details) ?? false;
+	return readable(result.details);
 }
 
 /** The visible prose of one assistant message, in characters (a call in `rejected` was never posed: nothing in it was shown). */

@@ -307,11 +307,21 @@ export const MISSING_QUESTION_MESSAGE =
 	"`lead` is only the text the learner reads before the question, so the question does not belong at the end of `lead` instead. " +
 	"Send the call again straight away and do not mention the error to the learner.";
 
+/** How the tutor graded the learner's last answer (owner, 2026-11-14): the verdict gate (core/verdict-gate.ts) reads it. */
+const previousField = Type.Optional(
+	Type.Union([Type.Literal("right"), Type.Literal("partly"), Type.Literal("wrong")], {
+		description:
+			"REQUIRED whenever the learner has answered a question since your last one (omit only on the first question): how his last answer " +
+			"graded, as a bare word: right, partly or wrong (a \"don't know\" is wrong). When it is partly or wrong, this question must stay " +
+			"on the same nodeId and be type check, and `lead` repairs the step first.",
+	}),
+);
+
 const leadField = Type.String({
 	minLength: 1,
 	description:
 		"The text he reads before the question: respond to his last answer (what it shows; if it was wrong, diagnose " +
-		"and repair), then teach the next step. Markdown. The question itself goes in `question`, with the instance he works on " +
+		"and repair it, and this question then asks that same step again on a fresh case; if it was right, teach the next step). Markdown. The question itself goes in `question`, with the instance he works on " +
 		"(the matrix, function, numbers) written out in full there: the lead may teach with a DIFFERENT example, but never states " +
 		"the question's own instance and never carries out its steps. A one-line filler is " +
 		"not a lead. `lead` is never the question: `question` is a REQUIRED field of its own, so never end `lead` with " +
@@ -335,6 +345,7 @@ export const quizInputObject = Type.Object({
 			"For off-map checks use ask_user_question.",
 	}),
 	lead: leadField,
+	previous: previousField,
 	...quizInputBase.properties,
 });
 
@@ -409,6 +420,7 @@ export const explainInputObject = Type.Object({
 			"For off-map checks use ask_user_question.",
 	}),
 	lead: leadField,
+	previous: previousField,
 	...explainInputBase.properties,
 	// optional and LAST: the required fields lead the property order (the authoring order, owner 2026-10-09)
 	skill: Type.Optional(

@@ -58,8 +58,9 @@ export function proseGateReason(toolName: string): string {
  *  the rule is in front of the model at the moment it decides; the gate
  *  stays the backstop. */
 export const ANSWER_NEXT_TEXT =
-	"Reply in the next question's `lead`: what this answer shows (wrong: diagnose and repair), " +
-	"then teach the next step there — or finish in text. " +
+	"Reply in the next question's `lead`: what this answer shows. If it was wrong, the lead is the repair and the next question asks " +
+	"that same step again on a fresh case (same nodeId, type check): do not advance. If it was right, teach the next step there — or finish in text. " +
+	"Set `previous` to how you graded it. " +
 	"Do not plan the reply in thinking: only text and `lead` reach him.";
 
 /** The same, for an answer that carries a SKETCH (Android plan M2): the
@@ -67,8 +68,9 @@ export const ANSWER_NEXT_TEXT =
  *  the tutor grade handwriting it never transcribed. */
 export const SKETCH_ANSWER_NEXT_TEXT =
 	"A sketch is attached: call read_sketch on it first, in this reply — before any other tool or text. " +
-	"Then reply in the next question's `lead`: what this answer shows (wrong: diagnose and repair), " +
-	"then teach the next step there — or finish in text. " +
+	"Then reply in the next question's `lead`: what this answer shows. If it was wrong, the lead is the repair and the next question asks " +
+	"that same step again on a fresh case (same nodeId, type check): do not advance. If it was right, teach the next step there — or finish in text. " +
+	"Set `previous` to how you graded it. " +
 	"Do not plan the reply in thinking: only text and `lead` reach him. Work the correct answer out before you write; never correct yourself inside `lead`.";
 
 /** And for a sketch on a question that is not prose-gated (ask, probe). */
