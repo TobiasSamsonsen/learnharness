@@ -522,9 +522,15 @@ A long set titles the session with three names and "+n more".
     - **One grouped list**, two columns on a wide page: **Due for review** (with Review), **Next up**, **Not examined**
       (closed), **From another course**, **Learning** (with Practice all), **Known**, and **Locked · n** as one closed
       group at the end. Each skill is one quiet row: its name, a thin understanding bar (tick at the known line, hatched
-      when locked) and a sky dot when it is due. A tap opens the detail: the state line (with "needs …" when locked), the
-      exam weight, the Learn / Practice / Learn again / Quick check buttons (a known skill can be practiced too), its statement, recall, prerequisites, the
-      last lesson and the propositions it rests on (name + statement, with links to the sessions they came from). There
+      when locked) and a sky dot when it is due. A tap opens the detail (owner,
+      2026-11-14: figures and chips, not sentences): the buttons (Learn / Practice / Learn again / Quick check; a known
+      skill can be practiced too), then three figures with a one-word label (**understanding** 1.4/10, **recall** 65% with
+      a small meter and the 90% review line, **due** now / tomorrow / 3 d), the skills it **needs** as chips with a check
+      (learned) or a lock (not yet), the **exam weight** as four 0-3 buttons with a few words on what the weight means
+      (and "counts as 3" when what it unlocks counts higher), the statement cut to about two lines, and **More ›**, which
+      opens the rest: the full statement, what set the weight and why, the last lesson with a link, and the propositions it
+      rests on (name + statement, with links to the sessions they came from). A skill not yet learned shows "Not started" or
+      "Locked" instead of the figures. There
       is no Sections / By understanding switch, sort, or filter pills any more.
 - The home canvas is unchanged.
 

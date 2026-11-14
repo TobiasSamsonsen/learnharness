@@ -34,32 +34,48 @@ export function WeightChip({ skill }: { skill: Pick<CourseSkillView, "id" | "wei
 	);
 }
 
-/** In a skill's detail: its weight, the evidence, and 0-3 buttons to change it (Reset returns to the default). */
-export function WeightEditor({ skill }: { skill: Pick<CourseSkillView, "id" | "weight" | "weightBy" | "weightReason" | "priority"> }) {
+/** In a skill's detail: "Exam weight", the 0-3 buttons to change it, and a few words on what the weight means (Reset
+ *  returns a hand edit to the default). The evidence behind it is the WeightNote. */
+export function WeightEditor({ skill }: { skill: Pick<CourseSkillView, "id" | "weight" | "weightBy" | "priority"> }) {
 	const edit = useContext(WeightEditContext);
+	const meaning = WEIGHT_LABELS[skill.weight as SkillWeightValue] ?? "";
 	return (
-		<div className="space-y-1" data-testid={`weight-editor-${skill.id}`}>
-			<p className="text-muted-foreground">
-				Exam weight {skill.weight} · {WEIGHT_LABELS[skill.weight as SkillWeightValue] ?? ""}
-				{skill.weightBy === "learner" ? " · set by you" : skill.weightBy === "model" ? " · from the sources" : " · not weighed"}
-				{skill.priority > skill.weight ? ` · counts as ${skill.priority} because later skills build on it` : ""}
-				{skill.weightReason ? ` · ${skill.weightReason}` : ""}
-			</p>
-			{edit && (
-				<div className="flex flex-wrap items-center gap-1.5">
+		<div className="flex flex-wrap items-center gap-x-2 gap-y-1.5" data-testid={`weight-editor-${skill.id}`}>
+			<span className="text-muted-foreground">Exam weight</span>
+			{edit ? (
+				<span className="flex items-center gap-1" role="group" aria-label="Exam weight">
 					{SKILL_WEIGHTS.map((w) => (
-						<button key={w} type="button" aria-pressed={skill.weight === w && skill.weightBy === "learner"} className={cn(BTN, skill.weight === w && skill.weightBy === "learner" && "bg-muted")} data-testid={`weight-${skill.id}-${w}`} onClick={() => edit(skill.id, w as SkillWeightValue)}>
+						<button key={w} type="button" aria-pressed={skill.weight === w} className={cn(BTN, "min-w-7 px-2", skill.weight === w && "border-foreground bg-foreground text-background")} data-testid={`weight-${skill.id}-${w}`} onClick={() => edit(skill.id, w as SkillWeightValue)}>
 							{w}
 						</button>
 					))}
-					{skill.weightBy === "learner" && (
-						<button type="button" className={BTN} data-testid={`weight-${skill.id}-reset`} onClick={() => edit(skill.id, null)}>
-							Reset
-						</button>
-					)}
-				</div>
+				</span>
+			) : (
+				<span className="font-medium text-foreground">{skill.weight}</span>
+			)}
+			<span className="text-muted-foreground">
+				{meaning}
+				{skill.priority > skill.weight ? ` · counts as ${skill.priority}` : ""}
+			</span>
+			{edit && skill.weightBy === "learner" && (
+				<button type="button" className={BTN} data-testid={`weight-${skill.id}-reset`} onClick={() => edit(skill.id, null)}>
+					Reset
+				</button>
 			)}
 		</div>
+	);
+}
+
+/** The evidence behind a skill's weight in words (what set it, why it counts higher, the model's reason): the full
+ *  sentence behind the compact control, shown under "More". */
+export function WeightNote({ skill }: { skill: Pick<CourseSkillView, "id" | "weight" | "weightBy" | "weightReason" | "priority"> }) {
+	return (
+		<p className="text-muted-foreground" data-testid={`weight-note-${skill.id}`}>
+			Exam weight {skill.weight} · {WEIGHT_LABELS[skill.weight as SkillWeightValue] ?? ""}
+			{skill.weightBy === "learner" ? " · set by you" : skill.weightBy === "model" ? " · from the sources" : " · not weighed"}
+			{skill.priority > skill.weight ? ` · counts as ${skill.priority} because later skills build on it` : ""}
+			{skill.weightReason ? ` · ${skill.weightReason}` : ""}
+		</p>
 	);
 }
 

@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, Loader2Icon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, Loader2Icon, LockIcon } from "lucide-react";
 import {
 	COURSE_MODE_LABEL,
 	courseProgressPercent,
@@ -33,7 +33,7 @@ import {
 import { DistributionStrip, DueChip, DueTimeline, UnderstandingBar, useNow } from "@/components/skill-visuals";
 import { CourseSettings } from "@/components/course-settings";
 import { LearnPaceDialog } from "@/components/learn-pace-dialog";
-import { ExamPlanSection, WeightChip, WeightEditContext, WeightEditor } from "@/components/exam-plan";
+import { ExamPlanSection, WeightEditContext, WeightEditor, WeightNote } from "@/components/exam-plan";
 import { SkillMap } from "@/components/skill-map";
 import { SidebarToggle } from "@/components/sidebar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
@@ -119,6 +119,43 @@ function dueLine(skill: CourseSkillView, now = Date.now()): string | null {
 	return days === 1 ? "due tomorrow" : `due in ${days} days`;
 }
 
+/** The due figure of the opened skill: "now", "tomorrow", "3 d", or a dash before it is learned. Pure. */
+export function dueShort(skill: Pick<CourseSkillView, "learned" | "reviewAt">, now = Date.now()): string {
+	if (!skill.learned || !skill.reviewAt) return "—";
+	const ms = Date.parse(skill.reviewAt) - now;
+	if (ms <= 0) return "now";
+	const days = Math.ceil(ms / 86_400_000);
+	return days === 1 ? "tomorrow" : `${days} d`;
+}
+
+/** One figure of the opened skill: a number, a one-word label and, for recall, a small meter with the 90% review line. */
+function Figure({ value, label, testid, accent, meter }: { value: string; label: string; testid?: string; accent?: boolean; meter?: number | null }) {
+	return (
+		<div data-testid={testid} className="min-w-0">
+			<div className="font-mono text-lg leading-none" style={accent ? { color: "var(--lh-due)" } : undefined}>
+				{value}
+			</div>
+			<div className="mt-1 text-[11px] text-muted-foreground">{label}</div>
+			{meter !== undefined && meter !== null && (
+				<span role="meter" aria-label="Recall" aria-valuemin={0} aria-valuemax={100} aria-valuenow={meter} className="relative mt-1.5 block h-1 rounded-full bg-border/50">
+					<span className="block h-full rounded-full" style={{ width: `${meter}%`, backgroundColor: meter < 90 ? "var(--lh-due)" : "var(--lh-understanding-8)" }} />
+					<span aria-hidden className="absolute -top-0.5 block h-2 w-px bg-foreground/60" style={{ left: "90%" }} />
+				</span>
+			)}
+		</div>
+	);
+}
+
+/** A prerequisite as a chip: a check when it is learned, a lock when it is not. The icon says it, not only the colour. */
+function PrereqChip({ name, learned }: { name: string; learned: boolean }) {
+	return (
+		<span data-testid="prereq-chip" data-learned={learned ? "true" : "false"} className="inline-flex items-center gap-1 rounded-full border border-border/70 px-2 py-0.5 text-[11px]">
+			{learned ? <CheckIcon role="img" aria-label="learned" className="size-3" /> : <LockIcon role="img" aria-label="not learned yet" className="size-3 text-muted-foreground" />}
+			{name}
+		</span>
+	);
+}
+
 const BTN =
 	"rounded-md border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50";
 /** A closed group's summary: a chevron instead of the browser's marker, the whole line a target. */
@@ -130,7 +167,9 @@ const ITEM_TYPE = "[--lh-prose-size:var(--text-xs)] [--lh-prose-leading:1.625]";
  * The "Choose skills" practice mode (owner, 2026-11-14): while `choosing`, a tap on a skill row ticks it instead of
  * opening it, and the rows that can be practiced (learned or next-up, not locked) can be ticked.
  */
-const SkillChooseContext = createContext<{
+const SkillListContext = createContext<{
+	/** The learned skills' ids: a prerequisite chip shows a check for them and a lock for the rest. */
+	learned: ReadonlySet<string>;
 	choosing: boolean;
 	chosen: ReadonlySet<string>;
 	canChoose: (skillId: string) => boolean;
@@ -153,11 +192,16 @@ function SkillRow({
 	actions?: React.ReactNode;
 }) {
 	const [open, setOpen] = useState(false);
-	const choose = useContext(SkillChooseContext);
+	const [more, setMore] = useState(false);
+	const choose = useContext(SkillListContext);
 	const choosing = choose?.choosing === true;
 	const can = choose?.canChoose(skill.id) === true;
 	const checked = choose?.chosen.has(skill.id) === true;
 	const due = dueLine(skill, now);
+	const recall =
+		skill.stability !== null && skill.lastReview !== null
+			? Math.round(retrievability({ stability: skill.stability, lastReview: Date.parse(skill.lastReview) }, now) * 100)
+			: null;
 	return (
 		<div className="break-inside-avoid border-b border-border/40" data-testid={`skill-${skill.id}`}>
 			<button
@@ -186,61 +230,78 @@ function SkillRow({
 				</span>
 			</button>
 			{open && !choosing && (
-				<div className="space-y-2 pb-3 pl-5 text-xs" data-testid={`skill-detail-${skill.id}`}>
-					<p className="flex flex-wrap items-center gap-2 text-muted-foreground">
-						<span>
-							{skillStateLabel(skill)}
-							{due ? ` · ${due}` : ""}
-							{skill.missing.length > 0 ? ` · needs ${skill.missing.map((id) => names.get(id) ?? id).join(", ")}` : ""}
-						</span>
-						<WeightChip skill={skill} />
-					</p>
+				<div className="space-y-3 pb-3 pl-5 text-xs" data-testid={`skill-detail-${skill.id}`}>
 					{actions && <div className="flex flex-wrap items-center gap-1.5">{actions}</div>}
-					<RichText prose className="[--lh-prose-leading:1.625]">{skill.statement}</RichText>
-					{skill.stability !== null && skill.lastReview !== null && (
-						<p className="text-muted-foreground" data-testid={`skill-recall-${skill.id}`}>
-							Recall now about {Math.round(retrievability({ stability: skill.stability, lastReview: Date.parse(skill.lastReview) }, now) * 100)}% · due for review below 90%
+					{skill.learned ? (
+						<div
+							className="grid grid-cols-3 gap-3"
+							role="group"
+							aria-label={`${skillStateLabel(skill)}${due ? ` · ${due}` : ""}`}
+							data-testid={`skill-figures-${skill.id}`}
+						>
+							<Figure value={`${skill.understanding}/${MAX_UNDERSTANDING}`} label="understanding" />
+							<Figure value={recall === null ? "—" : `${recall}%`} label="recall" meter={recall} testid={`skill-recall-${skill.id}`} />
+							<Figure value={dueShort(skill, now)} label="due" accent={isDue(skill, now)} />
+						</div>
+					) : (
+						<p className="text-muted-foreground" data-testid={`skill-state-${skill.id}`}>
+							{skill.missing.length > 0 ? "Locked" : "Not started"}
 						</p>
 					)}
 					{skill.requires.length > 0 && (
-						<p className="text-muted-foreground">Requires: {skill.requires.map((id) => names.get(id) ?? id).join(", ")}</p>
-					)}
-					<WeightEditor skill={skill} />
-					{skill.lessonNote && (
-						<div className="space-y-0.5" data-testid={`skill-note-${skill.id}`}>
-							<p className="text-muted-foreground">
-								Last lesson ({skill.lessonNote.at.slice(0, 10)}):{" "}
-								<Link href={`/chat/${skill.lessonNote.chatId}`} className="underline decoration-border underline-offset-2 hover:text-foreground">
-									open
-								</Link>
-							</p>
-							<RichText prose className="[--lh-prose-leading:1.625]">{skill.lessonNote.summary}</RichText>
+						<div className="flex flex-wrap items-center gap-1.5" data-testid={`skill-needs-${skill.id}`}>
+							<span className="text-muted-foreground">needs</span>
+							{skill.requires.map((id) => (
+								<PrereqChip key={id} name={names.get(id) ?? id} learned={choose?.learned.has(id) === true} />
+							))}
 						</div>
 					)}
-					{skill.propositions.length === 0 ? (
-						<p className="text-muted-foreground">No propositions from your graph yet — a Learn session on this skill adds them.</p>
-					) : (
-						<div className="space-y-1.5">
-							<p className="text-muted-foreground">Rests on what you have learned:</p>
-							{skill.propositions.map((p) => (
-								<div key={p.id} className="leading-relaxed">
-									<RichText className={cn(ITEM_TYPE, "font-medium text-foreground")}>{p.name}</RichText>
-									<RichText className={cn(ITEM_TYPE, "text-muted-foreground")}>{p.statement}</RichText>
-									{p.sessions.length > 0 && (
-										<span className="block text-[11px] text-muted-foreground/80">
-											from{" "}
-											{p.sessions.map((s, i) => (
-												<span key={s.id}>
-													{i > 0 ? ", " : ""}
-													<Link href={`/chat/${s.id}`} className="underline decoration-border underline-offset-2 hover:text-foreground">
-														{s.title}
-													</Link>
-												</span>
-											))}
-										</span>
-									)}
+					<WeightEditor skill={skill} />
+					<div className="max-h-[2.6rem] overflow-hidden" data-testid={`skill-statement-${skill.id}`}>
+						<RichText className={cn(ITEM_TYPE, "text-muted-foreground")}>{skill.statement}</RichText>
+					</div>
+					<button type="button" className="text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground" aria-expanded={more} data-testid={`skill-more-${skill.id}`} onClick={() => setMore((m) => !m)}>
+						{more ? "Less ‹" : "More ›"}
+					</button>
+					{more && (
+						<div className="space-y-2 border-t border-border/50 pt-2" data-testid={`skill-more-body-${skill.id}`}>
+							<RichText className={cn(ITEM_TYPE, "text-foreground")}>{skill.statement}</RichText>
+							<WeightNote skill={skill} />
+							{skill.lessonNote && (
+								<div className="space-y-0.5" data-testid={`skill-note-${skill.id}`}>
+									<p className="text-muted-foreground">
+										Last lesson ({skill.lessonNote.at.slice(0, 10)}):{" "}
+										<Link href={`/chat/${skill.lessonNote.chatId}`} className="underline decoration-border underline-offset-2 hover:text-foreground">
+											open
+										</Link>
+									</p>
+									<RichText className={cn(ITEM_TYPE, "text-muted-foreground")}>{skill.lessonNote.summary}</RichText>
 								</div>
-							))}
+							)}
+							{skill.propositions.length > 0 && (
+								<div className="space-y-1.5">
+									<p className="text-muted-foreground">Rests on what you have learned:</p>
+									{skill.propositions.map((p) => (
+										<div key={p.id} className="leading-relaxed">
+											<RichText className={cn(ITEM_TYPE, "font-medium text-foreground")}>{p.name}</RichText>
+											<RichText className={cn(ITEM_TYPE, "text-muted-foreground")}>{p.statement}</RichText>
+											{p.sessions.length > 0 && (
+												<span className="block text-[11px] text-muted-foreground/80">
+													from{" "}
+													{p.sessions.map((s, i) => (
+														<span key={s.id}>
+															{i > 0 ? ", " : ""}
+															<Link href={`/chat/${s.id}`} className="underline decoration-border underline-offset-2 hover:text-foreground">
+																{s.title}
+															</Link>
+														</span>
+													))}
+												</span>
+											)}
+										</div>
+									))}
+								</div>
+							)}
 						</div>
 					)}
 				</div>
@@ -455,7 +516,8 @@ export function CourseBody({
 	};
 	const chosenIds = [...chosen].filter(canChoose);
 	const chooseCount = chosenIds.length;
-	const choose = { choosing, chosen, canChoose, toggle: toggleChosen };
+	const learnedIds = useMemo(() => new Set(skills.filter((s) => s.learned).map((s) => s.id)), [skills]);
+	const choose = { learned: learnedIds, choosing, chosen, canChoose, toggle: toggleChosen };
 	const narrow = (next: SkillSelection) => setSelection(next);
 	const narrowed = !!(selection.band || selection.bucket);
 	const flat = useMemo(
@@ -521,7 +583,7 @@ export function CourseBody({
 		return undefined;
 	};
 	return (
-		<SkillChooseContext.Provider value={choose}>
+		<SkillListContext.Provider value={choose}>
 		<div className="space-y-8">
 			<CourseSettings
 				courseId={course.id}
@@ -762,7 +824,7 @@ export function CourseBody({
 
 			{data.sessions.length > 0 && <SessionsSection sessions={data.sessions} />}
 		</div>
-		</SkillChooseContext.Provider>
+		</SkillListContext.Provider>
 	);
 }
 

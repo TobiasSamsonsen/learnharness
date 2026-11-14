@@ -550,16 +550,29 @@ describe("the exam plan on the page", () => {
 		assert.equal(examUi.weightChip({ weight: 1 }), null);
 		assert.equal(examUi.weightChip({ weight: 3 }), "w3");
 		assert.equal(examUi.weightChip({ weight: 1, weightBy: "learner" }), "w1");
-		const html = renderToStaticMarkup(<examUi.WeightEditor skill={{ id: "sk_a", weight: 0, weightBy: "model", weightReason: "Exam 2025 task 3", priority: 2 }} />);
-		assert.match(html, /Exam weight 0 · not examined · from the sources · counts as 2 because later skills build on it · Exam 2025 task 3/);
+		const note = renderToStaticMarkup(<examUi.WeightNote skill={{ id: "sk_a", weight: 0, weightBy: "model", weightReason: "Exam 2025 task 3", priority: 2 }} />);
+		assert.match(note, /Exam weight 0 · not examined · from the sources · counts as 2 because later skills build on it · Exam 2025 task 3/);
+		assert.match(renderToStaticMarkup(<examUi.WeightNote skill={{ id: "sk_a", weight: 3, weightBy: "learner", priority: 3 }} />), /set by you/);
+		// the compact control: a label, the four buttons, a few words on what the weight means, Reset only after a hand edit
+		const plain = renderToStaticMarkup(<examUi.WeightEditor skill={{ id: "sk_a", weight: 0, weightBy: "model", priority: 2 }} />);
+		assert.match(plain, /Exam weight[\s\S]*not examined · counts as 2/);
+		assert.ok(!plain.includes("because later skills build on it"), "the long sentence is under More");
+		assert.ok(!plain.includes("Exam 2025"), "so is the evidence");
 		const edit = renderToStaticMarkup(
 			<examUi.WeightEditContext.Provider value={() => {}}>
 				<examUi.WeightEditor skill={{ id: "sk_a", weight: 3, weightBy: "learner", priority: 3 }} />
 			</examUi.WeightEditContext.Provider>,
 		);
-		assert.match(edit, /set by you/);
-		assert.match(edit, /data-testid="weight-sk_a-3"/);
+		assert.match(edit, /nearly every exam/);
+		for (const w of [0, 1, 2, 3]) assert.match(edit, new RegExp(`data-testid="weight-sk_a-${w}"`));
+		assert.match(edit, /aria-pressed="true"[^>]*data-testid="weight-sk_a-3"/, "the current weight is pressed");
 		assert.match(edit, /data-testid="weight-sk_a-reset"/);
+		const byModel = renderToStaticMarkup(
+			<examUi.WeightEditContext.Provider value={() => {}}>
+				<examUi.WeightEditor skill={{ id: "sk_a", weight: 2, weightBy: "model", priority: 2 }} />
+			</examUi.WeightEditContext.Provider>,
+		);
+		assert.ok(!byModel.includes("weight-sk_a-reset"), "nothing to reset: the model set it");
 	});
 });
 

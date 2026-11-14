@@ -11,7 +11,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { InteractionLayersProvider } from "../components/interaction-layers";
 import { parseHTML } from "linkedom";
-import { CourseBody, type CoursePayload } from "../components/course-page.tsx";
+import { CourseBody, dueShort, type CoursePayload } from "../components/course-page.tsx";
 
 const dom = parseHTML("<html><body></body></html>");
 const store = new Map<string, string>();
@@ -240,14 +240,58 @@ test("the Map button shows the skill map, fitted, and hides it again", async () 
 	assert.equal(has("course-map"), false, "and goes away again");
 });
 
-test("a due skill carries a dot and its row opens to the state line", async () => {
+test("a due skill carries a dot and its row opens to three figures, not a sentence", async () => {
 	await mount();
 	const row = byTestId("skill-b");
 	assert.ok(row?.querySelector("[data-testid='skill-due-chip']"), "B is due: its row has the due dot");
 	assert.equal(byTestId("skill-detail-b"), null, "the detail is closed");
 	await expand("b");
-	assert.match(byTestId("skill-detail-b")?.textContent ?? "", /Learned · understanding 2\/10/);
-	assert.match(byTestId("skill-detail-b")?.textContent ?? "", /due now/);
+	const detail = byTestId("skill-detail-b")!;
+	const figures = byTestId("skill-figures-b")!;
+	assert.match(figures.textContent ?? "", /2\/10/, "understanding as a number");
+	assert.match(figures.textContent ?? "", /understanding/);
+	assert.match(figures.textContent ?? "", /recall/);
+	assert.match(figures.textContent ?? "", /now[\s\S]*due/, "due now");
+	assert.match(figures.getAttribute("aria-label") ?? "", /Learned · understanding 2\/10[\s\S]*due now/, "the old sentence is the figures' accessible name");
+	assert.doesNotMatch(detail.textContent ?? "", /Learned · understanding|lasts about|due for review below 90%|Rests on what/, "no sentences on the opened row");
+});
+
+test("an opened skill shows what it needs as chips with a check or a lock, a compact weight control, and a clamped statement", async () => {
+	await mount();
+	await expand("a"); // locked: needs B, and B is learned in this fixture
+	const chips = byTestId("skill-needs-a")!;
+	assert.match(chips.textContent ?? "", /needs/);
+	const chip = chips.querySelector("[data-testid='prereq-chip']")!;
+	assert.equal(chip.getAttribute("data-learned"), "true", "B is learned: a check");
+	assert.ok(chip.querySelector("svg"), "the state is an icon, not only a colour");
+	assert.equal(byTestId("skill-figures-a"), null, "an unlearned skill has no figures");
+	assert.equal(byTestId("skill-state-a")?.textContent, "Locked");
+	assert.ok(byTestId("weight-editor-a"), "the weight control");
+	assert.match(byTestId("skill-statement-a")?.className ?? "", /max-h-/, "the statement is cut to about two lines");
+	await expand("d");
+	assert.equal(byTestId("skill-needs-d"), null, "a skill with no prerequisites has no chips");
+});
+
+test("More opens the rest: the full statement, the evidence behind the weight, the last lesson and the propositions", async () => {
+	await mount();
+	await expand("b");
+	assert.equal(byTestId("skill-more-body-b"), null, "closed by default");
+	assert.equal(byTestId("skill-more-b")?.textContent, "More ›");
+	await click("skill-more-b");
+	const body = byTestId("skill-more-body-b")!;
+	assert.ok(body.querySelector("[data-testid='weight-note-b']"), "the weight evidence");
+	assert.match(body.textContent ?? "", /Do b/, "the full statement");
+	assert.equal(byTestId("skill-more-b")?.textContent, "Less ‹");
+	await click("skill-more-b");
+	assert.equal(byTestId("skill-more-body-b"), null);
+});
+
+test("the due figure reads now, tomorrow, days, or a dash", () => {
+	const at = Date.parse("2026-11-14T12:00:00Z");
+	assert.equal(dueShort({ learned: false, reviewAt: null }, at), "—");
+	assert.equal(dueShort({ learned: true, reviewAt: "2026-11-14T10:00:00Z" }, at), "now");
+	assert.equal(dueShort({ learned: true, reviewAt: "2026-11-15T10:00:00Z" }, at), "tomorrow");
+	assert.equal(dueShort({ learned: true, reviewAt: "2026-11-17T12:00:00Z" }, at), "3 d");
 });
 
 test("row buttons live in the opened detail: next up gets Learn and Practice, learned-not-known gets Practice and Learn again, a known or context-check skill gets Practice (a context-check skill also Quick check)", async () => {
