@@ -447,6 +447,20 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
   known, plus "+ New course". The new-course row creates "Untitled course" and
   opens its page. Session rows from a course show the course name as a small
   label.
+  - **Folders (owner, 2026-11-14).** The list is courses with no folder (by name), then one collapsible header per
+    folder ("2026-2 Høst · 3", highest name first), its courses by name. The whole section collapses too
+    ("Courses · 7"); open or closed is remembered per device in `localStorage` (`lh:courses-open`,
+    `lh:courses-closed-folders`), not synced. A course moves through **Folder** — the third swipe action, or the
+    right-click / long-press menu (Rename, Folder, Delete…) that mouse and stylus now have too: the list holds the
+    folders in use (✓ the current one), "No folder", and "New folder…" (a name box; names sort, so "2026-2 Høst"
+    sits above "2026-1 Vår"). A folder header's right-click / long-press menu has **Rename folder** (merges into a
+    folder of the new name) and **Remove folder** (its courses leave it; none is deleted). With a mouse, dragging a
+    course onto a folder header moves it, onto the "Courses" header takes it out (fine pointers only, so it never
+    meets the touch swipe). The list scrolls in a box capped at 35% of the window height, so the sessions keep
+    their room. The sidebar's "Search sessions…" also filters courses by title or folder name, opening every folder
+    with a match. A course with an exam date ends its meta line with "exam 12 d", "exam today" or "exam passed".
+  - The session list puts finished sessions (✓) in a collapsed "Finished · N" group at its bottom
+    (`lh:finished-open`, per device); searching opens it.
 - **`/course/[id]`**:
   - Header: editable title, *n/m known (p%)*, **Placement test** and **Review (n)** buttons.
   - Right after approval, while the course has no sessions: **Find your starting point** — Take the placement test / Start from the beginning (the skip is remembered per browser).
