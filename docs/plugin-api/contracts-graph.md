@@ -516,6 +516,7 @@ export interface GraphSnapshot {
     fileSources: Record<string, string>;
     nodeSessions: Record<string, string[]>;
     clusters: Cluster[];
+    courseClusters?: Cluster[];
     positions?: Record<string, Position>;
     skills?: GraphSkillLayer;
 }
@@ -535,6 +536,7 @@ export interface GraphSnapshot {
 - [fileSources](#graphsnapshot-filesources)
 - [nodeSessions](#graphsnapshot-nodesessions)
 - [clusters](#graphsnapshot-clusters)
+- [courseClusters](#graphsnapshot-courseclusters)
 - [positions](#graphsnapshot-positions)
 - [skills](#graphsnapshot-skills)
 
@@ -636,6 +638,18 @@ depends on layout.
 
 ```ts
 clusters: Cluster[];
+```
+
+### GraphSnapshot courseClusters
+
+The HULL + LABEL partition (owner, 2026-11-14): one region per course
+(id the course id, label the course title) holding every session of
+that course, plus the per-session clusters of sessions with no course.
+The layout pull keeps using `clusters` above. Set by the server;
+absent → the view draws `clusters`.
+
+```ts
+courseClusters?: Cluster[];
 ```
 
 ### GraphSnapshot positions
