@@ -489,8 +489,8 @@ learner message starts the turn, and the client navigates to `/chat/<id>`.
   - Draft state: the draft's summary, its skills (reused ones marked, with citations and prerequisites), a feedback box with **Ask for changes**, and **Approve**.
   - **Active state: the overview and one list (owner, 2026-11-14).** Below Today and Exam:
     - **Understanding · p%** — one bar of the skills spread over four bands (not learned, under 3, 3 to 6, 6 and up) with each
-      band's count printed on its segment, the bands as labelled chips, and "n due of m". Under it a strip of when
-      reviews fall due: Now, Today, This week, Later. A band or a bucket narrows the list to the matching skills,
+      band's count printed on its segment, the bands as labelled chips, and "n due of m". A band narrows the list to the matching skills.
+    - **Reviews due** — its own box right below: four equal columns of when reviews fall due (Now, Today, This week, Later), each with its count and a thin bar sized to the biggest. A bucket narrows the list to the matching skills,
       weakest first, with a clearable "Showing" chip; clearing it brings the groups back.
     - **Skills · n** with a **Map** button: the dependency diagram (white known, learned or next up, gray locked) opens
       fitted to the whole map, with zoom, fit and expand; it hides again from the same button.

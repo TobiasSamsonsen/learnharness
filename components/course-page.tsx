@@ -503,10 +503,14 @@ export function CourseBody({
 					<section data-testid="course-overview" className="space-y-3 rounded-xl border border-border/60 bg-card/50 p-4">
 						<div className={cn(SECTION_HEAD, "mb-0")}>Understanding · {courseProgressPercent(skills.map((s) => s.understanding))}%</div>
 						<DistributionStrip skills={skills} due={dueNow} active={selection.band} onPick={(band) => narrow({ ...selection, band })} />
-						{skills.some((s) => s.learned) && (
-							<DueTimeline skills={skills} now={now} active={selection.bucket} onPick={(bucket) => narrow({ ...selection, bucket })} />
-						)}
 					</section>
+
+					{skills.some((s) => s.learned) && (
+						<section data-testid="course-due" className="space-y-3 rounded-xl border border-border/60 bg-card/50 p-4">
+							<div className={cn(SECTION_HEAD, "mb-0")}>Reviews due</div>
+							<DueTimeline skills={skills} now={now} active={selection.bucket} onPick={(bucket) => narrow({ ...selection, bucket })} />
+						</section>
+					)}
 
 					<div className="flex flex-wrap items-center gap-2">
 						<span className={cn(SECTION_HEAD, "mb-0")}>Skills · {skills.length}</span>

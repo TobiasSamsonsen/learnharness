@@ -176,9 +176,9 @@ export function DueTimeline({
 	onPick: (bucket: DueBucket | null) => void;
 }) {
 	const counts = bucketCounts(skills, now);
+	const max = Math.max(1, ...DUE_BUCKETS.map((b) => counts[b]));
 	return (
-		<div className="flex flex-wrap items-center gap-1.5" data-testid="due-timeline">
-			<span className="pr-1 text-xs text-muted-foreground">Reviews due</span>
+		<div className="grid grid-cols-4 gap-2" data-testid="due-timeline">
 			{DUE_BUCKETS.map((b) => (
 				<button
 					key={b}
@@ -188,13 +188,19 @@ export function DueTimeline({
 					disabled={counts[b] === 0}
 					onClick={() => onPick(active === b ? null : b)}
 					className={cn(
-						"lh-touch flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-40",
+						"lh-touch min-w-0 rounded-lg border px-3 py-2 text-left transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-40",
 						active === b ? "border-foreground/50" : "border-border/60",
 					)}
 				>
-					<span className="text-muted-foreground">{DUE_BUCKET_LABEL[b]}</span>
-					<span className="font-medium" style={b === "now" && counts.now > 0 ? { color: DUE_COLOR } : undefined}>
+					<span className="block text-xs text-muted-foreground">{DUE_BUCKET_LABEL[b]}</span>
+					<span className="block font-mono text-2xl leading-tight" style={b === "now" && counts.now > 0 ? { color: DUE_COLOR } : undefined}>
 						{counts[b]}
+					</span>
+					<span aria-hidden className="mt-1.5 block h-1 rounded-full bg-border/40">
+						<span
+							className="block h-full rounded-full"
+							style={{ width: `${(counts[b] / max) * 100}%`, backgroundColor: b === "now" ? DUE_COLOR : "var(--muted-foreground)" }}
+						/>
 					</span>
 				</button>
 			))}

@@ -176,6 +176,18 @@ test("the list is grouped by default: the review section shows and the narrowed 
 	assert.equal(has("view-sections") || has("view-understanding") || has("sort-direction") || has("chip-all"), false, "the view switch, sort and filter pills are gone");
 });
 
+test("Reviews due is its own box right below the Understanding box", async () => {
+	await mount();
+	const overview = byTestId("course-overview");
+	const due = byTestId("course-due");
+	assert.ok(overview && due, "both boxes are there");
+	assert.equal(overview.contains(due), false, "the review strip is not inside the Understanding box");
+	assert.equal(overview.querySelector("[data-testid='due-timeline']"), null);
+	assert.ok(due.querySelector("[data-testid='due-timeline']"), "the strip lives in its own box");
+	assert.match(due.textContent ?? "", /Reviews due/);
+	assert.equal(overview.nextElementSibling, due, "directly below Understanding");
+});
+
 test("Locked is one closed group at the end, listing the locked skills", async () => {
 	await mount();
 	const locked = byTestId("course-locked");
