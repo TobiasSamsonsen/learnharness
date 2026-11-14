@@ -318,35 +318,42 @@ describe("the exam plan on the page", () => {
 		courseId: "course_1", plan: basePlan, names, weightOf: (id: string) => (id === "sk_a" ? 3 : 1), hasWeights: false, weighing: false, canWeigh: true, busy: false, onStart: () => {}, onChanged: () => {}, ...over,
 	});
 
-	it("labels days and dates", () => {
-		assert.equal(examUi.daysLeftLabel(29), "29 days left");
-		assert.equal(examUi.daysLeftLabel(1), "exam tomorrow");
-		assert.equal(examUi.daysLeftLabel(0), "exam today");
-		assert.equal(examUi.daysLeftLabel(-3), "passed 3 days ago");
+	it("labels days, dates and skills left", () => {
+		assert.equal(examUi.examCountdown(29), "29 d");
+		assert.equal(examUi.examCountdown(1), "1 d");
+		assert.equal(examUi.examCountdown(0), "today");
+		assert.equal(examUi.examCountdown(-3), "passed");
 		assert.equal(examUi.examDateLabel("2026-12-12"), "12 Dec 2026");
-		assert.equal(examUi.planHeadline({ examDate: "2026-12-12", daysLeft: 29, skillsLeft: 27 }), "12 Dec 2026 · 29 days left · 27 skills left");
-		assert.equal(examUi.planHeadline({ skillsLeft: 1 }), "1 skill left");
+		assert.equal(examUi.skillsLeftLabel(27), "27 skills left");
+		assert.equal(examUi.skillsLeftLabel(1), "1 skill left");
 	});
 
-	it("shows the countdown, the forecast and today's review and lessons", () => {
+	it("shows the countdown, the forecast and today's review and lessons side by side", () => {
 		const html = renderToStaticMarkup(
 			<examUi.ExamPlanSection {...props({ examDate: "2026-12-12", plan: { ...basePlan, examDate: "2026-12-12", daysLeft: 29, forecast: plan.forecast({ skillsLeft: 27, daysLeft: 29, pacePerDay: 1.2 }) } })} />,
 		);
-		assert.match(html, /value="2026-12-12"/);
-		assert.match(html, /12 Dec 2026 · 29 days left · 27 skills left/);
+		assert.match(html, /data-testid="course-exam-countdown"[^>]*>[\s\S]*?29 d[\s\S]*?12 Dec 2026/);
+		assert.match(html, /27 skills left/);
 		assert.match(html, /needs 1 lesson\/day · your pace 1\.2\/day · on track/);
 		assert.match(html, /Review · 4 due/);
 		assert.match(html, /Learn: Taylor series/);
 		assert.match(html, /w3/);
-		assert.match(html, />Weigh by exams</);
-		assert.match(html, /Weigh by exams reads your past exams/);
+		assert.ok(html.indexOf("course-today") < html.indexOf("course-exam-countdown"), "Today first, the exam beside it");
+		assert.match(html, />Weigh by exams</, "unweighed: the card holds the button");
+		assert.ok(!html.includes('data-testid="course-exam-date"'), "with a date set the field is a setting, not on the card");
+		assert.ok(!html.includes("reads your past exams"), "no long explainer");
 	});
 
-	it("says Weigh again once weighed, shows the summary and a failure, and the spinner while it runs", () => {
-		const weighed = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ hasWeights: true, weightsSummary: "Used 3 past exams.", weightsAt: "2026-11-13T10:00:00Z" })} />);
-		assert.match(weighed, />Weigh again</);
-		assert.match(weighed, /Weighed by the sources \(2026-11-13\): Used 3 past exams\./);
-		assert.ok(!weighed.includes("Weigh by exams reads your past exams"));
+	it("with no exam date the card holds the date field", () => {
+		const html = renderToStaticMarkup(<examUi.ExamPlanSection {...props()} />);
+		assert.match(html, /<input[^>]*type="date"[^>]*data-testid="course-exam-date"/);
+		assert.ok(!html.includes("course-exam-countdown"));
+	});
+
+	it("once weighed the card says so in one line and keeps no button; a failure and the spinner still show", () => {
+		const weighed = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ hasWeights: true })} />);
+		assert.match(weighed, /Skills weighed by exam importance\./);
+		assert.ok(!weighed.includes("course-weigh-button"), "Weigh again is a setting");
 		const failed = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ weightsError: "out of credit (Google)" })} />);
 		assert.match(failed, /Weighing failed: out of credit \(Google\)/);
 		const running = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ weighing: true })} />);
@@ -354,6 +361,19 @@ describe("the exam plan on the page", () => {
 		assert.match(running, /<button[^>]*disabled=""[^>]*data-testid="course-weigh-button"/);
 		const noSources = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ canWeigh: false })} />);
 		assert.match(noSources, /<button[^>]*disabled=""[^>]*data-testid="course-weigh-button"/);
+	});
+
+	it("the exam settings hold the date with Clear once one is set, and Weigh again with what the last weighing found", () => {
+		const settings = (over: Record<string, unknown> = {}) => ({ courseId: "course_1", hasWeights: false, weighing: false, canWeigh: true, busy: false, onChanged: () => {}, ...over });
+		assert.equal(renderToStaticMarkup(<examUi.ExamSettings {...settings()} />), "", "no date and not weighed: nothing to set here");
+		const dated = renderToStaticMarkup(<examUi.ExamSettings {...settings({ examDate: "2026-12-12" })} />);
+		assert.match(dated, /value="2026-12-12"/);
+		assert.match(dated, /data-testid="course-exam-date-clear"/);
+		assert.ok(!dated.includes("course-weigh-button"), "Weigh by exams is on the card until weighed");
+		const weighed = renderToStaticMarkup(<examUi.ExamSettings {...settings({ hasWeights: true, weightsSummary: "Used 3 past exams.", weightsAt: "2026-11-13T10:00:00Z" })} />);
+		assert.match(weighed, />Weigh again</);
+		assert.match(weighed, /Last weighing \(2026-11-13\): Used 3 past exams\./);
+		assert.ok(!weighed.includes("course-exam-date-clear"));
 	});
 
 	it("a lone review batch smaller than what is due says so; nothing to do hides Today", () => {

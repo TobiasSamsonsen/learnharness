@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CheckIcon, ChevronDownIcon, ChevronRightIcon, Loader2Icon } from "lucide-react";
 import {
 	COURSE_MODE_LABEL,
-	courseProgressPercent,
 	DUE_BUCKET_LABEL,
 	isDue,
 	KNOWN_UNDERSTANDING,
@@ -29,10 +28,7 @@ import {
 	type SkillWeightValue,
 } from "@/src/core";
 import { DistributionStrip, DueChip, DueTimeline, SkillViewControls, UnderstandingBar, useNow, type SkillView } from "@/components/skill-visuals";
-import { LanguageControl } from "@/components/language-control";
-import { MaterialsControl } from "@/components/materials-control";
-import { CourseTimeNote } from "@/components/course-time-note";
-import { CoursePace } from "@/components/course-pace";
+import { CourseSettings } from "@/components/course-settings";
 import { LearnPaceDialog } from "@/components/learn-pace-dialog";
 import { ExamPlanSection, WeightChip, WeightEditContext, WeightEditor } from "@/components/exam-plan";
 import { SkillMap } from "@/components/skill-map";
@@ -482,39 +478,28 @@ export function CourseBody({
 	};
 	return (
 		<div className="space-y-8">
-			<section data-testid="course-curriculum">
-				<div className={SECTION_HEAD}>Curriculum</div>
-				<div className="flex flex-wrap items-center gap-2">
-					<MaterialsControl courseId={course.id} onChange={onMaterials} />
-					<LanguageControl courseId={course.id} />
-					<button
-						type="button"
-						className={BTN}
-						disabled={busy || drafting || materialCount === 0}
-						data-testid="course-draft-button"
-						onClick={() => onDraft()}
-					>
-						{course.skills.length > 0 || course.draft ? "Re-draft skill map" : "Draft skill map"}
-					</button>
-					{drafting && (
-						<span className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="course-drafting">
-							<Loader2Icon className="size-3.5 animate-spin" />
-							The course planner is reading the curriculum…
-						</span>
-					)}
-				</div>
-				{materialCount === 0 && !drafting && (
-					<p className="mt-2 text-xs text-muted-foreground">Add the curriculum (PDFs, notes or links), then draft the skill map.</p>
-				)}
-				{course.error && !drafting && (
-					<p className="mt-2 text-xs text-error" data-testid="course-error">
-						Drafting failed: {course.error}
-					</p>
-				)}
-				{error && <p className="mt-2 text-xs text-error">{error}</p>}
-			</section>
+			<CourseSettings
+					courseId={course.id}
+					pace={course.pace}
+					hasSkills={skills.length > 0}
+					hasDraft={!!course.draft}
+					drafting={drafting}
+					courseError={course.error}
+					error={error}
+					materialCount={materialCount}
+					busy={busy}
+					onMaterials={onMaterials}
+					onDraft={() => onDraft()}
+					onChanged={onChanged}
+					onPlacement={() => onStart("placement")}
+					exam={
+						skills.length > 0
+							? { examDate: course.examDate, hasWeights, weighing: data.weighing === true, canWeigh: !drafting && materialCount > 0, weightsSummary: course.weightsSummary, weightsAt: course.weightsAt }
+							: undefined
+					}
+				/>
 
-			{course.draft && !drafting && <DraftReview data={data} busy={busy} onFeedback={(f) => onDraft(f)} onApprove={onApprove} />}
+				{course.draft && !drafting && <DraftReview data={data} busy={busy} onFeedback={(f) => onDraft(f)} onApprove={onApprove} />}
 
 			{skills.length > 0 && (
 				<>
@@ -525,8 +510,6 @@ export function CourseBody({
 						weightOf={(id) => byId.get(id)?.weight ?? 1}
 						examDate={course.examDate}
 						hasWeights={hasWeights}
-						weightsSummary={course.weightsSummary}
-						weightsAt={course.weightsAt}
 						weightsError={course.weightsError}
 						weighing={data.weighing === true}
 						canWeigh={!drafting && materialCount > 0}
@@ -725,7 +708,7 @@ export function reviewLabel(data: Pick<CourseView, "review" | "reviewBatch">): s
 
 export function courseProgress(data: Pick<CourseView, "skills" | "known">): string | null {
 	if (data.skills.length === 0) return null;
-	return `${data.known.length}/${data.skills.length} known · ${courseProgressPercent(data.skills.map((s) => s.understanding))}%`;
+	return `${data.known.length}/${data.skills.length} known`;
 }
 
 export function CoursePage({ courseId, initial }: { courseId: string; initial: CoursePayload }) {
@@ -867,9 +850,6 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 				)}
 				{hasSkills && (
 					<span className="lh-no-drag flex shrink-0 items-center gap-1.5">
-						<button type="button" className={BTN} disabled={busy} data-testid="course-placement" onClick={() => void onStart("placement")}>
-							Placement test
-						</button>
 						<button
 							type="button"
 							className={BTN}
@@ -882,9 +862,7 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 					</span>
 				)}
 			</header>
-			<div className="mx-auto max-w-3xl px-6 pb-16 pt-4">
-				<CoursePace courseId={courseId} pace={data.course.pace} onSaved={() => void refresh()} />
-				<CourseTimeNote courseId={courseId} note={data.course.note} onSaved={() => void refresh()} />
+			<div className="mx-auto max-w-5xl px-6 pb-16 pt-4">
 				{learnSkill && (
 					<LearnPaceDialog
 						courseId={courseId}

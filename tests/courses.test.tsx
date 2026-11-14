@@ -1215,7 +1215,7 @@ describe("the UI", () => {
 		assert.match(html, /data-testid="course-known"/);
 		assert.match(html, /Learn: A/);
 		assert.doesNotMatch(html, /course-draft"/);
-		assert.equal(courseProgress(payload()), "1/2 known · 50%");
+		assert.equal(courseProgress(payload()), "1/2 known");
 		assert.doesNotMatch(html, /placement-offer/, "a course with sessions offers no placement");
 	});
 

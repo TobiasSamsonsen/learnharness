@@ -37,7 +37,6 @@ const { DraftShell } = await import("../components/new-session.tsx");
 const { SessionSetup } = await import("../components/session-setup.tsx");
 const { PaceControl } = await import("../components/pace-control.tsx");
 const { ComposerEdgeTools } = await import("../components/composer-edge.tsx");
-const { CourseTimeNote } = await import("../components/course-time-note.tsx");
 const courses = await import("../src/server/courses.ts");
 const { POST: sessionsPOST } = await import("../app/api/courses/[id]/sessions/route.ts");
 const { LearnPaceBody } = await import("../components/learn-pace-dialog.tsx");
@@ -255,10 +254,6 @@ describe("the UI surfaces", () => {
 		assert.match(html, /data-testid="stats-pace"[^>]*>\s*<span[^>]*>Thorough<\/span>/);
 	});
 
-	it("the course note field shows the saved note", () => {
-		const html = renderToStaticMarkup(<CourseTimeNote courseId="course_x" note="exam Thursday" onSaved={() => {}} />);
-		assert.match(html, /data-testid="course-time-note-input"[^>]*>exam Thursday<\/textarea>/);
-	});
 });
 
 describe("a course's default pace and the Learn start", () => {
