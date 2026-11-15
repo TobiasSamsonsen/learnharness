@@ -75,9 +75,18 @@ for (const [name, surface] of Object.entries(surfaces)) describe(`streaming math
 	it("keeps the other incomplete-Markdown repairs", () => {
 		const bold = documentFor(surface("**bold TAIL"));
 		assert.equal(bold.querySelector("strong")?.textContent, "bold TAIL");
-		const link = documentFor(surface("[partial TAIL"));
-		assert.ok(link.body.textContent.includes("partial TAIL"));
-		assert.ok(link.body.textContent.includes("[blocked]"), "the incomplete-link placeholder is still hardened");
+	});
+
+	it("leaves an unmatched bracket alone: no repair text, no blocked badge", () => {
+		for (const source of ["[partial TAIL", "Intervallet [0,1) er halvåpent. TAIL", String.raw`hele $[0,\infty)$). TAIL`, "$[0,1)$ TAIL"]) {
+			const document = documentFor(surface(source));
+			const text = document.body.textContent;
+			assert.ok(text.includes("TAIL"), source);
+			assert.ok(!text.includes("incomplete-link"), source);
+			assert.ok(!text.includes("[blocked]"), source);
+			if (!source.includes("$")) assert.ok(text.includes("["), `${source}: the bracket stays`);
+		}
+		assert.deepEqual(annotations(documentFor(surface(String.raw`hele $[0,\infty)$). TAIL`))), [String.raw`[0,\infty)`]);
 	});
 
 	it("still removes script/event attributes and blocks javascript links", () => {

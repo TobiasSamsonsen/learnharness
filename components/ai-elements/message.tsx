@@ -362,7 +362,14 @@ export const streamdownPlugins = {
 // partial tag and deletes the remaining source before math can tokenize.
 // Preserve that text (unfinished prose HTML may show literally); Streamdown's
 // separate sanitization/hardening and all other Markdown repairs stay enabled.
-export const streamdownRemend = { htmlTags: false };
+//
+// Link and image repair is off too (owner, 2026-11-15): it treats any
+// unmatched `[` as a half-typed link, and Streamdown runs it on finished text
+// as well. A half-open interval `[0,1)` lost its bracket and gained a
+// "[blocked]" badge; `$[0,\infty)$` left a literal "](streamdown:incomplete-link)"
+// at the end of the message. A link still being streamed now shows as plain
+// text until its `](url)` arrives, and complete links stay hardened.
+export const streamdownRemend = { htmlTags: false, links: false, images: false };
 
 // Model output must not load remote images: a rendered
 // ![x](https://host/?d=...) sends data out with no click. Streamdown's
