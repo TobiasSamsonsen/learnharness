@@ -181,6 +181,20 @@ export function examReadiness(skills: ReadonlyArray<{ priority: number; credit: 
 	return { score: earned / total, key: key / total, pastExams: exams, assumed: count === undefined };
 }
 
+/**
+ * Where the readiness bar sits on the understanding color ramp (1 orange-red .. 10 green; skill-visual.ts understandingColor
+ * turns it into a color). Owner 2026-11-15: green only once the score passes the key-skills tick. Below the tick the score
+ * runs the ramp from 1 (0%) up to just short of 8 (at the tick); from the tick to 100% it runs 8 up to 10. A tick at 0 (no
+ * key skills) ramps the whole bar to green at 100%. Pure.
+ */
+export function readinessStep(score: number, key: number): number {
+	const s = Math.min(1, Math.max(0, score));
+	const k = Math.min(1, Math.max(0, key));
+	if (k > 0 && s < k) return 1 + 6 * (s / k);
+	const span = 1 - k;
+	return span > 0 ? 8 + 2 * ((s - k) / span) : 10;
+}
+
 /** The line under the score: what it rests on. Pure. */
 export function readinessBasis(r: Pick<Readiness, "pastExams" | "assumed">): string {
 	if (r.assumed) return `assuming ${r.pastExams} past exams`;

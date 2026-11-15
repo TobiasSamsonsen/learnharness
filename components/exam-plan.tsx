@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState } from "react";
 import { Loader2Icon } from "lucide-react";
-import { examDateLabel, forecastLine, readinessBasis, type Readiness, SKILL_WEIGHTS, WEIGHT_LABELS, type CoursePlan, type CourseMode, type CourseSkillView, type SkillWeightValue } from "@/src/core";
+import { examDateLabel, forecastLine, readinessBasis, readinessStep, understandingColor, type Readiness, SKILL_WEIGHTS, WEIGHT_LABELS, type CoursePlan, type CourseMode, type CourseSkillView, type SkillWeightValue } from "@/src/core";
 import { cn } from "@/lib/utils";
 import { PAGE_HEAD, SECTION_HEAD } from "@/components/section-heads";
 
@@ -112,7 +112,7 @@ function ReadinessStrip({ readiness }: { readiness: Readiness }) {
 				<span className="font-mono text-xl leading-none">{percent}%</span>
 			</div>
 			<span role="meter" aria-label="Exam readiness" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="relative block h-2 w-full rounded-full bg-border/50">
-				<span className="block h-full rounded-full" style={{ width: `${percent}%`, backgroundColor: "var(--lh-understanding-8)" }} />
+				<span className="block h-full rounded-full" style={{ width: `${percent}%`, backgroundColor: understandingColor(readinessStep(readiness.score, readiness.key)) ?? "var(--lh-understanding-1)" }} />
 				<span aria-hidden className="absolute -top-1 block h-4 w-px bg-foreground/70" style={{ left: `${key}%` }} data-testid="course-exam-readiness-key" />
 			</span>
 			<div className="flex items-baseline justify-between gap-2 text-xs text-muted-foreground">

@@ -355,6 +355,23 @@ describe("exam readiness", () => {
 		}
 	});
 
+	it("the readiness bar color is orange at 0%, stays short of green below the key-skills tick, and is green from the tick up", () => {
+		assert.equal(plan.readinessStep(0, 0.6), 1);
+		assert.ok(plan.readinessStep(0.05, 0.6) < 2, "5% is still orange-red");
+		assert.ok(plan.readinessStep(0.5999, 0.6) < 8, "just below the tick is not green yet");
+		assert.equal(plan.readinessStep(0.6, 0.6), 8);
+		assert.equal(plan.readinessStep(1, 0.6), 10);
+		let last = 0;
+		for (let s = 0; s <= 1; s += 0.01) {
+			const step = plan.readinessStep(s, 0.6);
+			assert.ok(step >= last, "the color never goes backwards as the score rises");
+			last = step;
+		}
+		assert.equal(plan.readinessStep(1, 0), 10, "no key skills: the whole bar ramps, green at 100%");
+		assert.ok(plan.readinessStep(0.5, 0) < 10);
+		assert.equal(plan.readinessStep(1, 1), 10);
+	});
+
 	it("with no past exams every skill weighs the same, so readiness is the plain average credit", () => {
 		for (const p of [0, 1, 2, 3]) assert.equal(plan.readinessWeight(p, 0), 0.5);
 		const r = plan.examReadiness([skill(3, 1), skill(0, 0), skill(1, 0.5), skill(2, 0)], 0)!;
