@@ -103,7 +103,7 @@ export interface QuestionDockProps {
 	onExpand: () => void;
 	/** A sketch submit (Android plan M1, text mode) passes the handwriting;
 	 *  the answer then carries its ref. */
-	onSubmit: (output: QuestionAnswerData, sketch?: SketchPayload) => Promise<boolean> | void;
+	onSubmit: (output: QuestionAnswerData, sketch?: SketchPayload, onAccepted?: () => void) => Promise<boolean> | void;
 	/** The host's capture step for an answer that carries more than the form (a plugin adapter's images). It runs inside
 	 *  the confidence-first flow: after the confidence press, with the request read at that moment. */
 	onPrepareSubmission?: PrepareBuiltinSubmission;
@@ -644,7 +644,7 @@ function QuestionDockForm({
 			const state = readInk(toolCallId);
 			try {
 				const payload = pagePayload(readKept(toolCallId), state.strokes, nativeInkBridge() !== null && nativeInkEnabled() ? "android-ink" : "web-canvas", state.thawed !== undefined);
-				void sendPage(toolCallId, payload, state.strokes, () => submitSketch(payload, ov?.confIdx, ov?.dontKnow));
+				void sendPage(toolCallId, payload, state.strokes, (accepted) => submitSketch(payload, ov?.confIdx, ov?.dontKnow, accepted));
 				return;
 			} catch (err) {
 				// ink that cannot be packed is never dropped in silence: nothing is sent, the reason shows on the chip row, and the
@@ -663,7 +663,7 @@ function QuestionDockForm({
 	 * the picked answer (and confidence) is the answer and the sketch rides
 	 * as thinking. Dictation's tail lands first, exactly as for the Submit
 	 * button. */
-	const submitSketch = async (sketch: SketchPayload, pressedIdx?: number, dontKnow?: boolean): Promise<boolean> => {
+	const submitSketch = async (sketch: SketchPayload, pressedIdx?: number, dontKnow?: boolean, onAccepted?: () => void): Promise<boolean> => {
 		if (compactionRunning) return false;
 		setSketching(false);
 		if (isDictationActive()) await finishDictation();
@@ -672,7 +672,7 @@ function QuestionDockForm({
 		const ov: SubmitOverride | undefined = pressedIdx === undefined && !dontKnow ? undefined : { ...(pressedIdx !== undefined ? { confIdx: pressedIdx } : {}), ...(dontKnow ? { dontKnow: true } : {}) };
 		if (!dockSubmitGate({ kind, mode: qd.mode, sel: selFor(ov), other, text: answerTextRef.current, confidenceSet: pressedIdx !== undefined || confIdx !== null, hasSketch: true }).canSubmit) return false;
 		const req: AnswerRequest = { ...captureRequest(ov), sketch: sketchRefOf(sketch) };
-		return (await onSubmit(buildAnswer(qd, req, toolName), sketch)) ?? true;
+		return (await onSubmit(buildAnswer(qd, req, toolName), sketch, onAccepted)) ?? true;
 	};
 	// Why the sketch view's Submit waits (a choice question needs its pick; the confidence is asked on the sketch page).
 	const sketchGate = dockSubmitGate({ kind, mode: qd.mode, sel, other, text, confidenceSet: true, hasSketch: true });
@@ -1283,7 +1283,7 @@ function QuestionDockForm({
 					statement={qd.context ? `${qd.question}\n\n${qd.context}` : qd.question}
 					lessonText={typeof (input as { lead?: unknown }).lead === "string" ? (input as { lead: string }).lead : undefined}
 					inkKey={toolCallId}
-					onSubmit={submitSketch}
+					onSubmit={(sketch, confidenceIndex, onAccepted) => submitSketch(sketch, confidenceIndex, undefined, onAccepted)}
 					onClose={() => setSketching(false)}
 					onCancelDictation={onEscape}
 					disabled={compactionRunning}

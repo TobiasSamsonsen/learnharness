@@ -678,7 +678,7 @@ export function Chat({
 	// the dock stays mounted (the problem is still active until the agent
 	// concludes).
 	const submitThinking = useCallback(
-		(text: string, sketch?: SketchPayload, sketchRef?: string, mark?: ThinkingMark): Promise<boolean> => {
+		(text: string, sketch?: SketchPayload, sketchRef?: string, mark?: ThinkingMark, onAccepted?: () => void): Promise<boolean> => {
 			const problem = activeProblemRef.current;
 			if (!problem) return Promise.resolve(false);
 			return send(
@@ -687,6 +687,7 @@ export function Chat({
 					: sketchRef
 						? { type: "thinking", problemCallId: problem.toolCallId, text, sketchRef, ...mark }
 						: { type: "thinking", problemCallId: problem.toolCallId, text, ...mark },
+					onAccepted,
 			);
 		},
 		[send],
@@ -2369,7 +2370,7 @@ export function Chat({
 							edge={{ chatId, mic: <DictationBar dictation={dictation} compact /> }}
 						/>
 					}
-					onSubmitAnswer={(output, sketch) => {
+					onSubmitAnswer={(output, sketch, onAccepted) => {
 						if (!pending) return Promise.resolve(false);
 						// THE ANSWER IS THE QUESTION CALL'S TOOL RESULT (fork 1, owner
 						// 2026-09-26): one input event, one turn — the hook appends
@@ -2383,7 +2384,7 @@ export function Chat({
 						const reading = readingThinkingRef.current.trim() || undefined;
 						// The pending-id effect clears this only when the question
 						// actually leaves. An offline preflight keeps the draft visible.
-						return submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output, sketch, pending.key);
+						return submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output, sketch, pending.key, onAccepted);
 					}}
 				/>
 				</ClarifyDockContext.Provider>
@@ -2692,7 +2693,7 @@ export function DockOverlay({
 	pluginPractice?: Omit<PluginProblemDockProps, "expanded" | "onExpand">;
 	/** (commit, text) — the practice dock's two submit lanes. */
 	/** Resolves to whether the server accepted the submission. */
-	onSubmitThinking: (text: string, sketch?: SketchPayload, sketchRef?: string, mark?: ThinkingMark) => Promise<boolean>;
+	onSubmitThinking: (text: string, sketch?: SketchPayload, sketchRef?: string, mark?: ThinkingMark, onAccepted?: () => void) => Promise<boolean>;
 	/** The active problem's newest sketch (its kept page). */
 	keptSketch: SketchRef | null;
 	/** The session's model reads images — the docks offer "Open in sketch". */
@@ -2715,7 +2716,7 @@ export function DockOverlay({
 	pricing?: SessionPricing;
 	composer: React.ReactNode;
 	/** Resolves to whether the server accepted the answer. */
-	onSubmitAnswer: (output: QuestionAnswerData, sketch?: SketchPayload) => Promise<boolean>;
+	onSubmitAnswer: (output: QuestionAnswerData, sketch?: SketchPayload, onAccepted?: () => void) => Promise<boolean>;
 	/** The model control's pass-through (the stats bar hosts it). */
 	chatId: string;
 	/** Reports the dock's settled height (block + gradient) — ChatView's

@@ -420,18 +420,26 @@ export function commitSketch(key: string, payload: SketchPayload, sent: readonly
 const inflight = new Map<string, string>();
 export const inflightSketch = (key: string): string | undefined => inflight.get(key);
 
-/** Send a page and, once the server accepts it, fold the ink into the
- *  kept page. `send` resolves to whether the server accepted. */
+/** Send a page and, once the server accepts it, fold the ink into the kept page. `send` resolves to whether the server
+ *  accepted, but it may resolve only when the tutor's whole reply has streamed: a reload or a killed server in that time would
+ *  leave a sent page in storage for good. So `send` is also handed `accepted`, to call the moment the server has the answer;
+ *  the page is committed on the first of the two, once. */
 export async function sendPage(
 	key: string,
 	payload: SketchPayload,
 	unsent: readonly SketchStroke[],
-	send: () => Promise<boolean | void>,
+	send: (accepted: () => void) => Promise<boolean | void>,
 ): Promise<boolean> {
 	inflight.set(key, payload.id);
+	let committed = false;
+	const commit = () => {
+		if (committed) return;
+		committed = true;
+		commitSketch(key, payload, unsent);
+	};
 	try {
-		const accepted = (await send()) ?? true;
-		if (accepted) commitSketch(key, payload, unsent);
+		const accepted = (await send(commit)) ?? true;
+		if (accepted) commit();
 		return accepted;
 	} finally {
 		if (inflight.get(key) === payload.id) inflight.delete(key);

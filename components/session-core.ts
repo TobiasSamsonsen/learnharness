@@ -1128,9 +1128,9 @@ export class SessionModel {
 
 	/** The answer path (the dock): the answer IS the question call's tool
 	 *  result (fork 1), riding as its input event. */
-	submitAnswer(tool: string, toolCallId: string, output: QuestionAnswerData, sketch?: SketchPayload, questionKey?: string): Promise<boolean> {
+	submitAnswer(tool: string, toolCallId: string, output: QuestionAnswerData, sketch?: SketchPayload, questionKey?: string, onAccepted?: () => void): Promise<boolean> {
 		void tool;
-		return this.send(sketch ? { type: "answer", toolCallId, answer: output, sketch } : { type: "answer", toolCallId, answer: output }, undefined, questionKey);
+		return this.send(sketch ? { type: "answer", toolCallId, answer: output, sketch } : { type: "answer", toolCallId, answer: output }, onAccepted, questionKey);
 	}
 
 	/** The dismissal path (owner design 2026-10-03, "A2"): the skipped

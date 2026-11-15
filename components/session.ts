@@ -106,8 +106,8 @@ export function useChatSession({ chatId, initialMessages, initialError, initiall
 	const continueIfOwed = useCallback((record: readonly LhMessage[]) => void model.continueIfOwed(record), [model]);
 	const steer = useCallback((text: string, images?: import("@/src/core").PluginSubmissionContent["images"], onAccepted?: () => void, onDeliverySettled?: () => void) => model.steer(text, images, onAccepted, onDeliverySettled), [model]);
 	const submitAnswer = useCallback(
-		(tool: string, toolCallId: string, output: QuestionAnswerData, sketch?: SketchPayload, questionKey?: string) =>
-			model.submitAnswer(tool, toolCallId, output, sketch, questionKey),
+		(tool: string, toolCallId: string, output: QuestionAnswerData, sketch?: SketchPayload, questionKey?: string, onAccepted?: () => void) =>
+			model.submitAnswer(tool, toolCallId, output, sketch, questionKey, onAccepted),
 		[model],
 	);
 	const dismissQuestion = useCallback(

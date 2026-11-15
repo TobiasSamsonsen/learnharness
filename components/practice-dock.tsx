@@ -64,7 +64,7 @@ export interface PracticeDockProps {
 	 *  the text). A sketch submit (Android plan M1) adds the handwriting;
 	 *  its text may then be empty. `sketchRef` re-sends the problem's kept
 	 *  page by id (no new ink). `mark` is the confidence button pressed with it. */
-	onSubmit: (text: string, sketch?: SketchPayload, sketchRef?: string, mark?: ThinkingMark) => Promise<boolean> | void;
+	onSubmit: (text: string, sketch?: SketchPayload, sketchRef?: string, mark?: ThinkingMark, onAccepted?: () => void) => Promise<boolean> | void;
 	/** The host's capture step for a thinking that carries more than text (a plugin adapter's images). It runs inside
 	 *  the confidence-first flow: the confidence press (`mark`) rides along, and the field clears once the host accepts. */
 	onPrepareSubmission?: PrepareThinkingSubmission;
@@ -240,7 +240,7 @@ export function PracticeDock({
 		if (payload) {
 			// The ink folds into the kept page once the server accepts it.
 			const unsent = ink.strokes;
-			void sendPage(problemCallId, payload, unsent, async () => (await onSubmit(text, payload, undefined, mark)) ?? true);
+			void sendPage(problemCallId, payload, unsent, async (accepted) => (await onSubmit(text, payload, undefined, mark, accepted)) ?? true);
 		} else if (attach && keptSketch) onSubmit(text, undefined, keptSketch.id, mark);
 		else onSubmit(text, undefined, undefined, mark);
 	};
@@ -248,7 +248,7 @@ export function PracticeDock({
 	/* The sketch submit: the thinking's dictated tail lands first (the
 	 * question dock's finish-dictation discipline), then text + sketch go
 	 * out as one submission. */
-	const submitSketch = async (sketch: SketchPayload, confidenceIndex?: number): Promise<boolean> => {
+	const submitSketch = async (sketch: SketchPayload, confidenceIndex?: number, onAccepted?: () => void): Promise<boolean> => {
 		if (compactionRunning) return false;
 		setSketching(false);
 		if (isDictationActive()) await finishDictation();
@@ -256,7 +256,7 @@ export function PracticeDock({
 		thinkingRef.current = "";
 		setThinking("");
 		const mark: ThinkingMark | undefined = confidenceIndex === undefined ? undefined : { confidence: CONFIDENCE_STOPS[confidenceIndex] };
-		return (await onSubmit(text, sketch, undefined, mark)) ?? true;
+		return (await onSubmit(text, sketch, undefined, mark, onAccepted)) ?? true;
 	};
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): dictation

@@ -27,7 +27,7 @@ let writes = 0;
 	},
 } as Storage;
 
-const { writeInk, flushInk, forgetInkMemory, readInk, inkSaveFailed, dropRedundantInk, PERSIST_DELAY_MS } = await import("../components/sketch/ink-memory.ts");
+const { writeInk, flushInk, forgetInkMemory, readInk, readKept, inkSaveFailed, dropRedundantInk, sendPage, pagePayload, PERSIST_DELAY_MS } = await import("../components/sketch/ink-memory.ts");
 import type { SketchStroke } from "../src/core";
 import type { InkState } from "../components/sketch/ink-memory.ts";
 import { limitShare, sketchStatus } from "../components/sketch/sketch-status.ts";
@@ -149,5 +149,59 @@ describe("the status line", () => {
 	it("counts a second list of strokes toward the page's share", () => {
 		const s = { points: [0, 0, 0.5, 1, 1, 0.5] };
 		assert.equal(limitShare([s, s], [s]), limitShare([s, s, s]));
+	});
+});
+
+describe("a sent page leaves storage when the server accepts it", () => {
+	beforeEach(() => {
+		flushInk();
+		store.clear();
+		forgetInkMemory();
+		quota = Infinity;
+		totalQuota = Infinity;
+	});
+
+	const sendNow = (key: string, send: Parameters<typeof sendPage>[3]) => {
+		writeInk(key, page(3));
+		flushInk();
+		const unsent = readInk(key).strokes;
+		return sendPage(key, pagePayload(readKept(key), unsent), unsent, send);
+	};
+
+	it("clears at acceptance, while the tutor's reply is still streaming", async () => {
+		let finishReply!: (ok: boolean) => void;
+		const done = sendNow("a1", (accepted) => {
+			accepted(); // the POST was acknowledged; the reply then streams for a long time
+			return new Promise<boolean>((resolve) => (finishReply = resolve));
+		});
+		flushInk();
+		assert.equal(store.has("lh:ink:a1"), false, "gone from storage although send() has not resolved");
+		assert.equal(readInk("a1").strokes.length, 0);
+		finishReply(true);
+		assert.equal(await done, true);
+		flushInk();
+		assert.equal(store.has("lh:ink:a1"), false);
+	});
+
+	it("still clears when send resolves true without calling accepted", async () => {
+		await sendNow("a2", async () => true);
+		flushInk();
+		assert.equal(store.has("lh:ink:a2"), false);
+	});
+
+	it("keeps the ink when the server refused", async () => {
+		await sendNow("a3", async () => false);
+		flushInk();
+		assert.equal(JSON.parse(store.get("lh:ink:a3")!).length, 3);
+	});
+
+	it("commits once: ink drawn after acceptance survives the later resolve", async () => {
+		await sendNow("a4", async (accepted) => {
+			accepted();
+			writeInk("a4", page(1)); // drawn while the reply streams
+			return true;
+		});
+		flushInk();
+		assert.equal(readInk("a4").strokes.length, 1, "the later resolve does not commit a second time");
 	});
 });

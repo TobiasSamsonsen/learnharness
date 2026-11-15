@@ -967,6 +967,25 @@ describe("answer submission recovery", () => {
 		assert.deepEqual(m.getState().nativeMessages, saved);
 	});
 
+	it("tells the caller the answer was accepted at the POST ack, while the reply is still streaming (a sketch's ink is cleared then)", async () => {
+		let release!: (r: Response) => void;
+		const gate = new Promise<Response>((resolve) => (release = resolve));
+		let accepted = 0;
+		const m = model({ initialMessages: [question], fetch: async (url) => {
+			if (String(url) === "/api/chat") return Response.json({ ok: true });
+			if (String(url).endsWith("/stream")) return gate;
+			return Response.json({ messages: [question], turnInFlight: true });
+		} });
+		let resolved = false;
+		const sent = m.submitAnswer("quiz", "q1", answer, undefined, undefined, () => { accepted++; }).then((ok) => { resolved = true; return ok; });
+		await new Promise((r) => setTimeout(r, 20));
+		assert.equal(accepted, 1, "onAccepted fired at the ack");
+		assert.equal(resolved, false, "while submitAnswer is still waiting on the stream");
+		release(sseResponse("[DONE]"));
+		assert.equal(await sent, true);
+		assert.equal(accepted, 1, "and only once");
+	});
+
 	it("reattaches to an accepted running turn instead of posting another answer", async () => {
 		const calls: string[] = [];
 		const m = model({ initialMessages: [question], fetch: async (url) => {

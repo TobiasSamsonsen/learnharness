@@ -47,7 +47,7 @@ export interface SketchViewProps {
 	inkKey: string;
 	/** The sketch is ready; the caller finishes dictation and sends, and
 	 *  resolves to whether the server accepted it. */
-	onSubmit: (sketch: SketchPayload, confidenceIndex?: number) => Promise<boolean>;
+	onSubmit: (sketch: SketchPayload, confidenceIndex?: number, onAccepted?: () => void) => Promise<boolean>;
 	onClose: () => void;
 	/** Cancel a live dictation run (the page's Esc behaviour). */
 	onCancelDictation?: () => void;
@@ -226,7 +226,7 @@ export function SketchView({
 		// The ink folds into the kept page only once the server has the
 		// sketch (a 409/500/400 keeps it for a retry); anything drawn since
 		// stays unsent.
-		void sendPage(inkKey, payload, unsent, () => onSubmit(payload, confidenceIndex));
+		void sendPage(inkKey, payload, unsent, (accepted) => onSubmit(payload, confidenceIndex, accepted));
 	};
 
 	// PC shortcuts (M13f): E toggles the eraser, 1-5 pick the ink, G changes the paper
