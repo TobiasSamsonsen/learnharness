@@ -14,7 +14,7 @@ import { SketchToolbar, usePenDown, type SketchPanel } from "@/components/sketch
 import { limitShare, sketchStatus, submitBlockReason } from "@/components/sketch/sketch-status";
 import { useNativeInk } from "@/components/sketch/use-native-ink";
 import { loadEraser, loadPen, loadToolbar, saveEraser, savePen, saveToolbar, SKETCH_COLORS, SKETCH_WIDTHS, type EraserSettings, type PenSettings, type ToolbarPrefs } from "@/components/sketch/pen-settings";
-import { applyOp, hasNewInk, pagePayload, readInk, revertOp, sendPage, thawInk, useInk, useInkSaveFailed, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
+import { afterHydrate, applyOp, hasNewInk, pagePayload, readInk, revertOp, sendPage, thawInk, useInk, useInkSaveFailed, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
 import { cn } from "@/lib/utils";
 import { SketchPayloadError, sketchStrokeCut, type SketchPayload } from "@/src/core";
 import { useInteractionLayer } from "../interaction-layers";
@@ -152,7 +152,7 @@ export function SketchView({
 	/** Record an operation: it joins the history and clears redo. */
 	const record = (state: InkState, strokes: InkState["strokes"], op: InkOp) =>
 		setInk({ ...state, strokes, undo: [...state.undo, op], redo: [] });
-	const undo = () => {
+	const undoNow = () => {
 		const state = readInk(inkKey);
 		// Ink restored from a reload has no history: undo takes the newest stroke.
 		const fromStack = state.undo[state.undo.length - 1];
@@ -161,22 +161,22 @@ export function SketchView({
 		if (!op) return;
 		setInk({ ...state, strokes: revertOp(state.strokes, op), undo: fromStack ? state.undo.slice(0, -1) : [], redo: [...state.redo, op] });
 	};
-	const redo = () => {
+	const redoNow = () => {
 		const state = readInk(inkKey);
 		const op = state.redo[state.redo.length - 1];
 		if (!op) return;
 		setInk({ ...state, strokes: applyOp(state.strokes, op), undo: [...state.undo, op], redo: state.redo.slice(0, -1) });
 	};
-	const addStroke = (stroke: InkState["strokes"][number]) => {
+	const addStrokeNow = (stroke: InkState["strokes"][number]) => {
 	const state = readInk(inkKey);
 	record(state, [...state.strokes, stroke], { kind: "add", stroke });
 	};
-	const clear = () => {
+	const clearNow = () => {
 		const state = readInk(inkKey);
 		if (state.strokes.length > 0) record(state, [], { kind: "clear", removed: state.strokes });
 	};
 	/** The pixel eraser: every stroke the path touched becomes its surviving pieces (one undo step). */
-	const cut = (path: number[], radius: number) => {
+	const cutNow = (path: number[], radius: number) => {
 		let state = readInk(inkKey);
 		// sent ink the eraser reaches is thawed into the working page first, then cut like the rest
 		if (kept && state.thawed === undefined && keptStatus === "ready" && kept.strokes.some((s) => sketchStrokeCut(s, path, radius))) {
@@ -194,13 +194,21 @@ export function SketchView({
 	/** The stroke eraser: whole strokes go. `indices` count the working strokes first and, while the sent page is still locked, the
 	 *  sent (dimmed) strokes after them, in the kept page's order. The first touch of sent ink thaws it into the working page (as the
 	 *  pixel eraser does), where its copies sit right after the unsent strokes: an index past them is the same number there. */
-	const erase = (indices: number[]) => {
+	const eraseNow = (indices: number[]) => {
 		let state = readInk(inkKey);
 		if (kept && state.thawed === undefined && keptStatus === "ready" && indices.some((i) => i >= state.strokes.length)) state = thawInk(state, kept);
 		const removed = [...indices].sort((a, b) => a - b).flatMap((index) => (state.strokes[index] ? [{ index, stroke: state.strokes[index]! }] : []));
 		if (removed.length === 0) return;
 		record(state, applyOp(state.strokes, { kind: "erase", removed }), { kind: "erase", removed });
 	};
+	// Every edit reads the page first, so each waits until the stored page has been read: a stroke drawn in the first moments
+	// is applied on top of the stored ink, never on an empty page that would then be saved over it.
+	const undo = () => afterHydrate(inkKey, undoNow);
+	const redo = () => afterHydrate(inkKey, redoNow);
+	const addStroke = (stroke: InkState["strokes"][number]) => afterHydrate(inkKey, () => addStrokeNow(stroke));
+	const clear = () => afterHydrate(inkKey, clearNow);
+	const cut = (path: number[], radius: number) => afterHydrate(inkKey, () => cutNow(path, radius));
+	const erase = (indices: number[]) => afterHydrate(inkKey, () => eraseNow(indices));
 	// The Android shell's native ink layer, when the setting is on (owner, M10): it draws under the transparent page
 	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: ink.strokes, kept: ink.thawed === undefined ? kept?.strokes : undefined, tool, pen, tone, eraser, onStroke: addStroke, onErase: erase, onCut: cut });
 	// Submit has been pressed on a quiz answer: the confidence buttons stand in for it until one is pressed

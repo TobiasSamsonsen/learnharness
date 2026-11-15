@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { newSketchId, parseSketchPayload, strokesJson, type SketchPayload, type SketchStroke } from "@/src/core";
 import { dropDraft, fetchDraft, flushAllDrafts, inkDraftsEnabled, scheduleDraftPush } from "./ink-drafts.ts";
+import { indexedDbInkStore, type InkStore } from "./ink-store.ts";
 
 /**
  * The practice page's ink (Android plan M1 + M3), keyed by the question's
@@ -51,6 +52,13 @@ const HIST_PREFIX = "lh:ink-hist:";
 /** Operations kept per stack across a reload, and the most characters the history may take in storage. */
 export const HISTORY_OPS = 30;
 const HISTORY_MAX_CHARS = 1_000_000;
+/** The write stamp that rides beside a mirrored page in localStorage (a restore takes the newer of the mirror and IndexedDB). */
+const STAMP_PREFIX = "lh:ink-t:";
+/** Pages up to this many characters are also written to localStorage, which saves instantly: the last strokes survive the
+ *  WebView being killed before an IndexedDB write can finish. Bigger pages live in IndexedDB alone. */
+export const MIRROR_MAX_CHARS = 200_000;
+const IDB_INK = "ink:";
+const IDB_HIST = "hist:";
 
 const ink = new Map<string, InkState>();
 const kept = new Map<string, KeptPage>();
@@ -89,8 +97,11 @@ function storage(): Storage | null {
 }
 
 function restoreStrokes(key: string): InkState | null {
-try {
-const raw = storage()?.getItem(LS_PREFIX + key);
+	return parseStrokes(storage()?.getItem(LS_PREFIX + key));
+}
+
+function parseStrokes(raw: string | null | undefined): InkState | null {
+	try {
 		if (!raw) return null;
 		const parsed: unknown = JSON.parse(raw);
 		if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -136,8 +147,11 @@ export function validOp(op: unknown): op is InkOp {
 
 /** The stored history for these strokes, or null when there is none, it is damaged, or it belongs to other strokes. */
 function restoreHistory(key: string, signature: number): Pick<InkState, "undo" | "redo"> | null {
+	return parseHistory(storage()?.getItem(HIST_PREFIX + key), signature);
+}
+
+function parseHistory(raw: string | null | undefined, signature: number): Pick<InkState, "undo" | "redo"> | null {
 	try {
-		const raw = storage()?.getItem(HIST_PREFIX + key);
 		if (!raw) return null;
 		const v = JSON.parse(raw) as { sig?: unknown; undo?: unknown; redo?: unknown } | null;
 		if (!v || v.sig !== signature || !Array.isArray(v.undo) || !Array.isArray(v.redo)) return null;
@@ -219,6 +233,94 @@ function persistInk(key: string, state: InkState): void {
 		// a thawed page is the sent page with edits: the server already holds the sent part, and no draft is kept
 	} else if (state.strokes.length === 0) dropDraft(key);
 	else scheduleDraftPush(key, strokesJson(state.strokes));
+	const be = backing();
+	if (be === null) persistLocal(key, state);
+	else persistBacked(be, key, state);
+}
+
+/** The page's stored text: null when there is nothing to keep (an empty, unthawed page). */
+function pageText(state: InkState): string | null {
+	if (state.thawed !== undefined) {
+		const sent = state.strokes.flatMap((s, i) => (s.fresh === false ? [i] : []));
+		return `{"thawed":${JSON.stringify(state.thawed)},"strokes":${strokesJson(state.strokes)},"sent":${JSON.stringify(sent)}}`;
+	}
+	return state.strokes.length === 0 ? null : strokesJson(state.strokes);
+}
+
+function historyText(state: InkState, signature: number): string | null {
+	if (state.undo.length === 0 && state.redo.length === 0) return null;
+	const text = JSON.stringify({ sig: signature, undo: state.undo.slice(-HISTORY_OPS), redo: state.redo.slice(-HISTORY_OPS) });
+	return text.length > HISTORY_MAX_CHARS ? null : text;
+}
+
+// One write after another per page, so a slow earlier write never lands on top of a newer one.
+const queues = new Map<string, Promise<void>>();
+function enqueue(key: string, job: () => Promise<void>): Promise<void> {
+	const run = (queues.get(key) ?? Promise.resolve()).then(job).catch(() => {});
+	queues.set(key, run);
+	return run;
+}
+/** Resolves when every write started so far has finished (tests, and anything that must not race a write). */
+export async function settleInkWrites(): Promise<void> {
+	await Promise.all([...queues.values()]);
+}
+let stampClock = 0;
+const lastStamp = new Map<string, number>();
+const nextStamp = (key: string): number => {
+	stampClock = Math.max(Date.now(), stampClock + 1);
+	lastStamp.set(key, stampClock);
+	return stampClock;
+};
+
+/** The storage is IndexedDB; a small page is also mirrored to localStorage right now (synchronously), so closing or killing the
+ *  app straight after a stroke keeps it. The history lives in IndexedDB only: losing it costs nothing worse than undo. */
+function persistBacked(be: InkStore, key: string, state: InkState): void {
+	const text = pageText(state);
+	const t = nextStamp(key);
+	const ls = storage();
+	let mirrored = false;
+	try {
+		ls?.removeItem(HIST_PREFIX + key); // an old history copy: it is IndexedDB's now
+		if (text === null) {
+			ls?.removeItem(LS_PREFIX + key);
+			ls?.removeItem(STAMP_PREFIX + key);
+			mirrored = true;
+		} else if (text.length <= MIRROR_MAX_CHARS && ls) {
+			ls.setItem(LS_PREFIX + key, text);
+			ls.setItem(STAMP_PREFIX + key, String(t));
+			mirrored = true;
+		}
+	} catch {
+		// a full localStorage costs only the mirror
+	}
+	const hist = text === null ? null : historyText(state, text.length);
+	void enqueue(key, async () => {
+		try {
+			if (text === null) {
+				await be.remove([IDB_INK + key, IDB_HIST + key]);
+			} else {
+				await be.set(IDB_INK + key, { t, text });
+				if (hist === null) await be.remove([IDB_HIST + key]).catch(() => {});
+				else await be.set(IDB_HIST + key, { t, text: hist }).catch(() => {});
+				if (text.length > MIRROR_MAX_CHARS) {
+					// the page outgrew its mirror and IndexedDB has it now: the old small copy would only look newer than it is
+					try {
+						ls?.removeItem(LS_PREFIX + key);
+						ls?.removeItem(STAMP_PREFIX + key);
+					} catch {
+						// nothing to do
+					}
+				}
+			}
+			setSaveFailed(key, false);
+		} catch {
+			// IndexedDB refused; a mirrored page is still safe in localStorage
+			setSaveFailed(key, !mirrored);
+		}
+	});
+}
+
+function persistLocal(key: string, state: InkState): void {
 	try {
 		const ls = storage();
 		if (!ls) return;
@@ -280,12 +382,117 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 export function readInk(key: string): InkState {
 	const held = ink.get(key);
 	if (held) return held;
+	if (backing() !== null) {
+		// the page is still being read from IndexedDB: this is "not loaded yet", never "empty" (see afterHydrate)
+		if (!hydrated.has(key)) void hydrateInk(key);
+		return EMPTY_INK;
+	}
 	const restored = restoreInk(key);
 	if (restored) ink.set(key, restored);
 	return restored ?? EMPTY_INK;
 }
 
+/** Test seam: the store to use (null: localStorage only, as in a browser without IndexedDB; undefined: choose as the app does). */
+export function setInkStore(store: InkStore | null | undefined): void {
+	override = store;
+	forgetInkMemory();
+}
+let override: InkStore | null | undefined;
+let resolved: InkStore | null | undefined;
+function backing(): InkStore | null {
+	if (override !== undefined) return override;
+	if (resolved === undefined) resolved = typeof window === "undefined" ? null : indexedDbInkStore();
+	return resolved;
+}
+
+// Hydration: with IndexedDB a page is read asynchronously. Until it has been, readInk says "empty" — but everything that
+// branches on emptiness (restoring a server draft, carrying a re-ask's ink over, dropping a redundant copy, drawing) waits
+// for it, so a page is never mistaken for empty and written over.
+const hydrated = new Set<string>();
+const hydrating = new Map<string, Promise<void>>();
+let epoch = 0;
+
+/** Is this page's stored ink in memory? Always true when there is no IndexedDB (localStorage reads are synchronous). */
+export const isInkReady = (key: string): boolean => backing() === null || hydrated.has(key);
+
+/** Read the page from storage into memory, once. Never rejects. */
+export function hydrateInk(key: string): Promise<void> {
+	const be = backing();
+	if (be === null || hydrated.has(key)) return Promise.resolve();
+	let p = hydrating.get(key);
+	if (!p) {
+		p = loadInk(be, key)
+			.catch(() => {})
+			.finally(() => {
+				if (hydrating.get(key) === p) hydrating.delete(key);
+			});
+		hydrating.set(key, p);
+	}
+	return p;
+}
+
+/** Run now when the page is in memory, otherwise as soon as it is. */
+export function afterHydrate(key: string, fn: () => void): void {
+	if (isInkReady(key)) fn();
+	else void hydrateInk(key).then(fn);
+}
+
+async function loadInk(be: InkStore, key: string): Promise<void> {
+	const born = epoch;
+	const ls = storage();
+	let lsText: string | null = null;
+	let lsStamp = 0;
+	let lsHist: string | null = null;
+	try {
+		lsText = ls?.getItem(LS_PREFIX + key) ?? null;
+		lsStamp = Number(ls?.getItem(STAMP_PREFIX + key)) || 0;
+		lsHist = ls?.getItem(HIST_PREFIX + key) ?? null;
+	} catch {
+		// a blocked localStorage: IndexedDB alone
+	}
+	let rec: Awaited<ReturnType<InkStore["get"]>> = null;
+	let histRec: Awaited<ReturnType<InkStore["get"]>> = null;
+	let idbOk = true;
+	try {
+		rec = await be.get(IDB_INK + key);
+		histRec = await be.get(IDB_HIST + key);
+	} catch {
+		idbOk = false;
+	}
+	// a write (or a forget) came first: what is in memory is newer than anything read here
+	if (born !== epoch || hydrated.has(key)) return;
+	const fromMirror = !!lsText && (!rec || lsStamp > rec.t);
+	const text = fromMirror ? lsText : (rec?.text ?? null);
+	let state = parseStrokes(text);
+	if (state && text) {
+		const history = parseHistory(histRec?.text ?? lsHist, text.length);
+		if (history) state = { ...state, ...history };
+	}
+	if (state) ink.set(key, state);
+	hydrated.add(key);
+	notify();
+	if (!idbOk || !text) return;
+	// Copy what only localStorage had into IndexedDB (a page from before IndexedDB, or a mirror newer than its record), and let go
+	// of the old copy only after the write has completed: a failed copy leaves localStorage exactly as it was.
+	void enqueue(key, async () => {
+		if (lastStamp.has(key) || born !== epoch) return; // this session has already written the page
+		try {
+			if (fromMirror) await be.set(IDB_INK + key, { t: Math.max(lsStamp, 1), text });
+			if (!histRec && lsHist) await be.set(IDB_HIST + key, { t: Math.max(lsStamp, 1), text: lsHist });
+			if (lsHist) ls?.removeItem(HIST_PREFIX + key);
+			if (text.length > MIRROR_MAX_CHARS) {
+				ls?.removeItem(LS_PREFIX + key);
+				ls?.removeItem(STAMP_PREFIX + key);
+			}
+		} catch {
+			// IndexedDB would not take it: localStorage keeps the page
+		}
+	});
+}
+
 export function writeInk(key: string, state: InkState): void {
+	// a write before the stored page was read wins over it (the drawing paths wait for hydration, so this is only a fallback)
+	if (backing() !== null) hydrated.add(key);
 	if (state.strokes.length === 0 && state.undo.length === 0 && state.redo.length === 0 && state.thawed === undefined) ink.delete(key);
 	else ink.set(key, state);
 	schedulePersist(key, state);
@@ -294,13 +501,18 @@ export function writeInk(key: string, state: InkState): void {
 
 /** Test seam: a page reload (the memory is gone, localStorage stays). A real reload flushes on pagehide; so does this. */
 export function forgetInkMemory(): void {
-flushInk();
-restoreTried.clear();
+	flushInk();
+	epoch++;
+	hydrated.clear();
+	hydrating.clear();
+	lastStamp.clear();
+	restoreTried.clear();
 ink.clear();
 kept.clear();
 }
 
 export function clearInk(key: string): void {
+	if (backing() !== null) hydrated.add(key);
 	ink.delete(key);
 	schedulePersist(key, EMPTY_INK);
 	notify();
@@ -321,17 +533,20 @@ const restoreTried = new Set<string>();
 export function restoreDraft(key: string): void {
 	if (restoreTried.has(key) || !inkDraftsEnabled()) return;
 	restoreTried.add(key);
-	if (readInk(key).strokes.length > 0) return;
-	void fetchDraft(key).then((text) => {
-		if (!text || readInk(key).strokes.length > 0) return;
-		try {
-			const payload = parseSketchPayload({ id: newSketchId(), producer: "web-canvas", strokes: JSON.parse(text) });
-			writeInk(key, { strokes: payload.strokes, undo: [], redo: [] });
-			const held = readKept(key);
-			if (held) dropRedundantInk(key, held.strokes);
-		} catch {
-			// a damaged draft restores nothing
-		}
+	// only a page that is really empty asks the server: after hydration, "empty" is true
+	afterHydrate(key, () => {
+		if (readInk(key).strokes.length > 0) return;
+		void fetchDraft(key).then((text) => {
+			if (!text || readInk(key).strokes.length > 0) return;
+			try {
+				const payload = parseSketchPayload({ id: newSketchId(), producer: "web-canvas", strokes: JSON.parse(text) });
+				writeInk(key, { strokes: payload.strokes, undo: [], redo: [] });
+				const held = readKept(key);
+				if (held) dropRedundantInk(key, held.strokes);
+			} catch {
+				// a damaged draft restores nothing
+			}
+		});
 	});
 }
 
@@ -381,6 +596,11 @@ export function pagePayload(
  *  Moved, not copied: the old call is answered and its page would only keep taking space. */
 export function carryOverInk(from: string, to: string): boolean {
 	if (from === to) return false;
+	if (!isInkReady(from) || !isInkReady(to)) {
+		// both pages must be read before "this page is empty" means anything: do it then
+		void Promise.all([hydrateInk(from), hydrateInk(to)]).then(() => void carryOverInk(from, to));
+		return false;
+	}
 	const source = readInk(from);
 	if (source.thawed !== undefined || !source.strokes.some((s) => s.fresh !== false) || readInk(to).strokes.length > 0) return false;
 	writeInk(to, source);
@@ -391,6 +611,10 @@ export function carryOverInk(from: string, to: string): boolean {
 /** The page restored from storage is the very page the server holds (a reload came between the server accepting it and the
  *  commit, so the ink was never folded away): the copy is redundant, and left alone it would be sent again on top of itself. */
 export function dropRedundantInk(key: string, keptStrokes: readonly SketchStroke[]): boolean {
+	if (!isInkReady(key)) {
+		afterHydrate(key, () => void dropRedundantInk(key, keptStrokes));
+		return false;
+	}
 	const state = readInk(key);
 	if (state.thawed !== undefined || state.strokes.length === 0 || state.strokes.length !== keptStrokes.length) return false;
 	const same = state.strokes.every((s, i) => {
@@ -406,6 +630,10 @@ export function dropRedundantInk(key: string, keptStrokes: readonly SketchStroke
  *  the kept page becomes the whole payload, and the unsent ink loses the
  *  strokes that went out (anything drawn since stays). */
 export function commitSketch(key: string, payload: SketchPayload, sent: readonly SketchStroke[]): void {
+	if (!isInkReady(key)) {
+		afterHydrate(key, () => commitSketch(key, payload, sent));
+		return;
+	}
 	// parseSketchPayload copies strokes; the kept page holds the payload's.
 	writeKept(key, { id: payload.id, strokes: payload.strokes.map(({ fresh: _fresh, ...stroke }) => stroke) });
 	const current = readInk(key);
