@@ -1632,8 +1632,14 @@ export function Chat({
 			fetchJobsRef.current();
 		}, 250);
 	});
-	// Reconnect catch-up: events missed while the channel was down.
-	useServerResync(() => fetchJobsRef.current());
+	// Reconnect catch-up: events missed while the channel was down. The jobs
+	// fetch alone cannot find a turn that started or settled meanwhile (a probe
+	// handoff, a wake), so the transcript catches up too (catchUpRef, below).
+	const catchUpRef = useRef<() => void>(() => {});
+	useServerResync(() => {
+		fetchJobsRef.current();
+		catchUpRef.current();
+	});
 	useEffect(
 		() => () => {
 			if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
@@ -1713,6 +1719,48 @@ export function Chat({
 		if (localStreamRef.current || turnInFlightRef.current) return;
 		void syncFromServer();
 	});
+
+	// WAKE / RECONNECT CATCH-UP (owner, 2026-11-15): a lesson turn the server
+	// started or settled while this page was paused (Android app switch, screen
+	// off) or its events channel was down is announced once and never replayed,
+	// so the transcript stayed behind until the next send or a reload (seen on
+	// the Tab after a probe: the plan existed in the record but never showed).
+	// Idle only (a running turn owns the view): if the record says a turn is
+	// running, attach to it; otherwise adopt the record, as turn-settled's idle
+	// branch does.
+	const catchUpBusyRef = useRef(false);
+	const catchUpAtRef = useRef(0);
+	catchUpRef.current = () => {
+		if (localStreamRef.current || turnInFlightRef.current || catchUpBusyRef.current) return;
+		if (Date.now() - catchUpAtRef.current < 2000) return; // focus + visibility + reconnect often fire together
+		catchUpBusyRef.current = true;
+		catchUpAtRef.current = Date.now();
+		void (async () => {
+			try {
+				const record = await readRecord({ adoption: "none" });
+				if (!record || localStreamRef.current || turnInFlightRef.current) return;
+				if (record.turnInFlight === true) attachToRunningTurn();
+				else await syncFromServer();
+			} catch {
+				/* transient — the next wake, reconnect or event catches up */
+			} finally {
+				catchUpBusyRef.current = false;
+			}
+		})();
+	};
+	useEffect(() => {
+		const wake = () => {
+			if (document.visibilityState === "visible") catchUpRef.current();
+		};
+		document.addEventListener("visibilitychange", wake);
+		window.addEventListener("focus", wake);
+		window.addEventListener("pageshow", wake);
+		return () => {
+			document.removeEventListener("visibilitychange", wake);
+			window.removeEventListener("focus", wake);
+			window.removeEventListener("pageshow", wake);
+		};
+	}, []);
 
 	const onSend = () => {
 		if (!isInteractionScopeEligible(sessionFindScopeRef.current, controller) || submissionRunner.occupied) return;
