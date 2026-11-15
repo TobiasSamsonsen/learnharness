@@ -1,5 +1,6 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { newSketchId, parseSketchPayload, strokesJson, type SketchPayload, type SketchStroke } from "@/src/core";
+import { dropDraft, fetchDraft, flushAllDrafts, inkDraftsEnabled, scheduleDraftPush } from "./ink-drafts.ts";
 
 /**
  * The practice page's ink (Android plan M1 + M3), keyed by the question's
@@ -213,6 +214,11 @@ function setSaveFailed(key: string, failed: boolean): void {
 }
 
 function persistInk(key: string, state: InkState): void {
+	// the server copy goes first and does not depend on the local write: a full store must not stop it
+	if (state.thawed !== undefined) {
+		// a thawed page is the sent page with edits: the server already holds the sent part, and no draft is kept
+	} else if (state.strokes.length === 0) dropDraft(key);
+	else scheduleDraftPush(key, strokesJson(state.strokes));
 	try {
 		const ls = storage();
 		if (!ls) return;
@@ -258,10 +264,16 @@ export function flushInk(): void {
 	for (const [key, state] of waiting) persistInk(key, state);
 }
 
+/** The page is being hidden or closed: write the local copy now and send the server copy without waiting for its pause. */
+function flushForHide(): void {
+	flushInk();
+	flushAllDrafts();
+}
+
 if (typeof window !== "undefined" && typeof document !== "undefined") {
-	window.addEventListener("pagehide", flushInk);
+	window.addEventListener("pagehide", flushForHide);
 	document.addEventListener("visibilitychange", () => {
-		if (document.visibilityState === "hidden") flushInk();
+		if (document.visibilityState === "hidden") flushForHide();
 	});
 }
 
@@ -283,6 +295,7 @@ export function writeInk(key: string, state: InkState): void {
 /** Test seam: a page reload (the memory is gone, localStorage stays). A real reload flushes on pagehide; so does this. */
 export function forgetInkMemory(): void {
 flushInk();
+restoreTried.clear();
 ink.clear();
 kept.clear();
 }
@@ -303,7 +316,27 @@ export function writeKept(key: string, page: KeptPage | null): void {
 	notify();
 }
 
+const restoreTried = new Set<string>();
+/** A page opened with no ink of its own asks the server for its draft, once per session: the browser's copy may be gone. */
+export function restoreDraft(key: string): void {
+	if (restoreTried.has(key) || !inkDraftsEnabled()) return;
+	restoreTried.add(key);
+	if (readInk(key).strokes.length > 0) return;
+	void fetchDraft(key).then((text) => {
+		if (!text || readInk(key).strokes.length > 0) return;
+		try {
+			const payload = parseSketchPayload({ id: newSketchId(), producer: "web-canvas", strokes: JSON.parse(text) });
+			writeInk(key, { strokes: payload.strokes, undo: [], redo: [] });
+			const held = readKept(key);
+			if (held) dropRedundantInk(key, held.strokes);
+		} catch {
+			// a damaged draft restores nothing
+		}
+	});
+}
+
 export function useInk(key: string): InkState {
+	useEffect(() => restoreDraft(key), [key]);
 	return useSyncExternalStore(subscribe, () => readInk(key), () => EMPTY_INK);
 }
 

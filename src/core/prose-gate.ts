@@ -73,6 +73,14 @@ export const SKETCH_ANSWER_NEXT_TEXT =
 	"Set `previous` to how you graded it. " +
 	"Do not plan the reply in thinking: only text and `lead` reach him. Work the correct answer out before you write; never correct yourself inside `lead`.";
 
+/** An answer sent while the learner's sketch ink was left off it (the chip removed): the text may be a real answer, or a message
+ *  that the drawing did not come through (owner, 2026-11-15 — the final problem that was lost on the tablet). */
+export const SKETCH_UNSENT_NEXT_TEXT =
+	"His sketch page has ink that was NOT sent with this answer. If the text is a real attempt at the question, grade it as usual. " +
+	"If it says the drawing did not come through, or asks you to wait for it, it is not an answer: set `previous` to skipped, say in `lead` " +
+	"that the drawing did not arrive and he can send it again, give nothing away, and ask the same question again (same nodeId and type, the instance unchanged). " +
+	"Reply in the next question's `lead`; set `previous` to how you graded it. Do not plan the reply in thinking: only text and `lead` reach him.";
+
 /** And for a sketch on a question that is not prose-gated (ask, probe). */
 export const SKETCH_READ_FIRST_TEXT =
 	"A sketch is attached: call read_sketch on it first, in this reply, then respond to the work.";

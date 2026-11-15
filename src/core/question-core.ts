@@ -309,11 +309,11 @@ export const MISSING_QUESTION_MESSAGE =
 
 /** How the tutor graded the learner's last answer (owner, 2026-11-14): the verdict gate (core/verdict-gate.ts) reads it. */
 const previousField = Type.Optional(
-	Type.Union([Type.Literal("right"), Type.Literal("partly"), Type.Literal("wrong")], {
+	Type.Union([Type.Literal("right"), Type.Literal("partly"), Type.Literal("wrong"), Type.Literal("skipped")], {
 		description:
 			"REQUIRED whenever the learner has answered a question since your last one (omit only on the first question): how his last answer " +
 			"graded, as a bare word: right, partly or wrong (a \"don't know\" is wrong). When it is partly or wrong, this question must stay " +
-			"on the same nodeId and be type check, and `lead` repairs the step first.",
+			"on the same nodeId and be type check, and `lead` repairs the step first. `skipped` is only for a text answer that is not an attempt at the question (his sketch did not come through and he says so): it grades nothing, and the next question is the SAME question again (same nodeId and type).",
 	}),
 );
 
@@ -564,6 +564,9 @@ export interface QuestionAnswerData {
 	committed?: string; // explain only (rendering): the model's committed answer
 	explanation?: string; // quiz only (rendering)
 	dismissed?: boolean;
+	/** The answer was sent while sketch ink on the page was NOT sent with it (the learner removed the sketch chip): the tutor is told, so
+	 *  a "my drawing failed" message is not graded as work (owner, 2026-11-15). */
+	sketchUnsent?: boolean;
 	/** The learner's handwriting (fork addition, 2026-10-26): the stored
 	 *  sketch's ref — the server derives it from the input's payload
 	 *  (core/sketch.ts sketchRefOf); the images reach the model through
@@ -596,6 +599,7 @@ export interface AnswerRequest {
 	confidence?: number; // quiz only: 0-100 raw probability, always chosen by the learner — the dock has no default (owner, 2026-10-25)
 	sketch?: SketchRef; // the handwriting's ref (the payload itself rides the input event)
 	hints?: string[]; // the hints taken on this question, in order (core/hints.ts)
+	sketchUnsent?: boolean; // sketch ink was left off this answer on purpose of the learner's tap, not sent
 }
 
 /** The confidence slider's snap stops (owner, 2026-10-01): raw probability
@@ -880,6 +884,7 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 	if (req.text?.trim()) base.text = req.text.trim();
 	if (req.sketch) base.sketch = req.sketch;
 	if (req.hints && req.hints.length > 0) base.hints = [...req.hints];
+	if (req.sketchUnsent) base.sketchUnsent = true;
 
 	if (qd.kind === "quiz") {
 		base.correctIndices = qd.correctIndices ?? [];
@@ -954,6 +959,7 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 	if (ad.readingThinking) out.thinkingWhileReading = expandCitationsForModel(ad.readingThinking);
 	// The hints he took (owner, 2026-11-13): what was already said to him, so the answer reads as aided.
 	if (Array.isArray(ad.hints) && ad.hints.length > 0) out.hints = ad.hints.filter((h) => typeof h === "string");
+	if (ad.sketchUnsent === true) out.sketchUnsent = true;
 	// The handwriting LAST (verdict-first order): its pages ride as images
 	// right after this JSON, each labeled with the id.
 	if (ad.sketch) {

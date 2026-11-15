@@ -47,6 +47,26 @@ const problem = (history: readonly unknown[], name: string, args: Record<string,
 	return verdictGateProblem(history, m, name, (m.content[0] as ToolCall).arguments);
 };
 
+describe("previous: skipped (a text answer that is not an attempt)", () => {
+	const afterText = [user, assistant([recall]), result("q1", "explain", { kind: "explain", text: "my drawing failed, wait for it" })];
+
+	it("passes when the SAME question comes back on the same node and type", () => {
+		assert.equal(problem(afterText, "explain", { type: "recall", nodeId: "egen", skill: "sk_1", previous: "skipped" }), null);
+	});
+
+	it("is refused when the next question moves to another node or type", () => {
+		const moved = problem(afterText, "explain", { type: "recall", nodeId: "other", skill: "sk_1", previous: "skipped" });
+		assert.deepEqual(moved, { kind: "skipped-moved", nodeId: "egen" });
+		assert.match(verdictGateReason(moved!), /same question again/);
+		assert.deepEqual(problem(afterText, "explain", { type: "check", nodeId: "egen", previous: "skipped" }), { kind: "skipped-moved", nodeId: "egen" });
+	});
+
+	it("cannot skip an answer that carries a recorded verdict", () => {
+		assert.deepEqual(problem(afterQuizMiss, "quiz", { type: "check", nodeId: "n1", previous: "skipped" }), { kind: "skipped-graded" });
+		assert.deepEqual(problem(afterQuizHit, "quiz", { type: "check", nodeId: "n1", previous: "skipped" }), { kind: "skipped-graded" });
+	});
+});
+
 describe("verdictGateProblem", () => {
 	it("replay: after a wrong recall, a predict on another node is refused", () => {
 		const p = problem(afterRecall, "explain", { type: "predict", nodeId: "mppd", previous: "wrong" });

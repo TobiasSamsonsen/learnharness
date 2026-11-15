@@ -44,6 +44,9 @@ export const PATHS = {
 	/** Sketch answers (fork addition, 2026-10-26): data/sketches/<chatId>/
 	 *  <sketchId>/ — strokes plus rendered pages (src/store/sketches.ts). */
 	sketches: path.join(/* turbopackIgnore: true */ DATA_ROOT, "sketches"),
+	/** Unsent sketch pages (owner plan, 2026-11-15): data/ink-drafts/<inkKey>.json, a server copy of the client's unsent ink
+	 *  (src/store/ink-drafts.ts). Never synced. */
+	inkDrafts: path.join(/* turbopackIgnore: true */ DATA_ROOT, "ink-drafts"),
 	/** GitHub sync bookkeeping (fork addition, 2026-11-02): data/sync/manifest.json
 	 *  and the .conflict copies (src/server/sync/). Never itself synced. */
 	sync: path.join(/* turbopackIgnore: true */ DATA_ROOT, "sync"),

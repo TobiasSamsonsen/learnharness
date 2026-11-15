@@ -48,7 +48,7 @@ import {
 	THINKING_LABEL,
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
-import { ANSWER_NEXT_TEXT, SKETCH_ANSWER_NEXT_TEXT, SKETCH_READ_FIRST_TEXT } from "./prose-gate.ts";
+import { ANSWER_NEXT_TEXT, SKETCH_ANSWER_NEXT_TEXT, SKETCH_READ_FIRST_TEXT, SKETCH_UNSENT_NEXT_TEXT } from "./prose-gate.ts";
 import { hintsNextText } from "./hints.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import type { SketchRef } from "./contracts/sketch.ts";
@@ -296,7 +296,7 @@ export function newAnswerResult(
 	const forModel = compactAnswerForModel(answer as QuestionAnswerData);
 	const hasSketch = (answer as QuestionAnswerData).sketch !== undefined;
 	// only the tools that carry a `lead`: the hint says "reply in the next question's `lead`", which an ask has not
-	if (LEAD_TOOLS.includes(toolName)) forModel.next = hasSketch ? SKETCH_ANSWER_NEXT_TEXT : ANSWER_NEXT_TEXT;
+	if (LEAD_TOOLS.includes(toolName)) forModel.next = hasSketch ? SKETCH_ANSWER_NEXT_TEXT : (answer as QuestionAnswerData).sketchUnsent === true ? SKETCH_UNSENT_NEXT_TEXT : ANSWER_NEXT_TEXT;
 	else if (hasSketch) forModel.next = SKETCH_READ_FIRST_TEXT;
 	if (figures && LEAD_TOOLS.includes(toolName)) forModel.figures = figures;
 	// an answer that took hints is not unaided (owner, 2026-11-13 — core/hints.ts)

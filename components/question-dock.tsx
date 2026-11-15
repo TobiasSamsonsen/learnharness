@@ -626,6 +626,8 @@ function QuestionDockForm({
 			// buildAnswer drops it on "I don't know".
 			confidence: kind === "quiz" && conf !== null ? CONFIDENCE_STOPS[conf] : undefined,
 			...(hintsRef.current.length > 0 ? { hints: hintsRef.current } : {}),
+			// ink left off a free-text answer on purpose: the tutor is told, so "my drawing failed" is not graded as work
+			...(skipInk && qd.kind === "explain" && hasNewInk(inkState) ? { sketchUnsent: true } : {}),
 		};
 	};
 	const doSubmit = (ov?: SubmitOverride) => {

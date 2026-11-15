@@ -20,7 +20,7 @@ import { NO_LEAD_GATED_TOOLS } from "./prose-gate.ts";
 /** The teach questions the gate guards (the ones that take `previous`). */
 export const VERDICT_GATED_TOOLS: readonly string[] = ["quiz", "explain"];
 
-export const PREVIOUS_VERDICTS = ["right", "partly", "wrong"] as const;
+export const PREVIOUS_VERDICTS = ["right", "partly", "wrong", "skipped"] as const;
 
 const GRADED_ANSWER_TOOLS: ReadonlySet<string> = new Set(["quiz", "explain"]);
 
@@ -32,7 +32,7 @@ interface CallLike {
 }
 
 export interface VerdictGateProblem {
-	kind: "missing" | "contradiction" | "advanced";
+	kind: "missing" | "contradiction" | "advanced" | "skipped-graded" | "skipped-moved";
 	nodeId?: string;
 }
 
@@ -89,6 +89,13 @@ export function verdictGateProblem(
 	if (!(PREVIOUS_VERDICTS as readonly string[]).includes(declared)) return { kind: "missing" };
 
 	const recorded = readAnswerVerdict(answered);
+	if (declared === "skipped") {
+		// not an answer: nothing was graded, so a recorded verdict contradicts it, and the SAME question comes back
+		if (recorded !== undefined) return { kind: "skipped-graded" };
+		const was = argsOf(callOf(history, answered.toolCallId));
+		if (typeof was.nodeId !== "string" || was.nodeId === "") return null;
+		return now.nodeId === was.nodeId && now.type === was.type ? null : { kind: "skipped-moved", nodeId: was.nodeId };
+	}
 	if (recorded === "miss" && declared === "right") return { kind: "contradiction" };
 	if (declared === "right") return null;
 
@@ -115,6 +122,16 @@ export function verdictGateReason(problem: VerdictGateProblem): string {
 			return (
 				"Refused: you set `previous` to right, but his last answer is recorded as wrong or \"don't know\". Set `previous` to wrong " +
 				"(or partly), repair it in `lead`, and ask the step again on a fresh case."
+			);
+		case "skipped-graded":
+			return (
+				"Refused: you set `previous` to skipped, but his last answer was recorded with a verdict (right, wrong or \"don't know\"). " +
+				"Set `previous` to how it graded. Do not mention this to the learner."
+			);
+		case "skipped-moved":
+			return (
+				`Refused: you set \`previous\` to skipped, so nothing was answered. The next question is the same question again: node \`${problem.nodeId}\`, ` +
+				"the same type and the same instance. Do not mention this to the learner."
 			);
 		case "advanced":
 			return (
