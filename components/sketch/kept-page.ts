@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { parseSketchPayload, type SketchRef } from "@/src/core";
-import { inflightSketch, readKept, useKept, writeKept, type KeptPage } from "@/components/sketch/ink-memory";
+import { dropRedundantInk, inflightSketch, readKept, useKept, writeKept, type KeptPage } from "@/components/sketch/ink-memory";
 
 /**
  * The kept page of a practice problem (Android plan M3): the strokes the
@@ -25,6 +25,7 @@ export function useKeptPage(chatId: string, key: string, ref: Pick<SketchRef, "i
 			.then((strokes: unknown) => {
 				const payload = parseSketchPayload({ id, producer: "web-canvas", strokes });
 				writeKept(key, { id, strokes: payload.strokes });
+				dropRedundantInk(key, payload.strokes);
 				if (live) setSettled({ id, ok: true });
 			})
 			.catch(() => {

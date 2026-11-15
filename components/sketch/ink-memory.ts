@@ -155,6 +155,37 @@ function restoreInk(key: string): InkState | null {
 	return history ? { ...state, ...history } : state;
 }
 
+/** Names of the stored keys that start with a prefix (storage has no listing, so walk its indexes). */
+function storedKeys(ls: Storage, prefix: string): string[] {
+	const out: string[] = [];
+	for (let i = 0; i < ls.length; i++) {
+		const k = ls.key(i);
+		if (k !== null && k.startsWith(prefix)) out.push(k);
+	}
+	return out;
+}
+
+/** One write that survives a full store: when the quota refuses it, the undo history of every OTHER page goes first (it is
+ *  rebuilt from nothing worse than "undo removes the newest stroke"), then this page's own, and the write is retried.
+ *  Unsent ink of other pages is never touched here. Throws only when the page itself still does not fit. */
+function setWithEviction(ls: Storage, name: string, text: string, ownHistory: string): void {
+	try {
+		ls.setItem(name, text);
+		return;
+	} catch {
+		// fall through to eviction
+	}
+	for (const k of storedKeys(ls, HIST_PREFIX)) if (k !== ownHistory) ls.removeItem(k);
+	try {
+		ls.setItem(name, text);
+		return;
+	} catch {
+		// still full
+	}
+	ls.removeItem(ownHistory);
+	ls.setItem(name, text);
+}
+
 function persistHistory(ls: Storage, key: string, state: InkState, signature: number): void {
 	if (state.undo.length === 0 && state.redo.length === 0) {
 		ls.removeItem(HIST_PREFIX + key);
@@ -162,7 +193,14 @@ function persistHistory(ls: Storage, key: string, state: InkState, signature: nu
 	}
 	const text = JSON.stringify({ sig: signature, undo: state.undo.slice(-HISTORY_OPS), redo: state.redo.slice(-HISTORY_OPS) });
 	if (text.length > HISTORY_MAX_CHARS) ls.removeItem(HIST_PREFIX + key);
-	else ls.setItem(HIST_PREFIX + key, text);
+	else {
+		try {
+			ls.setItem(HIST_PREFIX + key, text);
+		} catch {
+			// the history is a convenience: never let it fail the strokes' save
+			ls.removeItem(HIST_PREFIX + key);
+		}
+	}
 }
 
 /** Keys whose last write to storage failed (quota): the in-memory ink is fine, but a reload would lose it. */
@@ -181,14 +219,14 @@ function persistInk(key: string, state: InkState): void {
 		if (state.thawed !== undefined) {
 		const sent = state.strokes.flatMap((s, i) => (s.fresh === false ? [i] : []));
 		const text = `{"thawed":${JSON.stringify(state.thawed)},"strokes":${strokesJson(state.strokes)},"sent":${JSON.stringify(sent)}}`;
-		ls.setItem(LS_PREFIX + key, text);
+		setWithEviction(ls, LS_PREFIX + key, text, HIST_PREFIX + key);
 		persistHistory(ls, key, state, text.length);
 		} else if (state.strokes.length === 0) {
 		ls.removeItem(LS_PREFIX + key);
 		ls.removeItem(HIST_PREFIX + key);
 		} else {
 		const text = strokesJson(state.strokes);
-		ls.setItem(LS_PREFIX + key, text);
+		setWithEviction(ls, LS_PREFIX + key, text, HIST_PREFIX + key);
 		persistHistory(ls, key, state, text.length);
 		}
 		setSaveFailed(key, false);
@@ -304,6 +342,31 @@ export function pagePayload(
 		strokes: [...base, ...unsent],
 		newFrom: base.length > 0 ? base.length : undefined,
 	});
+}
+
+/** A re-ask of the same node: the unsent ink of the earlier call moves to the new call's page, when that page has no ink yet.
+ *  Moved, not copied: the old call is answered and its page would only keep taking space. */
+export function carryOverInk(from: string, to: string): boolean {
+	if (from === to) return false;
+	const source = readInk(from);
+	if (source.thawed !== undefined || !source.strokes.some((s) => s.fresh !== false) || readInk(to).strokes.length > 0) return false;
+	writeInk(to, source);
+	writeInk(from, EMPTY_INK);
+	return true;
+}
+
+/** The page restored from storage is the very page the server holds (a reload came between the server accepting it and the
+ *  commit, so the ink was never folded away): the copy is redundant, and left alone it would be sent again on top of itself. */
+export function dropRedundantInk(key: string, keptStrokes: readonly SketchStroke[]): boolean {
+	const state = readInk(key);
+	if (state.thawed !== undefined || state.strokes.length === 0 || state.strokes.length !== keptStrokes.length) return false;
+	const same = state.strokes.every((s, i) => {
+		const k = keptStrokes[i]!;
+		return s.size === k.size && s.color === k.color && s.points.length === k.points.length && s.points.every((n, j) => n === k.points[j]);
+	});
+	if (!same) return false;
+	writeInk(key, EMPTY_INK);
+	return true;
 }
 
 /** The server accepted `payload` (built from the kept page plus `sent`):

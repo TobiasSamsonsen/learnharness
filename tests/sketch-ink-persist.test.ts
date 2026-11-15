@@ -8,21 +8,26 @@ import { beforeEach, describe, it } from "node:test";
 
 const store = new Map<string, string>();
 let quota = Infinity;
+let totalQuota = Infinity;
+const total = () => [...store].reduce((n, [k, v]) => n + k.length + v.length, 0);
 let writes = 0;
 (globalThis as unknown as { localStorage: Storage }).localStorage = {
 	getItem: (k: string) => store.get(k) ?? null,
 	setItem: (k: string, v: string) => {
 		if (v.length > quota) throw new DOMException("full", "QuotaExceededError");
+		if (total() - (store.has(k) ? k.length + store.get(k)!.length : 0) + k.length + v.length > totalQuota) throw new DOMException("full", "QuotaExceededError");
 		writes++;
 		store.set(k, v);
 	},
 	removeItem: (k: string) => void store.delete(k),
 	clear: () => store.clear(),
-	key: () => null,
-	length: 0,
+	key: (i: number) => [...store.keys()][i] ?? null,
+	get length() {
+		return store.size;
+	},
 } as Storage;
 
-const { writeInk, flushInk, forgetInkMemory, readInk, inkSaveFailed, PERSIST_DELAY_MS } = await import("../components/sketch/ink-memory.ts");
+const { writeInk, flushInk, forgetInkMemory, readInk, inkSaveFailed, dropRedundantInk, PERSIST_DELAY_MS } = await import("../components/sketch/ink-memory.ts");
 import type { SketchStroke } from "../src/core";
 import type { InkState } from "../components/sketch/ink-memory.ts";
 import { limitShare, sketchStatus } from "../components/sketch/sketch-status.ts";
@@ -40,6 +45,7 @@ describe("writing the ink to storage", () => {
 		store.clear();
 		forgetInkMemory();
 		quota = Infinity;
+		totalQuota = Infinity;
 		writes = 0;
 	});
 
@@ -84,11 +90,59 @@ describe("writing the ink to storage", () => {
 	});
 });
 
+describe("a full store", () => {
+	beforeEach(() => {
+		flushInk();
+		store.clear();
+		forgetInkMemory();
+		quota = Infinity;
+		totalQuota = Infinity;
+	});
+
+	it("frees other pages' undo history to fit the page being drawn, and keeps their ink", () => {
+		writeInk("old", page(40));
+		flushInk();
+		const oldInk = store.get("lh:ink:old")!;
+		assert.ok(store.has("lh:ink-hist:old"));
+		totalQuota = total() + 20; // no room for even a small new page
+		writeInk("new", page(3));
+		flushInk();
+		assert.equal(inkSaveFailed("new"), false, "the write went through after eviction");
+		assert.equal(JSON.parse(store.get("lh:ink:new")!).length, 3);
+		assert.equal(store.has("lh:ink-hist:old"), false, "the old page's history was evicted");
+		assert.equal(store.get("lh:ink:old"), oldInk, "the old page's ink was not touched");
+	});
+
+	it("reports the failure when the page itself does not fit", () => {
+		writeInk("old", page(40));
+		flushInk();
+		totalQuota = total() + 10;
+		writeInk("big", page(200));
+		flushInk();
+		assert.equal(inkSaveFailed("big"), true);
+		assert.ok(store.has("lh:ink:old"), "other ink survives");
+	});
+
+	it("drops a restored page that is exactly what the server holds, and only then", () => {
+		const p = page(5);
+		writeInk("dup", p);
+		flushInk();
+		forgetInkMemory(); // a reload before the commit: the sent page comes back as unsent ink
+		const kept = p.strokes.map((s) => ({ ...s }));
+		assert.equal(dropRedundantInk("dup", [kept[0]!]), false, "a different page is not dropped");
+		assert.equal(readInk("dup").strokes.length, 5);
+		assert.equal(dropRedundantInk("dup", kept), true);
+		flushInk();
+		assert.equal(readInk("dup").strokes.length, 0);
+		assert.equal(store.has("lh:ink:dup"), false);
+	});
+});
+
 describe("the status line", () => {
 	const base = { error: null, nativeFallback: null, disabled: false, keptStatus: "ready" as const, share: 0 };
 
 	it("says when the page could not be saved on this device", () => {
-		assert.deepEqual(sketchStatus({ ...base, saveFailed: true }), { kind: "warn", text: "Couldn't save this page on this device. Send it soon so the ink isn't lost." });
+		assert.deepEqual(sketchStatus({ ...base, saveFailed: true }), { kind: "error", text: "This page is NOT saved on this device (storage is full). Send it now so the ink isn't lost." });
 		assert.equal(sketchStatus({ ...base, saveFailed: false }), null);
 	});
 

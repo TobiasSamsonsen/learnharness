@@ -46,9 +46,12 @@ test("I don't know sends the ink waiting on the question's sketch page", async (
 	assert.equal(sent[0]!.answer.sketch?.id, sent[0]!.sketch?.id);
 });
 
-test("removing the chip sends the answer without the sketch", async () => {
+test("removing the chip takes two taps, then the answer goes without the sketch", async () => {
 	writeInk("ink-q2", inkFromStrokes([stroke(1)]));
 	await mount("ink-q2");
+	await act(async () => el("question-ink-chip-remove")!.click());
+	assert.ok(el("question-ink-chip"), "one tap keeps the sketch attached");
+	assert.match(host.querySelector('[data-testid="question-ink-note"]')?.textContent ?? "", /again/);
 	await act(async () => el("question-ink-chip-remove")!.click());
 	assert.equal(el("question-ink-chip"), null);
 	await act(async () => el("dont-know-button")!.click());

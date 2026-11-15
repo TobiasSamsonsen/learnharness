@@ -45,7 +45,7 @@ export function sketchStatus(i: SketchStatusInput): SketchStatus | null {
 	if (i.keptStatus === "loading") return { kind: "info", text: "Loading your earlier page…" };
 	if (i.blocked) return { kind: "info", text: i.blocked };
 	if (i.keptStatus === "failed") return { kind: "warn", text: "Couldn't load your earlier page; new ink goes alone." };
-	if (i.saveFailed) return { kind: "warn", text: "Couldn't save this page on this device. Send it soon so the ink isn't lost." };
+	if (i.saveFailed) return { kind: "error", text: "This page is NOT saved on this device (storage is full). Send it now so the ink isn't lost." };
 	if (i.share >= 1) return { kind: "error", text: "This page is full. Submit it or clear some ink." };
 	if (i.share >= LIMIT_WARN_SHARE) return { kind: "warn", text: `This page is ${Math.floor(i.share * 100)}% full. Submit soon, or clear some ink.` };
 	return null;

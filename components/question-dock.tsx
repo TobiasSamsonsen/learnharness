@@ -459,6 +459,9 @@ function QuestionDockForm({
 	 * remove. */
 	const inkState = useInk(toolCallId);
 	const [skipInk, setSkipInk] = useState(false);
+	// Dropping unsent ink from an answer takes two taps (owner, 2026-11-15); the note also says when ink could not be attached
+	const [inkNote, setInkNote] = useState<string | null>(null);
+	const [confirmSkip, setConfirmSkip] = useState(false);
 	const inkWaiting = sketchAvailable && !skipInk && hasNewInk(inkState);
 	type SubmitOverride = { confIdx?: number; dontKnow?: boolean };
 	const selFor = (ov?: SubmitOverride): DockSelection =>
@@ -642,8 +645,12 @@ function QuestionDockForm({
 				void sendPage(toolCallId, payload, state.strokes, () => submitSketch(payload, ov?.confIdx, ov?.dontKnow));
 				return;
 			} catch (err) {
-				// ink that cannot be packed (too large) must not block the answer: it stays on the page, the answer goes without it
+				// ink that cannot be packed is never dropped in silence: nothing is sent, the reason shows on the chip row, and the
+				// learner fixes the page or removes the chip on purpose
 				console.warn("[question-dock] the unsent sketch could not be attached:", err);
+				setInkNote(`Your sketch could not be sent with the answer (${err instanceof Error ? err.message : "unknown error"}). Fix the page, or remove the sketch to send the text alone.`);
+				setConfirmSkip(true);
+				return;
 			}
 		}
 		saveDraft(ov);
@@ -1155,12 +1162,25 @@ function QuestionDockForm({
 									data-testid="question-ink-chip-remove"
 									aria-label="Don't attach the sketch"
 									title="Send without the sketch (it stays on the sketch page)"
-									onClick={() => setSkipInk(true)}
+									onClick={() => {
+										if (!confirmSkip) {
+											setConfirmSkip(true);
+											setInkNote("Tap ✕ again to send without your sketch (the ink stays on the page).");
+											return;
+										}
+										setInkNote(null);
+										setSkipInk(true);
+									}}
 									className="flex size-4 items-center justify-center rounded-full transition-colors hover:bg-muted hover:text-foreground"
 								>
 									<XIcon className="size-3" />
 								</button>
 							</span>
+							{inkNote && (
+								<p data-testid="question-ink-note" role="alert" className="mt-1 text-xs text-destructive">
+									{inkNote}
+								</p>
+							)}
 						</div>
 					)}
 					{(photo || photoError) && (

@@ -129,6 +129,8 @@ export function PracticeDock({
 	const { kept, status: keptStatus } = useKeptPage(chatId ?? "", problemCallId, keptSketch);
 	const ink = useInk(problemCallId);
 	const [detached, setDetached] = useState(false);
+	// Dropping unsent ink from an answer takes two taps: a stray tap must not send the work away (owner, 2026-11-15)
+	const [confirmDetach, setConfirmDetach] = useState(false);
 	const [sketchError, setSketchError] = useState<string | null>(null);
 	// A photo of the work (M17): taken with the camera, sent as its own sketch page; it wins over unsent ink (the ink stays)
 	const [photo, setPhoto] = useState<PreparedPhoto | null>(null);
@@ -219,7 +221,11 @@ export function PracticeDock({
 		}
 		let payload: SketchPayload | undefined;
 		if (attach && ink.strokes.length > 0) {
-			if (keptStatus === "loading") return; // the earlier page is still on its way
+			if (keptStatus === "loading") {
+				// the earlier page is still on its way: say so, never ignore the press in silence
+				setSketchError("Your earlier page is still loading. Try again in a moment.");
+				return;
+			}
 			try {
 				payload = pagePayload(kept, ink.strokes, undefined, ink.thawed !== undefined);
 			} catch (err) {
@@ -365,7 +371,16 @@ export function PracticeDock({
 								data-testid="practice-sketch-chip-remove"
 								aria-label="Don't attach the sketch"
 								title="Send the text alone"
-								onClick={() => setDetached(true)}
+								onClick={() => {
+										if (ink.strokes.length > 0 && !confirmDetach) {
+											setConfirmDetach(true);
+											setSketchError("Tap ✕ again to send without your sketch (the ink stays on the page).");
+											return;
+										}
+										setConfirmDetach(false);
+										setSketchError(null);
+										setDetached(true);
+									}}
 								className="flex size-4 items-center justify-center rounded-full transition-colors hover:bg-muted hover:text-foreground"
 							>
 								<XIcon className="size-3" />

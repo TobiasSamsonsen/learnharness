@@ -112,6 +112,7 @@ import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, Question
 import { keptSketchOf, READ_SKETCH_TOOL, readSketchCall, sketchStatesOf } from "@/src/core";
 import { SketchDisputeLine, type SketchReadings } from "@/components/artifacts/read-sketch-card";
 import { buildSketchReadings } from "@/components/sketch-readings";
+import { carryInkToReask } from "@/components/sketch/reask-carry";
 import { useModelCatalog } from "@/components/model-picker";
 import type { LhViewMessage } from "@/src/core";
 import { PhaseChip, PhaseDivider } from "@/components/phase-divider";
@@ -615,6 +616,12 @@ export function Chat({
 	// listener is mount-scoped; the value it needs is render-scoped).
 	const pendingRef = useRef(pending);
 	pendingRef.current = pending;
+	// A re-ask on the same node keeps the learner's unsent page (a new call id would otherwise open a blank one)
+	const pendingCallId = pending?.toolCallId;
+	useEffect(() => {
+		const p = pendingRef.current;
+		if (p) carryInkToReask(messages, p.toolCallId, p.input);
+	}, [pendingCallId]);
 
 	// THE ACTIVE PRACTICE PROBLEM (practice sessions, 2026-10-04): the
 	// same dock-ownership rule as a pending question — an active problem
