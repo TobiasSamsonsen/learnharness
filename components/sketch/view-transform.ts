@@ -12,7 +12,7 @@ export interface SketchView {
 	y: number;
 }
 
-/** Narrow on purpose: with a fixed pen the writing size can drift at most MAX_ZOOM / MIN_ZOOM (6x) between two strokes. */
+/** Narrow on purpose: with a pen of fixed screen width the writing size on the page can drift at most MAX_ZOOM / MIN_ZOOM (6x) between two strokes. */
 export const MIN_ZOOM = 0.5;
 export const MAX_ZOOM = 3;
 export const HOME_VIEW: SketchView = { zoom: 1, x: 0, y: 0 };
@@ -45,19 +45,14 @@ export function panBy(view: SketchView, dsx: number, dsy: number): SketchView {
 	return { zoom: view.zoom, x: view.x - dsx / view.zoom, y: view.y - dsy / view.zoom };
 }
 
-/** The pen's width on the page at the top zoom, as a fraction of the chosen width (owner, 2026-11-10: 90% at 3x; 80% was too small). */
-const PEN_FACTOR_AT_MAX_ZOOM = 0.9;
-
 /**
- * The pen's width in WORLD units (owner, 2026-11-10): a size on the PAGE, not on screen, so zoomed in the pen looks
- * fatter and the learner keeps writing at one size from the first stroke to the last (the zoom range is narrowed for
- * the same reason). Only a little finer when zoomed in, for subscripts: the chosen width up to 1x, then linear down to
- * 90% of it at MAX_ZOOM. Kept inside what the validator accepts.
+ * The pen's width in WORLD units (owner, 2026-11-15): the chosen width is a size on SCREEN, so the pen lays down the
+ * same on-screen thickness at every zoom and the learner writes everything at one size. The stroke is stored in page
+ * units (size / zoom); strokes already on the page keep their page width when the view zooms afterwards. Kept inside
+ * what the validator accepts. (Replaces the 2026-11-10 page-size pen that was 90% at MAX_ZOOM.)
  */
 export function penWorldSize(size: number, zoom: number): number {
-	const t = Math.min(1, Math.max(0, (zoom - 1) / (MAX_ZOOM - 1)));
-	const factor = 1 - (1 - PEN_FACTOR_AT_MAX_ZOOM) * t;
-	return Math.round(Math.min(MAX_WORLD_SIZE, Math.max(MIN_WORLD_SIZE, size * factor)) * 100) / 100;
+	return Math.round(Math.min(MAX_WORLD_SIZE, Math.max(MIN_WORLD_SIZE, size / zoom)) * 100) / 100;
 }
 
 /**

@@ -125,7 +125,7 @@ class InkLayer(context: Context) : FrameLayout(context) {
 
 	private fun brush(): Brush {
 		val argb = InkSheet.displayColor(penColor, dark)
-		// the pen is a fixed size on the page, so on screen it follows the zoom (what is committed is penWorldSize)
+		// the pen is a fixed size on screen, so it is penWorldSize * zoom = the chosen width (what is committed is penWorldSize)
 		return Brush.createWithColorIntArgb(StockBrushes.pressurePen(), argb, view.penWorldSize(penSize) * view.zoom * density, 0.1f)
 	}
 

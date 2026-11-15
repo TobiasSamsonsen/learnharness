@@ -16,13 +16,12 @@ class InkViewTest {
 		assertEquals(-40f, v.worldY(60f, density), 0.001f)
 	}
 
-	@Test fun thePenIsASizeOnThePage_only90PercentAtTheTopZoom() {
+	@Test fun thePenIsASizeOnScreen_theWorldWidthIsTheChosenWidthOverTheZoom() {
 		assertEquals("the chosen width at 1x", 4f, InkView(1f).penWorldSize(4f), 0.001f)
-		assertEquals("zoomed out it stays the chosen width", 4f, InkView(0.5f).penWorldSize(4f), 0.001f)
-		assertEquals("linear: 95% at 2x", 3.8f, InkView(2f).penWorldSize(4f), 0.001f)
-		assertEquals("90% at 3x", 3.6f, InkView(3f).penWorldSize(4f), 0.001f)
-		assertEquals("thin at 3x", 1.8f, InkView(3f).penWorldSize(2f), 0.001f)
-		assertEquals("past the top zoom it stays at 90%", 3.6f, InkView(8f).penWorldSize(4f), 0.001f)
+		assertEquals("half the world width at 2x", 2f, InkView(2f).penWorldSize(4f), 0.001f)
+		assertEquals("a third at 3x", 1.33f, InkView(3f).penWorldSize(4f), 0.001f)
+		assertEquals("thin at 3x stays valid", 0.67f, InkView(3f).penWorldSize(2f), 0.001f)
+		assertEquals("zoomed out it doubles", 8f, InkView(0.5f).penWorldSize(4f), 0.001f)
 	}
 
 	@Test fun theViewLineAcceptsOnlyUsableViews() {
