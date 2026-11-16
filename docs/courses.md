@@ -201,7 +201,7 @@ Each event is one FSRS review:
 | `solvedWithHints` (no grade) | hard |
 | `movedOn` / `surrendered` / `taught` (no grade) | again — on a skill never learned: ignored, a miss never counts as learned |
 | `dismissed` | ignored |
-| `placementKnown` (correct, confidence ≥ 70) | the skill easy, then seeded to ≥ 40 days of stability (`PLACEMENT_SEED_DAYS`, understanding ≈ 6.3: known at once); every transitive `requires` good, seeded to ≥ 20 days (`PREREQUISITE_SEED_DAYS`, ≈ 5.2: learning), except a skill with a `placementMiss` of its own |
+| `placementKnown` (correct, confidence ≥ 70) | the skill easy, then seeded to ≥ 40 days of stability (`PLACEMENT_SEED_DAYS`, understanding ≈ 6.3: known at once); every transitive `requires` good, seeded to ≥ 7 days (`PREREQUISITE_SEED_DAYS`, ≈ 3.5: learning; 20 days until 2026-11-16, shortened so an inferred prerequisite is confirmed by practice within a week), except a skill with a `placementMiss` of its own |
 | `placementUnsure` (correct, < 70) | hard |
 | `placementMiss` (wrong / I don't know) | nothing; blocks its inferred credit (any order) |
 | legacy placement: solved / with hints / miss | as `placementKnown` / hard / nothing |

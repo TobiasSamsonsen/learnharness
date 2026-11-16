@@ -62,9 +62,10 @@ const DAY_MS = 86_400_000;
 /** A confident placement answer seeds the skill's stability to at least this
  *  many days (understanding ≈ 6.3: known), then FSRS runs normally. */
 export const PLACEMENT_SEED_DAYS = 40;
-/** …and an inferred prerequisite to this many (≈ 5.2: learning — one answer
- *  proves less about what lies under it). */
-export const PREREQUISITE_SEED_DAYS = 20;
+/** …and an inferred prerequisite to this many (≈ 3.5: learning — one answer
+ *  proves less about what lies under it, so it comes back for review within a
+ *  week and real practice confirms it; was 20 days until 2026-11-16). */
+export const PREREQUISITE_SEED_DAYS = 7;
 
 /** The Anki scale, least to most learned. */
 export type Grade = "again" | "hard" | "good" | "easy";

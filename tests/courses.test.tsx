@@ -759,8 +759,8 @@ describe("the course service (src/server/courses.ts)", () => {
 		assert.deepEqual(view.learning, [a], "inferred through B: learned, not known until a real review");
 		assert.deepEqual(view.nextUp, [c]);
 		assert.deepEqual(view.locked, []);
-		// progress counts the inferred prerequisite (a: 5.2 of 6) instead of dropping it: (1 + .87 + 0) / 3
-		assert.equal(courses.listCourseSummaries().find((x) => x.id === courseId)!.progress, 62);
+		// progress counts the inferred prerequisite (a: 3.5 of 6, a 7-day seed) instead of dropping it: (1 + .58 + 0) / 3
+		assert.equal(courses.listCourseSummaries().find((x) => x.id === courseId)!.progress, 53);
 		const practice = courses.createCourseSession(courseId, "practice");
 		assert.ok(practice.ok, "practice all = the learning group");
 		assert.deepEqual(chatStore.getChat(practice.value.id)!.course!.skillIds, [a]);
