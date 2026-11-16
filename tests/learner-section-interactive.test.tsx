@@ -38,7 +38,17 @@ const STATS = {
 		classified: 6,
 		missesShown: true,
 		classes: [{ missClass: "execution", count: 6, sessions: 3, weight: 5, lastAt: 0, named: true }],
-		calibration: { answers: 20, sessions: 2, dontKnow: 2, scored: 18, wrongHigh: 6, shown: true },
+		calibration: {
+			answers: 20,
+			sessions: 2,
+			dontKnow: 2,
+			scored: 18,
+			wrongHigh: 6,
+			shown: true,
+			bands: [{ band: "low", scored: 5, right: 4 }, { band: "mid", scored: 5, right: 4 }, { band: "high", scored: 8, right: 2 }],
+			overconfident: true,
+			underconfident: true,
+		},
 	},
 	sessions: 5,
 	adaptReady: true,
@@ -93,6 +103,8 @@ describe("LearnerSection (DOM)", () => {
 		assert.deepEqual(calls, ["GET /api/learner"]);
 		assert.match(byTest("learner-misses").textContent ?? "", /execution6 misses · 3 sessions · shown to the tutor/);
 		assert.match(byTest("learner-calibration").textContent ?? "", /6 of 18 scored answers were wrong at a stated confidence of 90 or more; "I don't know" on 2\. Shown to the tutor\./);
+		assert.match(byTest("learner-calibration-bands").textContent ?? "", /under 50: 4 of 5 · 50 to 89: 4 of 5 · 90 or more: 2 of 8\./);
+		assert.match(byTest("learner-calibration-bands").textContent ?? "", /overconfident[\s\S]*underconfident/);
 		assert.equal((byTest("learner-adapt") as HTMLButtonElement).disabled, false);
 		assert.equal(byTest("learner-adapt-needs"), null);
 	});

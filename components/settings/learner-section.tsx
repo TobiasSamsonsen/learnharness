@@ -156,9 +156,17 @@ export function LearnerSection({
 						)}
 						{cal && cal.answers > 0 && (
 							<p className="text-xs text-muted-foreground" data-testid="learner-calibration">
-								Lessons: {cal.answers} answers from {cal.sessions} {cal.sessions === 1 ? "session" : "sessions"}; {cal.wrongHigh} of {cal.scored} scored answers were
+								Lessons and practice: {cal.answers} answers from {cal.sessions} {cal.sessions === 1 ? "session" : "sessions"}; {cal.wrongHigh} of {cal.scored} scored answers were
 								wrong at a stated confidence of {OVERCONFIDENT_AT} or more; "I don't know" on {cal.dontKnow}.{" "}
 								{cal.shown ? "Shown to the tutor." : "Not shown to the tutor yet (it needs 20 answers from 2 sessions)."}
+							</p>
+						)}
+						{cal && cal.scored > 0 && (
+							<p className="text-xs text-muted-foreground" data-testid="learner-calibration-bands">
+								Right at confidence under 50: {cal.bands[0]?.right ?? 0} of {cal.bands[0]?.scored ?? 0} · 50 to 89: {cal.bands[1]?.right ?? 0} of {cal.bands[1]?.scored ?? 0} · 90 or more:{" "}
+								{cal.bands[2]?.right ?? 0} of {cal.bands[2]?.scored ?? 0}.
+								{cal.overconfident ? " You tend to be overconfident: your sure answers are right less often than they should be." : ""}
+								{cal.underconfident ? " You tend to be underconfident: you are right more often than you expect." : ""}
 							</p>
 						)}
 						<p className="text-xs text-muted-foreground/60">

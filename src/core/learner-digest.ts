@@ -60,6 +60,12 @@ function chatBlock(chat: DigestChat, skillName: (id: string) => string | undefin
 				`- ${dayOf(c.at)} · ${c.outcome} · rung ${c.rung ?? "none"} · miss: ${c.missClass ?? "none"}${skills ? ` · skills: ${skills}` : ""} · verdict: ${cut(c.verdict, DIGEST_VERDICT_MAX)}`,
 			);
 		}
+		// the confidence marks the learner gave on these problems (owner, 2026-11-16): missed at a stated 90 or more is the signal
+		const marked = e.practiceAnswers ?? [];
+		if (marked.length > 0) {
+			const wrongSure = marked.filter((a) => !a.dontKnow && a.correct === false && a.confidence !== undefined && a.confidence >= OVERCONFIDENT_AT);
+			lines.push(`- confidence marks: ${marked.length} problems marked, ${wrongSure.length} missed at stated confidence >= ${OVERCONFIDENT_AT}, ${marked.filter((a) => a.dontKnow).length} "I don't know"`);
+		}
 		return lines.join("\n");
 	}
 	if (e.answers.length > 0) {

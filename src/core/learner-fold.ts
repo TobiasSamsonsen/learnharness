@@ -45,6 +45,14 @@ export const CALIBRATION_MIN_ANSWERS = 20;
 export const CALIBRATION_MIN_SESSIONS = 2;
 /** A wrong answer at or above this stated confidence counts as overconfident. */
 export const OVERCONFIDENT_AT = 90;
+/** The calibration bands (owner, 2026-11-16): confidence under LOW_BAND_BELOW, from there up to OVERCONFIDENT_AT, and from it up. */
+export const LOW_BAND_BELOW = 50;
+/** A band is judged only with at least this many scored answers. */
+export const BAND_MIN_ANSWERS = 5;
+/** Overconfident: the 90+ band is right less often than this. */
+export const OVERCONFIDENT_RIGHT_BELOW = 0.75;
+/** Underconfident: the under-50 band is right at least this often. */
+export const UNDERCONFIDENT_RIGHT_FROM = 0.7;
 /** Recency half-life of a miss, in days (ranking only). */
 export const MISS_HALF_LIFE_DAYS = 45;
 const DAY_MS = 86_400_000;
@@ -87,7 +95,11 @@ export interface AnswerEvent {
 
 export interface LearnerEvents {
 	concluded: ConcludedEvent[];
+	/** Quiz and probe answers of lessons. */
 	answers: AnswerEvent[];
+	/** One answer per concluded course or free practice problem that carried a confidence mark or "I don't know"
+	 *  (owner, 2026-11-16): calibration counts these together with `answers`. Absent = none. */
+	practiceAnswers?: AnswerEvent[];
 }
 
 const isMissClass = (v: unknown): v is MissClass => MISS_CLASSES.some((c) => c === v);
@@ -125,18 +137,45 @@ export function learnerEventsOf(chat: LearnerChatInput): LearnerEvents {
 		return out;
 	}
 
+	// the learner's confidence mark per problem call: each practice-thinking message names its problem (problemCallId)
+	const marks = new Map<string, { confidence?: number; dontKnow: boolean }>();
+	for (const m of chat.messages) {
+		if ((m as { role?: string }).role !== "custom" || (m as { customType?: string }).customType !== "practice-thinking") continue;
+		const d = (m as { details?: { problemCallId?: unknown; confidence?: unknown; dontKnow?: unknown } }).details;
+		if (!d || typeof d.problemCallId !== "string") continue;
+		const dontKnow = d.dontKnow === true;
+		const confidence = !dontKnow && typeof d.confidence === "number" && Number.isFinite(d.confidence) ? d.confidence : undefined;
+		if (dontKnow || confidence !== undefined) marks.set(d.problemCallId, { ...(confidence !== undefined ? { confidence } : {}), dontKnow });
+	}
 	let active: string[] = [];
+	let activeCall = "";
+	let activeStatement = "";
 	for (const m of chat.messages) {
 		if ((m as { role?: string }).role !== "assistant") continue;
 		const assistant = m as AssistantMessage;
 		for (const block of assistant.content) {
 			if (block.type !== "toolCall" || !clean.has(block.id)) continue;
 			if (block.name === PRACTICE_PROBLEM_TOOL) {
-				const skills = (block.arguments as { skills?: unknown } | undefined)?.skills;
-				active = Array.isArray(skills) ? skills.filter((s): s is string => typeof s === "string") : [];
+				const args = block.arguments as { skills?: unknown; statement?: unknown } | undefined;
+				active = Array.isArray(args?.skills) ? (args!.skills as unknown[]).filter((s): s is string => typeof s === "string") : [];
+				activeCall = block.id;
+				activeStatement = typeof args?.statement === "string" ? args.statement : "";
 			} else if (block.name === PRACTICE_CONCLUDE_TOOL) {
 				const args = (block.arguments ?? {}) as { outcome?: unknown; verdict?: unknown; rung?: unknown; missClass?: unknown };
 				if (typeof args.outcome === "string" && args.outcome !== "dismissed") {
+					// a clean solve is right, a give-up, a move-on or a taught problem is wrong; a solve with hints is not scored
+					const mark = marks.get(activeCall);
+					if (mark) {
+						const correct = args.outcome === "solved" ? true : args.outcome === "solvedWithHints" ? undefined : false;
+						(out.practiceAnswers ??= []).push({
+							chatId: chat.id,
+							at: assistant.timestamp,
+							dontKnow: mark.dontKnow,
+							correct: mark.dontKnow ? undefined : correct,
+							confidence: mark.confidence,
+							questionText: activeStatement,
+						});
+					}
 					out.concluded.push({
 						chatId: chat.id,
 						at: assistant.timestamp,
@@ -148,6 +187,7 @@ export function learnerEventsOf(chat: LearnerChatInput): LearnerEvents {
 					});
 				}
 				active = [];
+				activeCall = "";
 			}
 		}
 	}
@@ -169,6 +209,13 @@ export interface MissClassStat {
 	named: boolean;
 }
 
+/** One calibration band: scored answers at a stated confidence in a range, and how many were right. */
+export interface CalibrationBand {
+	band: "low" | "mid" | "high";
+	scored: number;
+	right: number;
+}
+
 export interface CalibrationStat {
 	/** Quiz/probe answers, "I don't know" included. */
 	answers: number;
@@ -181,6 +228,12 @@ export interface CalibrationStat {
 	wrongHigh: number;
 	/** Passes the floor (>= 20 answers from >= 2 sessions). */
 	shown: boolean;
+	/** Scored answers by stated confidence: under 50, 50-89, 90 and up (lessons and practice together). */
+	bands: CalibrationBand[];
+	/** The 90+ band is judged (>= 5 scored answers) and right less than 75% of the time. */
+	overconfident: boolean;
+	/** The under-50 band is judged (>= 5 scored answers) and right 70% of the time or more. */
+	underconfident: boolean;
 }
 
 export interface LearnerFold {
@@ -232,25 +285,35 @@ export function foldLearner(events: LearnerEvents, now: number): LearnerFold {
 	let dontKnow = 0;
 	let scored = 0;
 	let wrongHigh = 0;
-	for (const a of events.answers) {
+	const answered = [...events.answers, ...(events.practiceAnswers ?? [])];
+	const bands: CalibrationBand[] = [{ band: "low", scored: 0, right: 0 }, { band: "mid", scored: 0, right: 0 }, { band: "high", scored: 0, right: 0 }];
+	for (const a of answered) {
 		chats.add(a.chatId);
 		if (a.dontKnow) dontKnow++;
 		if (!a.dontKnow && a.correct !== undefined && a.confidence !== undefined) {
 			scored++;
 			if (!a.correct && a.confidence >= OVERCONFIDENT_AT) wrongHigh++;
+			const band = bands[a.confidence >= OVERCONFIDENT_AT ? 2 : a.confidence >= LOW_BAND_BELOW ? 1 : 0]!;
+			band.scored++;
+			if (a.correct) band.right++;
 		}
 	}
+	const low = bands[0]!;
+	const high = bands[2]!;
 	return {
 		classified,
 		missesShown: classified >= MISS_FOLD_MIN_MISSES,
 		classes,
 		calibration: {
-			answers: events.answers.length,
+			answers: answered.length,
 			sessions: chats.size,
 			dontKnow,
 			scored,
 			wrongHigh,
-			shown: events.answers.length >= CALIBRATION_MIN_ANSWERS && chats.size >= CALIBRATION_MIN_SESSIONS,
+			shown: answered.length >= CALIBRATION_MIN_ANSWERS && chats.size >= CALIBRATION_MIN_SESSIONS,
+			bands,
+			overconfident: high.scored >= BAND_MIN_ANSWERS && high.right / high.scored < OVERCONFIDENT_RIGHT_BELOW,
+			underconfident: low.scored >= BAND_MIN_ANSWERS && low.right / low.scored >= UNDERCONFIDENT_RIGHT_FROM,
 		},
 	};
 }
@@ -262,11 +325,12 @@ export function namedMisses(fold: LearnerFold): MissClassStat[] {
 
 /** Merge the evidence of many chats. */
 export function learnerEventsOfAll(chats: Iterable<LearnerChatInput>): LearnerEvents {
-	const out: LearnerEvents = { concluded: [], answers: [] };
+	const out: LearnerEvents = { concluded: [], answers: [], practiceAnswers: [] };
 	for (const chat of chats) {
 		const e = learnerEventsOf(chat);
 		out.concluded.push(...e.concluded);
 		out.answers.push(...e.answers);
+		out.practiceAnswers!.push(...(e.practiceAnswers ?? []));
 	}
 	return out;
 }

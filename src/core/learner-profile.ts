@@ -54,7 +54,10 @@ export function learnerSection(input: LearnerSectionInput): string {
 		const parts: string[] = [];
 		if (cal.scored > 0) parts.push(`${cal.wrongHigh} of ${cal.scored} scored answers were wrong at a stated confidence of 90 or more`);
 		parts.push(`"I don't know" on ${cal.dontKnow} of ${cal.answers} answers`);
-		lines.push(`Calibration in lessons: ${parts.join("; ")}.`);
+		const [low, , high] = cal.bands;
+		if (cal.overconfident && high) parts.push(`answers given at 90 or more were right only ${high.right} of ${high.scored} times (overconfident)`);
+		if (cal.underconfident && low) parts.push(`answers given under 50 were right ${low.right} of ${low.scored} times (underconfident)`);
+		lines.push(`Calibration in lessons and practice: ${parts.join("; ")}.`);
 	}
 
 	const claims = input.applied ?? [];

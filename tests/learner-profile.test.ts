@@ -83,7 +83,17 @@ describe("learnerSection", () => {
 		const out = learnerSection({ fold: above });
 		assert.match(out, /- execution \(right idea, slip in carrying it out\): 3 misses in 2 sessions/);
 		assert.match(out, /- careless \(careless\): 3 misses in 2 sessions/);
-		assert.match(out, /Calibration in lessons: 2 of 16 scored answers were wrong at a stated confidence of 90 or more; "I don't know" on 4 of 20 answers\./);
+		assert.match(out, /Calibration in lessons and practice: 2 of 16 scored answers were wrong at a stated confidence of 90 or more; "I don't know" on 4 of 20 answers\./);
+	});
+
+	it("says which way the learner is miscalibrated once a band holds five scored answers (lessons and practice together)", () => {
+		const mk = (i: number, confidence: number, correct: boolean) => ({ chatId: i % 2 ? "a" : "b", at: T0, dontKnow: false, correct, confidence, questionText: "Q" });
+		const over = foldLearner({ concluded: [], answers: Array.from({ length: 20 }, (_, i) => mk(i, 95, i < 12)) }, T0);
+		assert.match(learnerSection({ fold: over }), /answers given at 90 or more were right only 12 of 20 times \(overconfident\)/);
+		const under = foldLearner({ concluded: [], answers: Array.from({ length: 20 }, (_, i) => mk(i, 30, i < 16)) }, T0);
+		assert.match(learnerSection({ fold: under }), /answers given under 50 were right 16 of 20 times \(underconfident\)/);
+		const calibrated = foldLearner({ concluded: [], answers: Array.from({ length: 20 }, (_, i) => mk(i, 95, i < 19)) }, T0);
+		assert.doesNotMatch(learnerSection({ fold: calibrated }), /overconfident|underconfident/);
 	});
 });
 

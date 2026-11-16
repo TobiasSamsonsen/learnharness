@@ -261,7 +261,17 @@ describe("foldLearner: the miss floors (raw counts)", () => {
 	it("is empty for no evidence", () => {
 		const fold = foldLearner({ concluded: [], answers: [] }, now);
 		assert.deepEqual([fold.classified, fold.missesShown, fold.classes], [0, false, []]);
-		assert.deepEqual(fold.calibration, { answers: 0, sessions: 0, dontKnow: 0, scored: 0, wrongHigh: 0, shown: false });
+		assert.deepEqual(fold.calibration, {
+			answers: 0,
+			sessions: 0,
+			dontKnow: 0,
+			scored: 0,
+			wrongHigh: 0,
+			shown: false,
+			bands: [{ band: "low", scored: 0, right: 0 }, { band: "mid", scored: 0, right: 0 }, { band: "high", scored: 0, right: 0 }],
+			overconfident: false,
+			underconfident: false,
+		});
 	});
 });
 
@@ -285,5 +295,65 @@ describe("foldLearner: the calibration line", () => {
 		assert.equal(foldLearner({ concluded: [], answers: many(CALIBRATION_MIN_ANSWERS - 1, ["a", "b"]) }, T0).calibration.shown, false);
 		assert.equal(foldLearner({ concluded: [], answers: many(CALIBRATION_MIN_ANSWERS, ["a"]) }, T0).calibration.shown, false);
 		assert.equal(foldLearner({ concluded: [], answers: many(CALIBRATION_MIN_ANSWERS, ["a", "b"]) }, T0).calibration.shown, true);
+	});
+});
+
+describe("foldLearner: calibration from practice and in bands (owner, 2026-11-16)", () => {
+	/** A concluded practice problem the learner marked with a confidence or "I don't know". */
+	function marked(outcome: string, mark: { confidence?: number; dontKnow?: boolean } | null, at: number): LhMessage[] {
+		const p = `p${++seq}`;
+		const c = `c${++seq}`;
+		return [
+			assistant([{ id: p, name: "problem", args: { statement: "S", mode: "recall", modelSolution: "M", skills: ["a"] } }], at),
+			result(p, "problem", at),
+			...(mark ? [{ id: `m${++seq}`, role: "custom", customType: "practice-thinking", content: "t", display: true, details: { problemCallId: p, text: "t", ...mark }, timestamp: at } as unknown as LhMessage] : []),
+			assistant([{ id: c, name: "conclude", args: { outcome, verdict: "v", rung: null, missClass: null, retest: false } }], at + 1),
+			result(c, "conclude", at + 1),
+		];
+	}
+
+	it("each marked practice problem is an answer: solved is right, given up or moved on is wrong, hints are not scored", () => {
+		const chat: LearnerChatInput = {
+			id: "pr1",
+			kind: "practice",
+			messages: [
+				...marked("solved", { confidence: 95 }, T0),
+				...marked("surrendered", { confidence: 90 }, T0 + 10),
+				...marked("solvedWithHints", { confidence: 70 }, T0 + 20),
+				...marked("movedOn", { dontKnow: true }, T0 + 30),
+				...marked("solved", null, T0 + 40), // no mark: not an answer
+			],
+		};
+		const events = learnerEventsOf(chat);
+		assert.equal(events.concluded.length, 5);
+		assert.deepEqual(
+			(events.practiceAnswers ?? []).map((a) => [a.correct, a.confidence, a.dontKnow]),
+			[[true, 95, false], [false, 90, false], [undefined, 70, false], [undefined, undefined, true]],
+		);
+		const c = foldLearner(learnerEventsOfAll([chat]), T0 + DAY).calibration;
+		assert.deepEqual([c.answers, c.dontKnow, c.scored, c.wrongHigh], [4, 1, 2, 1]);
+	});
+
+	it("three bands, and a flag in each direction only once a band holds five scored answers", () => {
+		const answers: AnswerEvent[] = [];
+		const add = (n: number, confidence: number, right: number) => {
+			for (let i = 0; i < n; i++) answers.push(ans(i % 2 ? "s1" : "s2", { correct: i < right, confidence }));
+		};
+		add(5, 95, 3); // high band: 3 of 5 right (60%) -> overconfident
+		add(5, 30, 4); // low band: 4 of 5 right (80%) -> underconfident
+		add(4, 70, 4); // mid band
+		const c = foldLearner({ concluded: [], answers }, T0).calibration;
+		assert.deepEqual(c.bands, [{ band: "low", scored: 5, right: 4 }, { band: "mid", scored: 4, right: 4 }, { band: "high", scored: 5, right: 3 }]);
+		assert.equal(c.overconfident, true);
+		assert.equal(c.underconfident, true);
+
+		const few: AnswerEvent[] = [];
+		for (let i = 0; i < 4; i++) few.push(ans("s1", { correct: false, confidence: 95 }));
+		const f = foldLearner({ concluded: [], answers: few }, T0).calibration;
+		assert.equal(f.overconfident, false, "four answers are too few to judge a band");
+
+		const sure: AnswerEvent[] = [];
+		for (let i = 0; i < 6; i++) sure.push(ans("s1", { correct: true, confidence: 92 }));
+		assert.equal(foldLearner({ concluded: [], answers: sure }, T0).calibration.overconfident, false, "sure and right is calibrated");
 	});
 });
