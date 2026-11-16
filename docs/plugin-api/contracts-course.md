@@ -18,6 +18,7 @@ export interface ChatCourseLink {
     courseId: string;
     mode: CourseMode;
     skillIds: string[];
+    retest?: boolean;
 }
 ```
 
@@ -28,6 +29,7 @@ export interface ChatCourseLink {
 - [courseId](#chatcourselink-courseid)
 - [mode](#chatcourselink-mode)
 - [skillIds](#chatcourselink-skillids)
+- [retest](#chatcourselink-retest)
 
 ### ChatCourseLink courseId
 
@@ -47,6 +49,15 @@ The skills the session works on.
 
 ```ts
 skillIds: string[];
+```
+
+### ChatCourseLink retest
+
+A placement session that is a RETEST (owner, 2026-11-16): it asks only about skills not learned yet and learned
+skills that are due or fading before the exam, and a miss on a learned skill is a lapse (core/mastery.ts).
+
+```ts
+retest?: boolean;
 ```
 
 ## CourseMode
