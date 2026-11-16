@@ -247,6 +247,22 @@ export function examWhen(examDate: string | undefined, now: number): string | un
 	return `${examDateLabel(examDate)}, ${left}`;
 }
 
+/** The moment a review should be projected to (ms): the start of the exam day, or `now` on the day itself. Undefined without
+ *  an exam date, or once the exam has passed. Pure. */
+export function examInstant(examDate: string | undefined, now: number): number | undefined {
+	if (!examDate) return undefined;
+	const days = daysUntil(examDate, now);
+	return days < 0 ? undefined : now + days * DAY_MS;
+}
+
+/** A skill's place in an exam-aware review (owner, 2026-11-16): its exam weight (readinessWeight: priority shrunk by the
+ *  past-exam count, so a priority-0 skill sinks to the bottom without vanishing) times what is projected to be lost by exam
+ *  day (1 - recall then). The highest scores are the skills that cost the most marks if left alone. Pure. */
+export function examReviewScore(priority: number, pastExams: number | undefined, recallOnExamDay: number): number {
+	const exams = sanitizePastExams(pastExams) ?? DEFAULT_PAST_EXAMS;
+	return readinessWeight(priority, exams) * (1 - Math.min(1, Math.max(0, recallOnExamDay)));
+}
+
 /** The course row's days column (owner, 2026-11-14): "12 d", "today", "passed". Pure. */
 export function examDaysLabel(examDate: string, now: number): string {
 	const days = daysUntil(examDate, now);
@@ -335,8 +351,11 @@ export interface CoursePlan {
 	/** Skills still to learn that the exams use (Next up and Locked, not examined ones left out). */
 	skillsLeft: number;
 	forecast?: Forecast;
-	/** Reviews due now, and how many the next review session takes. */
+	/** Reviews due, and how many the next review session takes. With an exam date a due skill is also one that is fine
+	 *  today but projected below the target on exam day. */
 	reviewDue: number;
+	/** How many of `reviewDue` are only fading before the exam (fine today). */
+	reviewFading?: number;
 	reviewBatch: number;
 	/** The lessons to take today: the first of the ordered Next up. */
 	lessons: string[];

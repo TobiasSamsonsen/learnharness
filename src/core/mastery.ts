@@ -135,6 +135,12 @@ export function needsReview(state: SkillState, now: number): boolean {
 	return retrievability(state, now) < DESIRED_RETENTION;
 }
 
+/** Will recall have fallen below the target by `at` (ms; an exam day)? FSRS retrievability projected forward: the
+ *  skill is still fine now but will not be fine on the day it counts (owner, 2026-11-16). */
+export function fadesBefore(state: Pick<SkillState, "stability" | "lastReview">, at: number): boolean {
+	return retrievability(state, at) < DESIRED_RETENTION;
+}
+
 /** When retrievability reaches the target (ms) — a stability after the last review. */
 export function reviewAt(state: SkillState): number {
 	return state.lastReview + state.stability * DAY_MS;
@@ -379,13 +385,14 @@ const REVIEW_WEAKEST = 4;
  *  and with `size` or fewer to review, all of them. Posed morale first (the
  *  doctrine's warm open), then weakest to strongest. What is not picked stays
  *  due: the queue works through the skills over several sessions. */
-export function pickReviewSkills(p: Pick<SkillPartition, "review" | "states">, size = REVIEW_SESSION_SIZE): string[] {
+export function pickReviewSkills(p: Pick<SkillPartition, "review" | "states">, size = REVIEW_SESSION_SIZE, score?: (id: string) => number): string[] {
 	const info = (id: string) => {
 		const state = p.states.get(id)?.state;
-		return { id, understanding: state ? understandingOf(state) : 0, lastReview: state?.lastReview ?? 0 };
+		return { id, understanding: state ? understandingOf(state) : 0, lastReview: state?.lastReview ?? 0, score: score ? score(id) : 0 };
 	};
 	const pool = p.review.map(info);
-	const byWeakness = (a: ReturnType<typeof info>, b: ReturnType<typeof info>) => a.understanding - b.understanding || a.lastReview - b.lastReview || a.id.localeCompare(b.id);
+	// with an exam score the "weakest" are the highest scores (exam weight x projected loss); ties and no score: lowest understanding
+	const byWeakness = (a: ReturnType<typeof info>, b: ReturnType<typeof info>) => b.score - a.score || a.understanding - b.understanding || a.lastReview - b.lastReview || a.id.localeCompare(b.id);
 	const picked: ReturnType<typeof info>[] = [];
 	const take = (candidates: ReturnType<typeof info>[]) => {
 		const next = candidates.find((c) => !picked.includes(c));
@@ -398,17 +405,19 @@ export function pickReviewSkills(p: Pick<SkillPartition, "review" | "states">, s
 		take([...pool].sort((a, b) => b.understanding - a.understanding || byWeakness(a, b))); // morale
 	} else picked.push(...pool);
 	const ordered = [...picked].sort(byWeakness);
-	// morale first: the strongest of the pick
-	const morale = ordered[ordered.length - 1];
-	return morale ? [morale.id, ...ordered.slice(0, -1).map((c) => c.id)] : [];
+	// morale first: the strongest of the pick (by understanding)
+	const morale = [...ordered].sort((a, b) => b.understanding - a.understanding || ordered.indexOf(b) - ordered.indexOf(a))[0];
+	return morale ? [morale.id, ...ordered.filter((c) => c !== morale).map((c) => c.id)] : [];
 }
 
 /** A course's skills, partitioned for the route (docs/courses.md §2). */
 export interface SkillPartition {
 	/** Topological order (prerequisites first) of every course skill. */
 	order: string[];
-	/** Learned and needing review now. */
+	/** Learned and needing review: recall below the target now, or (with an exam date) projected below it on exam day. */
 	review: string[];
+	/** The part of `review` that is fine today but projected to fade before the exam (empty without an upcoming exam). */
+	fading: string[];
 	/** Not learned, every prerequisite learned — what to learn next. */
 	nextUp: string[];
 	/** Learned, not known yet (understanding below KNOWN_UNDERSTANDING) — what to practice. */
@@ -420,7 +429,7 @@ export interface SkillPartition {
 	 *  offer (owner, 2026-10-25). Also listed in known/learning. */
 	contextCheck: string[];
 	/** Per skill: its state (null = not learned), and its prerequisites not learned yet. */
-	states: Map<string, { state: SkillState | null; learned: boolean; known: boolean; needsReview: boolean; missing: string[] }>;
+	states: Map<string, { state: SkillState | null; learned: boolean; known: boolean; needsReview: boolean; fading: boolean; missing: string[] }>;
 }
 
 export function partitionSkills(
@@ -431,19 +440,24 @@ export function partitionSkills(
 	/** The skills THIS course has evidence on (inCourseEvidence); absent =
 	 *  no context checks. */
 	inCourse?: ReadonlySet<string>,
+	/** The exam instant (ms), when an exam is coming (core/exam-plan.ts examInstant): a skill that will have faded below
+	 *  the target by then counts as needing review now. Absent = no exam. */
+	examAt?: number,
 ): SkillPartition {
 	const ids = courseSkillIds.filter((id) => skillsById.has(id));
 	const requiresOf = (id: string) => skillsById.get(id)?.requires ?? [];
 	const order = topoOrder(ids, requiresOf) ?? ids;
-	const out: SkillPartition = { order, review: [], nextUp: [], learning: [], locked: [], known: [], contextCheck: [], states: new Map() };
+	const out: SkillPartition = { order, review: [], fading: [], nextUp: [], learning: [], locked: [], known: [], contextCheck: [], states: new Map() };
 	for (const id of order) {
 		const state = skillStates.get(id) ?? null;
 		const learned = state !== null;
 		const known = state !== null && isKnown(state);
 		const due = state !== null && needsReview(state, now);
+		const fading = state !== null && !due && examAt !== undefined && fadesBefore(state, examAt);
 		const missing = requiresOf(id).filter((req) => skillsById.has(req) && !skillStates.has(req));
-		out.states.set(id, { state, learned, known, needsReview: due, missing });
-		if (learned && due) out.review.push(id);
+		out.states.set(id, { state, learned, known, needsReview: due, fading, missing });
+		if (learned && (due || fading)) out.review.push(id);
+		if (fading) out.fading.push(id);
 		if (learned && inCourse && !inCourse.has(id)) out.contextCheck.push(id);
 		if (known) out.known.push(id);
 		else if (learned) out.learning.push(id);

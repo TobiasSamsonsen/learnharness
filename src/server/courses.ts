@@ -19,6 +19,8 @@ import type {
 import { FOLDER_NAME_MAX, canonicalFolderName, normalizeFolderName, removeFolderChanges, renameFolderChanges } from "../core/course-folders.ts";
 import {
 	daysUntil,
+	examInstant,
+	examReviewScore,
 	examWhen,
 	forecast,
 	lessonsPerDay,
@@ -50,6 +52,7 @@ import {
 	inCourseEvidence,
 	isKnown,
 	needsReview,
+	retrievability,
 	partitionSkills,
 	pickReviewSkills,
 	REVIEW_SESSION_SIZE,
@@ -187,7 +190,7 @@ function learnChatsBySkill(): Map<string, Set<string>> {
 
 function partitionOf(course: CourseRecord, ctx: ReadContext): SkillPartition {
 	const inCourse = inCourseEvidence(ctx.byCourse.get(course.id) ?? [], (id) => ctx.skills.get(id)?.requires ?? []);
-	return partitionSkills(course.skills, ctx.skills, ctx.skillStates, ctx.now, inCourse);
+	return partitionSkills(course.skills, ctx.skills, ctx.skillStates, ctx.now, inCourse, examInstant(course.examDate, ctx.now));
 }
 
 export function listCourseSummaries(): CourseSummary[] {
@@ -275,10 +278,23 @@ function examPlanOf(course: CourseRecord, p: SkillPartition, ctx: ReadContext): 
 		skillsLeft,
 		...(f ? { forecast: f } : {}),
 		reviewDue: p.review.length,
+		reviewFading: p.fading.length,
 		reviewBatch: Math.min(p.review.length, REVIEW_SESSION_SIZE),
 		lessons,
 	};
 	return { plan, nextUp, notExamined, priority };
+}
+
+/** The review pick's ranking for a course with an upcoming exam (core/exam-plan.ts examReviewScore); undefined without one,
+ *  which leaves the pick exactly as it was (the lowest understanding first). */
+function examReviewScoreOf(course: CourseRecord, p: SkillPartition, ctx: ReadContext): ((id: string) => number) | undefined {
+	const examAt = examInstant(course.examDate, ctx.now);
+	if (examAt === undefined) return undefined;
+	const priority = priorities(p.order, (id) => ctx.skills.get(id)?.requires ?? [], sanitizeWeights(course.skillWeights));
+	return (id) => {
+		const state = p.states.get(id)?.state;
+		return state ? examReviewScore(priority.get(id) ?? 1, course.pastExams, retrievability(state, examAt)) : 0;
+	};
 }
 
 /** The sidebar's Today list (GET /api/today, owner 2026-11-13): per active course with something to do, the reviews
@@ -857,7 +873,7 @@ export function createCourseSession(
 		case "review":
 			// one session's worth: the weakest, the stalest, a morale skill;
 			// the rest stay due for the next session
-			ids = pickReviewSkills(p);
+			ids = pickReviewSkills(p, undefined, examReviewScoreOf(course, p, ctx));
 			if (ids.length === 0) return { ok: false, status: 409, error: "Nothing needs review right now" };
 			break;
 		case "placement":

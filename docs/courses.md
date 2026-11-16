@@ -268,6 +268,16 @@ session (`CourseView.reviewBatch` is how many the next one takes). The prompt
 (`coursePromptSection`) says the listed skills ARE the session, and that every skill is tested
 in the listed order; a problem may group several skills at a higher difficulty.
 
+**Exam-aware review (owner, 2026-11-16).** With an upcoming exam date, a learned skill also needs
+review when it is fine today but its projected recall on exam day is below 90%
+(`fadesBefore`, `partitionSkills(…, examAt)`; `SkillPartition.fading` lists those, and the Next up
+box and the Due for review heading say "N fading before the exam"). The skill's own view still
+says recall is fine today. In the session pick, the four "weakest" slots take the highest
+`examReviewScore` = exam weight (`readinessWeight`: priority shrunk by the past-exam count, so a
+priority-0 skill sinks without vanishing) × (1 − projected recall on exam day); the stalest and
+morale slots are unchanged. A course with no exam date, or one whose exam has passed, behaves as
+above.
+
 **Difficulty (2026-11-07, core/difficulty.ts).** Every practice-kind session carries
 `ChatSettings.difficulty` (default Short; the general default `GeneralSettings.difficulty`
 (Settings → General → Practice) stamps new sessions; the pill in the composer edge changes it): Short 1 skill ~3 min, Medium 2

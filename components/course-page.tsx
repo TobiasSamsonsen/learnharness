@@ -707,7 +707,7 @@ export function CourseBody({
 							{data.review.length > 0 && (
 								<section data-testid="course-review">
 									<div className="mb-2 flex items-center justify-between">
-										<span className={cn(SECTION_HEAD, "mb-0")}>Due for review · {data.review.length}</span>
+										<span className={cn(SECTION_HEAD, "mb-0")}>Due for review · {data.review.length}{(data.plan.reviewFading ?? 0) > 0 ? ` · ${data.plan.reviewFading} fading before the exam` : ""}</span>
 										<button type="button" className={BTN} disabled={busy} onClick={() => onStart("review")}>
 											{data.reviewBatch < data.review.length ? reviewLabel(data) : "Review"}
 										</button>

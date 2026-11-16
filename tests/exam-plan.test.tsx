@@ -15,6 +15,7 @@ const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-exam-plan-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
 const plan = await import("../src/core/exam-plan.ts");
+const mastery = await import("../src/core/mastery.ts");
 const { weighCourse, weightsProblems } = await import("../src/agent/subagents/exam-weigher.ts");
 const { courseStore } = await import("../src/store/courses.ts");
 const courses = await import("../src/server/courses.ts");
@@ -627,4 +628,64 @@ describe("the sidebar's Today lines", () => {
 		assert.deepEqual(todayUi.todayLines([]), []);
 		assert.deepEqual(todayUi.todayLines([course("Empty")]), []);
 	});
+});
+
+describe("exam-aware review (owner, 2026-11-16)", () => {
+	const NOW = Date.parse("2026-11-16T12:00:00");
+	const state = (stability: number, daysAgo: number) => ({ stability, difficulty: 5, lastReview: NOW - daysAgo * DAY });
+
+	it("examInstant is the exam day, now on the day itself, and nothing without a date or after it", () => {
+		assert.equal(plan.examInstant(undefined, NOW), undefined);
+		assert.equal(plan.examInstant("2026-11-15", NOW), undefined, "passed");
+		assert.equal(plan.examInstant("2026-11-16", NOW), NOW, "today");
+		assert.equal(plan.examInstant("2026-11-28", NOW), NOW + 12 * DAY);
+	});
+
+	it("fadesBefore projects the 90% line forward", () => {
+		const s = state(20, 1);
+		assert.equal(mastery.needsReview(s as never, NOW), false, "fine today");
+		assert.equal(mastery.fadesBefore(s, NOW + 12 * DAY), false, "20-day stability still above 90% 13 days after the review");
+		assert.equal(mastery.fadesBefore(state(8, 1), NOW + 12 * DAY), true, "an 8-day stability is below 90% by then");
+	});
+
+	it("partitionSkills puts a skill that fades before the exam in review and in fading; today's due skills stay due only", () => {
+		const skills = new Map([["fine", { id: "fine" }], ["soon", { id: "soon" }], ["due", { id: "due" }]].map(([id, v]) => [id as string, { ...(v as object), name: id, statement: "x", requires: [], restsOn: [] }])) as never;
+		const states = new Map([
+			["fine", state(60, 1)],
+			["soon", state(8, 1)],
+			["due", state(2, 5)],
+		]);
+		const without = mastery.partitionSkills(["fine", "soon", "due"], skills, states, NOW);
+		assert.deepEqual(without.review, ["due"]);
+		assert.deepEqual(without.fading, []);
+		const withExam = mastery.partitionSkills(["fine", "soon", "due"], skills, states, NOW, undefined, NOW + 12 * DAY);
+		assert.deepEqual([...withExam.review].sort(), ["due", "soon"]);
+		assert.deepEqual(withExam.fading, ["soon"], "due is not fading: it is due now");
+		assert.equal(withExam.states.get("soon")!.needsReview, false, "the skill view still says recall is fine today");
+		assert.equal(withExam.states.get("soon")!.fading, true);
+	});
+
+	it("examReviewScore: exam weight times the loss by exam day; a priority 0 skill sinks but does not vanish", () => {
+		const high = plan.examReviewScore(3, 4, 0.5);
+		const low = plan.examReviewScore(1, 4, 0.5);
+		const none = plan.examReviewScore(0, 4, 0.5);
+		assert.ok(high > low && low > none && none > 0);
+		assert.equal(plan.examReviewScore(3, 4, 1), 0, "nothing lost, nothing to review");
+		assert.ok(plan.examReviewScore(2, 4, 0.2) > plan.examReviewScore(2, 4, 0.8));
+	});
+
+	it("pickReviewSkills with a score takes the highest scores as the weakest, keeping the stalest and the morale skill", () => {
+		const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
+		const states = new Map(ids.map((id, i) => [id, { state: state(1 + i, 2 + (id === "h" ? 80 : 0)), learned: true, known: false, needsReview: true, fading: false, missing: [] }]));
+		const p = { review: ids, states } as never;
+		// without a score: a..d are the four weakest (lowest understanding), h the stalest, g the strongest left = morale
+		assert.deepEqual([...mastery.pickReviewSkills(p)].sort(), ["a", "b", "c", "d", "g", "h"]);
+		// the exam makes e, f, g, d the costliest; h stays the stalest; the strongest left is morale
+		const score = (id: string) => ({ e: 9, f: 8, g: 7, d: 6 })[id] ?? 0;
+		const picked = mastery.pickReviewSkills(p, undefined, score);
+		assert.equal(picked.length, 6);
+		for (const id of ["e", "f", "g", "d", "h"]) assert.ok(picked.includes(id), `${id} picked`);
+		assert.equal(picked[0], picked.reduce((best, id) => (states.get(id)!.state.stability > states.get(best)!.state.stability ? id : best)), "morale (the strongest) first");
+	});
+
 });
