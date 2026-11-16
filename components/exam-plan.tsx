@@ -221,9 +221,9 @@ export function ExamPlanSection(props: ExamPlanSectionProps) {
 					<div className="space-y-3">
 						{plan.reviewDue > 0 && (
 							<div className="flex items-center justify-between gap-2 text-sm" data-testid="course-today-review">
-								<span className="flex items-center gap-2">
-									<span aria-hidden className="size-2 rounded-full" style={{ backgroundColor: "var(--lh-due)" }} />
-									{plan.reviewBatch < plan.reviewDue ? `Review · ${plan.reviewBatch} of ${plan.reviewDue} due` : `Review · ${plan.reviewDue} due`}
+								<span className="flex flex-wrap items-center gap-x-2">
+									<span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: "var(--lh-due)" }} />
+									<span className="whitespace-nowrap">{plan.reviewBatch < plan.reviewDue ? `Review · ${plan.reviewBatch} of ${plan.reviewDue} due` : `Review · ${plan.reviewDue} due`}</span>
 									{(plan.reviewFading ?? 0) > 0 && <span className="text-muted-foreground" data-testid="course-review-fading">{`· ${plan.reviewFading} fading before the exam`}</span>}
 								</span>
 								<button type="button" className={cn(BTN, "border-foreground/40 text-foreground")} disabled={busy} onClick={() => onStart("review")}>
