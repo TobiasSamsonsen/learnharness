@@ -55,6 +55,7 @@ import {
 	retrievability,
 	partitionSkills,
 	pickReviewSkills,
+	retestSkills,
 	REVIEW_SESSION_SIZE,
 	reviewAt,
 	skillEventsOf,
@@ -279,6 +280,7 @@ function examPlanOf(course: CourseRecord, p: SkillPartition, ctx: ReadContext): 
 		...(f ? { forecast: f } : {}),
 		reviewDue: p.review.length,
 		reviewFading: p.fading.length,
+		retestCount: p.order.some((id) => p.states.get(id)?.learned) ? retestSkills(p).length : 0,
 		reviewBatch: Math.min(p.review.length, REVIEW_SESSION_SIZE),
 		lessons,
 	};
@@ -841,6 +843,8 @@ export function createCourseSession(
 	pace?: Pace,
 	/** A chosen set to practice (2026-11-14): learned or next-up skills, known ones too; locked skills are refused. */
 	skillIds?: readonly string[],
+	/** A placement RETEST (2026-11-16): only skills not learned yet or learned and due or fading before the exam. */
+	retest = false,
 ): Result<{ id: string; title: string; prompt: string }> {
 	const course = stores.courseStore.getCourse(courseId);
 	if (!course) return { ok: false, status: 404, error: "Unknown course" };
@@ -848,6 +852,7 @@ export function createCourseSession(
 	const ctx = readContext();
 	const p = partitionOf(course, ctx);
 	if (skillId !== undefined && !p.order.includes(skillId)) return { ok: false, status: 400, error: "That skill is not in this course" };
+	if (retest && mode !== "placement") return { ok: false, status: 400, error: "retest is only for the placement test" };
 	let chosen: string[] | undefined;
 	if (skillIds !== undefined) {
 		if (mode !== "practice") return { ok: false, status: 400, error: "skillIds is only for practice" };
@@ -877,6 +882,13 @@ export function createCourseSession(
 			if (ids.length === 0) return { ok: false, status: 409, error: "Nothing needs review right now" };
 			break;
 		case "placement":
+			if (retest) {
+				// a retest asks only about what is not learned or needs review (owner, 2026-11-16)
+				if (!p.order.some((id) => p.states.get(id)?.learned)) return { ok: false, status: 409, error: "Nothing to retest yet — take the placement test or finish a lesson first" };
+				ids = retestSkills(p);
+				if (ids.length === 0) return { ok: false, status: 409, error: "Nothing to retest — every skill is held well" };
+				break;
+			}
 			// skills already had from another course get their own context
 			// check — the placement test does not spend questions on them
 			ids = p.order.filter((id) => !p.contextCheck.includes(id));
@@ -896,8 +908,8 @@ export function createCourseSession(
 	const byId = new Map(ctx.graph.nodes.map((n) => [n.id, n]));
 	const picked = propIds.map((id) => byId.get(id)!).filter(Boolean);
 	const chains = chainsForSelection(picked, ctx.graph.chains).map((c) => formatChainLine(c, Object.fromEntries(byId)));
-	const link: ChatCourseLink = { courseId, mode, skillIds: ids };
-	const title = courseSessionTitle(mode, course.title, skills);
+	const link: ChatCourseLink = { courseId, mode, skillIds: ids, ...(retest ? { retest: true } : {}) };
+	const title = courseSessionTitle(mode, course.title, skills, retest);
 	// Learn and the placement test are conversation sessions (the teacher;
 	// the placement tester); practice and review are practice sessions.
 	const chat = stores.chatStore.createChat(title, mode === "learn" || mode === "placement" ? undefined : "practice", link);
@@ -916,7 +928,7 @@ export function createCourseSession(
 	]);
 	// a course's activity order follows its sessions
 	stores.courseStore.updateCourse(courseId, {});
-	return { ok: true, value: { id: chat.id, title: chat.title, prompt: courseFirstMessage(mode, course.title, skills, courseLanguage(course)) } };
+	return { ok: true, value: { id: chat.id, title: chat.title, prompt: courseFirstMessage(mode, course.title, skills, courseLanguage(course), retest) } };
 }
 
 /** A review or practice course session's course and skills (id + name), for
@@ -941,7 +953,7 @@ export function courseForTurn(
 	const course = stores.courseStore.getCourse(link.courseId);
 	const ctx = readContext();
 	const skills = link.skillIds.filter((id) => ctx.skills.has(id)).map((id) => sessionSkill(id, ctx));
-	const section = coursePromptSection(link.mode, course?.title ?? "(deleted course)", skills);
+	const section = coursePromptSection(link.mode, course?.title ?? "(deleted course)", skills, link.retest === true);
 	// The exam date becomes the teacher's exam line ("12 Dec 2026, 30 days left"), read fresh every turn so a changed
 	// date, and each passing day, reach the sessions already running. The course's stored time note is no longer read.
 	const exam = examWhen(course?.examDate, Date.now());

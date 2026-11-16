@@ -202,9 +202,9 @@ export function newCourseContextMessage(opts: {
 const TITLE_SKILLS = 3;
 
 /** The session's title. */
-export function courseSessionTitle(mode: CourseMode, courseTitle: string, skills: readonly { name: string }[]): string {
+export function courseSessionTitle(mode: CourseMode, courseTitle: string, skills: readonly { name: string }[], retest = false): string {
 	if (mode === "review") return `Review: ${courseTitle}`;
-	if (mode === "placement") return `Placement: ${courseTitle}`;
+	if (mode === "placement") return `${retest ? "Retest" : "Placement"}: ${courseTitle}`;
 	// a long set (a chosen practice session) keeps the title readable: three names, then how many more
 	const shown = skills.slice(0, TITLE_SKILLS).map((s) => s.name).join(", ");
 	const names = skills.length > TITLE_SKILLS ? `${shown} +${skills.length - TITLE_SKILLS} more` : shown;
@@ -217,7 +217,9 @@ export function courseFirstMessage(
 	courseTitle: string,
 	skills: readonly { name: string; statement: string }[],
 	language: LessonLanguage = "en",
+	retest = false,
 ): string {
+	if (retest && mode === "placement") return language === "nb" ? `Ny nivåtest for ${courseTitle}: bare det jeg ikke har lært eller må repetere` : `Retest for ${courseTitle}: only what I have not learned or need to review`;
 	if (language === "nb") {
 		switch (mode) {
 			case "learn":
@@ -249,7 +251,7 @@ export function courseFirstMessage(
 const TAGGING_LAW = `Every problem you pose tests one or more of the session's skills (the session context lists them with their ids), and the problem call's \`skills\` field MUST name them. That tag is how the course tracks what the learner knows: when the problem concludes, a separate grader reads the whole problem and grades each tagged skill on the again/hard/good/easy scale, and that grade moves the skill's understanding (you never grade; your conclusion's outcome, hint rung and verdict are one account it weighs). Tag only the skills solving the problem genuinely requires.`;
 
 /** The per-turn system-prompt section of a course session. */
-export function coursePromptSection(mode: CourseMode, courseTitle: string, skills: readonly SessionSkill[]): string {
+export function coursePromptSection(mode: CourseMode, courseTitle: string, skills: readonly SessionSkill[], retest = false): string {
 	const body: string[] = [];
 	if (mode === "learn") {
 		const skill = skills[0];
@@ -265,6 +267,13 @@ export function coursePromptSection(mode: CourseMode, courseTitle: string, skill
 			"A finish that goes through logs the lesson and makes the skill learned at the grader's rating, which unlocks the skills that build on it; spaced practice and review make it known later.",
 		);
 	} else if (mode === "placement") {
+		if (retest) {
+			body.push(
+				`This is a RETEST for the course "${courseTitle}": the learner took the course's placement test or studied before, and is back (for example before the exam). The session lists ONLY what is worth asking about: skills not learned yet, and skills learned earlier that are due for review or fading. Skills the learner still holds well are left out — never ask about one. Each skill's state says which kind it is.`,
+				"A retest finds what the learner still has and what they have forgotten, so the rest of their time goes to the real gaps. The rules below are the placement test's rules, with one difference in how a miss is read: on a skill the learner had learned before, a wrong answer or \"I don't know\" is a LAPSE — its memory shortens and it comes back for review soon. On a skill never learned, a miss changes nothing, as in the first test.",
+				"",
+			);
+		}
 		body.push(
 			`This is the PLACEMENT TEST for the course "${courseTitle}": find which of the course's skills the learner already has, so their studying starts at their real edge instead of the most basic skill. The session context lists every skill, prerequisites first, with its id.`,
 			"",
@@ -272,7 +281,7 @@ export function coursePromptSection(mode: CourseMode, courseTitle: string, skill
 			`- **Aim for about ${placementQuestionTarget(skills.length)} questions** — the test narrows down, it does not cover every skill.`,
 			"- **Hardest technical skills first.** Open with the technical skills that have the most prerequisites beneath them, with a genuinely hard question. A confident correct answer credits that skill and everything it requires — never ask about a credited skill again. After a miss, an \"I don't know\", or a correct answer below the confidence line, move down to that skill's prerequisites.",
 			"- **Judgment skills last.** Skills a sensible adult can answer by common sense (using AI, reflecting, judging code, choosing an application) come only after every technical skill is tested or credited.",
-			`- How the course reads each answer: correct with confidence ≥ ${PLACEMENT_KNOWN_CONFIDENCE} → known (and its prerequisites with it, except any the learner missed directly — a direct miss always wins); less sure → learned; wrong or "I don't know" → not credited. Nothing you write changes this — ask questions whose answer really shows the skill.`,
+			`- How the course reads each answer: correct with confidence ≥ ${PLACEMENT_KNOWN_CONFIDENCE} → known (and its prerequisites with it, except any the learner missed directly — a direct miss always wins); less sure → learned; wrong or "I don't know" → ${retest ? "a lapse on a skill learned before, not credited on one never learned" : "not credited"}. Nothing you write changes this — ask questions whose answer really shows the skill.`,
 			"- Short and hard: the difficulty is the trap, not the length (the question rule below).",
 			`- When every skill is tested or credited, end with a short summary — what is solid and where to start. State only counts you actually counted. Then call \`${FINISH_SESSION_TOOL}\` and pose no further question.`,
 			`- **At about ${placementQuestionTarget(skills.length)} questions with skills still neither tested nor credited, ask ONCE with \`ask_user_question\`**: continue testing the remaining skills, or finish now — say how many remain. Continue → keep testing until every skill is tested or credited. Finish now → the summary names the untested skills plainly as not tested (never as known, never as unknown), then call \`${FINISH_SESSION_TOOL}\`.`,

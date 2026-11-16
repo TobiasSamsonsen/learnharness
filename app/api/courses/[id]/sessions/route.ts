@@ -1,5 +1,5 @@
 /**
- * POST { mode, skillId?, skillIds?, pace? } → { id, title, prompt } — start a session from
+ * POST { mode, skillId?, skillIds?, pace?, retest? } → { id, title, prompt } — start a session from
  * the course (fork addition — docs/courses.md §4). learn needs a skill;
  * practice takes one skill, a chosen set (skillIds, 2026-11-14: any learned or
  * next-up skill, known ones too) or, without either, everything being learned;
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
-	const body = (await req.json().catch(() => null)) as { mode?: unknown; skillId?: unknown; skillIds?: unknown; pace?: unknown } | null;
+	const body = (await req.json().catch(() => null)) as { mode?: unknown; skillId?: unknown; skillIds?: unknown; pace?: unknown; retest?: unknown } | null;
 	const mode = body?.mode as CourseMode;
 	if (!COURSE_MODES.includes(mode)) {
 		return Response.json({ error: `mode must be one of ${COURSE_MODES.join(", ")}` }, { status: 400 });
@@ -32,6 +32,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 		if (!parsed.ok) return Response.json({ error: parsed.error }, { status: 400 });
 		pace = parsed.pace;
 	}
-	const result = createCourseSession(id, mode, skillId, pace, skillIds);
+	const result = createCourseSession(id, mode, skillId, pace, skillIds, body?.retest === true);
 	return result.ok ? Response.json(result.value, { status: 201 }) : Response.json({ error: result.error }, { status: result.status });
 }

@@ -766,6 +766,65 @@ describe("the course service (src/server/courses.ts)", () => {
 		assert.deepEqual(chatStore.getChat(practice.value.id)!.course!.skillIds, [a]);
 	});
 
+	/** A placement chat with one confident correct answer on `skill`, answered `daysAgo` days ago. */
+	function placedOn(courseId: string, skill: string, daysAgo: number) {
+		const placement = courses.createCourseSession(courseId, "placement");
+		assert.ok(placement.ok);
+		const at = Date.now() - daysAgo * DAY;
+		const record = chatStore.getChat(placement.value.id)!;
+		chatStore.saveMessages(placement.value.id, [
+			...record.messages,
+			assistant([{ id: "pq1", name: "probe", args: { skill, question: "Q" } }], at),
+			{ ...result("pq1", "probe", at), details: { kind: "quiz", dontKnow: false, answers: [], answeredAt: "t", correct: true, confidence: 90 } } as LhMessage,
+		]);
+	}
+
+	it("a retest asks only about skills not learned or needing review (owner, 2026-11-16)", () => {
+		const fresh = approvedCourse();
+		const none = courses.createCourseSession(fresh.courseId, "placement", undefined, undefined, undefined, true);
+		assert.equal(none.ok, false, "nothing learned yet: the first placement test is the offer");
+		assert.equal(courses.createCourseSession(fresh.courseId, "practice", undefined, undefined, undefined, true).ok, false, "retest is only for placement");
+		placedOn(fresh.courseId, fresh.b, 1);
+		const held = courses.createCourseSession(fresh.courseId, "placement", undefined, undefined, undefined, true);
+		assert.ok(held.ok);
+		assert.deepEqual(chatStore.getChat(held.value.id)!.course!.skillIds, [fresh.c], "a and b were just credited: only c is not learned");
+		assert.equal(chatStore.getChat(held.value.id)!.course!.retest, true);
+		assert.equal(held.value.title, "Retest: Calc");
+		assert.equal(courses.courseView(fresh.courseId)!.plan.retestCount, 1);
+
+		const old = approvedCourse();
+		placedOn(old.courseId, old.b, 100);
+		const lapsed = courses.createCourseSession(old.courseId, "placement", undefined, undefined, undefined, true);
+		assert.ok(lapsed.ok);
+		assert.deepEqual(chatStore.getChat(lapsed.value.id)!.course!.skillIds, [old.a, old.b, old.c], "a and b are due after 100 days; c was never learned");
+		assert.match(courses.courseForTurn(lapsed.value.id)!.section, /RETEST/);
+		const plain = courses.createCourseSession(approvedCourse().courseId, "placement");
+		assert.ok(plain.ok);
+		assert.ok(!/RETEST/.test(courses.courseForTurn(plain.value.id)!.section), "the first placement test keeps its own prompt");
+	});
+
+	it("a wrong retest answer on a learned skill is a lapse; on a skill never learned it changes nothing", () => {
+		const { courseId, a, b, c } = approvedCourse();
+		placedOn(courseId, b, 100);
+		const understandingOf = (id: string) => courses.courseView(courseId)!.skills.find((x) => x.id === id)!.understanding;
+		const before = understandingOf(b);
+		const retest = courses.createCourseSession(courseId, "placement", undefined, undefined, undefined, true);
+		assert.ok(retest.ok);
+		const record = chatStore.getChat(retest.value.id)!;
+		const at = Date.now() - 1000;
+		const wrong = { kind: "quiz", dontKnow: false, answers: [], answeredAt: "t", correct: false, confidence: 80 };
+		chatStore.saveMessages(retest.value.id, [
+			...record.messages,
+			assistant([{ id: "rq1", name: "probe", args: { skill: b, question: "Q" } }], at),
+			{ ...result("rq1", "probe", at), details: wrong } as LhMessage,
+			assistant([{ id: "rq2", name: "probe", args: { skill: c, question: "Q" } }], at + 1),
+			{ ...result("rq2", "probe", at + 1), details: wrong } as LhMessage,
+		]);
+		assert.ok(understandingOf(b) < before, "b lapsed: its memory shortened");
+		assert.equal(courses.courseView(courseId)!.skills.find((x) => x.id === c)!.learned, false, "a miss on a never-learned skill changes nothing");
+		assert.equal(courses.courseView(courseId)!.skills.find((x) => x.id === a)!.learned, true, "a is still learned");
+	});
+
 	it("finishing a Learn session makes its skill learned and unlocks what builds on it; practice all = learning", () => {
 		const { courseId, a, b } = approvedCourse();
 		const learn = courses.createCourseSession(courseId, "learn", a);

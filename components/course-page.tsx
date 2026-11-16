@@ -451,6 +451,7 @@ export function CourseBody({
 	onDraft,
 	onApprove,
 	onStart,
+	onRetest,
 	onPracticeSet,
 	onMaterials,
 	materialCount,
@@ -464,6 +465,8 @@ export function CourseBody({
 	onDraft: (feedback?: string) => void;
 	onApprove: () => void;
 	onStart: (mode: CourseMode, skillId?: string) => void;
+	/** Start a placement retest: only what is not learned or needs review (owner, 2026-11-16). */
+	onRetest?: () => void;
 	/** Start one practice session on the chosen skills ("Choose skills" mode). */
 	onPracticeSet?: (skillIds: string[]) => void;
 	onMaterials?: (materials: LessonMaterial[]) => void;
@@ -626,6 +629,7 @@ export function CourseBody({
 					canWeigh={!drafting && materialCount > 0}
 					busy={busy}
 					onStart={onStart}
+					onRetest={onRetest}
 					onChanged={() => onChanged?.()}
 				/>
 
@@ -908,6 +912,13 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 		const { id, prompt } = (await res.json()) as { id: string; prompt: string };
 		router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}`);
 	};
+	// "Retest what I know": a placement test on only what is not learned or needs review (owner, 2026-11-16)
+	const onRetest = async () => {
+		const res = await call(`/api/courses/${courseId}/sessions`, { mode: "placement", retest: true });
+		if (!res) return;
+		const { id, prompt } = (await res.json()) as { id: string; prompt: string };
+		router.push(`/chat/${id}?prompt=${encodeURIComponent(prompt)}`);
+	};
 	// "Choose skills": one practice session on the ticked skills (owner, 2026-11-14)
 	const onPracticeSet = async (skillIds: string[]) => {
 		const res = await call(`/api/courses/${courseId}/sessions`, { mode: "practice", skillIds });
@@ -1026,6 +1037,7 @@ data={data}
 					}}
 					onMaterials={onMaterials}
 					onPracticeSet={(ids) => void onPracticeSet(ids)}
+					onRetest={() => void onRetest()}
 					materialCount={materialCount}
 					placementSkipped={placementSkipped}
 					onSkipPlacement={() => {

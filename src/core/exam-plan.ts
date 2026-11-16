@@ -354,6 +354,8 @@ export interface CoursePlan {
 	/** Reviews due, and how many the next review session takes. With an exam date a due skill is also one that is fine
 	 *  today but projected below the target on exam day. */
 	reviewDue: number;
+	/** How many skills a placement retest would ask about (not learned, or learned and due or fading); 0 until something is learned. */
+	retestCount?: number;
 	/** How many of `reviewDue` are only fading before the exam (fine today). */
 	reviewFading?: number;
 	reviewBatch: number;

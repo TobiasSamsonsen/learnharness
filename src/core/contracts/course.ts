@@ -150,6 +150,9 @@ export interface ChatCourseLink {
 	mode: CourseMode;
 	/** The skills the session works on. */
 	skillIds: string[];
+	/** A placement session that is a RETEST (owner, 2026-11-16): it asks only about skills not learned yet and learned
+	 *  skills that are due or fading before the exam, and a miss on a learned skill is a lapse (core/mastery.ts). */
+	retest?: boolean;
 }
 
 // ─── The API payloads ───────────────────────────────────────────────────────

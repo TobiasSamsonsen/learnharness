@@ -180,6 +180,8 @@ export interface ExamPlanSectionProps {
 	canWeigh: boolean;
 	busy: boolean;
 	onStart: (mode: CourseMode, skillId?: string) => void;
+	/** Start a placement RETEST (owner, 2026-11-16); the row shows when `plan.retestCount` > 0. */
+	onRetest?: () => void;
 	onChanged: () => void;
 }
 
@@ -192,13 +194,14 @@ export interface ExamPlanSectionProps {
  * course is weighed the card holds "Weigh by exams"; afterwards it says so in one line and "Weigh again" is a setting.
  */
 export function ExamPlanSection(props: ExamPlanSectionProps) {
-	const { courseId, plan, names, weightOf, nextUp, learningCount, examDate, readiness, hasWeights, weightsError, weighing, canWeigh, busy, onStart, onChanged } = props;
+	const { courseId, plan, names, weightOf, nextUp, learningCount, examDate, readiness, hasWeights, weightsError, weighing, canWeigh, busy, onStart, onRetest, onChanged } = props;
 	const { error, starting, patch, weigh } = useExamActions(courseId, onChanged);
 
 	const f = plan.forecast;
 	const more = nextUp.filter((id) => !plan.lessons.includes(id)).slice(0, MORE_NEXT_UP);
 	const practiceAll = learningCount > 1;
-	const boxHasItems = plan.reviewDue > 0 || plan.lessons.length > 0 || more.length > 0 || practiceAll;
+	const retest = (plan.retestCount ?? 0) > 0 && onRetest !== undefined;
+	const boxHasItems = plan.reviewDue > 0 || plan.lessons.length > 0 || more.length > 0 || practiceAll || retest;
 	const learnRow = (id: string, testid: string) => (
 		<div key={id} className="flex items-center justify-between gap-2 py-1.5 text-sm" data-testid={testid}>
 			<span className="min-w-0 flex-1 line-clamp-2 break-words sm:line-clamp-none sm:block sm:truncate">
@@ -238,6 +241,14 @@ export function ExamPlanSection(props: ExamPlanSectionProps) {
 							<div data-testid="course-next-more">
 								<div className={BOX_HEAD}>More to learn</div>
 								<div className="divide-y divide-border/50">{more.map((id) => learnRow(id, `course-next-more-${id}`))}</div>
+							</div>
+						)}
+						{retest && (
+							<div className="flex items-center justify-between gap-2 border-t border-border/50 pt-3 text-sm" data-testid="course-next-retest">
+								<span>Retest what I know · {plan.retestCount} to check</span>
+								<button type="button" className={BTN} disabled={busy} onClick={() => onRetest?.()}>
+									Retest
+								</button>
 							</div>
 						)}
 						{practiceAll && (

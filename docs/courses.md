@@ -268,6 +268,15 @@ session (`CourseView.reviewBatch` is how many the next one takes). The prompt
 (`coursePromptSection`) says the listed skills ARE the session, and that every skill is tested
 in the listed order; a problem may group several skills at a higher difficulty.
 
+**Retest what I know (owner, 2026-11-16).** A row in the Next up box (shown once any skill is learned
+and `plan.retestCount` > 0) starts a placement test on only what is not learned or needs review, so a
+learner who comes back after months, or just before the exam, does not re-answer what they still hold.
+The credit rules are the placement test's (confidence 70 or more renews the skill and its prerequisites)
+with one change: a wrong answer or "I don't know" on a skill learned before is a `retestMiss`, folded as
+an `again` (a lapse: the memory shortens and the skill returns to review); on a skill never learned the
+fold ignores the `again`, so a miss still changes nothing. A skill missed in a retest also blocks
+inferred prerequisite credit, like a direct placement miss.
+
 **Exam-aware review (owner, 2026-11-16).** With an upcoming exam date, a learned skill also needs
 review when it is fine today but its projected recall on exam day is below 90%
 (`fadesBefore`, `partitionSkills(…, examAt)`; `SkillPartition.fading` lists those, and the Next up
@@ -440,6 +449,7 @@ A long set titles the session with three names and "+n more".
 | Practice (one skill, or all of Learning) | practice | the chosen skill(s) | "Practice: <names>" |
 | Review | practice | the due skills | "Review my due skills" |
 | Placement test | conversation — the placement tester (`createPlacementAgent`) | all course skills except those had from another course | "Placement test for <course>" |
+| Retest (a placement test with `retest: true` on the session link, 2026-11-16) | the same placement tester, with a retest paragraph in its course section | skills not learned yet, and learned skills that need review (due now or fading before the exam): `retestSkills` | "Retest for <course>: only what I have not learned or need to review" |
 | Context check (one skill had from another course) | practice | the skill | "I already know this from another course — check that I can use it in <course>: <statement>" |
 
 - **Course materials serve every course session.** `materialsForTurn` adds the

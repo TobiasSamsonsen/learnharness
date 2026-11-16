@@ -470,6 +470,16 @@ describe("the exam plan on the page", () => {
 		assert.ok(!html.includes("reads your past exams"), "no long explainer");
 	});
 
+	it("shows how many skills fade before the exam and a retest row only when something is to check (owner, 2026-11-16)", () => {
+		const html = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ plan: { ...basePlan, reviewFading: 3, retestCount: 5 }, onRetest: () => {} })} />);
+		assert.match(html, /data-testid="course-review-fading"[^>]*>· 3 fading before the exam/);
+		assert.match(html, /data-testid="course-next-retest"[\s\S]*Retest what I know · 5 to check[\s\S]*>Retest</);
+		const quiet = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ plan: { ...basePlan, retestCount: 0 }, onRetest: () => {} })} />);
+		assert.ok(!quiet.includes("course-next-retest") && !quiet.includes("course-review-fading"));
+		const noHandler = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ plan: { ...basePlan, retestCount: 5 } })} />);
+		assert.ok(!noHandler.includes("course-next-retest"));
+	});
+
 	it("with no exam date the card holds the date field", () => {
 		const html = renderToStaticMarkup(<examUi.ExamPlanSection {...props()} />);
 		assert.match(html, /<input[^>]*type="date"[^>]*data-testid="course-exam-date"/);

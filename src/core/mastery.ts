@@ -76,7 +76,7 @@ export type ProblemOutcome = "solved" | "solvedWithHints" | "movedOn" | "surrend
 
 /** The non-problem evidence: a finished Learn session, and the placement
  *  test's three grades. */
-export type SkillOutcome = ProblemOutcome | "finished" | "placementKnown" | "placementUnsure" | "placementMiss";
+export type SkillOutcome = ProblemOutcome | "finished" | "placementKnown" | "placementUnsure" | "placementMiss" | "retestMiss";
 
 /** One piece of evidence on one skill. */
 export interface SkillEvent {
@@ -120,6 +120,7 @@ export function defaultGrade(outcome: SkillOutcome): Grade | null {
 		case "movedOn":
 		case "surrendered":
 		case "taught":
+		case "retestMiss":
 			return "again";
 		default:
 			return null;
@@ -268,7 +269,10 @@ export function skillEventsOf(messages: readonly LhMessage[], link: ChatCourseLi
 			const skillId = skillOf.get(result.toolCallId);
 			const answer = result.details as QuestionAnswerData | undefined;
 			if (!skillId || result.isError || !answer || typeof answer !== "object" || answer.dismissed) continue;
-			events.push({ skillId, at: result.timestamp, outcome: placementGrade(answer), placement: false });
+			// a retest (owner, 2026-11-16): a miss on a skill learned before is a lapse; on one never learned the fold
+			// ignores the `again`, so a miss still changes nothing there
+			const grade = placementGrade(answer);
+			events.push({ skillId, at: result.timestamp, outcome: link.retest && grade === "placementMiss" ? "retestMiss" : grade, placement: false });
 		}
 	}
 	let active: string[] | null = null;
@@ -324,7 +328,7 @@ export function foldSkills(events: readonly SkillEvent[], requiresOf: (id: strin
 	/** Direct evidence beats inference (owner, 2026-10-25 — the ITGK
 	 *  placement): a prerequisite the learner missed directly is never
 	 *  credited through a skill above it, whichever came first. */
-	const missedDirectly = new Set(events.filter((e) => e.outcome === "placementMiss").map((e) => e.skillId));
+	const missedDirectly = new Set(events.filter((e) => e.outcome === "placementMiss" || e.outcome === "retestMiss").map((e) => e.skillId));
 	/** Raise a learned skill's stability to at least `days` (never lowers). */
 	const seed = (skillId: string, days: number) => {
 		const state = states.get(skillId);
@@ -409,6 +413,13 @@ export function pickReviewSkills(p: Pick<SkillPartition, "review" | "states">, s
 	// morale first: the strongest of the pick (by understanding)
 	const morale = [...ordered].sort((a, b) => b.understanding - a.understanding || ordered.indexOf(b) - ordered.indexOf(a))[0];
 	return morale ? [morale.id, ...ordered.filter((c) => c !== morale).map((c) => c.id)] : [];
+}
+
+/** The skills a RETEST asks about (owner, 2026-11-16), prerequisites first: skills not learned yet, and learned skills that
+ *  need review (due now, or fading before the exam). Skills the learner still holds well are skipped. */
+export function retestSkills(p: Pick<SkillPartition, "order" | "review" | "states">): string[] {
+	const due = new Set(p.review);
+	return p.order.filter((id) => !(p.states.get(id)?.learned ?? false) || due.has(id));
 }
 
 /** A course's skills, partitioned for the route (docs/courses.md §2). */
