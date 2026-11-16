@@ -242,6 +242,17 @@ export interface LessonResult {
 	next: { id: string; name: string } | null;
 }
 
+/** One open missed problem on the course page (owner, 2026-11-16). */
+export interface MissedProblemView {
+	id: string;
+	/** ISO — when the problem was concluded. */
+	at: string;
+	statement: string;
+	/** "gave up", "moved on", "was taught the answer", "needed hints" */
+	how: string;
+	skills: Array<{ id: string; name: string }>;
+}
+
 /** GET /api/courses/[id]. */
 export interface CourseView {
 	course: CourseRecord;
@@ -265,6 +276,9 @@ export interface CourseView {
 	 *  offered a short context check, never forced (they also stay in
 	 *  `known` / `learning`, which the counts read). */
 	contextCheck: string[];
+	/** Open missed problems, newest first (core/missed-problems.ts): problems given up, moved on from, taught or solved only
+	 *  with hints, not yet followed by a clean solve of a problem covering the same skills. At most 20. */
+	missed?: MissedProblemView[];
 	/** Course sessions, newest first. `finished`: a Learn session's finish. */
 	sessions: Array<{ id: string; title: string; mode: CourseMode; updatedAt: string; finished?: boolean }>;
 	/** Existing skills a draft reuses, by id (to show their names). */

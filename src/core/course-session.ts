@@ -251,7 +251,28 @@ export function courseFirstMessage(
 const TAGGING_LAW = `Every problem you pose tests one or more of the session's skills (the session context lists them with their ids), and the problem call's \`skills\` field MUST name them. That tag is how the course tracks what the learner knows: when the problem concludes, a separate grader reads the whole problem and grades each tagged skill on the again/hard/good/easy scale, and that grade moves the skill's understanding (you never grade; your conclusion's outcome, hint rung and verdict are one account it weighs). Tag only the skills solving the problem genuinely requires.`;
 
 /** The per-turn system-prompt section of a course session. */
-export function coursePromptSection(mode: CourseMode, courseTitle: string, skills: readonly SessionSkill[], retest = false): string {
+/** A problem the learner missed earlier, as the practice and review prompts show it (core/missed-problems.ts). */
+export interface MissedForPrompt {
+	statement: string;
+	/** The names of the skills it tested that this session also covers. */
+	skillNames: string[];
+	/** "gave up", "moved on", "was taught", "needed hints" */
+	how: string;
+	/** "2026-11-12" */
+	date: string;
+}
+
+/** The block that has a practice or review session retest each open miss as a VARIANT (owner, 2026-11-16). */
+function missedBlock(missed: readonly MissedForPrompt[]): string[] {
+	if (missed.length === 0) return [];
+	return [
+		"",
+		"MISSED EARLIER — the learner missed the problems below in earlier sessions. For each one, pose a VARIANT in this session as a problem on those skills: the same idea at the same difficulty on a fresh surface (new numbers, a changed situation), never the original and never its solution, tagged with the same skills. The variant counts as one of the session's problems for those skills, not an extra. Pose them early in the session. When the learner solves a variant without hints, the miss is closed.",
+		...missed.map((m) => `- (${m.skillNames.join(", ")}; ${m.how} on ${m.date}) ${m.statement.replace(/\s+/g, " ").trim()}`),
+	];
+}
+
+export function coursePromptSection(mode: CourseMode, courseTitle: string, skills: readonly SessionSkill[], retest = false, missed: readonly MissedForPrompt[] = []): string {
 	const body: string[] = [];
 	if (mode === "learn") {
 		const skill = skills[0];
@@ -305,5 +326,6 @@ export function coursePromptSection(mode: CourseMode, courseTitle: string, skill
 			);
 		}
 	}
+	if (mode === "practice" || mode === "review") body.push(...missedBlock(missed));
 	return `<course>\n${body.filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n").trim()}\n</course>`;
 }

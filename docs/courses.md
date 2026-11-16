@@ -277,6 +277,16 @@ an `again` (a lapse: the memory shortens and the skill returns to review); on a 
 fold ignores the `again`, so a miss still changes nothing. A skill missed in a retest also blocks
 inferred prerequisite credit, like a direct placement miss.
 
+**Missed problems (owner, 2026-11-16).** A course practice, review or check problem concluded as
+`surrendered`, `movedOn`, `taught` or `solvedWithHints` is a miss (a dismissed one is not). Misses are
+derived from the chats (`core/missed-problems.ts`, nothing stored): a miss is open until a LATER problem
+that covers every one of its skills is concluded `solved`. A practice or review session tells the tutor
+about the open misses that share a skill with it (the "MISSED EARLIER" block of `coursePromptSection`,
+newest first, at most 6) and asks for a VARIANT of each: same idea and difficulty, a fresh surface, never the
+original, counted as one of the session's problems. The course page lists the open misses (`CourseView.missed`,
+at most 20) under Due for review, each with **Retry as new variant**, which starts a practice session on
+that problem's skills.
+
 **Exam-aware review (owner, 2026-11-16).** With an upcoming exam date, a learned skill also needs
 review when it is fine today but its projected recall on exam day is below 90%
 (`fadesBefore`, `partitionSkills(…, examAt)`; `SkillPartition.fading` lists those, and the Next up

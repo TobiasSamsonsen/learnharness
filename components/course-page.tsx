@@ -720,6 +720,27 @@ export function CourseBody({
 								</section>
 							)}
 
+							{(data.missed?.length ?? 0) > 0 && (
+								<section data-testid="course-missed">
+									<div className="mb-2 flex items-center justify-between">
+										<span className={cn(SECTION_HEAD, "mb-0")}>Missed problems · {data.missed!.length}</span>
+									</div>
+									<RowList>
+										{data.missed!.map((m) => (
+											<div key={m.id} className="flex items-start justify-between gap-3 break-inside-avoid border-b border-border/50 py-2 text-sm" data-testid={`course-missed-${m.id}`}>
+												<div className="min-w-0">
+													<div className="line-clamp-2">{m.statement}</div>
+													<div className="mt-0.5 text-xs text-muted-foreground">{m.skills.map((s) => s.name).join(", ")} · {m.how} · {m.at.slice(0, 10)}</div>
+												</div>
+												<button type="button" className={cn(BTN, "lh-touch shrink-0")} disabled={busy || !onPracticeSet} onClick={() => onPracticeSet?.(m.skills.map((s) => s.id))}>
+													Retry as new variant
+												</button>
+											</div>
+										))}
+									</RowList>
+								</section>
+							)}
+
 							<section data-testid="course-next">
 								<div className="mb-2 flex items-center justify-between">
 									<span className={cn(SECTION_HEAD, "mb-0")}>Next up · {data.nextUp.length}{hasWeights ? " · by exam weight" : ""}</span>

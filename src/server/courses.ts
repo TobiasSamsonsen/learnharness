@@ -13,6 +13,7 @@ import type {
 	GraphEdge,
 	GraphSkillLayer,
 	GraphSkillNode,
+	MissedProblemView,
 	Skill,
 	TodayCourse,
 } from "../core/contracts.ts";
@@ -66,6 +67,7 @@ import {
 } from "../core/mastery.ts";
 import { DEFAULT_LESSON_LANGUAGE, type LessonLanguage } from "../core/language.ts";
 import { materialBlock } from "../core/materials.ts";
+import { concludedProblemsOf, missesForSession, openMisses, type ConcludedProblem, type MissedProblem } from "../core/missed-problems.ts";
 import { normalizePaceNote, type Pace } from "../core/pace.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { mergeSkillLines } from "../core/skills.ts";
@@ -121,12 +123,31 @@ interface LessonNote {
 }
 
 /** Every course session's skill evidence, by course, and each skill's lesson note, in one pass over the chats. */
-function courseEvidence(): { byCourse: Map<string, SkillEvent[]>; notes: Map<string, LessonNote> } {
+/** The course page's list of open misses: newest first, the skills that still exist in the course map, at most 20. */
+function missedViews(open: readonly MissedProblem[], ctx: ReadContext): MissedProblemView[] {
+	const out: MissedProblemView[] = [];
+	for (const m of open) {
+		const skills = m.skills.filter((id) => ctx.skills.has(id)).map((id) => ({ id, name: ctx.skills.get(id)!.name }));
+		if (skills.length === 0) continue;
+		out.push({ id: m.id, at: new Date(m.at).toISOString(), statement: m.statement, how: MISS_HOW[m.outcome] ?? "missed it", skills });
+		if (out.length >= 20) break;
+	}
+	return out;
+}
+
+/** How a miss is put to the tutor. */
+const MISS_HOW: Partial<Record<string, string>> = { surrendered: "gave up", movedOn: "moved on", taught: "was taught the answer", solvedWithHints: "needed hints" };
+
+function courseEvidence(): { byCourse: Map<string, SkillEvent[]>; notes: Map<string, LessonNote>; problems: Map<string, ConcludedProblem[]> } {
 	const byCourse = new Map<string, SkillEvent[]>();
+	const problems = new Map<string, ConcludedProblem[]>();
 	const notes = new Map<string, LessonNote>();
 	for (const chat of courseChats()) {
 		const link = chat!.course!;
 		byCourse.set(link.courseId, [...(byCourse.get(link.courseId) ?? []), ...skillEventsOf(chat!.messages, link)]);
+		if (link.mode === "practice" || link.mode === "review" || link.mode === "check") {
+			problems.set(link.courseId, [...(problems.get(link.courseId) ?? []), ...concludedProblemsOf(chat!.messages, chat!.id)]);
+		}
 		if (link.mode !== "learn") continue;
 		const note = finishSummaryOf(chat!.messages);
 		if (!note) continue;
@@ -135,7 +156,7 @@ function courseEvidence(): { byCourse: Map<string, SkillEvent[]>; notes: Map<str
 			if (!held || held.at < note.at) notes.set(skillId, { summary: note.summary, at: note.at, chatId: chat!.id });
 		}
 	}
-	return { byCourse, notes };
+	return { byCourse, notes, problems };
 }
 
 interface ReadContext {
@@ -147,6 +168,8 @@ interface ReadContext {
 	byCourse: Map<string, SkillEvent[]>;
 	/** Each skill's newest lesson note. */
 	notes: Map<string, LessonNote>;
+	/** Per course: its concluded practice, review and check problems (core/missed-problems.ts). */
+	problems: Map<string, ConcludedProblem[]>;
 	now: number;
 }
 
@@ -154,9 +177,9 @@ function readContext(): ReadContext {
 	const graph = getGraph(stores.graphStore);
 	const nodeIds = new Set(graph.nodes.map((n) => n.id));
 	const skills = allSkills(nodeIds);
-	const { byCourse, notes } = courseEvidence();
+	const { byCourse, notes, problems } = courseEvidence();
 	const skillStates = foldSkills([...byCourse.values()].flat(), (id) => skills.get(id)?.requires ?? []);
-	return { graph, nodeIds, skills, skillStates, byCourse, notes, now: Date.now() };
+	return { graph, nodeIds, skills, skillStates, byCourse, notes, problems, now: Date.now() };
 }
 
 function checkContext(ctx = readContext()): DraftCheckContext {
@@ -401,6 +424,7 @@ export function courseView(courseId: string): CourseView | null {
 		locked: p.locked,
 		known: p.known,
 		contextCheck: p.contextCheck,
+		missed: missedViews(openMisses(ctx.problems.get(courseId) ?? []), ctx),
 		sessions,
 		reused,
 	};
@@ -953,7 +977,15 @@ export function courseForTurn(
 	const course = stores.courseStore.getCourse(link.courseId);
 	const ctx = readContext();
 	const skills = link.skillIds.filter((id) => ctx.skills.has(id)).map((id) => sessionSkill(id, ctx));
-	const section = coursePromptSection(link.mode, course?.title ?? "(deleted course)", skills, link.retest === true);
+	// open misses on this session's skills: practice and review retest each as a variant (owner, 2026-11-16)
+	const missed = link.mode === "practice" || link.mode === "review" ? missesForSession(openMisses(ctx.problems.get(link.courseId) ?? []), link.skillIds) : [];
+	const nameOf = (id: string) => ctx.skills.get(id)?.name ?? id;
+	const section = coursePromptSection(link.mode, course?.title ?? "(deleted course)", skills, link.retest === true, missed.map((m) => ({
+		statement: m.statement,
+		skillNames: m.skills.filter((s) => link.skillIds.includes(s)).map(nameOf),
+		how: MISS_HOW[m.outcome] ?? "missed it",
+		date: new Date(m.at).toISOString().slice(0, 10),
+	})));
 	// The exam date becomes the teacher's exam line ("12 Dec 2026, 30 days left"), read fresh every turn so a changed
 	// date, and each passing day, reach the sessions already running. The course's stored time note is no longer read.
 	const exam = examWhen(course?.examDate, Date.now());

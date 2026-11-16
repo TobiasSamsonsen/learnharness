@@ -24,6 +24,7 @@ const { mergeSkillLines, prerequisiteClosure, topoOrder } = await import("../src
 const mastery = await import("../src/core/mastery.ts");
 const { approveDraft, draftProblems, uncitedMaterials } = await import("../src/core/course-draft.ts");
 const session = await import("../src/core/course-session.ts");
+const missedMod = await import("../src/core/missed-problems.ts");
 const { skillStore } = await import("../src/store/skills.ts");
 const { courseStore } = await import("../src/store/courses.ts");
 const { chatStore } = await import("../src/store/chats.ts");
@@ -825,6 +826,50 @@ describe("the course service (src/server/courses.ts)", () => {
 		assert.equal(courses.courseView(courseId)!.skills.find((x) => x.id === a)!.learned, true, "a is still learned");
 	});
 
+	it("missed problems: derived from the practice chats, retested as variants, closed by a clean solve of the same skills (owner, 2026-11-16)", () => {
+		const { courseId, a, b } = approvedCourse();
+		const first = courses.createCourseSession(courseId, "practice", a);
+		assert.ok(first.ok);
+		const t = Date.now() - 5 * DAY;
+		chatStore.saveMessages(first.value.id, [
+			...chatStore.getChat(first.value.id)!.messages,
+			...problem([a], "surrendered", t),
+			...problem([b], "solved", t + 10),
+			...problem([a, b], "solvedWithHints", t + 20),
+			...problem([a], "dismissed", t + 30),
+		]);
+		const open = () => courses.courseView(courseId)!.missed!;
+		assert.deepEqual(open().map((m) => m.how), ["needed hints", "gave up"], "newest first; a dismissed or solved problem is no miss");
+		assert.deepEqual(open()[0]!.skills.map((x) => x.id).sort(), [a, b].sort());
+
+		// the next practice of a skill is told about the open misses on it
+		const next = courses.createCourseSession(courseId, "practice", a);
+		assert.ok(next.ok);
+		const section = courses.courseForTurn(next.value.id)!.section;
+		assert.match(section, /MISSED EARLIER[\s\S]*VARIANT/);
+		assert.match(section, /gave up on \d{4}-\d{2}-\d{2}/);
+		assert.match(section, /needed hints on/);
+		// a session on an unrelated skill set is not
+		const other = courses.createCourseSession(courseId, "practice", courses.courseView(courseId)!.skills.find((x) => x.id !== a && x.id !== b)!.id);
+		if (other.ok) assert.ok(!/MISSED EARLIER/.test(courses.courseForTurn(other.value.id)!.section));
+
+		// a clean solve of a problem covering a miss's skills closes it; one covering only some of them does not
+		chatStore.saveMessages(next.value.id, [...chatStore.getChat(next.value.id)!.messages, ...problem([a], "solved", t + 1000)]);
+		assert.deepEqual(open().map((m) => m.how), ["needed hints"], "the single-skill miss is closed; the two-skill one needs both skills");
+		chatStore.saveMessages(next.value.id, [...chatStore.getChat(next.value.id)!.messages, ...problem([a, b], "solved", t + 2000)]);
+		assert.deepEqual(open(), []);
+	});
+
+	it("missed-problems core: errored poses and dismissed problems count for nothing, and a solve must come later", () => {
+		const msgs = [...problem(["a"], "movedOn", 100), ...problem(["a"], "solved", 50), ...problem(["b"], "taught", 200, { poseError: true })];
+		const all = missedMod.concludedProblemsOf(msgs, "chat1");
+		assert.equal(all.length, 2, "the problem whose pose errored never happened");
+		assert.deepEqual(missedMod.openMisses(all).map((m) => m.outcome), ["movedOn"], "a solve BEFORE the miss does not close it");
+		assert.equal(missedMod.openMisses(all)[0]!.id, "chat1:101");
+		assert.deepEqual(missedMod.missesForSession(missedMod.openMisses(all), ["z"]), []);
+		assert.equal(missedMod.missesForSession(missedMod.openMisses(all), ["a"]).length, 1);
+	});
+
 	it("finishing a Learn session makes its skill learned and unlocks what builds on it; practice all = learning", () => {
 		const { courseId, a, b } = approvedCourse();
 		const learn = courses.createCourseSession(courseId, "learn", a);
@@ -1332,6 +1377,14 @@ describe("the UI", () => {
 		assert.doesNotMatch(html, /course-draft"/);
 		assert.equal(courseProgress(payload()), "1/2 known");
 		assert.doesNotMatch(html, /placement-offer/, "a course with sessions offers no placement");
+	});
+
+	it("an open miss is listed with a button that practices its skills; a course without misses has no list (owner, 2026-11-16)", () => {
+		const missed = [{ id: "chat_1:1", at: "2026-11-12T10:00:00.000Z", statement: "Differentiate x^2 sin x", how: "gave up", skills: [{ id: "a", name: "Product rule" }] }];
+		const html = body(payload({ missed }));
+		assert.match(html, /data-testid="course-missed"[\s\S]*Missed problems · 1[\s\S]*Differentiate x\^2 sin x[\s\S]*Product rule · gave up · 2026-11-12[\s\S]*Retry as new variant/);
+		assert.doesNotMatch(body(payload()), /course-missed/);
+		assert.doesNotMatch(body(payload({ missed: [] })), /course-missed/);
 	});
 
 	it("the Review button says how many of the due skills the next review takes (the session cap)", () => {
