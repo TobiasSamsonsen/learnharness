@@ -125,7 +125,7 @@ export function KeyboardSection() {
 				if (!actions.length) return null;
 				return (
 					<div key={scope} ref={scope === "global" ? rootRef : undefined} data-testid={`kbd-scope-${scope}`}>
-						<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">{label}</p>
+						<p className="mb-1 text-[13px] font-medium text-muted-foreground">{label}</p>
 						<div className="flex flex-col gap-2">
 							{actions.map((def) => {
 								const effective = overrides[def.id] ?? def.binding;
@@ -179,7 +179,7 @@ export function KeyboardSection() {
 				);
 			})}
 			{[...new Set(pluginRows.map(row => row.pluginId))].map(pluginId => <div key={pluginId} data-testid={`kbd-plugin-${pluginId}`}>
-				<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">{pluginRows.find(row => row.pluginId === pluginId)!.pluginName}</p>
+				<p className="mb-1 text-[13px] font-medium text-muted-foreground">{pluginRows.find(row => row.pluginId === pluginId)!.pluginName}</p>
 				<div className="flex flex-col gap-2">{pluginRows.filter(row => row.pluginId === pluginId).map(row => <SettingsRow key={row.id} label={row.name}
 					hint={`${pluginShortcutScopeLabel(row)}${row.reason ? ` · Inactive: ${row.reason}` : ""}`} testid={`kbd-row-${row.id}`}>
 					<span className="flex items-center gap-2">

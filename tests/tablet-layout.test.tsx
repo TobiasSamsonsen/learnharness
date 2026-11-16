@@ -29,8 +29,8 @@ describe("settings dialog below 1024px", () => {
 		for (const side of ["top", "right", "bottom", "left"]) assert.ok(dialog.includes(`var(--lh-safe-${side})`), side);
 	});
 
-	it("keeps the desktop modal above the line", () => {
-		assert.match(html, /h-\[620px\][^"]*w-\[920px\]/);
+	it("keeps the desktop modal above the line, growing with the screen up to 1120x800 (owner, 2026-11-16)", () => {
+		assert.match(html, /h-\[min\(800px,calc\(100vh-4rem\)\)\][^"]*w-\[min\(1120px,90vw\)\]/);
 	});
 
 	it("replaces the left nav with a category list (one large row per section) that is hidden on desktop", () => {

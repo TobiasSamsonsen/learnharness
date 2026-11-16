@@ -69,7 +69,7 @@ describe("SettingsDialog (the designed surface, SSR)", () => {
 			["plugins", "Community plugins", "puzzle"],
 		];
 		assert.ok(document.querySelector('[data-testid="settings-nav"]')!.classList.contains("w-48"), "approved 192px sidebar leaves room for the icon and Community plugins label");
-		assert.ok(document.querySelector('[data-testid="settings-dialog"]')!.classList.contains("w-[920px]"), "overall dialog width is unchanged");
+		assert.ok(document.querySelector('[data-testid="settings-dialog"]')!.classList.contains("w-[min(1120px,90vw)]"), "the dialog grows with the screen up to 1120px (owner, 2026-11-16)");
 		const buttons = [...document.querySelectorAll('[data-testid="settings-nav"] button')];
 		assert.deepEqual(buttons.map(button => button.textContent), expected.map(([, label]) => label));
 		for (const [id, label, iconName] of expected) {

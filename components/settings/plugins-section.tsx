@@ -25,7 +25,7 @@ export function PluginsSection({ onOpenSettings, origin = "community" }: { onOpe
 			</ol>
 		</details>
 		<div data-testid="plugin-authoring-help" className="space-y-2 border-t border-border/60 pt-3">
-			<h3 className="text-xs uppercase tracking-widest">Build a plugin</h3>
+			<h3 className="text-[13px] font-medium">Build a plugin</h3>
 			<p className="font-prose text-sm text-muted-foreground">Download the authoring skill for your coding agent.</p>
 			<Button variant="outline" size="sm" asChild><a href="/plugin-authoring/learnharness-plugins.zip" download={`learnharness-plugins-${process.env.LH_VERSION ?? "authoring"}.zip`} data-testid="download-plugin-authoring">Download authoring skill</a></Button>
 		</div>

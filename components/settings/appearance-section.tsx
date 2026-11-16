@@ -298,9 +298,9 @@ export function AppearanceSection({
 			/>
 			<div data-testid="group-colors" className="mt-5 flex flex-col gap-2">
 				<div className="flex items-end justify-between gap-4">
-					<p className="text-xs uppercase tracking-widest text-muted-foreground">
+					<p className="text-[13px] font-medium text-muted-foreground">
 						Colors{" "}
-						<span className="normal-case tracking-normal text-muted-foreground/70">
+						<span className="text-xs font-normal text-muted-foreground/70">
 							· overrides on top of the theme, kept when you switch
 						</span>
 					</p>
@@ -326,7 +326,7 @@ export function AppearanceSection({
 					))}
 				</div>
 			</div>
-			<p className="mt-5 mb-2 text-xs uppercase tracking-widest text-muted-foreground">Typography</p>
+			<p className="mt-5 mb-2 text-[13px] font-medium text-muted-foreground">Typography</p>
 			<SettingsRow
 				label="Reading font"
 				hint={`Empty = ${DEFAULT_READING_FONT}`}

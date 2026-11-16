@@ -404,7 +404,8 @@ export function SettingsDialogBody({
 			className={
 					// Below 1024px (M5, the sidebar drawer's line) the dialog IS the
 					// screen: edge to edge, padded by the safe-area insets.
-					"settings-dialog-pop flex h-[620px] max-h-[85vh] w-[920px] max-w-[90vw] flex-col overflow-hidden rounded-md border border-border bg-card shadow-xl " +
+					// It grows with the screen up to 1120x800, keeping a margin (owner, 2026-11-16: 920x620 left a tablet's room unused).
+					"settings-dialog-pop flex h-[min(800px,calc(100vh-4rem))] w-[min(1120px,90vw)] flex-col overflow-hidden rounded-md border border-border bg-card shadow-xl " +
 					"max-lg:h-full max-lg:max-h-none max-lg:w-full max-lg:max-w-none max-lg:rounded-none max-lg:border-0 max-lg:shadow-none " +
 					"max-lg:pb-[var(--lh-safe-bottom)] max-lg:pl-[var(--lh-safe-left)] max-lg:pr-[var(--lh-safe-right)] max-lg:pt-[var(--lh-safe-top)]"
 				}
