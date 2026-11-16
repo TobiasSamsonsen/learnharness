@@ -437,6 +437,7 @@ describe("exam readiness", () => {
 const { renderToStaticMarkup } = await import("react-dom/server");
 const examUi = await import("../components/exam-plan.tsx");
 const todayUi = await import("../components/today-section.tsx");
+const todayPage = await import("../components/today-page.tsx");
 
 describe("the exam plan on the page", () => {
 	const names = new Map([["sk_a", "Taylor series"], ["sk_b", "Row reduction"]]);
@@ -461,7 +462,7 @@ describe("the exam plan on the page", () => {
 		assert.match(html, /data-testid="course-exam-countdown"[^>]*>[\s\S]*?29 d[\s\S]*?12 Dec 2026/);
 		assert.match(html, /27 skills left/);
 		assert.match(html, /needs 1 lesson\/day · your pace 1\.2\/day · on track/);
-		assert.match(html, /Review · 4 due/);
+		assert.match(html, /Review · 4</);
 		assert.match(html, /Learn today[\s\S]*Taylor series/);
 		assert.match(html, /w3/);
 		assert.ok(html.indexOf("course-next-up") < html.indexOf("course-exam-countdown"), "Next up first, the exam beside it");
@@ -548,7 +549,7 @@ describe("the exam plan on the page", () => {
 	});
 
 	it("a lone review batch smaller than what is due says so; nothing to do hides Today", () => {
-		assert.match(renderToStaticMarkup(<examUi.ExamPlanSection {...props({ plan: { ...basePlan, reviewDue: 9, reviewBatch: 6, lessons: [] } })} />), /Review · 6 of 9 due/);
+		assert.match(renderToStaticMarkup(<examUi.ExamPlanSection {...props({ plan: { ...basePlan, reviewDue: 9, reviewBatch: 6, lessons: [] } })} />), /Review · 6 of 9</);
 		assert.ok(!renderToStaticMarkup(<examUi.ExamPlanSection {...props({ plan: { ...basePlan, reviewDue: 0, lessons: [] } })} />).includes("course-today"));
 	});
 
@@ -557,7 +558,7 @@ describe("the exam plan on the page", () => {
 		const many = new Map(ids.map((id) => [id, `Skill ${id.slice(3)}`]));
 		const html = renderToStaticMarkup(<examUi.ExamPlanSection {...props({ names: many, nextUp: ids })} />);
 		assert.match(html, /data-testid="course-next-up"[\s\S]*>Next up</);
-		assert.match(html, /Review · 4 due/);
+		assert.match(html, /Review · 4</);
 		assert.match(html, /Learn today[\s\S]*Skill a[\s\S]*Skill b/);
 		assert.match(html, /More to learn[\s\S]*Skill c[\s\S]*Skill d[\s\S]*Skill e[\s\S]*Skill f/);
 		assert.ok(!html.includes("Skill g"), "four more, no more");
@@ -637,6 +638,20 @@ describe("the sidebar's Today lines", () => {
 	it("renders nothing until something is due (the section hides itself)", () => {
 		assert.deepEqual(todayUi.todayLines([]), []);
 		assert.deepEqual(todayUi.todayLines([course("Empty")]), []);
+	});
+
+	it("the sidebar row counts every item uncapped, as the Today page lists them (owner, 2026-11-16)", () => {
+		const many = [course("One", { reviewDue: 2, lessons: [lesson("a"), lesson("b"), lesson("c")] }), course("Two", { lessons: [lesson("d"), lesson("e"), lesson("f")] })];
+		assert.equal(todayUi.todayItemCount(many), 7, "not capped at five");
+		assert.equal(todayUi.todayItemCount([]), 0);
+	});
+
+	it("the Today page says the days to each course's exam", () => {
+		assert.equal(todayPage.examDaysLine(15), "15 days to the exam");
+		assert.equal(todayPage.examDaysLine(1), "1 day to the exam");
+		assert.equal(todayPage.examDaysLine(0), "exam today");
+		assert.equal(todayPage.examDaysLine(-3), "exam passed");
+		assert.equal(todayPage.examDaysLine(undefined), null);
 	});
 });
 

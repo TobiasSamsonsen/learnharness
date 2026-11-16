@@ -68,7 +68,7 @@ describe("explicit plugin chrome", () => {
 
 	it("missing-provider shells stay safe and core doors remain first", () => {
 		const html = renderToStaticMarkup(<PluginSidebarActions><button>Teaching</button><button>Practice</button></PluginSidebarActions>);
-		assert.ok(html.includes("grid-cols-1"));
+		assert.ok(html.includes("grid-cols-2"), "Teaching and Practice share one row (owner, 2026-11-16)");
 		assert.ok(html.indexOf("Teaching") < html.indexOf("Practice"));
 		assert.equal(renderToStaticMarkup(<PluginGraphActions />), "");
 		assert.equal(renderToStaticMarkup(<PluginTopBarActions context={session} />), "");
@@ -88,7 +88,7 @@ describe("explicit plugin chrome", () => {
 		} }, <><PluginSidebarActions><button>Teaching</button><button>Practice</button></PluginSidebarActions><PluginGraphActions /><TopBar><h1 data-plugin-chrome-title>Session</h1><div className="min-w-4 flex-1" aria-hidden="true" /><PluginTopBarActions context={session} /></TopBar></>);
 		try {
 			const grid = () => f.document.querySelector('[data-testid="sidebar-actions"]')!;
-			assert.ok(grid().className.includes("grid-cols-1"), "five total actions is one column");
+			assert.ok(grid().className.includes("grid-cols-2"), "two columns at any count: the core doors share a row, plugin doors pair up (owner, 2026-11-16)");
 			assert.equal(f.document.body.textContent?.includes("Invisible action"), false);
 			assert.equal(f.document.body.textContent?.includes("No automatic view link"), false);
 			await act(async () => { context.placeAction({ id: "sidebar-four", actionId: "run", location: "sidebar" }); });

@@ -553,10 +553,11 @@ function SessionsSidebar() {
 					toggleFinished();
 				}
 			}}
-			className="lh-touch mb-0.5 mt-1 flex w-full cursor-pointer items-center gap-1.5 rounded-lg px-1 py-1 text-xs uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground"
+			className="lh-touch mb-0.5 mt-1 flex w-full cursor-pointer items-center gap-1.5 rounded-lg px-1 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
 		>
 			<CheckIcon className="size-3" />
-			Finished · {finishedCount}
+			Finished
+			<span className="font-normal tabular-nums text-muted-foreground/60">{finishedCount}</span>
 			{finishedExpanded ? <ChevronDownIcon className="size-3" /> : <ChevronRightIcon className="size-3" />}
 		</div>
 	);
@@ -888,9 +889,9 @@ function SessionsSidebar() {
 						data-testid="new-session"
 						data-drawer-close
 						onClick={() => void newSession()}
-						className="lh-touch lh-press flex w-full items-center gap-2 rounded-lgi bg-accent px-2.5 py-1.5 touch:px-3.5 touch:py-2.5 text-xs uppercase tracking-wider text-foreground hover:bg-accent/70 active:rounded-xl"
+						className="lh-touch lh-press flex w-full items-center gap-2 rounded-lgi bg-accent px-2.5 py-1.5 touch:px-3 touch:py-2.5 text-[13px] font-medium text-foreground hover:bg-accent/70 active:rounded-xl"
 					>
-						<PlusIcon className="size-3 touch:size-4" />
+						<PlusIcon className="size-3.5 touch:size-4" />
 						Teaching
 						<span className="sr-only">create a new teaching session</span>
 					</button>
@@ -899,9 +900,9 @@ function SessionsSidebar() {
 						data-testid="new-session-practice"
 						data-drawer-close
 						onClick={() => router.push("/chat/new?mode=practice")}
-						className="lh-touch lh-press flex w-full items-center gap-2 rounded-lgi bg-accent px-2.5 py-1.5 touch:px-3.5 touch:py-2.5 text-xs uppercase tracking-wider text-foreground hover:bg-accent/70 active:rounded-xl"
+						className="lh-touch lh-press flex w-full items-center gap-2 rounded-lgi bg-accent px-2.5 py-1.5 touch:px-3 touch:py-2.5 text-[13px] font-medium text-foreground hover:bg-accent/70 active:rounded-xl"
 					>
-						<DumbbellIcon className="size-3 touch:size-4" />
+						<DumbbellIcon className="size-3.5 touch:size-4" />
 						Practice
 						<span className="sr-only">create a new practice session</span>
 					</button>
@@ -914,9 +915,9 @@ function SessionsSidebar() {
 				    sessions, which they are made of. */}
 				<CoursesSection onCourses={setCourses} query={query} />
 
-				<div className="mx-3 mb-2 flex items-center gap-2">
+				<div className="mx-3 mb-1 flex items-center gap-1.5">
 					<Hint label="Search sessions" action="sessions-search" side="bottom">
-					<span className="relative flex-1">
+					<span className="relative min-w-0 flex-1">
 						<Input
 							ref={searchRef}
 							data-testid="session-search"
@@ -967,40 +968,39 @@ function SessionsSidebar() {
 									e.currentTarget.blur();
 								}
 							}}
-							placeholder="Search sessions…"
+							placeholder="Search…"
 							aria-label="Search sessions"
 							className="lh-touch h-6 touch:h-8 rounded-full border-transparent bg-accent/60 pl-6 touch:pl-8 text-xs placeholder:text-muted-foreground"
 						/>
 						<SearchIcon className="pointer-events-none absolute left-1.5 touch:left-3 top-1/2 size-3 touch:size-3.5 -translate-y-1/2 text-muted-foreground" />
 					</span>
 					</Hint>
-				</div>
 
 				{/* The three-way filter, HEADING THE LIST (owner round 8b,
-				    2026-10-05 — moved below the search): it scopes what the
-				    list shows, so it sits directly above it as a caption row;
-				    search stays the top muscle-memory target. Order: Teaching /
+				    2026-10-05): it scopes what the list shows. Order: Teaching /
 				    Practice / All — the real modes first, "All" as the escape
 				    hatch on the right, mirroring the create-buttons above.
-				    Persisted client-side. */}
-				<div className="mx-3 flex items-center gap-0.5" data-testid="session-kind-filter">
+				    Persisted client-side. Since 2026-11-16 (owner, tablet pass) a
+				    small segmented control on the search's row, the selected
+				    segment a quiet tone instead of the gold pill. */}
+				<div className="flex shrink-0 items-center rounded-lg bg-accent/40 p-0.5" role="group" aria-label="Show sessions" data-testid="session-kind-filter">
 					{(["teach", "practice", "all"] as const).map((f) => (
 						<button
 							key={f}
 							type="button"
 							data-testid={`kind-filter-${f}`}
+							aria-pressed={kindFilter === f}
+							aria-label={f === "teach" ? "Teaching" : f === "all" ? "All" : "Practice"}
 							onClick={() => setFilter(f)}
 							className={cn(
-								// a connected button group, as on home: the selected segment is a tonal gold pill
-								"lh-touch lh-press flex-1 px-2 py-1 touch:py-1.5 text-xs uppercase tracking-wider",
-								kindFilter === f
-									? "rounded-pill bg-primary/20 text-primary"
-									: "rounded-lg bg-accent/50 text-muted-foreground hover:text-foreground",
+								"lh-touch lh-press rounded-md px-1.5 py-1 text-xs transition-colors",
+								kindFilter === f ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
 							)}
 						>
-							{f === "teach" ? "Teaching" : f === "all" ? "All" : "Practice"}
+							{f === "teach" ? "Teach" : f === "all" ? "All" : "Practice"}
 						</button>
 					))}
+				</div>
 				</div>
 
 				<div ref={listRef} className="flex-1 overflow-y-auto p-2">
@@ -1065,25 +1065,26 @@ function SessionsSidebar() {
 					    populates and grows when processes run. The session list is
 					    flex-1, so this pins to the bottom. Sidebar closed = the
 					    learner opted out (no ambient signal, user decision). */}
-					<ActivitySection />
-
-					{/* Settings entry (settings-app wave): same row language as
-					    New session — quiet, bottom-pinned, opens the centered
-					    dialog (also mod+, in the keyboard registry). */}
-					<div className="px-3 pb-3 pt-1">
-						<Hint label="Settings" action="open-settings" side="right">
-							<button
-								type="button"
-								onClick={() => openSettings()}
-								data-testid="settings-entry"
-								data-drawer-close
-								className="lh-touch flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-							>
-								<SettingsIcon className="size-3" />
-								Settings
-							</button>
-						</Hint>
-					</div>
+					{/* Settings entry (settings-app wave): quiet, bottom-pinned, opens
+					    the centered dialog (also mod+, in the keyboard registry). Since
+					    2026-11-16 (owner, tablet pass) on the Background agents row, so
+					    the footer is one row. */}
+					<ActivitySection
+						trailing={
+							<Hint label="Settings" action="open-settings" side="right">
+								<button
+									type="button"
+									onClick={() => openSettings()}
+									data-testid="settings-entry"
+									data-drawer-close
+									className="lh-touch flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+								>
+									<SettingsIcon className="size-3.5" />
+									Settings
+								</button>
+							</Hint>
+						}
+					/>
 				</div>
 
 				{/* The context menu (wave 6 + the extraction-UX redesign): the

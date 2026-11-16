@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { CalendarCheckIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { CalendarCheckIcon, ChevronRightIcon } from "lucide-react";
 import type { TodayCourse } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { cn } from "@/lib/utils";
@@ -13,19 +14,10 @@ import { cn } from "@/lib/utils";
  * due (a tap starts the review) and the lessons to take today (a tap opens the course page on that lesson's pace
  * dialog). At most five lines in all. Freshness rides the same events as the course list.
  *
- * CLOSED BY DEFAULT (owner, 2026-11-14): open, it took a third of a tablet's sidebar and pushed the sessions out of view,
- * so it is one header line, "Today · 5", that opens it. The choice is remembered on this device.
+ * CLOSED BY DEFAULT (owner, 2026-11-14): open, it took a third of a tablet's sidebar and pushed the sessions out of view.
+ * A PAGE SINCE 2026-11-16 (owner): the sidebar keeps one row that opens /today (components/today-page.tsx), which lists
+ * every course's plan uncapped. todayLines / todayHead stay the pure line model (render tests).
  */
-
-const OPEN_KEY = "lh:today-open";
-
-function readOpen(): boolean {
-	try {
-		return globalThis.localStorage?.getItem(OPEN_KEY) === "1";
-	} catch {
-		return false;
-	}
-}
 
 /** The header's count: the item lines (reviews and lessons), not the course headings. Pure. */
 export function todayCount(lines: readonly TodayLine[]): number {
@@ -66,23 +58,15 @@ export function todayLines(courses: readonly TodayCourse[], max = TODAY_MAX_LINE
 	return lines;
 }
 
-export function TodaySection() {
-	const router = useRouter();
-	const pathname = usePathname();
-	const [courses, setCourses] = useState<TodayCourse[] | null>(null);
-	const [busy, setBusy] = useState(false);
-	const [open, setOpen] = useState(false);
-	useEffect(() => setOpen(readOpen()), []);
-	const toggle = () => {
-		const next = !open;
-		setOpen(next);
-		try {
-			globalThis.localStorage?.setItem(OPEN_KEY, next ? "1" : "0");
-		} catch {
-			// remembering is a convenience
-		}
-	};
+/** Every item line across the courses, uncapped: the Today page's count. Pure. */
+export function todayItemCount(courses: readonly TodayCourse[]): number {
+	return courses.reduce((n, c) => n + (c.reviewDue > 0 ? 1 : 0) + c.lessons.length, 0);
+}
 
+/** The Today data, fresh on the same events as the course list (the sidebar row and the Today page). */
+export function useTodayCourses(initial: TodayCourse[] | null = null) {
+	const pathname = usePathname();
+	const [courses, setCourses] = useState<TodayCourse[] | null>(initial);
 	const refresh = useCallback(async () => {
 		try {
 			const res = await fetch("/api/today", { cache: "no-store" });
@@ -108,7 +92,13 @@ export function TodaySection() {
 	useServerEvent("chats-changed", schedule);
 	useServerResync(() => void refresh());
 	useEffect(() => () => debounceRef.current && clearTimeout(debounceRef.current), []);
+	return courses;
+}
 
+/** Start a course's review session and open it; on any failure, open the course page instead. */
+export function useStartReview() {
+	const router = useRouter();
+	const [busy, setBusy] = useState(false);
 	const startReview = async (courseId: string) => {
 		if (busy) return;
 		setBusy(true);
@@ -126,52 +116,36 @@ export function TodaySection() {
 			setBusy(false);
 		}
 	};
+	return { busy, startReview };
+}
 
-	const lines = courses ? todayLines(courses) : [];
-	if (lines.length === 0) return null;
+/**
+ * The sidebar's Today row (owner, 2026-11-16): one line, "Today 5", that opens the Today page (/today). The list itself
+ * moved to the page, so the sidebar never gives its height to it.
+ */
+export function TodaySection() {
+	const pathname = usePathname();
+	const courses = useTodayCourses();
+	const count = courses ? todayItemCount(courses) : 0;
+	if (count === 0) return null;
+	const active = pathname === "/today";
 	return (
-		<div className="mx-3 mb-2" data-testid="today-section">
-			<button
-				type="button"
-				data-testid="today-toggle"
-				aria-expanded={open}
-				onClick={toggle}
-				className="lh-touch mb-1 flex w-full items-center gap-1.5 text-xs uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground"
-			>
-				<CalendarCheckIcon className="size-3" />
-				Today · {todayCount(lines)}
-				{open ? <ChevronDownIcon className="ml-auto size-3" /> : <ChevronRightIcon className="ml-auto size-3" />}
-			</button>
-			{open && (
-			<div data-testid="today-lines">
-				{lines.map((line, i) =>
-					line.kind === "head" ? (
-						<button
-							key={`${line.courseId}-${i}`}
-							type="button"
-							data-drawer-close
-							data-testid="today-course"
-							onClick={() => router.push(`/course/${line.courseId}`)}
-							className="mt-1 block w-full truncate rounded-md px-2 py-0.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
-						>
-							{line.text}
-						</button>
-					) : (
-						<button
-							key={`${line.courseId}-${i}`}
-							type="button"
-							data-drawer-close
-							data-testid={line.kind === "review" ? "today-review" : "today-learn"}
-							disabled={busy}
-							onClick={() => (line.kind === "review" ? void startReview(line.courseId) : router.push(`/course/${line.courseId}?learn=${encodeURIComponent(line.skillId)}`))}
-							className={cn("block w-full truncate rounded-lg px-3 py-0.5 text-left text-sm transition-colors hover:bg-accent disabled:opacity-50")}
-						>
-							{line.text}
-						</button>
-					),
+		<div className="mx-3 mb-1" data-testid="today-section">
+			<Link
+				href="/today"
+				data-drawer-close
+				data-testid="today-link"
+				aria-current={active ? "page" : undefined}
+				className={cn(
+					"lh-touch flex w-full items-center gap-2 rounded-lg px-2 py-1 text-[13px] font-medium transition-colors hover:bg-accent",
+					active ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground",
 				)}
-			</div>
-			)}
+			>
+				<CalendarCheckIcon className="size-3.5" />
+				Today
+				<span className="font-normal tabular-nums text-muted-foreground/60">{count}</span>
+				<ChevronRightIcon className="ml-auto size-3.5" />
+			</Link>
 		</div>
 	);
 }

@@ -1,9 +1,9 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Children, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, Loader2Icon, LockIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, Loader2Icon, LockIcon, SettingsIcon } from "lucide-react";
 import {
 	COURSE_MODE_LABEL,
 	courseProgressPercent,
@@ -17,6 +17,7 @@ import {
 	MAX_UNDERSTANDING,
 	NO_SELECTION,
 	placementQuestionTarget,
+	repairMathForDisplay,
 	retrievability,
 	SKILL_BAND_LABEL,
 	sortByUnderstanding,
@@ -38,7 +39,7 @@ import { SkillMap } from "@/components/skill-map";
 import { SidebarToggle } from "@/components/sidebar";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { cn } from "@/lib/utils";
-import { PAGE_HEAD, SECTION_HEAD } from "@/components/section-heads";
+import { HEAD_COUNT, PAGE_HEAD, SECTION_HEAD } from "@/components/section-heads";
 import { FitTitleInput } from "@/components/fit-title-input";
 import { RichLine, RichText } from "@/components/rich-text";
 
@@ -161,6 +162,19 @@ const BTN =
 	"rounded-md border border-border px-2.5 py-1 text-xs transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50";
 /** A closed group's summary: a chevron instead of the browser's marker, the whole line a target. */
 const DETAILS_HEAD = "lh-touch flex cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden";
+/** Missed problems shown before "Show all" (owner, 2026-11-16). */
+export const MISSED_SHOWN = 3;
+
+/** A problem statement as one line for a list row: display math becomes inline math and line breaks become spaces, so
+ *  RichLine (which renders the first line only) keeps the math instead of stopping before it. A display block that is
+ *  several rows tall (a system, cases, a matrix: `\\` or `\begin`) becomes "…", so every row keeps one line's height. Pure. */
+export function oneLineStatement(text: string): string {
+	// encoded line breaks become real ones first (the same repair RichLine runs)
+	return repairMathForDisplay(text)
+		.replace(/\$\$([\s\S]+?)\$\$/g, (_, math: string) => (/\\\\|\\begin\{/.test(math) ? "…" : `$${math.replace(/\s+/g, " ").trim()}$`))
+		.replace(/\s*\r?\n\s*/g, " ")
+		.trim();
+}
 /** The page's small type for a rendered name or statement: text-xs, relaxed leading (see rich-text.tsx). */
 const ITEM_TYPE = "[--lh-prose-size:var(--text-xs)] [--lh-prose-leading:1.625]";
 
@@ -311,9 +325,20 @@ function SkillRow({
 	);
 }
 
-/** A group of skill rows: two columns on a wide page, each row kept whole. */
+/**
+ * A group of skill rows: two columns on a wide page. The split is fixed — the first half on the left, the rest on the
+ * right — so opening a row only pushes the rows below it in its own column (owner, 2026-11-16: CSS columns rebalanced
+ * on every open and moved rows across). One column on a phone, in the same order.
+ */
 function RowList({ children }: { children: React.ReactNode }) {
-	return <div className="md:columns-2 md:gap-x-8">{children}</div>;
+	const rows = Children.toArray(children);
+	const half = Math.ceil(rows.length / 2);
+	return (
+		<div className="md:grid md:grid-cols-2 md:items-start md:gap-x-8">
+			<div className="min-w-0">{rows.slice(0, half)}</div>
+			<div className="min-w-0">{rows.slice(half)}</div>
+		</div>
+	);
 }
 
 function DraftReview({
@@ -406,7 +431,7 @@ function SessionsSection({ sessions }: { sessions: CourseView["sessions"] }) {
 	const open = sessions.filter((s) => !s.finished);
 	const finished = sessions.filter((s) => s.finished);
 	return (
-		<section data-testid="course-sessions">
+		<section data-testid="course-sessions" className="border-t border-border/50 pt-6">
 			<div className={PAGE_HEAD}>Sessions</div>
 			{open.length > 0 ? (
 				<ul className="space-y-0.5" data-testid="course-sessions-open">
@@ -458,6 +483,8 @@ export function CourseBody({
 	placementSkipped = false,
 	onSkipPlacement,
 	onChanged,
+	settingsOpen,
+	onSettingsOpenChange,
 }: {
 	data: CoursePayload;
 	busy: boolean;
@@ -476,6 +503,10 @@ export function CourseBody({
 	onSkipPlacement?: () => void;
 	/** The exam date or a weight changed on the server: refetch. */
 	onChanged?: () => void;
+	/** The course settings panel, opened from the header's gear (owner, 2026-11-16). Absent: the panel keeps its own
+	 *  closed line at the top, as before. */
+	settingsOpen?: boolean;
+	onSettingsOpenChange?: (open: boolean) => void;
 }) {
 	// The map opens where the learner is: what is due, then what is next.
 	const mapFocus = useMemo(
@@ -489,11 +520,19 @@ export function CourseBody({
 	const edges = useMemo(() => skills.flatMap((s) => s.requires.map((r) => ({ from: r, to: s.id }))), [skills]);
 	const drafting = data.drafting || course.status === "drafting";
 	const list = (ids: readonly string[]) => ids.map((id) => byId.get(id)).filter((s): s is CourseSkillView => s !== undefined);
-	// a skill from another course shows once, in its own section (the
-	// counts still read data.known / data.learning)
+	// Every skill shows once (owner, 2026-11-16): a skill from another course in its own section, a skill to review in
+	// To review, the rest in Learning or Known (the counts elsewhere still read data.known / data.learning).
 	const fromElsewhere = new Set(data.contextCheck);
-	const learning = data.learning.filter((id) => !fromElsewhere.has(id));
-	const known = data.known.filter((id) => !fromElsewhere.has(id));
+	const toReview = new Set(data.review);
+	const learning = data.learning.filter((id) => !fromElsewhere.has(id) && !toReview.has(id));
+	const known = data.known.filter((id) => !fromElsewhere.has(id) && !toReview.has(id));
+	const fadingCount = data.plan.reviewFading ?? 0;
+	const dueNowCount = data.review.length - fadingCount;
+	const [allMissed, setAllMissed] = useState(false);
+	const missed = data.missed ?? [];
+	// The starting-point card and the Retest row both start a placement-style test: while the card shows, only the card
+	// (owner, 2026-11-16).
+	const offerPlacement = data.sessions.length === 0 && !placementSkipped && skills.length > data.contextCheck.length;
 
 	// The visual layer (owner, 2026-11-09; one grouped list and a Map button since 2026-11-14): the color bars read `now`; a
 	// tap on a band or a review bucket narrows the list to the skills that match, sorted weakest first.
@@ -603,6 +642,8 @@ export function CourseBody({
 				onDraft={() => onDraft()}
 				onChanged={onChanged}
 				onPlacement={() => onStart("placement")}
+				open={settingsOpen}
+				onOpenChange={onSettingsOpenChange}
 				exam={
 					skills.length > 0
 						? { examDate: course.examDate, hasWeights: weighed, weighing: data.weighing === true, canWeigh: !drafting && materialCount > 0, weightsSummary: course.weightsSummary, weightsAt: course.weightsAt }
@@ -629,28 +670,35 @@ export function CourseBody({
 					canWeigh={!drafting && materialCount > 0}
 					busy={busy}
 					onStart={onStart}
-					onRetest={onRetest}
+					onRetest={offerPlacement ? undefined : onRetest}
 					onChanged={() => onChanged?.()}
 				/>
 
-					{data.sessions.length === 0 && !placementSkipped && skills.length > data.contextCheck.length && (
+					{offerPlacement && (
 						<PlacementOffer total={skills.length - data.contextCheck.length} busy={busy} onTake={() => onStart("placement")} onSkip={() => onSkipPlacement?.()} />
 					)}
 
-					<section data-testid="course-overview" className="space-y-3 rounded-xl border border-border/60 bg-card/50 p-4">
-						<div className={PAGE_HEAD}>Understanding · {courseProgressPercent(skills.map((s) => s.understanding))}%</div>
-						<DistributionStrip skills={skills} due={dueNow} active={selection.band} onPick={(band) => narrow({ ...selection, band })} />
-					</section>
-
-					{skills.some((s) => s.learned) && (
-						<section data-testid="course-due" className="space-y-3 rounded-xl border border-border/60 bg-card/50 p-4">
-							<div className={PAGE_HEAD}>Reviews due</div>
-							<DueTimeline skills={skills} now={now} active={selection.bucket} onPick={(bucket) => narrow({ ...selection, bucket })} />
+					{/* Understanding and Reviews due side by side, flat (owner, 2026-11-16): only Next up and Exam are raised. */}
+					<div className={cn("grid gap-x-10 gap-y-8", skills.some((s) => s.learned) && "lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]")}>
+						<section data-testid="course-overview" className="min-w-0 space-y-3">
+							<div className={PAGE_HEAD}>
+								Understanding<span className={HEAD_COUNT}>{courseProgressPercent(skills.map((s) => s.understanding))}%</span>
+							</div>
+							<DistributionStrip skills={skills} due={dueNow} active={selection.band} onPick={(band) => narrow({ ...selection, band })} />
 						</section>
-					)}
 
-					<div className="flex flex-wrap items-center gap-2">
-						<h2 className={cn(PAGE_HEAD, "pb-0")}>Skills · {skills.length}</h2>
+						{skills.some((s) => s.learned) && (
+							<section data-testid="course-due" className="min-w-0 space-y-3">
+								<div className={PAGE_HEAD}>Reviews due</div>
+								<DueTimeline skills={skills} now={now} active={selection.bucket} onPick={(bucket) => narrow({ ...selection, bucket })} />
+							</section>
+						)}
+					</div>
+
+					<div className="flex flex-wrap items-center gap-2 border-t border-border/50 pt-6">
+						<h2 className={cn(PAGE_HEAD, "pb-0")}>
+							Skills<span className={HEAD_COUNT}>{skills.length}</span>
+						</h2>
 						<span className="ml-auto flex items-center gap-2">
 					{skills.some((s) => canChoose(s.id)) && (
 						<button type="button" className={BTN} aria-pressed={choosing} data-testid="choose-toggle" onClick={() => (choosing ? stopChoosing() : setChoosing(true))}>
@@ -710,40 +758,22 @@ export function CourseBody({
 						<>
 							{data.review.length > 0 && (
 								<section data-testid="course-review">
-									<div className="mb-2 flex items-center justify-between">
-										<span className={cn(SECTION_HEAD, "mb-0")}>Due for review · {data.review.length}{(data.plan.reviewFading ?? 0) > 0 ? ` · ${data.plan.reviewFading} fading before the exam` : ""}</span>
-										<button type="button" className={BTN} disabled={busy} onClick={() => onStart("review")}>
-											{data.reviewBatch < data.review.length ? reviewLabel(data) : "Review"}
-										</button>
+									{/* "To review": due now plus fading before the exam (owner, 2026-11-16); the header and Next up start it. */}
+									<div className={cn(SECTION_HEAD, fadingCount > 0 && "mb-0.5")}>
+										To review<span className={HEAD_COUNT}>{data.review.length}</span>
 									</div>
+									{fadingCount > 0 && (
+										<p className="mb-2 text-xs text-muted-foreground/80" data-testid="course-review-split">
+											{dueNowCount} due now · {fadingCount} fading before the exam
+										</p>
+									)}
 									<RowList>{list(data.review).map((s) => <SkillRow key={s.id} skill={s} names={names} now={now} actions={actionsFor(s)} />)}</RowList>
 								</section>
 							)}
 
-							{(data.missed?.length ?? 0) > 0 && (
-								<section data-testid="course-missed">
-									<div className="mb-2 flex items-center justify-between">
-										<span className={cn(SECTION_HEAD, "mb-0")}>Missed problems · {data.missed!.length}</span>
-									</div>
-									<RowList>
-										{data.missed!.map((m) => (
-											<div key={m.id} className="flex items-start justify-between gap-3 break-inside-avoid border-b border-border/50 py-2 text-sm" data-testid={`course-missed-${m.id}`}>
-												<div className="min-w-0">
-													<div className="line-clamp-2">{m.statement}</div>
-													<div className="mt-0.5 text-xs text-muted-foreground">{m.skills.map((s) => s.name).join(", ")} · {m.how} · {m.at.slice(0, 10)}</div>
-												</div>
-												<button type="button" className={cn(BTN, "lh-touch shrink-0")} disabled={busy || !onPracticeSet} onClick={() => onPracticeSet?.(m.skills.map((s) => s.id))}>
-													Retry as new variant
-												</button>
-											</div>
-										))}
-									</RowList>
-								</section>
-							)}
-
 							<section data-testid="course-next">
-								<div className="mb-2 flex items-center justify-between">
-									<span className={cn(SECTION_HEAD, "mb-0")}>Next up · {data.nextUp.length}{hasWeights ? " · by exam weight" : ""}</span>
+								<div className={SECTION_HEAD}>
+									Not started<span className={HEAD_COUNT}>{data.nextUp.length}</span>
 								</div>
 								{data.nextUp.length === 0 ? (
 									<p className="text-xs text-muted-foreground">
@@ -762,7 +792,7 @@ export function CourseBody({
 								<details data-testid="course-not-examined" className="group">
 									<summary className={cn(SECTION_HEAD, DETAILS_HEAD)}>
 										<ChevronRightIcon className="size-3.5 transition-transform group-open:rotate-90" aria-hidden />
-										Not examined · {data.notExamined.length}
+										Not examined<span className={HEAD_COUNT}>{data.notExamined.length}</span>
 									</summary>
 									<p className="mb-2 text-xs text-muted-foreground">The sources never use these in an exam, and nothing examined builds on them. You can still learn them.</p>
 									<RowList>
@@ -775,7 +805,9 @@ export function CourseBody({
 
 							{data.contextCheck.length > 0 && (
 								<section data-testid="course-context-check">
-									<div className={SECTION_HEAD}>From another course · {data.contextCheck.length}</div>
+									<div className={SECTION_HEAD}>
+										From another course<span className={HEAD_COUNT}>{data.contextCheck.length}</span>
+									</div>
 									<p className="mb-2 text-xs text-muted-foreground">
 										You already have these from another course. A short check confirms each one works the same way here — optional, nothing is locked behind it.
 									</p>
@@ -790,7 +822,9 @@ export function CourseBody({
 							{learning.length > 0 && (
 								<section data-testid="course-learning">
 									<div className="mb-2 flex items-center justify-between">
-										<span className={cn(SECTION_HEAD, "mb-0")}>Learning · {learning.length}</span>
+										<span className={cn(SECTION_HEAD, "mb-0")}>
+											Learning<span className={HEAD_COUNT}>{learning.length}</span>
+										</span>
 										{data.learning.length > 1 && (
 											<button type="button" className={BTN} disabled={busy} data-testid="practice-all" onClick={() => onStart("practice")}>
 												Practice all
@@ -807,7 +841,9 @@ export function CourseBody({
 
 							{known.length > 0 && (
 								<section data-testid="course-known">
-									<div className={SECTION_HEAD}>Known · {known.length}</div>
+									<div className={SECTION_HEAD}>
+										Known<span className={HEAD_COUNT}>{known.length}</span>
+									</div>
 									<RowList>{list(known).map((s) => <SkillRow key={s.id} skill={s} names={names} now={now} actions={practiceOnly(s)} />)}</RowList>
 								</section>
 							)}
@@ -816,10 +852,55 @@ export function CourseBody({
 								<details data-testid="course-locked" className="group">
 									<summary className={cn(SECTION_HEAD, DETAILS_HEAD)}>
 										<ChevronRightIcon className="size-3.5 transition-transform group-open:rotate-90" aria-hidden />
-										Locked · {data.locked.length}
+										Locked<span className={HEAD_COUNT}>{data.locked.length}</span>
 									</summary>
 									<RowList>{list(data.locked).map((s) => <SkillRow key={s.id} skill={s} names={names} now={now} />)}</RowList>
 								</details>
+							)}
+
+							{/* Below the skill groups, the newest three, the rest behind "Show all" (owner, 2026-11-16). */}
+							{missed.length > 0 && (
+								<section data-testid="course-missed">
+									<div className={SECTION_HEAD}>
+										Missed problems<span className={HEAD_COUNT}>{missed.length}</span>
+									</div>
+									<RowList>
+										{(allMissed ? missed : missed.slice(0, MISSED_SHOWN)).map((m) => (
+											<div key={m.id} className="flex items-start justify-between gap-3 border-b border-border/40 py-2 text-sm" data-testid={`course-missed-${m.id}`}>
+												<div className="min-w-0">
+													<div className="line-clamp-2">
+														<RichLine prose>{oneLineStatement(m.statement)}</RichLine>
+													</div>
+													<div className="mt-0.5 text-xs text-muted-foreground">
+														{m.skills.map((s) => s.name).join(", ")} · {m.how} · {m.at.slice(0, 10)}
+													</div>
+												</div>
+												<button
+													type="button"
+													className={cn(BTN, "lh-touch shrink-0")}
+													disabled={busy || !onPracticeSet}
+													aria-label="Retry as a new variant"
+													title="Retry as a new variant"
+													onClick={() => onPracticeSet?.(m.skills.map((s) => s.id))}
+												>
+													Retry
+												</button>
+											</div>
+										))}
+									</RowList>
+									{missed.length > MISSED_SHOWN && (
+										<button
+											type="button"
+											className="lh-touch mt-1 flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+											aria-expanded={allMissed}
+											data-testid="course-missed-all"
+											onClick={() => setAllMissed((v) => !v)}
+										>
+											{allMissed ? "Show fewer" : `Show all ${missed.length}`}
+											<ChevronRightIcon className={cn("size-3.5 transition-transform", allMissed && "-rotate-90")} aria-hidden />
+										</button>
+									)}
+								</section>
 							)}
 						</>
 					)}
@@ -876,6 +957,12 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 	const [materialCount, setMaterialCount] = useState(0);
 	const [placementSkipped, setPlacementSkipped] = useState(false);
 	useEffect(() => setPlacementSkipped(readPlacementSkipped(courseId)), [courseId]);
+	// The course settings open from the header's gear (owner, 2026-11-16); open from the start while there is no skill
+	// map yet, a draft to review, drafting or a failure (the panel also opens itself when that happens later).
+	const [settingsOpen, setSettingsOpen] = useState(
+		() => initial.skills.length === 0 || !!initial.course.draft || initial.drafting || initial.course.status === "drafting" || !!initial.course.error,
+	);
+	const scrollRef = useRef<HTMLDivElement>(null);
 
 	const refresh = useCallback(async () => {
 		try {
@@ -994,9 +1081,17 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 
 	const progress = courseProgress(data);
 	const hasSkills = data.skills.length > 0;
+	const toggleSettings = () => {
+		const next = !settingsOpen;
+		setSettingsOpen(next);
+		// the panel sits at the top of the page: bring it into view
+		if (next) scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+	};
 	return (
-		<div className="relative h-dvh overflow-y-auto">
-			<header className="lh-drag z-10 flex flex-wrap items-center gap-x-3 gap-y-1 bg-background/85 sm:sticky sm:top-0 sm:flex-nowrap px-3 pb-2 pt-[calc(0.5rem+var(--lh-safe-top))] backdrop-blur">
+		<div ref={scrollRef} className="relative h-dvh overflow-y-auto">
+			<header className="lh-drag z-10 bg-background/85 pb-2 pt-[calc(0.5rem+var(--lh-safe-top))] backdrop-blur sm:sticky sm:top-0">
+				{/* the same column and padding as the page below, so the title lines up with the content (owner, 2026-11-16) */}
+				<div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-3 gap-y-1 px-4 sm:flex-nowrap sm:px-6">
 				<SidebarToggle />
 				<FitTitleInput
 					value={title}
@@ -1018,19 +1113,31 @@ export function CoursePage({ courseId, initial }: { courseId: string; initial: C
 						{progress}
 					</span>
 				)}
-				{hasSkills && (
-					<span className="lh-no-drag flex shrink-0 items-center gap-1.5">
+				<span className="lh-no-drag flex shrink-0 items-center gap-1.5">
+					<button
+						type="button"
+						className={cn(BTN, "lh-touch flex items-center justify-center px-2")}
+						aria-label="Course settings"
+						title="Course settings"
+						aria-expanded={settingsOpen}
+						data-testid="course-settings-toggle"
+						onClick={toggleSettings}
+					>
+						<SettingsIcon className="size-4" aria-hidden />
+					</button>
+					{hasSkills && (
 						<button
 							type="button"
-							className={BTN}
+							className={cn(BTN, "lh-touch")}
 							disabled={busy || data.review.length === 0}
 							data-testid="course-review-button"
 							onClick={() => void onStart("review")}
 						>
 							{reviewLabel(data)}
 						</button>
-					</span>
-				)}
+					)}
+				</span>
+				</div>
 			</header>
 			<div className="mx-auto max-w-5xl px-4 pb-16 pt-4 sm:px-6">
 				{learnSkill && (
@@ -1066,6 +1173,8 @@ data={data}
 						setPlacementSkipped(true);
 					}}
 					onChanged={() => void refresh()}
+					settingsOpen={settingsOpen}
+					onSettingsOpenChange={setSettingsOpen}
 				/>
 				</WeightEditContext.Provider>
 				<div className="mt-12 border-t border-border/60 pt-4">

@@ -39,7 +39,7 @@ const { composeInstructions, createPlacementAgent } = await import("../src/agent
 const { inputAppends } = await import("../src/core/input-events.ts");
 const { draftCourse } = await import("../src/agent/subagents/course-planner.ts");
 const { CourseRow, courseMeta } = await import("../components/courses-section.tsx");
-const { CourseBody, courseProgress, reviewLabel, skillStateLabel } = await import("../components/course-page.tsx");
+const { CourseBody, courseProgress, MISSED_SHOWN, oneLineStatement, reviewLabel, skillStateLabel } = await import("../components/course-page.tsx");
 const { GraphContextCard } = await import("../components/graph-context-card.tsx");
 const { FinishLessonButton, LessonFinishedLine, courseOfView } = await import("../components/lesson-finish.tsx");
 const { DictationBar } = await import("../components/dictation.tsx");
@@ -1306,14 +1306,14 @@ describe("the course planner (scripted model)", () => {
 describe("the UI", () => {
 	const summary = { id: "course_a", title: "Calc", status: "active" as const, updatedAt: "t", total: 12, known: 7, progress: 58, needsReview: 2 };
 
-	it("the sidebar row reads percent, days to the exam and due", () => {
-		assert.equal(courseMeta(summary), "58% · 2 due");
+	it("the sidebar row reads percent, days to the exam and what is to review (owner, 2026-11-16: due + fading)", () => {
+		assert.equal(courseMeta(summary), "58% · 2 to review");
 		assert.equal(courseMeta({ ...summary, status: "drafting" }), "drafting…");
 		assert.equal(courseMeta({ ...summary, total: 0, known: 0, progress: 0, needsReview: 0, status: "draft" }), "Draft ready to review");
 		const html = renderToStaticMarkup(<CourseRow course={summary} active={false} onOpen={() => {}} />);
 		assert.match(html, /Calc/);
 		assert.match(html, /<span>58%<\/span>/);
-		assert.match(html, /<span>2 due<\/span>/);
+		assert.match(html, /<span>2 to review<\/span>/);
 		assert.doesNotMatch(html, /known/);
 	});
 
@@ -1382,12 +1382,62 @@ describe("the UI", () => {
 	it("an open miss is listed with a button that practices its skills; a course without misses has no list (owner, 2026-11-16)", () => {
 		const missed = [{ id: "chat_1:1", at: "2026-11-12T10:00:00.000Z", statement: "Differentiate x^2 sin x", how: "gave up", skills: [{ id: "a", name: "Product rule" }] }];
 		const html = body(payload({ missed }));
-		assert.match(html, /data-testid="course-missed"[\s\S]*Missed problems · 1[\s\S]*Differentiate x\^2 sin x[\s\S]*Product rule · gave up · 2026-11-12[\s\S]*Retry as new variant/);
+		assert.match(html, /data-testid="course-missed"[\s\S]*Missed problems<span[^>]*>1<[\s\S]*Differentiate x\^2 sin x[\s\S]*Product rule · gave up · 2026-11-12[\s\S]*aria-label="Retry as a new variant"[^>]*>Retry</);
+		assert.ok(html.indexOf("course-missed") > html.indexOf("course-known"), "below the skill groups (owner, 2026-11-16)");
+		assert.doesNotMatch(html, /course-missed-all/, "one miss: no Show all");
 		assert.doesNotMatch(body(payload()), /course-missed/);
 		assert.doesNotMatch(body(payload({ missed: [] })), /course-missed/);
 	});
 
-	it("the Review button says how many of the due skills the next review takes (the session cap)", () => {
+	it("missed problems show the newest three, the rest behind Show all (owner, 2026-11-16)", () => {
+		const missed = [1, 2, 3, 4, 5].map((n) => ({ id: `chat_1:${n}`, at: "2026-11-12T10:00:00.000Z", statement: `Problem ${n}`, how: "gave up", skills: [{ id: "a", name: "A" }] }));
+		const html = body(payload({ missed }));
+		assert.equal(html.match(/data-testid="course-missed-chat_1:\d"/g)?.length, MISSED_SHOWN);
+		assert.match(html, /Problem 1[\s\S]*Problem 3/);
+		assert.doesNotMatch(html, /Problem 4/);
+		assert.match(html, /data-testid="course-missed-all"[^>]*>Show all 5/);
+	});
+
+	it("a missed problem's preview keeps its math on one line; a system or matrix becomes …", () => {
+		assert.equal(oneLineStatement("Derive\n$$\\frac{x}{2}$$\nand simplify."), "Derive $\\frac{x}{2}$ and simplify.");
+		assert.equal(oneLineStatement("Solve $$\\begin{aligned} x+y&=1\\\\ x-y&=0 \\end{aligned}$$ for x."), "Solve … for x.");
+		assert.equal(oneLineStatement("Plain text"), "Plain text");
+	});
+
+	it("each skill shows once: a skill to review is not repeated under Learning or Known, and the heading splits due and fading (owner, 2026-11-16)", () => {
+		const data = payload({
+			skills: [
+				skillView("a", { understanding: 2, learned: true }),
+				skillView("b", { understanding: 6, learned: true, known: true }),
+				skillView("c", { understanding: 7, learned: true, known: true, needsReview: false, reviewAt: "2099-01-01T00:00:00Z" }),
+			],
+			review: ["a", "b"],
+			reviewBatch: 2,
+			plan: { skillsLeft: 0, reviewDue: 2, reviewBatch: 2, lessons: [], reviewFading: 1 },
+			nextUp: [],
+			learning: ["a"],
+			known: ["b", "c"],
+		});
+		const html = body(data);
+		assert.match(html, /data-testid="course-review"[\s\S]*To review<span[^>]*>2<[\s\S]*data-testid="course-review-split"[^>]*>1 due now · 1 fading before the exam/);
+		assert.equal(html.match(/data-testid="skill-a"/g)?.length, 1, "A once");
+		assert.equal(html.match(/data-testid="skill-b"/g)?.length, 1, "B once");
+		assert.doesNotMatch(html, /data-testid="course-learning"/, "Learning is empty once A sits in To review");
+		assert.match(html, /data-testid="course-known"[\s\S]*Known<span[^>]*>1</);
+	});
+
+	it("while the starting-point card shows, the Next up box has no Retest row (owner, 2026-11-16)", () => {
+		const fresh = payload({ sessions: [], plan: { skillsLeft: 2, reviewDue: 0, reviewBatch: 0, lessons: [], retestCount: 2 } });
+		const render = (skipped: boolean) =>
+			renderToStaticMarkup(
+				<CourseBody data={fresh} busy={false} error={null} onDraft={() => {}} onApprove={() => {}} onStart={() => {}} onRetest={() => {}} materialCount={1} placementSkipped={skipped} />,
+			);
+		assert.match(render(false), /data-testid="placement-offer"/);
+		assert.doesNotMatch(render(false), /data-testid="course-next-retest"/);
+		assert.match(render(true), /data-testid="course-next-retest"/, "after Start from the beginning the row is back");
+	});
+
+	it("the review count: the To review group lists every skill to review; the header and Next up start it (the session cap)", () => {
 		const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
 		const many = payload({
 			skills: ids.map((id) => skillView(id, { understanding: 2, learned: true })),
@@ -1398,14 +1448,11 @@ describe("the UI", () => {
 			learning: ids,
 		});
 		const html = body(many);
-		assert.match(html, /Due for review · 8/, "the section still lists all eight");
-		assert.match(html, />Review · 6 of 8</, "the section's button says six of the eight");
-		// at or under the cap the button just says Review
+		assert.match(html, /To review<span[^>]*>8</, "the section lists all eight");
+		assert.doesNotMatch(html, />Review · 6 of 8</, "no button above the group any more (owner, 2026-11-16)");
+		assert.doesNotMatch(html, /course-review-split/, "nothing fading: no split line");
 		const few = payload({ skills: ids.slice(0, 3).map((id) => skillView(id, { understanding: 2, learned: true })), review: ids.slice(0, 3), reviewBatch: 3, nextUp: [], known: [], learning: ids.slice(0, 3) });
-		const fewHtml = body(few);
-		assert.match(fewHtml, /Due for review · 3/);
-		assert.doesNotMatch(fewHtml, /Review · \d+ of 3</, "the button carries no count at the cap (the strip's 'N due of N' is not the button)");
-		assert.match(fewHtml, />Review</);
+		assert.match(body(few), /To review<span[^>]*>3</);
 		// the header button's label is the same pure function
 		assert.equal(reviewLabel(many), "Review · 6 of 8");
 		assert.equal(reviewLabel(few), "Review · 3");
@@ -1463,7 +1510,7 @@ describe("the UI", () => {
 		const html = body(payload());
 		assert.doesNotMatch(html, /data-testid="view-understanding"|data-testid="view-sections"|data-testid="sort-direction"|data-testid="chip-all"/);
 		assert.doesNotMatch(html, /data-testid="course-flat"/);
-		assert.match(html, /data-testid="course-overview"[\s\S]*Understanding · 50%/, "the overview heads with the course's percent");
+		assert.match(html, /data-testid="course-overview"[\s\S]*Understanding<span[^>]*>50%</, "the overview heads with the course's percent");
 	});
 
 	it("learned skills sit in Learning with Practice and Learn again; a finished lesson is marked", () => {
@@ -1478,7 +1525,7 @@ describe("the UI", () => {
 			],
 		});
 		const html = body(data);
-		assert.match(html, /data-testid="course-learning"[\s\S]*Learning · 2[\s\S]*data-testid="practice-all"/);
+		assert.match(html, /data-testid="course-learning"[\s\S]*Learning<span[^>]*>2<[\s\S]*data-testid="practice-all"/);
 		assert.match(html, /data-testid="course-sessions-open"[\s\S]*Practice: A[\s\S]*aria-expanded="false"[^>]*data-testid="course-sessions-finished-toggle"[^>]*>[\s\S]*Finished · 1/);
 		assert.doesNotMatch(html, /data-testid="course-sessions-finished"/, "finished sessions fold away until opened");
 		const allDone = body({ ...data, sessions: [data.sessions[1]!] });
@@ -1504,7 +1551,7 @@ describe("the UI", () => {
 			sessions: [],
 		});
 		const html = body(data);
-		assert.match(html, /data-testid="course-context-check"[\s\S]*From another course · 1[\s\S]*optional, nothing is locked[\s\S]*data-testid="skill-a"/);
+		assert.match(html, /data-testid="course-context-check"[\s\S]*From another course<span[^>]*>1<[\s\S]*optional, nothing is locked[\s\S]*data-testid="skill-a"/);
 		assert.doesNotMatch(html, /data-testid="course-known"/, "A shows once — in its own section");
 		assert.match(html, /about one short question for 1 skill,/);
 		assert.doesNotMatch(body({ ...data, skills: [skillView("a", { understanding: 6, learned: true, known: true })], nextUp: [] }), /placement-offer/, "nothing left to place");

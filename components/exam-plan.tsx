@@ -83,7 +83,7 @@ export function WeightNote({ skill }: { skill: Pick<CourseSkillView, "id" | "wei
 
 const CARD = "min-w-0 space-y-2.5 rounded-xl border border-border/60 bg-card/50 p-4";
 /** A part inside the Next up box ("Learn today", "More to learn"): below the box heading, above its rows. */
-const BOX_HEAD = "mb-0.5 text-[11px] uppercase tracking-widest text-muted-foreground/70";
+const BOX_HEAD = "mb-0.5 text-xs font-medium text-muted-foreground";
 /** How many more next-up skills the box lists after today's lessons. */
 export const MORE_NEXT_UP = 4;
 
@@ -223,7 +223,7 @@ export function ExamPlanSection(props: ExamPlanSectionProps) {
 							<div className="flex items-center justify-between gap-2 text-sm" data-testid="course-today-review">
 								<span className="flex flex-wrap items-center gap-x-2">
 									<span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: "var(--lh-due)" }} />
-									<span className="whitespace-nowrap">{plan.reviewBatch < plan.reviewDue ? `Review · ${plan.reviewBatch} of ${plan.reviewDue} due` : `Review · ${plan.reviewDue} due`}</span>
+									<span className="whitespace-nowrap">{plan.reviewBatch < plan.reviewDue ? `Review · ${plan.reviewBatch} of ${plan.reviewDue}` : `Review · ${plan.reviewDue}`}</span>
 									{(plan.reviewFading ?? 0) > 0 && <span className="text-muted-foreground" data-testid="course-review-fading">{`· ${plan.reviewFading} fading before the exam`}</span>}
 								</span>
 								<button type="button" className={cn(BTN, "border-foreground/40 text-foreground")} disabled={busy} onClick={() => onStart("review")}>

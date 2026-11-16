@@ -24,16 +24,16 @@ describe("the exam countdown", () => {
 	});
 
 	it("puts percent, days and due on a course's meta line, days only with an exam date and due only above 0", () => {
-		assert.equal(courseMeta(summary, NOON), "58% · 2 due");
-		assert.equal(courseMeta({ ...summary, examDate: "2026-11-26" }, NOON), "58% · 12 d · 2 due");
+		assert.equal(courseMeta(summary, NOON), "58% · 2 to review");
+		assert.equal(courseMeta({ ...summary, examDate: "2026-11-26" }, NOON), "58% · 12 d · 2 to review");
 		assert.equal(courseMeta({ ...summary, examDate: "2026-11-26", needsReview: 0 }, NOON), "58% · 12 d");
 		assert.equal(courseMeta({ ...summary, examDate: "2026-11-14", needsReview: 0 }, NOON), "58% · today");
 		assert.equal(courseMeta({ ...summary, examDate: "2026-11-13", needsReview: 0 }, NOON), "58% · passed");
 	});
 
 	it("keeps the columns: no exam date leaves the days column empty, so the due count stays last", () => {
-		assert.deepEqual(courseMetaParts(summary, NOON), { status: null, percent: "58%", days: null, due: "2 due" });
-		assert.deepEqual(courseMetaParts({ ...summary, examDate: "2026-11-26" }, NOON), { status: null, percent: "58%", days: "12 d", due: "2 due" });
+		assert.deepEqual(courseMetaParts(summary, NOON), { status: null, percent: "58%", days: null, due: "2 to review" });
+		assert.deepEqual(courseMetaParts({ ...summary, examDate: "2026-11-26" }, NOON), { status: null, percent: "58%", days: "12 d", due: "2 to review" });
 	});
 
 	it("shows the skill map's status instead while it is drafting, failed or waiting, and nothing before one exists", () => {

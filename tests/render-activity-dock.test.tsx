@@ -275,4 +275,14 @@ describe("activity section render", () => {
 		// glm-5.3-flash drifted in pi-ai 0.87.1)
 		assert.match(html, /activity-total-cost[^>]*>\$0\.0040</);
 	});
+
+	it("with the sidebar's Settings on its row, the total gets its own line below (owner, 2026-11-16)", () => {
+		const feed = { jobs: [job({ id: "j1", kind: "demo", activity: "building sandbox…", title: "Chain-rule demo" })], extractions: [] };
+		const html = renderToStaticMarkup(<ActivitySection feed={feed} trailing={<button>Settings</button>} />);
+		assert.match(html, /Background agents[\s\S]*>Settings<\/button>[\s\S]*data-testid="activity-total-cost"/, "the header row ends with Settings; the total follows it");
+		assert.equal(html.match(/data-testid="activity-total-cost"/g)?.length, 1, "the total once");
+		const idle = renderToStaticMarkup(<ActivitySection feed={{ jobs: [], extractions: [] }} trailing={<button>Settings</button>} />);
+		assert.match(idle, />Settings<\/button>/);
+		assert.doesNotMatch(idle, /activity-total-cost/);
+	});
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { Children, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { EllipsisIcon, PuzzleIcon } from "lucide-react";
 import type { PluginAction, PluginActionContext } from "@/src/core";
 import type { FrontendPlugin } from "@/components/plugin-manager";
@@ -76,8 +76,8 @@ const TOP_BUTTON = "flex h-9 min-w-0 max-w-48 shrink-0 items-center gap-1.5 roun
 export function PluginSidebarActions({ children }: { children: ReactNode }) {
 	const { snapshot } = usePlugins();
 	const actions = placedPluginActions(snapshot.plugins, SIDEBAR_CONTEXT);
-	const count = Children.count(children) + actions.length;
-	return <div data-testid="sidebar-actions" className={`lh-plugin-scroll mx-3 mb-2 grid max-h-[10.25rem] shrink-0 gap-1.5 overflow-y-auto ${count >= 6 ? "grid-cols-2" : "grid-cols-1"}`}>
+	// Two columns always (owner, 2026-11-16): Teaching and Practice share one row, plugin doors pair up under them.
+	return <div data-testid="sidebar-actions" className="lh-plugin-scroll mx-3 mb-2 grid max-h-[10.25rem] shrink-0 grid-cols-2 gap-1.5 overflow-y-auto">
 		{children}
 		{actions.map(item => <ActionButton key={item.key} item={item} context={SIDEBAR_CONTEXT} className={SIDEBAR_BUTTON} />)}
 	</div>;

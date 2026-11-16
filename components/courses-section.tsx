@@ -75,7 +75,8 @@ export function courseMetaParts(course: CourseSummary, now: number = Date.now())
 		status: null,
 		percent: `${course.progress}%`,
 		days: course.examDate ? examDaysLabel(course.examDate, now) : null,
-		due: course.needsReview > 0 ? `${course.needsReview} due` : null,
+		// due now plus fading before the exam: "to review", as the course page says it (owner, 2026-11-16)
+		due: course.needsReview > 0 ? `${course.needsReview} to review` : null,
 	};
 }
 
@@ -369,13 +370,13 @@ export function CoursesSection({ onCourses, query = "" }: { onCourses?: (courses
 						}}
 						{...dropProps(`folder:${folderKey(f.name)}`, f.name)}
 						className={cn(
-							"lh-touch mb-0.5 flex w-full items-center gap-1.5 rounded-lg px-1 py-1 text-left text-xs uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground",
+							"lh-touch mb-0.5 flex w-full items-center gap-1.5 rounded-lg px-1 py-1 text-left text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
 							dropTarget === `folder:${folderKey(f.name)}` && "bg-accent text-foreground ring-1 ring-border",
 						)}
 					>
 						{open ? <ChevronDownIcon className="size-3 shrink-0" /> : <ChevronRightIcon className="size-3 shrink-0" />}
 						<span className="min-w-0 truncate">{f.name}</span>
-						<span className="shrink-0">· {f.courses.length}</span>
+						<span className="shrink-0 font-normal tabular-nums text-muted-foreground/60">{f.courses.length}</span>
 					</button>
 				)}
 				{open && <div className="pl-2">{f.courses.map(renderCourse)}</div>}
@@ -396,23 +397,25 @@ export function CoursesSection({ onCourses, query = "" }: { onCourses?: (courses
 					onClick={toggleSection}
 					{...dropProps("section", null)}
 					className={cn(
-						"lh-touch flex items-center gap-1.5 rounded-lg text-xs uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground",
+						"lh-touch flex items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground",
 						dropTarget === "section" && "bg-accent text-foreground ring-1 ring-border",
 					)}
 				>
-					<GraduationCapIcon className="size-3" />
-					Courses{courses !== null ? ` · ${total}` : ""}
+					<GraduationCapIcon className="size-3.5" />
+					Courses
+					{courses !== null && <span className="font-normal tabular-nums text-muted-foreground/60">{total}</span>}
 					{bodyOpen ? <ChevronDownIcon className="size-3" /> : <ChevronRightIcon className="size-3" />}
 				</button>
+				{/* a quiet + (owner, 2026-11-16): the gold pill was the loudest thing in the sidebar */}
 				<button
 					type="button"
 					data-testid="new-course"
+					title="New course"
 					onClick={() => void newCourse()}
-					className="lh-touch lh-press flex items-center gap-1.5 rounded-pill bg-primary/20 px-2 py-0.5 touch:px-3 touch:py-1.5 text-xs font-medium uppercase tracking-wider text-primary hover:bg-primary/30 active:rounded-lg"
+					className="lh-touch lh-press flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 				>
-					<PlusIcon className="size-3 touch:size-3.5" />
-					New
-					<span className="sr-only">create a new course</span>
+					<PlusIcon className="size-4" />
+					<span className="sr-only">New course</span>
 				</button>
 			</div>
 			{bodyOpen && (

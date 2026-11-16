@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIcon, BotIcon, FileTextIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CallUsage, JobKind, JobRecord } from "@/src/core";
@@ -321,7 +321,7 @@ const KIND_ICON: Record<JobKind, typeof SearchIcon> = {
 /** Abort states per blob id: pending (fired) / failed (backend absent). */
 type AbortState = "pending" | "failed";
 
-export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
+export function ActivitySection({ feed: feedProp, trailing }: { feed?: ActivityFeed; trailing?: ReactNode }) {
 	const ctx = useContext(ActivityContext);
 	const feed = feedProp ?? ctx.feed;
 	const refresh = ctx.refresh;
@@ -377,18 +377,25 @@ export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
 	// rows match the session rows' hover. Empty means empty: the header sits
 	// alone (the cost span is population, not decoration).
 	return (
-		<section data-testid="activity-section" className="border-t border-border px-3 pb-3 pt-2">
-			<div className="mb-1 flex items-center gap-1.5 text-xs uppercase tracking-widest text-muted-foreground">
+		<section data-testid="activity-section" className="border-t border-border px-3 pb-2 pt-1">
+			<div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
 				<ActivityIcon className="size-3" />
 				Background agents
-				{blobs.length > 0 && (
-					<span className="ml-auto tabular-nums" data-testid="activity-total-cost" title="Total running cost (inferred)">
+				{blobs.length > 0 && !trailing && (
+					<span className="ml-auto font-normal tabular-nums" data-testid="activity-total-cost" title="Total running cost (inferred)">
 						{planCostLabel(totalCost, subscriptionLabels(blobs.map((blob) => blob.model)))}
 				</span>
 				)}
+				{/* the sidebar's Settings entry shares this row (owner, 2026-11-16); the total then gets its own line below */}
+				{trailing && <span className="ml-auto shrink-0">{trailing}</span>}
 			</div>
+			{blobs.length > 0 && trailing && (
+				<div className="truncate text-right text-xs tabular-nums text-muted-foreground" data-testid="activity-total-cost" title="Total running cost (inferred)">
+					{planCostLabel(totalCost, subscriptionLabels(blobs.map((blob) => blob.model)))}
+				</div>
+			)}
 			{blobs.length > 0 && (
-				<div className="flex max-h-[40dvh] flex-col gap-1 overflow-y-auto">
+				<div className="mt-1 flex max-h-[40dvh] flex-col gap-1 overflow-y-auto">
 					{blobs.map((blob) => (
 						<ActivityBlobRow
 							key={blob.id}

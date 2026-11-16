@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronRightIcon, Loader2Icon } from "lucide-react";
+import { ChevronRightIcon, Loader2Icon, XIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { LessonMaterial, Pace } from "@/src/core";
 import { CoursePace } from "@/components/course-pace";
 import { ExamSettings, type ExamPlanSectionProps } from "@/components/exam-plan";
@@ -32,6 +33,8 @@ export function CourseSettings({
 	onChanged,
 	onPlacement,
 	exam,
+	open: openProp,
+	onOpenChange,
 }: {
 	courseId: string;
 	pace: Pace | undefined;
@@ -48,28 +51,48 @@ export function CourseSettings({
 	onPlacement: () => void;
 	/** The exam settings' props; absent until the course has skills. */
 	exam?: Pick<ExamPlanSectionProps, "examDate" | "hasWeights" | "weighing" | "canWeigh"> & { weightsSummary?: string; weightsAt?: string };
+	/** Opened from the page header's gear (owner, 2026-11-16): given, the panel is controlled and shows nothing while
+	 *  closed. Absent, it keeps its own closed line. */
+	open?: boolean;
+	onOpenChange?: (open: boolean) => void;
 }) {
 	const needsAttention = !hasSkills || hasDraft || drafting || !!courseError;
-	const [open, setOpen] = useState(needsAttention);
+	const controlled = openProp !== undefined;
+	const [ownOpen, setOwnOpen] = useState(needsAttention);
+	const open = controlled ? openProp : ownOpen;
+	const setOpen = (next: boolean) => (controlled ? onOpenChange?.(next) : setOwnOpen(next));
 	useEffect(() => {
 		if (needsAttention) setOpen(true);
+		// only when attention is newly needed
 	}, [needsAttention]);
 
 	return (
-		<details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="group" data-testid="course-settings">
-			<summary className="flex cursor-pointer list-none items-center justify-between rounded-lg border border-border/60 px-3 py-2 text-xs uppercase tracking-widest text-muted-foreground transition-colors hover:bg-muted/50 [&::-webkit-details-marker]:hidden">
+		<details
+			open={open}
+			onToggle={(e) => {
+				if (e.currentTarget.open !== open) setOpen(e.currentTarget.open);
+			}}
+			className={cn("group", open && "rounded-xl border border-border/60 px-4 pb-4", controlled && !open && "hidden")}
+			data-testid="course-settings"
+		>
+			<summary
+				className={cn(
+					"flex cursor-pointer list-none items-center justify-between transition-colors [&::-webkit-details-marker]:hidden",
+					open ? "lh-touch py-2 text-base font-semibold text-foreground" : "rounded-lg border border-border/60 px-3 py-2 text-sm text-muted-foreground hover:bg-muted/50",
+				)}
+			>
 				<span className="flex items-center gap-2">
 					Course settings
 					{drafting && (
-						<span className="flex items-center gap-1.5 normal-case tracking-normal" data-testid="course-drafting">
+						<span className="flex items-center gap-1.5 text-xs font-normal text-muted-foreground" data-testid="course-drafting">
 							<Loader2Icon className="size-3.5 animate-spin" />
 							The course planner is reading the curriculum…
 						</span>
 					)}
 				</span>
-				<ChevronRightIcon className="size-4 transition-transform group-open:rotate-90" aria-hidden />
+				{open ? <XIcon className="size-4 text-muted-foreground" aria-label="Close" /> : <ChevronRightIcon className="size-4" aria-hidden />}
 			</summary>
-			<div className="space-y-4 px-1 pt-4">
+			<div className="space-y-4 pt-2">
 				<CoursePace courseId={courseId} pace={pace} onSaved={() => onChanged?.()} />
 				<section data-testid="course-curriculum">
 					<div className={SECTION_HEAD}>Curriculum</div>
