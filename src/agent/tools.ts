@@ -219,7 +219,9 @@ const FINAL_ONLY_DESCRIPTION =
 	"sketching, with no options. `correctAnswer` is the FULL correct answer, COMMITTED before he sees the question: grade his " +
 	"answer strictly against it, never revise it. He sees it on submit. Give NO hint: nothing in `lead`, `question` or `details` " +
 	"may name the method, remind him of a step or show part of the answer. Set `nodeId` (required) to the plan node the skill " +
-	"ends on. After his answer, say what was right and wrong, then call finish_lesson. ONE question per turn.";
+	"ends on. Say what his last answer showed BEFORE this call (send_to_user, or plain text if you have none): `lead` stays neutral, with no repair " +
+	"and no method named. The final is a case not used earlier in this lesson, even when he asks for something shorter: a shorter final has fewer " +
+	"parts, it never reuses earlier items. After his answer, say what was right and wrong, then call finish_lesson. ONE question per turn.";
 
 function explainDescription(name: "explain" | "recall", nodeId: boolean, scope: ExplainScope = "checks", mixed = false): string {
 	if (scope === "finalOnly") return FINAL_ONLY_DESCRIPTION;
@@ -238,7 +240,8 @@ function explainDescription(name: "explain" | "recall", nodeId: boolean, scope: 
 		"ONE question per turn: call a single " + name + ", then end your turn — his answer determines the next." +
 		(scope === "all"
 			? " In this course lesson, `type` final poses the lesson's FINAL PROBLEM: one unaided problem taking the whole skill, with no hint " +
-				"anywhere in `lead`, `question` or `details`; after his answer, say what was right and wrong, then call finish_lesson. " +
+				"anywhere in `lead`, `question` or `details`, and it is a case not used earlier in this lesson (shorter if he asks, never a reuse); " +
+				"say what his last answer showed before the call, not in `lead`; after his answer, say what was right and wrong, then call finish_lesson. " +
 				"`type` recall is the lesson's OPENER: a short question on an earlier skill he learned (set `skill`), posed before the new material."
 			: "") +
 		(mixed ? QUIZ_FORM_RULE : "")

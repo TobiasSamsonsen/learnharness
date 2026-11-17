@@ -20,6 +20,7 @@
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import { sendToUserText } from "./native-messages.ts";
 import { NO_LEAD_GATED_TOOLS, PROSE_GATED_TOOLS } from "./prose-gate.ts";
+import { normalizeQuizType } from "./question-core.ts";
 import { leadOf, tutorProse } from "./tutor-prose.ts";
 
 /** The shortest response that counts as an explanation after a miss. */
@@ -106,6 +107,11 @@ export function leadFloorBlocks(
 	toolName: string,
 ): boolean {
 	if (!PROSE_GATED_TOOLS.includes(toolName)) return false;
+	// The final problem takes no hint (tools.ts): a floor on its `lead` pushed the tutor to pad it with the method it
+	// must not name, so the first rating of the skill was not unaided (owner, 2026-11-17). The reply to the learner's
+	// last answer goes before it, as send_to_user or text; the plain presence rule (prose-gate.ts) still applies.
+	const callBlock = assistantMessage.content.find((b) => b.type === "toolCall" && b.id === toolCallId);
+	if (toolName === "explain" && callBlock?.type === "toolCall" && normalizeQuizType((callBlock.arguments as { type?: unknown } | undefined)?.type) === "final") return false;
 	const rejected = new Set<string>();
 	for (const m of history) {
 		const r = m as ToolResultMessage;

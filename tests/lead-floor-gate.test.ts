@@ -76,6 +76,24 @@ describe("leadFloorBlocks (the pure rule)", () => {
 		assert.equal(leadFloorBlocks(explainResult({}), assistant([call("q2", "quiz", lead(LEAD_FLOOR_CHARS))]), "q2", "quiz"), false);
 	});
 
+	it("the final problem is exempt: it takes no hint, so its short lead must not be padded (2026-11-17)", () => {
+		const explainAnswer = [user, assistant([call("q1", "explain", lead(300))]), answerResult("q1", "explain", { correct: true })];
+		const finalCall = (id: string, type: string, shortLead: string): ToolCall => ({
+			...call(id, "explain"),
+			arguments: { ...quizArgs, type, lead: shortLead } as ToolCall["arguments"],
+		});
+		const final = assistant([finalCall("q2", "final", "Riktig. Da er siste oppgave.")]);
+		assert.equal(leadFloorBlocks(explainAnswer, final, "q2", "explain"), false, "a short lead on the final after a free-recall answer");
+		assert.equal(leadFloorBlocks(missed, final, "q2", "explain"), false, "and after a miss");
+		const messyType = assistant([finalCall("q2", " \"final\" ", "Riktig. Da er siste oppgave.")]);
+		assert.equal(leadFloorBlocks(explainAnswer, messyType, "q2", "explain"), false, "the type is read the way the tools read it");
+		// every other explain still owes the floor
+		for (const type of ["check", "recall", "predict"]) {
+			const other = assistant([finalCall("q2", type, "Riktig. Da er neste oppgave.")]);
+			assert.equal(leadFloorBlocks(explainAnswer, other, "q2", "explain"), true, type);
+		}
+	});
+
 	it("the no-lead refusal has a plain-text fallback for a tutor without send_to_user", () => {
 		assert.match(LEAD_FLOOR_REASON_NO_LEAD, /plain text before the call only if you have no send_to_user/);
 	});
