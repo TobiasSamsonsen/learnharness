@@ -91,4 +91,4 @@ export interface ProbeDoneResult {
  *  carries only {ok:true} for the record/UI. Same doctrine as
  *  CONCLUDE_ACK_TEXT. */
 export const PROBE_DONE_ACK_TEXT =
-	"Assessment recorded — it is shown to the learner now and the teacher plans from it. Say your closing sentence and end your turn; the teaching phase takes over from here.";
+	"Assessment recorded — it is shown to the learner now and the teacher plans from it. End your turn now with no further text; the planning phase takes over from here.";

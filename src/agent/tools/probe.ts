@@ -58,7 +58,7 @@ export function probeDoneTool(ctx: ProbeDoneContext): Record<string, AgentTool<a
 				"one strand per dependency the lesson will rest on, with your read of where his edge sits on it " +
 				"(floor, ceiling, misconceptions, what to build from). It streams to the learner live and becomes " +
 				"the handoff artifact the teacher plans from. Refused while a question is still open, and after " +
-				"the probe is already concluded. After it succeeds, say your closing sentence and end your turn.",
+				"the probe is already concluded. After it succeeds, end your turn with no further text.",
 			// The core-owned schema (contracts/probe.ts) — the SAME schema the UI
 			// parse seam (tool-parts.ts) runs, so boundary-valid ⇔ consumer-parseable.
 			parameters: probeDoneInputSchema,

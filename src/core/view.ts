@@ -485,11 +485,12 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[], hiddenDisp
 			return;
 		}
 		case "probe-handoff": {
-			out.push({
-				id: marker.id,
-				role: "user",
-				parts: [{ type: "data-probe-handoff", id: `ph_${marker.id}`, data: marker.details }],
-			});
+			// No view entry (owner, 2026-11-17: one continuous thinking line). The
+			// wake is scaffolding: it used to render a Planning divider and split
+			// the assistant group, so the probe turn and the planning turn read
+			// as two. Without a user-role entry the planning steps join the
+			// probe's group like any other step. The phase fold reads the
+			// probe_done call, not this marker, so phases are unchanged.
 			return;
 		}
 		case "subagent-steer": {

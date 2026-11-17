@@ -98,18 +98,17 @@ describe("default plugin worker transcript presentation", () => {
 			assert.match(html, status === "running" ? /Checking sources/ : status === "done" ? /finished/ : /failed/);
 		}
 		const unrelated = renderToStaticMarkup(<JobsContext.Provider value={[{ ...job, toolCallId: "another-call" }]}><ToolPartRenderer part={{ ...ack, result: undefined }} /></JobsContext.Provider>);
-		assert.match(unrelated, /tool-call-card/); assert.doesNotMatch(unrelated, /dispatch-card/);
+		assert.doesNotMatch(unrelated, /dispatch-card|tool-call-card/);
 	});
 
-	it("keeps ordinary sync tools and unsuccessful/non-ACK details generic", () => {
+	it("draws no row for ordinary sync tools or unsuccessful/non-ACK details, and never a dispatch card", () => {
 		const fixtures: Array<NonNullable<LhViewPart["result"]>["details"]> = [undefined, null, { answer: 42 }, { jobId: job.id }, { dispatched: true }, { jobId: 12, dispatched: true }, { jobId: job.id, dispatched: false }];
 		for (const details of fixtures) {
 			const html = renderToStaticMarkup(<ToolPartRenderer part={{ ...ack, result: { ...ack.result, details } }} />);
-			assert.match(html, /tool-call-card/); assert.match(html, /Accepted; keep teaching|answer|jobId|dispatched/);
-			assert.doesNotMatch(html, /dispatch-card/);
+			assert.doesNotMatch(html, /dispatch-card|tool-call-card/);
 		}
 		const failure = renderToStaticMarkup(<ToolPartRenderer part={{ ...ack, state: "output-error", result: { ...ack.result, isError: true } }} />);
-		assert.match(failure, /tool-call-card/); assert.doesNotMatch(failure, /dispatch-card/);
+		assert.doesNotMatch(failure, /dispatch-card|tool-call-card/);
 	});
 
 	it("defaults persisted results to shared collapsed grammar, readable markdown, and raw details", () => {

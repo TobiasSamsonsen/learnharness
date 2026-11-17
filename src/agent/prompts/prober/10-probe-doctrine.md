@@ -32,7 +32,7 @@ Every question should move an edge somewhere — no filler, no re-asking what hi
 
 ## 5. Conclude — `probe_done`
 
-Aim to conclude within about 8 to 10 questions in all. A strand with a floor and a ceiling is done; stop probing it. Conclude earlier still when he is tiring (short, flat, guessing answers) or the plan can already be built from what you have. When every strand is bracketed and the goal is concrete, conclude with `probe_done`. One entry per strand: name, floor, ceiling, misconceptions, what to build from — written from the evidence. Exactly one call; refused while a question is open. A short closing sentence, end turn.
+Aim to conclude within about 8 to 10 questions in all. A strand with a floor and a ceiling is done; stop probing it. Conclude earlier still when he is tiring (short, flat, guessing answers) or the plan can already be built from what you have. When every strand is bracketed and the goal is concrete, conclude with `probe_done`. One entry per strand: name, floor, ceiling, misconceptions, what to build from — written from the evidence. Exactly one call; refused while a question is open. No closing text, end turn.
 
 ## Grounding — his material, not his description of it
 

@@ -167,16 +167,14 @@ describe("native tool renderer dispatch", () => {
 		} finally { await h.close(); }
 	});
 
-	it("unknown tools retain the existing expandable card and native text/images when details are absent", () => {
+	it("unknown tools draw no row of their own: the live line stands for tool activity (owner, 2026-11-17)", () => {
 		const html = renderToStaticMarkup(<ToolPartRenderer part={nativePart({ result: { content: [{ type: "text", text: "native answer without details" }, { type: "image", data: "NEVER_RENDER_IMAGE_BYTES", mimeType: "image/png" }], details: undefined, isError: false } })} />);
-		assert.ok(html.includes('data-testid="tool-call-card"')); assert.ok(html.includes("custom_tool"));
-		assert.ok(html.includes("native answer without details")); assert.ok(html.includes("Image attached to the model: image/png"));
-		assert.ok(!html.includes("NEVER_RENDER_IMAGE_BYTES"));
+		assert.equal(html, "");
 		const details = renderToStaticMarkup(<ToolPartRenderer part={nativePart({ output: { structured: "details remain readable" } })} />);
-		assert.ok(details.includes("details remain readable"));
+		assert.equal(details, "");
 	});
 
-	it("tool renderer failures never hide the native result, and disable restores that fallback", async () => {
+	it("a failing tool renderer still shows the native result; disabling it leaves no row (owner, 2026-11-17)", async () => {
 		let ctx!: PluginFrontendContext;
 		const h = await harness({ activate(context) { ctx = context; ctx.registerToolRenderer({ toolName: "custom_tool", mount() { throw new Error("tool renderer exploded"); } }); } });
 		try {
@@ -184,11 +182,11 @@ describe("native tool renderer dispatch", () => {
 			assert.ok(document.querySelector('[role="alert"]')?.textContent?.includes("tool renderer exploded"));
 			assert.ok(document.querySelector('[data-testid="tool-call-card"]')?.textContent?.includes("readable native fallback"));
 			await act(async () => { h.manager.reconcile([{ ...packageInfo, enabled: false, status: "disabled" }]); });
-			assert.equal(ctx.signal.aborted, true); assert.ok(document.body.textContent?.includes("readable native fallback"));
+			assert.equal(ctx.signal.aborted, true); assert.ok(!document.body.textContent?.includes("readable native fallback"));
 		} finally { await h.close(); }
 	});
 
-	it("reserves only real built-in presentation and keeps those cards/hidden plans authoritative", async () => {
+	it("reserves only real built-in presentation: activity cards (read) and the plan call draw nothing and plugins cannot take them", async () => {
 		const names = reservedToolRendererNames();
 		for (const name of ["read", "research", "quiz", "probe", "problem", "conclude", "plan_init"]) assert.ok(names.includes(name), name);
 		for (const name of ["web_search", "web_fetch", "pdf_info", "pdf_extract", "write_svg"]) assert.ok(!names.includes(name), name);
@@ -200,7 +198,7 @@ describe("native tool renderer dispatch", () => {
 		try {
 			await h.render(<><MessageResponse isAnimating>{"```mermaid\ngraph TD\nA-->B"}</MessageResponse><ToolPartRenderer part={{ type: "tool-read", toolCallId: "read-1", state: "output-available", input: { path: "fixture.txt" }, output: "builtin output" }} /><ToolPartRenderer part={{ type: "tool-plan_init", toolCallId: "plan-1", state: "output-available", output: { ok: true } }} /></>);
 			assert.equal(pluginMounts, 0); assert.ok(document.querySelector('[data-testid="md-mermaid"]'));
-			assert.ok(document.querySelector('[data-testid="tool-call-card"][data-tool="read"]'));
+			assert.equal(document.querySelector('[data-testid="tool-call-card"]'), null, "read is an activity row: drawn by the live line, not a card");
 			assert.equal(document.querySelector('[data-tool="plan_init"]'), null);
 		} finally { await h.close(); }
 	});

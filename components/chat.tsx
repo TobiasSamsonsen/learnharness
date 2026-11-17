@@ -5,6 +5,9 @@ import { createContext, Fragment, useCallback, useEffect, useLayoutEffect, useMe
 import { usePathname } from "next/navigation";
 import { useChatSession } from "@/components/session";
 import { usePlugins } from "./plugins";
+import { HANDOFF_WAIT_MS, isWritingText, pendingLabel, probeHandoffOwed } from "./pending-label.ts";
+import { EMPTY_KEY_STATE, nextKeyState } from "./stable-keys.ts";
+import { LandedText, SettledContext } from "./landed-text.tsx";
 import { PluginSubmissionRunner, SubmissionModelEpoch, type SubmissionAttempt } from "./plugin-submission-runner";
 import { submissionImages, type BuiltinSubmissionCapture, type PrepareBuiltinSubmission, type PrepareThinkingSubmission, type PreparePluginQuestionSubmission, type PreparePluginProblemSubmission } from "./plugin-submission-adapters";
 import { SubmittedImages } from "./submitted-images";
@@ -28,7 +31,7 @@ import {
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { PathText } from "@/components/file-path-chip";
-import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
+import { partKeys, stepSeparators } from "./transcript-rows.ts";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { ToolPartRenderer } from "@/components/plugin-renderers";
@@ -285,11 +288,15 @@ function SystemLine({ children, testId }: { children: React.ReactNode; testId?: 
 
 /** One immediate optimistic placeholder; only its wording changes during
  * host-managed submission evaluation. The spinner keeps its identity. */
-export function PendingTurnIndicator({ evaluating }: { evaluating: boolean }) {
+export function PendingTurnIndicator({ evaluating, label = "Thinking", quiet = false }: { evaluating: boolean; label?: string; quiet?: boolean }) {
+	const text = evaluating ? "Evaluating" : label;
 	return (
-		<span className="flex items-center gap-2 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground">
-			<BrailleSpinner label={evaluating ? "Evaluating" : "Thinking"} />
-			<Shimmer duration={1}>{evaluating ? "EVALUATING…" : "THINKING…"}</Shimmer>
+		<span
+			aria-hidden={quiet || undefined}
+			className={cn("flex items-center gap-2 font-ui text-xs font-medium uppercase tracking-wide text-muted-foreground", quiet && "invisible")}
+		>
+			<BrailleSpinner label={text} />
+			<Shimmer duration={1}>{`${text.toUpperCase()}…`}</Shimmer>
 		</span>
 	);
 }
@@ -659,6 +666,43 @@ export function Chat({
 		if (turnInFlight && (status === "submitted" || status === "streaming")) setTurnInFlight(false);
 	}, [status, turnInFlight]);
 
+	// THE ONE LIVE LINE (owner, 2026-11-17): the probe turn settles, and the
+	// server wakes the planning turn about a second later. Bridge that gap
+	// with the line so the lesson reads as one continuous piece of thinking.
+	// Only after this client watched a turn run (a reload on an old probed
+	// chat never spins), and it gives up after HANDOFF_WAIT_MS so a failed
+	// wake cannot spin forever. Separate from turnInFlight on purpose:
+	// holding that flag blocks the attach that starts the planning turn.
+	const handoffOwed = useMemo(() => probeHandoffOwed(messages), [messages]);
+	const sawLiveTurnRef = useRef(false);
+	const [handoffWait, setHandoffWait] = useState(false);
+	useEffect(() => {
+		if (status === "submitted" || status === "streaming") sawLiveTurnRef.current = true;
+		if (!handoffOwed || status !== "ready" || turnInFlight || !sawLiveTurnRef.current) {
+			setHandoffWait(false);
+			return;
+		}
+		setHandoffWait(true);
+		const timer = setTimeout(() => setHandoffWait(false), HANDOFF_WAIT_MS);
+		return () => clearTimeout(timer);
+	}, [handoffOwed, status, turnInFlight]);
+	const turnRunning = status === "submitted" || status === "streaming" || turnInFlight || handoffWait;
+	const liveLabel = useMemo(() => pendingLabel(messages), [messages]);
+	// The line goes quiet (it keeps its height, so nothing shifts) once the tutor
+	// is writing visible text in a live stream; it returns with the next tool or thinking.
+	const liveLineQuiet = status === "streaming" && !handoffWait && isWritingText(messages);
+	// Stable keys: a live message keeps its component when the saved id replaces its temporary one.
+	const keyState = useRef(EMPTY_KEY_STATE);
+	const messageKeys = useMemo(() => {
+		keyState.current = nextKeyState(keyState.current, messages);
+		return keyState.current.keys;
+	}, [messages]);
+	// Text that mounts after the first render and is already long landed all at once (landed-text.tsx).
+	const settledRef = useRef(false);
+	useEffect(() => {
+		settledRef.current = true;
+	}, []);
+
 	// Mid-session discovery (jobs poll, handoff watch): a server-side turn
 	// exists that none of our views holds — attach to it through the same
 	// resume path as mount reattach (live rendering, instant catch-up). The
@@ -780,6 +824,9 @@ export function Chat({
 	// session's current phase.
 	const phases = useMemo(() => phaseTimeline(messages), [messages]);
 	const retryPlans = useMemo(() => messages.map((m) => retryPlan(m.parts)), [messages]);
+	// Step hairlines: only between steps that both show something (transcript-rows.ts).
+	const stepLines = useMemo(() => messages.map((m) => stepSeparators(m.parts)), [messages]);
+	const partKeyLists = useMemo(() => messages.map((m) => partKeys(m.parts)), [messages]);
 
 	const [composerDraftRevision, setComposerDraftRevision] = useState(0);
 	/* The composer draft ref is synchronous, so sends and dictation flushes
@@ -1990,7 +2037,8 @@ export function Chat({
 				<Conversation className="h-full min-w-0 flex-1" initial="instant" contextRef={scrollContextRef}>
 					<SessionMessageNavigation />
 					<TranscriptElementReporter onElement={setTranscriptElement} />
-					<ConversationContent className="min-h-full gap-0 p-0">
+					<SettledContext.Provider value={settledRef}>
+<ConversationContent className="min-h-full gap-0 p-0">
 						<div data-session-find-root="" className={`${TRANSCRIPT_COLUMN} relative flex flex-1 flex-col gap-4 pt-4`}>
 							{messages.length === 0 && !busy && (
 								<ConversationEmptyState
@@ -2006,17 +2054,7 @@ export function Chat({
 									// and centered like the teacher's artifacts (contracts.ts "THE ASYNC
 									// PROTOCOL" §4). Key fallback: legacy transcripts (pre id-hygiene)
 									// can still hold empty ids — the index keeps keys unique for them.
-									<SubagentSteerCard key={m.id || `m-${mi}`} message={m} />
-								) : m.role === "user" && m.parts.some((p) => p.type === "data-probe-handoff") ? (
-								// The probe→teach handoff wake (custom-message scheme): the
-								// PLANNING DIVIDER IS the seam (owner ruling 2026-09-26 — it
-								// replaced the "Preparing your plan…" system line; the marker
-								// renders in the right spot by record construction, so the old
-								// fold-based divider — which floated to the transcript top once
-								// Wave D grouping merged the whole probe into one giant
-								// assistant group — is gone). Never a user bubble: the wake is
-								// scaffolding; the model-facing instruction lives in the adapter.
-								<PhaseDivider key={m.id || `m-${mi}`} phase="plan" />
+									<SubagentSteerCard key={messageKeys[mi]!} message={m} />
 							) : m.role === "user" && m.parts.length > 0 && m.parts.every((p) => p.type.startsWith("data-")) ? (
 								// Marker cards (custom messages, 2026-10-04): user-side
 								// scaffolding — the graph-context pick, the practice
@@ -2025,7 +2063,7 @@ export function Chat({
 								// precedent). The user branch below renders text only;
 								// without this hoist a data-only message read as an
 								// EMPTY bubble (owner report, 2026-10-04).
-								<Fragment key={m.id || `m-${mi}`}>
+								<Fragment key={messageKeys[mi]!}>
 									{m.parts.map((part, pi) => {
 										switch (part.type) {
 											case "data-graph-context":
@@ -2063,7 +2101,7 @@ export function Chat({
 									})}
 								</Fragment>
 							) : (
-									<Fragment key={m.id || `m-${mi}`}>
+									<Fragment key={messageKeys[mi]!}>
 									{/* THE INFERRED TEACH SEAM (owner ruling 2026-09-26, the verdict
 									death): teaching begins where the FIRST nodeId-tagged quiz is
 									posed — the fold (phaseTimeline, the same derivation the phase chip
@@ -2087,7 +2125,7 @@ export function Chat({
 									phases[mi] === "teach" &&
 									phases[mi - 1] !== "teach" &&
 									teachStepIndex(withoutRetries(m.parts, retryPlans[mi]!)) === -1 ? (
-										<PhaseDivider key={`teach-${m.id || `m-${mi}`}`} phase="teach" />
+										<PhaseDivider key={`teach-${messageKeys[mi]!}`} phase="teach" />
 									) : null}
 									{m.role === "user" ? (
 										/* THE DOCUMENT ROW (owner round, 2026-10-05): no right-aligned
@@ -2123,8 +2161,9 @@ export function Chat({
 									<Message from="assistant" className="max-w-full">
 									<MessageContent className="w-full">
 											{m.parts.map((part, pi) => {
-												if (part.pluginProblem) return <ProblemCard key={pi} part={{ ...part, state: part.state ?? "input-available", toolCallId: part.toolCallId ?? "" }} />;
-												if (part.pluginQuestion) return <PluginQuestionPart key={pi} part={part} chatId={chatId} />;
+												const pk = partKeyLists[mi]![pi]!;
+												if (part.pluginProblem) return <ProblemCard key={pk} part={{ ...part, state: part.state ?? "input-available", toolCallId: part.toolCallId ?? "" }} />;
+												if (part.pluginQuestion) return <PluginQuestionPart key={pk} part={part} chatId={chatId} />;
 												const isLastPart = mi === messages.length - 1 && pi === m.parts.length - 1;
 												// The step boundary where teaching begins (round 8): when
 												// the teach flip happens in a LATER step, its PhaseDivider
@@ -2142,8 +2181,11 @@ export function Chat({
 												// will fill, so nothing jumps (and a failure never goes silent).
 												const retry = retryPlans[mi]!;
 												if (retry.lineAt === pi) {
+													// A running turn's live line stands for the retry (owner,
+													// 2026-11-17); the quiet line stays only once the turn ended on it.
+													if (turnRunning && mi === messages.length - 1) return null;
 													return (
-														<SystemLine key={`retry-${pi}`} testId="tool-retry">
+														<SystemLine key={`retry-${pk}`} testId="tool-retry">
 															Retrying…
 														</SystemLine>
 													);
@@ -2154,29 +2196,25 @@ export function Chat({
 														const sourceId = textPartMessageId(part.id);
 														const anchor = sourceId && sourceTextParts.get(sourceId) === part.id ? messageAnchorId(sourceId) : undefined;
 														return (
-															<div key={part.id || pi} id={anchor} data-source-message-id={sourceId ?? undefined} className="lh-source-passage">
-																<MessageResponse>{part.text}</MessageResponse>
+															<div key={pk} id={anchor} data-source-message-id={sourceId ?? undefined} className="lh-source-passage">
+																<LandedText>{part.text ?? ""}</LandedText>
 															</div>
 														);
 													}
 													case "reasoning":
-														return (
-															<Reasoning key={pi} isStreaming={status === "streaming" && isLastPart} className="mb-2">
-																<ReasoningTrigger />
-																<ReasoningContent>{part.text ?? ""}</ReasoningContent>
-															</Reasoning>
-														);
+														// Never drawn (owner, 2026-11-17): the live line stands for thinking.
+														return null;
 													case "step-start":
-														return <Fragment key={`step-${pi}`}>
+														return <Fragment key={`step-${pk}`}>
 															{renderSideEntry(sideEntries.get(m.id)?.get(pi))}
-															{teachBoundary ? <PhaseDivider phase="teach" /> : pi > retryPlans[mi]!.first ? <Separator className="my-3" /> : null}
+															{teachBoundary ? <PhaseDivider phase="teach" /> : pi > retryPlans[mi]!.first && stepLines[mi]!.has(pi) ? <Separator className="my-3" /> : null}
 														</Fragment>;
 													case "data-plan-block":
 														// The plan in the chat (wave 4): a frozen snapshot
 														// block — rendered as carried, never re-derived.
 														return (
 															<PlanBlock
-																key={pi}
+																key={pk}
 																data={part.data as PlanBlockData}
 																onOpen={() => setPlanOpen(true)}
 															/>
@@ -2186,7 +2224,7 @@ export function Chat({
 														// The agent's finish (owner, 2026-10-25): the same
 														// divider as the learner's button, once it went through.
 														return part.state === "output-available" ? (
-															<div key={pi}>
+															<div key={pk}>
 																<LessonFinishedLine skill={lessonSkill} lesson={isLesson} />
 																{isLesson && part.type === "tool-finish_lesson" && <LessonResultCard chatId={chatId} />}
 															</div>
@@ -2197,7 +2235,7 @@ export function Chat({
 													case "tool-explain":
 													case "tool-recall": {
 														const malformed = !busy && malformedQuestions.find(call => call.messageId === part.sourceMessageId && call.contentIndex === part.sourceContentIndex && call.toolCallId === part.toolCallId);
-														if (malformed) return <MalformedQuestion key={pi} disabled={!!pending || compacting}
+														if (malformed) return <MalformedQuestion key={pk} disabled={!!pending || compacting}
 															reason={pending ? "Answer or discard the remaining question first." : undefined}
 															onRetry={() => {
 																draftRef.current = null;
@@ -2207,7 +2245,7 @@ export function Chat({
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
 															return (
-																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} chatId={chatId} messageId={part.sourceMessageId} callId={part.toolCallId} reading={sketchReadings.readingFor(mi, pi, (part.output as QuestionAnswerData).sketch?.id)} />
+																<AnsweredCard key={pk} answer={part.output as QuestionAnswerData} input={part.input} chatId={chatId} messageId={part.sourceMessageId} callId={part.toolCallId} reading={sketchReadings.readingFor(mi, pi, (part.output as QuestionAnswerData).sketch?.id)} />
 															);
 														}
 														return null;
@@ -2215,7 +2253,7 @@ export function Chat({
 													default: {
 														// Built-in presentation stays authoritative; plugin renderers
 														// extend only the generic native-tool fallback slot.
-														if (part.type.startsWith("tool-")) return <ToolPartRenderer key={pi} part={part} />;
+														if (part.type.startsWith("tool-")) return <ToolPartRenderer key={pk} part={part} />;
 														return null;
 													}
 												}
@@ -2256,8 +2294,8 @@ export function Chat({
 									<Shimmer duration={1}>COMPACTING CONTEXT…</Shimmer>
 								</span>
 							)}
-							{(status === "submitted" || turnInFlight) && (
-								<PendingTurnIndicator evaluating={evaluating} />
+							{turnRunning && (
+								<PendingTurnIndicator evaluating={evaluating} label={liveLabel} quiet={liveLineQuiet} />
 							)}
 							{/* The margin bubbles of the learner's questions about the text (owner design, 2026-11-02). */}
 							<ClarifyLayer
@@ -2301,6 +2339,7 @@ export function Chat({
 						    effect reports before paint). */}
 						<div aria-hidden data-testid="dock-spacer" style={{ height: dockReserve }} />
 				</ConversationContent>
+</SettledContext.Provider>
 				{/* The dock: an overlay sibling of the scroller (the
 				    use-stick-to-bottom pattern). The scroll-down button lives
 				    INSIDE the overlay now (owner refinement round, 2026-09-24):

@@ -1518,7 +1518,8 @@ describe("adoptRecord — append-only adoption", () => {
 	});
 
 	const wakeMarkers = [
-		{ name: "probe", marker: buildProbeHandoffSteer("chat_x"), part: "data-probe-handoff" },
+		// The probe wake has NO view entry (owner, 2026-11-17: one continuous thinking line): the record keeps it, the transcript hides it.
+		{ name: "probe", marker: buildProbeHandoffSteer("chat_x"), part: "data-probe-handoff", viewed: 0 },
 		{
 			name: "job",
 			marker: buildSubagentSteer(
@@ -1526,10 +1527,11 @@ describe("adoptRecord — append-only adoption", () => {
 				{ brief: "A synthetic research result.", sources: [] },
 			),
 			part: "data-subagent-artifact",
+			viewed: 1,
 		},
 	];
 
-	for (const { name, marker, part } of wakeMarkers) {
+	for (const { name, marker, part, viewed } of wakeMarkers) {
 		for (const order of ["wire-first", "record-first", "record-between-events"] as const) {
 			it(`reconciles a ${name} wake ${order}, including repeated events and adoption`, () => {
 				const initial = [userText("u1", "topic")];
@@ -1546,8 +1548,8 @@ describe("adoptRecord — append-only adoption", () => {
 
 				const assertReconciled = () => {
 					assert.deepEqual(m.getState().nativeMessages.map((message) => message.id), ["u1", marker.id, assistantId]);
-					assert.equal(m.getState().messages.filter((message) => message.id === marker.id).length, 1);
-					assert.equal(m.getState().messages.flatMap((message) => message.parts).filter((p) => p.type === part).length, 1);
+					assert.equal(m.getState().messages.filter((message) => message.id === marker.id).length, viewed);
+					assert.equal(m.getState().messages.flatMap((message) => message.parts).filter((p) => p.type === part).length, viewed);
 					assert.deepEqual(m.getState().nativeMessages[1], marker, "the canonical marker's ID and all saved fields are retained");
 					assert.ok(Object.isFrozen(m.getState().nativeMessages[1]), "canonical adoption owns an immutable copy rather than the caller's mutable object");
 				};
@@ -1600,7 +1602,7 @@ describe("adoptRecord — append-only adoption", () => {
 				assert.equal(state.error, null);
 				assert.deepEqual(state.nativeMessages.slice(0, 2), record);
 				assert.equal(state.nativeMessages.length, 3);
-				assert.equal(state.messages.flatMap((message) => message.parts).filter((p) => p.type === part).length, 1);
+				assert.equal(state.messages.flatMap((message) => message.parts).filter((p) => p.type === part).length, viewed);
 				assert.equal(state.nativeMessages[2]!.id, "saved-assistant", "the terminal read adopts the persisted assistant, without duplicating its live replay");
 				assert.deepEqual(state.nativeMessages[2]!.content, [{ type: "text", text: "planned" }]);
 			});

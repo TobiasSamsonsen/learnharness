@@ -91,10 +91,12 @@ export function PluginToolRenderer({ part, fallback: suppliedFallback }: { part:
 		(ack !== null && typeof ack === "object" && typeof ack.jobId === "string" && ack.dispatched === true)
 	);
 	if (part.pluginQuestion) return <p role="status" className="text-xs text-muted-foreground">Question unavailable</p>;
-	const fallback = suppliedFallback ?? (dispatched
-		? <DispatchCard kind="plugin" toolCallId={part.toolCallId ?? ""} />
-		: <ToolCallCard part={toolFallbackPart(part)} />);
-	if (!registration || !isToolState(part.state)) return fallback;
+	const dispatchCard = dispatched ? <DispatchCard kind="plugin" toolCallId={part.toolCallId ?? ""} /> : null;
+	const fallback = suppliedFallback ?? dispatchCard ?? <ToolCallCard part={toolFallbackPart(part)} />;
+	// A tool with no renderer of its own is activity, not content (owner,
+	// 2026-11-17): the live line stands for it, so no plain row is drawn.
+	// A renderer that fails to mount still falls back to the row above.
+	if (!registration || !isToolState(part.state)) return suppliedFallback ?? dispatchCard;
 	return <RendererMount registration={registration} mount={mount} label={`Plugin tool (${toolName})`} fallback={fallback} />;
 }
 
@@ -111,7 +113,10 @@ export function ToolPartRenderer({ part }: { part: LhViewPart }) {
 	if (part.pluginQuestion) return <p role="status" className="text-xs text-muted-foreground">Question unavailable</p>;
 	const toolName = part.type.slice("tool-".length);
 	const Builtin = Object.hasOwn(artifactRenderers, toolName) ? artifactRenderers[toolName] : undefined;
-	const reserved = Builtin || toolName === "plan_init" || (QUESTION_TOOLS as readonly string[]).includes(toolName);
+	// Activity rows are never drawn (owner, 2026-11-17: the live line stands for
+	// them): the filesystem/graph cards and the streaming plan call.
+	if (toolName === "plan_init" || Builtin === ToolCallCard) return null;
+	const reserved = Builtin || (QUESTION_TOOLS as readonly string[]).includes(toolName);
 	if (reserved && part.state === "input-streaming") return <LiveToolCard part={part as ArtifactPartProps["part"]} />;
 	if (Builtin) return <Builtin part={part as ArtifactPartProps["part"]} />;
 	if (reserved) return null;
