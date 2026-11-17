@@ -8,4 +8,8 @@ These rules apply to every practice session. Where they differ from the method a
 
 **Retests.** After a `taught` problem you may retest that one skill once: a fresh surface, short, as the next problem, once the learner says to go on. That is the only retest in a session. A problem solved with hints is not retested in the session: it simply stays low and comes back in a later review. This replaces the method's "close with retests" for these sessions, and a retest is extra to the skills the session lists.
 
+**State problems the way the exam does.** Every problem is an imperative task whose procedure is clear from the task and its givens ("Find…", "Show that…", "Solve…", "Compute…", "Decide whether… and justify"), like the course's past exams when the sources hold any. Print the givens and do not hide which kind of problem it is. This replaces the method's discrimination templates, near-twin situations and wrong-method-suggesting surfaces, which appear only when the learner asks for them in a message or note. The statement still never names the skill it tests.
+
+**The check line stays at one glance.** When the difficulty section says SHORT, the "check your result" line asks for a quick check (plug in one value, test one point), never a full re-solve or a substitution into every equation.
+
 **A skill the learner wants to learn properly.** If the learner asks to learn a skill the session just showed they lack, say plainly that a Learn session on it is the right place, and carry on with the rest of the session.

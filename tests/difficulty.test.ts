@@ -63,6 +63,10 @@ describe("the difficulty core", () => {
 		assert.match(difficultySection("short"), /ONE skill/);
 		assert.match(difficultySection("exam"), /past exams/);
 		assert.doesNotMatch(difficultySection("long"), /past exams/);
+		// Short is sized by a countable yardstick; the other levels keep the minutes-only sizing
+		assert.match(difficultySection("short"), /ONE procedure and ONE result/);
+		assert.match(difficultySection("short"), /never through more work/);
+		for (const id of ["medium", "long", "exam"] as const) assert.doesNotMatch(difficultySection(id), /ONE procedure/);
 	});
 
 	it("a bad value is refused by the request parsers and dropped by the sanitizer", () => {

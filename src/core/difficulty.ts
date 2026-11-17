@@ -80,6 +80,17 @@ export function difficultySection(difficulty: Difficulty): string {
 			? "Tag exactly one skill."
 			: `Tag the skills the problem genuinely requires, at most ${info.maxSkills} (the problem tool rejects more).`,
 	];
+	if (difficulty === "short") {
+		// owner, 2026-11-17: Short problems measured about 7 minutes to a first answer against a promised 3. The slow ones
+		// repeated a computation; the fast ones were one procedure and one result. A tutor cannot count minutes, so the
+		// yardstick is countable (a model-solution length cap was tested against real times and does not predict them).
+		lines.push(
+			"SHORT means ONE procedure and ONE result that the learner computes, with no repeated computation. " +
+				"A problem with two or more roots to convert, several iterations or steps of a method, several cases, or a second technique is not Short. " +
+				"When the full task is longer, ask for one step of it (one Euler step, the characteristic roots, the integrating factor, one root). " +
+				"Use small integers. Difficulty may rise through a less obvious situation, never through more work.",
+		);
+	}
 	if (difficulty === "exam") {
 		lines.push(
 			"Make it exam-level: as hard as a real exam question, or slightly harder. When the course's sources include past exams, " +
