@@ -23,7 +23,8 @@ import { hasNewInk, pagePayload, readInk, readKept, sendPage, useInk } from "@/c
 import { nativeInkBridge, nativeInkEnabled } from "@/components/sketch/use-native-ink";
 import { cn } from "@/lib/utils";
 import { ChatActionsContext } from "@/components/chat";
-import { HINT_MAX, HINT_NUDGE_MS, hintEligible, hintsOf } from "@/src/core";
+import { hintEligible } from "@/src/core";
+import { hintLabel, useHints } from "@/components/use-hints";
 import {
 	buildAnswer,
 	toClientQuestion,
@@ -545,65 +546,21 @@ function QuestionDockForm({
 	const submit = () => submitWith();
 
 	/* HINTS (owner, 2026-11-13 — core/hints.ts): up to three on a lesson check, each one separate call that leaves the
-	 * question open. They are kept with the question (this device's storage, keyed by the call) and ride the answer.
-	 * After five minutes on the question with the app on screen, the button is quietly highlighted. */
-	const chatActions = useContext(ChatActionsContext);
-	const hintsOffered = chatActions !== null && hintEligible(toolName, input, phase);
-	const hintsKey = `lh:hints:${toolCallId}`;
-	const [hints, setHints] = useState<string[]>(() => {
-		try {
-			return hintsOf(JSON.parse(globalThis.localStorage?.getItem(hintsKey) ?? "[]"));
-		} catch {
-			return [];
-		}
+	 * question open. They are kept with the question (this device's storage, keyed by the call) and ride the answer. After five
+	 * minutes on the question with the app on screen, the button is quietly highlighted. Since 2026-11-17 the state is the shared
+	 * controller (use-hints.ts): the sketch view shows the same button and list, and a hint reads the learner's current ink. */
+	const hintCtl = useHints({
+		callId: toolCallId,
+		kind: "lesson",
+		offered: hintEligible(toolName, input, phase),
+		thinking: () => (qd.mode === "text" ? answerTextRef.current : thinkingTextRef.current),
+		blocked: compactionRunning || preparing,
 	});
+	const hintsOffered = hintCtl.offered;
+	const hints = hintCtl.texts;
 	const hintsRef = useRef(hints);
 	hintsRef.current = hints;
-	const [hintBusy, setHintBusy] = useState(false);
-	const [hintError, setHintError] = useState<string | null>(null);
-	const [hintNudge, setHintNudge] = useState(false);
-	useEffect(() => {
-		if (!hintsOffered) return;
-		let onScreenMs = 0;
-		const STEP = 5000;
-		const timer = setInterval(() => {
-			if (document.visibilityState !== "visible") return;
-			onScreenMs += STEP;
-			if (onScreenMs >= HINT_NUDGE_MS) {
-				setHintNudge(true);
-				clearInterval(timer);
-			}
-		}, STEP);
-		return () => clearInterval(timer);
-	}, [hintsOffered, toolCallId]);
-	const requestHint = async () => {
-		if (!chatActions || hintBusy || hintsRef.current.length >= HINT_MAX) return;
-		setHintBusy(true);
-		setHintError(null);
-		try {
-			const res = await fetch(`/api/chats/${encodeURIComponent(chatActions.chatId)}/hint`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ toolCallId, earlier: hintsRef.current, thinking: (qd.mode === "text" ? answerTextRef.current : thinkingTextRef.current).trim() || undefined }),
-			});
-			const body = (await res.json().catch(() => null)) as { hint?: unknown; error?: unknown } | null;
-			if (!res.ok || typeof body?.hint !== "string") {
-				setHintError(typeof body?.error === "string" ? body.error : `Could not get a hint (${res.status})`);
-				return;
-			}
-			const next = hintsOf([...hintsRef.current, body.hint]);
-			setHints(next);
-			try {
-				globalThis.localStorage?.setItem(hintsKey, JSON.stringify(next));
-			} catch {
-				// storage is a convenience: the hints still ride this answer
-			}
-		} catch {
-			setHintError("Could not get a hint");
-		} finally {
-			setHintBusy(false);
-		}
-	};
+	const hintError = hintCtl.error;
 
 	const pressLevel = (stopIndex: number) => {
 		setConfIdx(stopIndex);
@@ -1241,24 +1198,16 @@ function QuestionDockForm({
 								type="button"
 								variant="secondary"
 								data-testid="question-hint"
-								data-nudge={hintNudge && hints.length === 0 ? "true" : undefined}
-								disabled={hintBusy || hints.length >= HINT_MAX || compactionRunning || preparing}
-								onClick={() => void requestHint()}
+								data-nudge={hintCtl.nudge && hints.length === 0 ? "true" : undefined}
+								disabled={hintCtl.disabled}
+								onClick={hintCtl.ask}
 								className={cn(
 									"lh-press h-9 gap-1.5 rounded-pill px-4 text-sm active:rounded-lg",
-									hintNudge && hints.length === 0 && "ring-2 ring-primary/50",
+									hintCtl.nudge && hints.length === 0 && "ring-2 ring-primary/50",
 								)}
 							>
 								<LightbulbIcon className="size-4" />
-								{hintBusy
-									? "Thinking…"
-									: hints.length >= HINT_MAX
-										? `Hints used (${HINT_MAX} of ${HINT_MAX})`
-										: hints.length > 0
-											? `Hint (${hints.length} of ${HINT_MAX} used)`
-											: hintNudge
-												? "Stuck? Take a hint"
-												: "Hint"}
+								{hintLabel(hintCtl)}
 							</Button>
 						)}
 						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
@@ -1283,6 +1232,7 @@ function QuestionDockForm({
 					statement={qd.context ? `${qd.question}\n\n${qd.context}` : qd.question}
 					lessonText={typeof (input as { lead?: unknown }).lead === "string" ? (input as { lead: string }).lead : undefined}
 					inkKey={toolCallId}
+					hint={hintsOffered ? hintCtl : undefined}
 					onSubmit={(sketch, confidenceIndex, onAccepted) => submitSketch(sketch, confidenceIndex, undefined, onAccepted)}
 					onClose={() => setSketching(false)}
 					onCancelDictation={onEscape}

@@ -25,6 +25,7 @@ import { courseForTurn } from "./courses.ts";
 import { refreshConnectionCatalog } from "./model-catalog.ts";
 import { materialsForTurn } from "./materials.ts";
 import { providerKeyPresent } from "./keys.ts";
+import { sketchImagesFor } from "./sketches.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 
@@ -177,11 +178,13 @@ export interface SideCallOutcome {
  * enters `messages`. Refused over a running turn (its messages are not saved yet); a compaction in flight is awaited.
  * `buildPrompt` runs AFTER the awaits, on the record as it then stands, and may refuse with its own Response.
  * `opts.usageId` files the call's usage at once; without it the caller files it through the outcome.
+ * `opts.images` (the Hint button, 2026-11-17): page images that ride the prompt in the same final user message, and then
+ * the pages already sent earlier are read back as images too (a text stub otherwise, as everywhere off the turn path).
  */
 export async function tutorSideCall(
 	chatId: string,
 	buildPrompt: (ctx: { record: ChatRecordOf; pending: ReturnType<typeof pendingQuestionOf>; waiting: boolean }) => string | Response,
-	opts: { label: string; failure: string; empty: string; usageId?: string },
+	opts: { label: string; failure: string; empty: string; usageId?: string; images?: ReadonlyArray<{ data: string; mimeType: string }> },
 	/** Test seam: a scripted engine replaces the chat's conversation engine. */
 	engineOverride?: PiEngine,
 ): Promise<SideCallOutcome | Response> {
@@ -249,9 +252,12 @@ export async function tutorSideCall(
 			role: "researcher" as never,
 			engine,
 			systemPrompt,
-			messages: asAgentMessages(record.messages),
-			convertToLlm: (messages) => toLlmMessages(messages),
-			prompt,
+			// the prompt is a plain string unless pages ride along: then it is the continuation's final user message
+			messages: opts.images?.length
+				? [...asAgentMessages(record.messages), { role: "user" as const, content: [{ type: "text" as const, text: prompt }, ...opts.images.map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mimeType }))], timestamp: Date.now() }]
+				: asAgentMessages(record.messages),
+			convertToLlm: (messages) => toLlmMessages(messages, opts.images?.length ? { sketchImage: sketchImagesFor(chatId) } : {}),
+			...(opts.images?.length ? {} : { prompt }),
 			maxTurns: 1,
 			abortSignal: AbortSignal.timeout(CLARIFY_TIMEOUT_MS),
 			onUsage: collect,

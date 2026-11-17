@@ -808,3 +808,47 @@ describe("the paper spacing slider", () => {
 		localStorage.removeItem("lh:sketch-paper-size");
 	});
 });
+
+describe("the Hint button in the sketch view (owner, 2026-11-17)", () => {
+	const click = (id: string) => act(async () => (document.querySelector(`[data-testid="${id}"]`) as HTMLElement).click());
+	const control = (over: Record<string, unknown> = {}) => {
+		const asked: number[] = [];
+		const hint = { offered: true, lines: [] as { text: string }[], max: 3, busy: false, error: null, nudge: false, disabled: false, ask: () => void asked.push(1), texts: [] as string[], ...over };
+		return { hint, asked };
+	};
+
+	it("is absent where the question offers no hint", async () => {
+		await mount({ inkKey: "k-hint-none", onSubmit: async () => true });
+		assert.ok(!document.querySelector('[data-testid="sketch-hint"]'));
+	});
+
+	it("the first press asks at once and opens the card; the card lists the hints and asks for another", async () => {
+		const { hint, asked } = control();
+		await mount({ inkKey: "k-hint-first", onSubmit: async () => true, extra: { hint } });
+		await click("sketch-hint");
+		assert.equal(asked.length, 1, "no hint yet: the press asks");
+		assert.ok(document.querySelector('[data-testid="sketch-hint-list"]'), "the card opens under the bar");
+		assert.ok(document.querySelector('[data-testid="sketch-panel-hint"][data-ink-hole]'), "inside a touch hole, so native ink never draws under it");
+		await click("sketch-hint-ask");
+		assert.equal(asked.length, 2, "the card's own button asks again");
+	});
+
+	it("with hints already given, a press only opens them, and the card shows the count", async () => {
+		const { hint, asked } = control({ lines: [{ text: "Look at the roots." }, { text: "It is resonance." }] });
+		await mount({ inkKey: "k-hint-open", onSubmit: async () => true, extra: { hint } });
+		await click("sketch-hint");
+		assert.equal(asked.length, 0, "re-reading a hint never spends another");
+		const card = document.querySelector('[data-testid="sketch-hint-list"]')!;
+		assert.match(card.textContent ?? "", /Hint 1/);
+		assert.match(card.textContent ?? "", /Hint 2/);
+		assert.match(card.textContent ?? "", /2 of 3 used/);
+	});
+
+	it("at the cap or while busy the card cannot ask for more", async () => {
+		const spent = control({ lines: [{ text: "a" }, { text: "b" }, { text: "c" }], disabled: true });
+		await mount({ inkKey: "k-hint-cap", onSubmit: async () => true, extra: { hint: spent.hint } });
+		await click("sketch-hint");
+		assert.ok(!document.querySelector('[data-testid="sketch-hint-ask"]'), "three of three: no ask button");
+		assert.match(document.querySelector('[data-testid="sketch-hint-list"]')!.textContent ?? "", /Hints used \(3 of 3\)/);
+	});
+});

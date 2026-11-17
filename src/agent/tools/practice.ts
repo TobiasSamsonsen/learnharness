@@ -25,6 +25,7 @@ import { grepTool } from "./grep.ts";
 import { jobTools, type JobToolContext } from "./jobs.ts";
 import { proberGraphTools, type GraphToolContext } from "./graph.ts";
 import { activeProblemOf } from "../../core/native-messages.ts";
+import { hintOutcomeProblems, practiceHintsOf, type HintSize } from "../../core/hints.ts";
 import { figureInputProblems } from "../../core/figures/index.ts";
 import { circuitSolveTool, figureGuideTool } from "./figures.ts";
 import type { LhMessage } from "../../core/native-messages.ts";
@@ -84,6 +85,8 @@ export interface PracticeGate {
 	 *  plan M2): conclude as solved waits on it. Null/absent = nothing to
 	 *  gate. */
 	sketch?: SketchGate | null;
+	/** The Hint-button hints already recorded on the active problem (core/hints.ts): conclude may not contradict their sizes. */
+	hints?: { size: HintSize }[];
 }
 
 /** Seed the turn's gate from the record (result-aware activeProblemOf —
@@ -99,6 +102,7 @@ export function createPracticeGate(ctx: PracticeToolContext): PracticeGate {
 		problemActive: active !== null,
 		skills: Array.isArray(tagged) ? [...new Set(tagged.filter((s): s is string => typeof s === "string").map((s) => resolveSkillId(s, list) ?? s))] : [],
 		sketch: record ? sketchGateOf(record.messages as unknown as AgentMessage[], active?.toolCallId ?? null) : null,
+		hints: record && active ? practiceHintsOf(record.messages, active.toolCallId) : [],
 	};
 }
 
@@ -323,6 +327,9 @@ export function concludeTool(gate: PracticeGate): AgentTool<typeof concludeInput
 			// is an error result — never mastery evidence.
 			const waiting = sketchConcludeProblems(gate.sketch ?? null, input.outcome);
 			if (waiting.length > 0) return invalidInputResult("conclude", waiting);
+			// THE HINT RULE (owner, 2026-11-17): a nudge or carry from the Hint button makes a solve a hinted solve; slips alone do not.
+			const hintProblems = hintOutcomeProblems(input.outcome, input.rung, gate.hints ?? []);
+			if (hintProblems.length > 0) return invalidInputResult("conclude", hintProblems);
 			gate.problemActive = false;
 			return concludeResult();
 		},

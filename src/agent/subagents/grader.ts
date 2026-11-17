@@ -10,6 +10,7 @@
  */
 
 import { Type, type Static } from "typebox";
+import { HINT_WEIGHTS, capGradeByHint, isHintWeight, type HintWeight } from "../../core/hints.ts";
 import type { Grade } from "../../core/mastery.ts";
 import type { PiEngine } from "../models.ts";
 import { runSubmitAgent } from "./submit-agent.ts";
@@ -18,12 +19,14 @@ const INSTRUCTIONS = `You grade how well a learner used each skill on ONE practi
 
 Who did the work decides: a tutor message that points at where the work is wrong or at what to do next is a hint, even a gentle one.
 
+Hints. Every hint is in the transcript: from the learner's Hint button (marked HINT BY BUTTON, with its size) or from the tutor in chat (judge those by what they did). A hint has a size: SLIP (it only pointed at a mechanical slip: a dropped sign, a copying or arithmetic error), NUDGE (it pointed the learner the right way: the idea or the part to rethink), CARRY (it carried the learner forward: the next move or step). For each skill, name \`hint\`: the combined weight of all hints on THAT skill: none, slip, nudge or carry. Hints add up: several slips together can amount to a nudge, and nudges that together carry the learner forward amount to a carry. The system caps the grade by your weight afterwards (nudge: at most good; carry: at most hard), so grade the work shown and do not lower a grade twice for the same hint. A slip hint never lowers a grade.
+
 - AGAIN: the skill did not come back (the correction was given, they gave up, or a break was left standing).
-- HARD: they got there, but not alone on this skill: a hint that led to fixing an error in it, a nudge needed for a step, a wrong step that stood until the tutor pointed at it, or stalled or copy-only first attempts.
+- HARD: they got there, but not alone on this skill: a nudge- or carry-sized hint on it, a wrong step that stood until the tutor pointed at it, or stalled or copy-only first attempts.
 - GOOD: they retrieved and used the skill on their own. A slip they caught themselves before any tutor remark does not lower this.
 - EASY: immediate and fluent, correct the first time with no hint and no hesitation on this skill. Answering exactly what the question asked is enough; going beyond it is never required. Use it for a clean, confident solve, not for a merely adequate one.
 
-Several skills: grade each on its own evidence. A hint spent on one skill lowers only that skill. A skill the work never exercised is hard at most.
+Several skills: grade each on its own evidence. A hint spent on one skill weighs only on that skill. A skill the work never exercised is hard at most.
 
 A clean solve of a Long or Exam problem is stronger evidence than a clean solve of a Short one.
 
@@ -36,6 +39,9 @@ export const gradeSchema = Type.Object({
 		Type.Object({
 			skill: Type.String({ description: "A skill id from the list." }),
 			grade: Type.Union([Type.Literal("again"), Type.Literal("hard"), Type.Literal("good"), Type.Literal("easy")], { description: "again, hard, good or easy — bare word, no quotes." }),
+			hint: Type.Optional(
+				Type.Union(HINT_WEIGHTS.map((w) => Type.Literal(w)), { description: "The combined weight of every hint on this skill: none, slip, nudge or carry — bare word, no quotes. Omit when there were no hints." }),
+			),
 		}),
 		{ description: "One entry for every listed skill." },
 	),
@@ -63,21 +69,33 @@ export function graderPrompt(input: GradeInput): string {
 	].join("\n");
 }
 
+/** One graded skill: the grade AFTER the hint cap, and the hint weight that capped it (absent when there was none). */
+export interface SkillGrade {
+	skill: string;
+	grade: Grade;
+	hint?: Exclude<HintWeight, "none">;
+}
+
 /** The grades for exactly the listed skills: strays dropped, a repeated skill's last entry wins, a skill the model
- *  skipped absent (the caller's default grade applies). */
-export function gradesForSkills(verdict: GradeVerdict, skills: ReadonlyArray<{ id: string }>): Array<{ skill: string; grade: Grade }> {
+ *  skipped absent (the caller's default grade applies). The hint cap is applied here, in code (owner, 2026-11-17):
+ *  a nudge allows at most good, a carry at most hard, whatever the model graded. */
+export function gradesForSkills(verdict: GradeVerdict, skills: ReadonlyArray<{ id: string }>): SkillGrade[] {
 	const listed = new Set(skills.map((s) => s.id));
-	const last = new Map<string, Grade>();
-	for (const g of verdict.grades ?? []) if (listed.has(g.skill)) last.set(g.skill, g.grade as Grade);
-	return [...last].map(([skill, grade]) => ({ skill, grade }));
+	const last = new Map<string, SkillGrade>();
+	for (const g of verdict.grades ?? []) {
+		if (!listed.has(g.skill)) continue;
+		const weight = isHintWeight(g.hint) ? g.hint : undefined;
+		last.set(g.skill, { skill: g.skill, grade: capGradeByHint(g.grade as Grade, weight), ...(weight && weight !== "none" ? { hint: weight } : {}) });
+	}
+	return [...last.values()];
 }
 
 /** Grade one concluded problem. Throws when the grader never submits. */
-export async function gradeProblem(input: GradeInput, deps: { engine: PiEngine | undefined; signal?: AbortSignal }): Promise<Array<{ skill: string; grade: Grade }>> {
+export async function gradeProblem(input: GradeInput, deps: { engine: PiEngine | undefined; signal?: AbortSignal }): Promise<SkillGrade[]> {
 	const verdict = await runSubmitAgent({
 		role: "grader",
 		toolName: "submit_grades",
-		toolDescription: "Submit one grade (again, hard, good or easy) for every listed skill.",
+		toolDescription: "Submit one grade (again, hard, good or easy) and the combined hint weight for every listed skill.",
 		parameters: gradeSchema,
 		fill: (v: GradeVerdict) => ({ grades: v.grades ?? [] }),
 		systemPrompt: INSTRUCTIONS,

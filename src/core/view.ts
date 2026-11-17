@@ -580,6 +580,7 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[], hiddenDisp
 		}
 		case "side-question":
 		case "side-question-told":
+		case "practice-hint":
 			// Raw context entries do not split the teaching segment or render
 			// loud transcript pills. Its quiet speech-bubble reopens the saved
 			// conversation in the floating/docked companion.

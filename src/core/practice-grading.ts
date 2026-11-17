@@ -9,6 +9,7 @@
  */
 
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import { PRACTICE_HINT_MARKER } from "./hints.ts";
 import { PRACTICE_CONCLUDE_TOOL, PRACTICE_PROBLEM_TOOL, type LhMessage } from "./native-messages.ts";
 
 /** The read_sketch tool's name (agent/tools/sketch.ts), spelled here so core stays free of agent imports. */
@@ -71,6 +72,10 @@ export function renderProblemSpan(span: readonly LhMessage[], concludeCallId: st
 			const custom = m as { customType?: string; content?: unknown };
 			if (custom.customType === "practice-thinking") lines.push(`LEARNER (work submitted):\n${textOf(custom.content).trim()}`);
 			else if (custom.customType === "sketch-dispute") lines.push("LEARNER disputes the read-back of their sketch.");
+			else if (custom.customType === PRACTICE_HINT_MARKER) {
+				const d = (m as { details?: { size?: unknown; text?: unknown } }).details;
+				lines.push(`HINT BY BUTTON (size ${String(d?.size)}, given on the learner's request): ${String(d?.text ?? "")}`);
+			}
 		} else if (role === "assistant") {
 			for (const b of (m as AssistantMessage).content) {
 				if (b.type === "text") {

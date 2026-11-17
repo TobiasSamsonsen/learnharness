@@ -6,7 +6,7 @@
  * agent state and the SSE stream never carry image bytes.
  */
 
-import { parseSketchPayload, planSketch, SKETCH_PHOTO_MAX_DATA, type SketchImageResolver, type TurnInput } from "../core/index.ts";
+import { parseSketchPayload, planSketch, SKETCH_PHOTO_MAX_DATA, type SketchImageResolver, type SketchPayload, type TurnInput } from "../core/index.ts";
 import { normalizePhoto } from "../agent/image-processing/normalize.ts";
 import { providerSafePng } from "../agent/subagents/headless.ts";
 import { stores } from "./stores.ts";
@@ -104,6 +104,21 @@ export async function persistInputSketch(chatId: string, input: TurnInput): Prom
 	// Stored ink is kept ink: the new-or-edited flag was for this render only.
 	const kept = sketch.strokes.map(({ fresh: _fresh, ...stroke }) => stroke);
 	stores.sketchStore.save(chatId, { id: sketch.id, strokesJson: JSON.stringify(kept), pages });
+}
+
+/** The pages of a sketch that has NOT been sent, as model images — nothing is stored, nothing enters the record (the Hint
+ *  button, owner 2026-11-17: the hint reads the learner's current page, which only becomes a kept page when they submit). A photo
+ *  page is its bytes; a drawn page is rendered like persistInputSketch renders it. */
+export async function renderSketchImages(sketch: SketchPayload): Promise<{ data: string; mimeType: string }[]> {
+	if (sketch.producer === "photo" && sketch.photo) {
+		const png = Buffer.from(sketch.photo.data, "base64");
+		return [{ data: sketch.photo.data, mimeType: sniffImageMime(png) }];
+	}
+	const { Resvg } = await import("@resvg/resvg-js");
+	return planSketch(sketch).map((page) => {
+		const png = providerSafePng(new Resvg(page.svg, { fitTo: { mode: "width", value: page.width }, background: "#ffffff" }).render().asPng());
+		return { data: Buffer.from(png).toString("base64"), mimeType: sniffImageMime(png) };
+	});
 }
 
 /** The model-facing page loader for one chat's turn (memoized: a turn

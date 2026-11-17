@@ -49,7 +49,7 @@ import {
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
 import { ANSWER_NEXT_TEXT, SKETCH_ANSWER_NEXT_TEXT, SKETCH_READ_FIRST_TEXT, SKETCH_UNSENT_NEXT_TEXT } from "./prose-gate.ts";
-import { hintsNextText } from "./hints.ts";
+import { hintsNextText, practiceHintMarkerText, type HintSize } from "./hints.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import type { SketchRef } from "./contracts/sketch.ts";
 import { SKETCH_MAX_REQUEST_PAGES, sketchLabel, sketchStubText } from "./sketch.ts";
@@ -92,7 +92,8 @@ export interface LhMarkerMessage {
 		| "lesson-finished"
 		| "compaction"
 		| "side-question"
-		| "side-question-told";
+		| "side-question-told"
+		| "practice-hint";
 	/** The model-facing text ("" for plan blocks — UI-only). */
 	content: string;
 	display: boolean;
@@ -146,7 +147,8 @@ export function asAgentMessages(messages: readonly LhMessage[]): AgentMessage[] 
 export function isSideQuestionMarker(m: LhMessage | AgentMessage | undefined): boolean {
 	if ((m as { role?: string } | undefined)?.role !== "custom") return false;
 	const type = (m as LhMarkerMessage).customType;
-	return type === "side-question" || type === "side-question-told";
+	// a practice Hint-button marker (2026-11-17) is the same kind of side entry: it leaves the tail's meaning alone
+	return type === "side-question" || type === "side-question-told" || type === "practice-hint";
 }
 
 function tailIgnoringSideQuestions<T>(messages: readonly T[]): readonly T[] {
@@ -459,6 +461,21 @@ export function newSketchDisputeMarker(sketchId: string, text?: string): LhMarke
 		content: `[The learner says your reading of sketch ${sketchId} is wrong.${said} They are right about what they wrote: re-read the sketch and call read_sketch again with the corrected reading before you respond.]`,
 		display: true,
 		details: wrote ? { sketchId, text: wrote } : { sketchId },
+		timestamp: Date.now(),
+	};
+}
+
+/** A practice Hint-button hint (owner, 2026-11-17 — core/hints.ts): written by the hint route beside the open problem, so the
+ *  hint, its size and the count survive a reload, reach every device, and are in the record the grader reads. The model reads
+ *  `content` (what the learner was told and what it means for concluding); the transcript never shows it — the dock lists it. */
+export function newPracticeHintMarker(problemCallId: string, n: number, size: HintSize, text: string): LhMarkerMessage {
+	return {
+		id: newMessageId(),
+		role: "custom",
+		customType: "practice-hint",
+		content: practiceHintMarkerText({ n, size, text }),
+		display: true,
+		details: { problemCallId, n, size, text },
 		timestamp: Date.now(),
 	};
 }
@@ -1170,7 +1187,7 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 	if (message.role === "custom") {
 		if (["probe-handoff", "subagent-steer", "subagent-abort"].includes(message.customType)) return "automatic";
 		if (["practice-thinking", "plugin-problem-submission", "practice-next", "sketch-dispute", "lesson-finished"].includes(message.customType)) return "learner";
-		return ["graph-context", "plan-block", "problem-dismissed", "compaction", "side-question", "side-question-told"].includes(message.customType) ? "neutral" : "unrecognizable";
+		return ["graph-context", "plan-block", "problem-dismissed", "compaction", "side-question", "side-question-told", "practice-hint"].includes(message.customType) ? "neutral" : "unrecognizable";
 	}
 	if (message.role === "toolResult") {
 		const pluginAnswer = readPluginQuestionAnswer(message.details);

@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDownIcon, ChevronUpIcon, EllipsisIcon, EraserIcon, MicIcon, MoonIcon, PenLineIcon, Redo2Icon, SendIcon, SunIcon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronUpIcon, EllipsisIcon, EraserIcon, LightbulbIcon, MicIcon, MoonIcon, PenLineIcon, Redo2Icon, SendIcon, SunIcon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
 import { ConfidenceButtons } from "@/components/confidence-buttons";
 import { isDictationActive } from "@/components/dictation";
 import { usePalmGuard } from "@/components/sketch/palm-guard";
+import { SketchHintCard } from "@/components/sketch/sketch-hint-card";
+import type { HintControl } from "@/components/use-hints";
 import { PAPER_SIZES, paperSpacing, SKETCH_BACKGROUNDS, type SketchBackground } from "@/components/sketch/sketch-background";
 import type { SketchTool } from "@/components/sketch/sketch-canvas";
 import { displayInk, type SheetTone } from "@/components/sketch/sketch-sheet";
@@ -21,7 +23,7 @@ import { cn } from "@/lib/utils";
  * (remembered), can fade while the pen is down, and ignores a palm (palm-guard.ts).
  */
 
-export type SketchPanel = "pen" | "eraser" | "more" | null;
+export type SketchPanel = "pen" | "eraser" | "more" | "hint" | null;
 
 /** Where the floating bar sits: a little below the top edge, clear of the system inset. */
 export const BAR_TOP = "top-[calc(0.5rem+var(--lh-safe-top))]";
@@ -93,6 +95,8 @@ onClose: () => void;
 	/** Submit pressed while it cannot go through: say why. */
 	onSubmitBlocked: (reason: string) => void;
 	onConfidence: (index: number) => void;
+	/** The Hint button (owner, 2026-11-17): absent where the question or problem offers no hint. */
+	hint?: HintControl;
 }
 
 export function SketchToolbar(p: SketchToolbarProps) {
@@ -196,6 +200,30 @@ export function SketchToolbar(p: SketchToolbarProps) {
 					>
 						<EllipsisIcon className="size-4" />
 					</button>
+					{p.hint && (
+						<button
+							type="button"
+							data-testid="sketch-hint"
+							data-nudge={p.hint.nudge && p.hint.lines.length === 0 ? "true" : undefined}
+							aria-label="Hint"
+							aria-expanded={panel === "hint"}
+							title={p.hint.busy ? "Reading your sketch…" : p.hint.lines.length > 0 ? `Hints (${p.hint.lines.length} of ${p.hint.max} used)` : "Get a hint"}
+							onClick={() => {
+								const hint = p.hint!;
+								// the first press asks at once; with hints already given it opens them (the card has the ask button)
+								if (panel !== "hint" && hint.lines.length === 0 && !hint.disabled) hint.ask();
+								onPanel(panel === "hint" ? null : "hint");
+							}}
+							className={cn(barButton, panel === "hint" && "bg-accent", p.hint.nudge && p.hint.lines.length === 0 && "ring-2 ring-primary/50")}
+						>
+							<LightbulbIcon className={cn("size-4", p.hint.busy && "animate-pulse")} />
+							{p.hint.lines.length > 0 && (
+								<span aria-hidden className="absolute right-0.5 bottom-0.5 text-[9px] leading-none font-semibold text-muted-foreground">
+									{p.hint.lines.length}
+								</span>
+							)}
+						</button>
+					)}
 					{!p.asking && (
 						<button
 							type="button"
@@ -217,6 +245,7 @@ export function SketchToolbar(p: SketchToolbarProps) {
 
 				{panel && !hidden && (
 					<div data-ink-hole="" data-testid={`sketch-panel-${panel}`} className={cn(card, "flex flex-col gap-1.5")}>
+						{panel === "hint" && p.hint && <SketchHintCard hint={p.hint} />}
 						{panel === "pen" && (
 							<>
 								<PanelSection title="Ink">

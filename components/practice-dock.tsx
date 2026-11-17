@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { ViewReaderRef } from "./session-view-readers";
-import { CameraIcon, ChevronRightIcon, PenLineIcon, XIcon } from "lucide-react";
+import { CameraIcon, ChevronRightIcon, LightbulbIcon, PenLineIcon, XIcon } from "lucide-react";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { RichLine } from "@/components/rich-text";
 import { ClarifyWording } from "@/components/clarify-wording";
@@ -18,6 +18,7 @@ import { PathInput } from "@/components/path-input";
 import type { PrepareThinkingSubmission } from "./plugin-submission-adapters";
 import { pagePayload, sendPage, useInk } from "@/components/sketch/ink-memory";
 import { useKeptPage } from "@/components/sketch/kept-page";
+import { hintLabel, useHints } from "@/components/use-hints";
 import { SketchView } from "@/components/sketch/sketch-view";
 import { cn } from "@/lib/utils";
 import { CONFIDENCE_STOPS, repairMathForDisplay, SketchPayloadError, type SketchPayload, type SketchRef } from "@/src/core";
@@ -150,6 +151,9 @@ export function PracticeDock({
 	// discipline): a submit resuming after `await finishDictation()` reads
 	// the tail, never a stale closure.
 	const thinkingRef = useRef(thinking); thinkingRef.current = thinking;
+	// HINTS (owner, 2026-11-17 — core/hints.ts): up to three from the button, sized by the tutor and written into the chat; a hint
+	// reads the learner's current ink. The same controller feeds the sketch view's button. A plugin problem's own editor has none.
+	const hintCtl = useHints({ callId: problemCallId, kind: "practice", offered: !customInput, thinking: () => thinkingRef.current, blocked: compactionRunning || preparing });
 	const editRevision = useRef(0);
 	useLayoutEffect(() => {
 		if (!viewReader) return;
@@ -298,6 +302,24 @@ export function PracticeDock({
 				</ClarifyWording>
 			</div>
 
+			{hintCtl.offered && (hintCtl.lines.length > 0 || hintCtl.error) && (
+				<div className={cn("space-y-1.5 border-t border-border/60 px-4 py-2.5 text-sm", wordingOnly && "hidden")} data-testid="hint-list">
+					{hintCtl.lines.map((line, i) => (
+						<div key={i} className="flex gap-2 text-foreground/80">
+							<span className="shrink-0 pt-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Hint {i + 1}</span>
+							<div className="min-w-0 flex-1">
+								<ToolContentResponse>{line.text}</ToolContentResponse>
+							</div>
+						</div>
+					))}
+					{hintCtl.error && (
+						<div role="alert" className="text-xs text-destructive">
+							{hintCtl.error}
+						</div>
+					)}
+				</div>
+			)}
+
 			{customInput?.editor}
 
 			{/* The learner's half: Enter SENDS (owner round 2, 2026-10-05);
@@ -440,6 +462,20 @@ export function PracticeDock({
 								Open in sketch
 							</Button>
 						)}
+						{hintCtl.offered && (
+							<Button
+								type="button"
+								variant="secondary"
+								data-testid="practice-hint"
+								data-nudge={hintCtl.nudge && hintCtl.lines.length === 0 ? "true" : undefined}
+								disabled={hintCtl.disabled}
+								onClick={hintCtl.ask}
+								className={cn("lh-press h-9 gap-1.5 rounded-pill px-4 text-sm active:rounded-lg", hintCtl.nudge && hintCtl.lines.length === 0 && "ring-2 ring-primary/50")}
+							>
+								<LightbulbIcon className="size-4" />
+								{hintLabel(hintCtl)}
+							</Button>
+						)}
 						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
 							{compactionRunning ? "compacting session…" : (sketchError ?? <span className="lh-enter-hint [@media(pointer:coarse)]:hidden">↵ submits · ⇧↵ newline</span>)}
 						</span>
@@ -461,6 +497,7 @@ export function PracticeDock({
 					label="Problem"
 					statement={typeof input.statement === "string" ? input.statement : ""}
 					inkKey={problemCallId}
+					hint={hintCtl.offered ? hintCtl : undefined}
 					onSubmit={submitSketch}
 					onClose={() => setSketching(false)}
 					onCancelDictation={onEscape}

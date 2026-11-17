@@ -1,5 +1,6 @@
 "use client";
 
+import type { HintControl } from "@/components/use-hints";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,9 @@ export interface SketchViewProps {
 	/** A quiz answer is being given (owner, 2026-10-28): Submit then expands in place into the confidence buttons, and the
 	 *  one pressed is handed to `onSubmit` as an index into CONFIDENCE_STOPS. */
 	confidenceLevels?: boolean;
+	/** The Hint button\'s controller (owner, 2026-11-17 — use-hints.ts), owned by the dock so a hint taken in either place shows in both.
+	 *  Absent where the question or problem offers no hint. */
+	hint?: HintControl;
 }
 
 /** A text field the key belongs to (the sketch shortcuts are single letters and digits). */
@@ -94,6 +98,7 @@ export function SketchView({
 	choices,
 	blocked,
 	confidenceLevels = false,
+	hint,
 }: SketchViewProps) {
 	const ink = useInk(inkKey);
 	const kept = useKept(inkKey);
@@ -372,6 +377,7 @@ export function SketchView({
 				onSubmit={() => submit()}
 				onSubmitBlocked={setNoted}
 				onConfidence={(index) => submit(index)}
+				hint={hint}
 			/>
 			{/* The whole page is canvas; the problem floats above it (owner,
 			    2026-10-26) — draggable, collapsible to a pill. */}
