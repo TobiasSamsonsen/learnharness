@@ -63,18 +63,26 @@ export function normalizePaceNote(value: string | undefined): string | undefined
 /** Which agent a pace section is for. Practice sessions have their own prompts and are not paced. */
 export type PaceRole = "prober" | "teacher";
 
+/** The final problem's size at a faster pace (owner, 2026-11-17 — the finals read from the tablet were harder than the
+ *  lesson and at or above exam level). Thorough has no pace text, so its final keeps the course-session wording. */
+const FINAL_SIZE_TEXT =
+	" In a course lesson, the FINAL problem at this pace is ONE question, no larger than the hardest check he passed in this lesson: the same sizes " +
+	"(matrix size, number of steps), no extra parts, on a fresh case. This overrides \"at the level the course's past exams ask\".";
+
 const TEACHER_TEXT: Record<Exclude<Pace, "thorough">, string> = {
 	efficient:
 		"The learner has chosen an EFFICIENT pace. For this lesson this overrides \"thorough, not coverage\" and \"never rush forward\" in your method. " +
 		"Give each plan node only the questions it needs, usually one or two. When one answer shows the step, accept it: do not add confirmation questions. " +
 		"A hinted answer is the exception: check that step once more on a fresh case. " +
 		"Repair only a real gap, and briefly. Do not re-teach what he has already shown he holds. " +
-		"A wrong answer on a step or on a prerequisite IS a real gap: repair it and ask that step again before moving on, however short the lesson.",
+		"A wrong answer on a step or on a prerequisite IS a real gap: repair it and ask that step again before moving on, however short the lesson." +
+		FINAL_SIZE_TEXT,
 	crash:
 		"The learner has chosen a CRASH COURSE pace: he is short on time. For this lesson this overrides \"thorough, not coverage\" and \"never rush forward\" in your method. " +
 		"For each concept teach the key idea, the procedure, and the cue that tells him when to use it. Ask ONE check question per plan node. A hinted answer is the exception: check that step once more on a fresh case. " +
 		"Keep repairs short: show the step, let him retry once, then move on. A wrong answer is repaired and retried before anything is built on it. Keep the map small. " +
-		"When you leave depth out, say in one line what you skipped so he can ask for it. Never skip a prerequisite he demonstrably lacks.",
+		"When you leave depth out, say in one line what you skipped so he can ask for it. Never skip a prerequisite he demonstrably lacks." +
+		FINAL_SIZE_TEXT,
 };
 
 const PROBER_TEXT: Record<Exclude<Pace, "thorough">, string> = {

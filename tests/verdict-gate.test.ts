@@ -61,6 +61,15 @@ describe("previous: skipped (a text answer that is not an attempt)", () => {
 		assert.deepEqual(problem(afterText, "explain", { type: "check", nodeId: "egen", previous: "skipped" }), { kind: "skipped-moved", nodeId: "egen" });
 	});
 
+	it("lets a smaller final replace a final he called too big (same node and type, a different case)", () => {
+		const final = call("q1", "explain", { type: "final", nodeId: "eksamen", lead: "x", question: "big", correctAnswer: "a" });
+		const afterTooHard = [user, assistant([final]), result("q1", "explain", { kind: "explain", text: "too hard for a crash course" })];
+		assert.equal(problem(afterTooHard, "explain", { type: "final", nodeId: "eksamen", question: "small", previous: "skipped" }), null);
+		assert.deepEqual(problem(afterTooHard, "explain", { type: "final", nodeId: "other", question: "small", previous: "skipped" }), { kind: "skipped-moved", nodeId: "eksamen" });
+		// graded wrong instead, the gate forces a repair check before any new final
+		assert.deepEqual(problem(afterTooHard, "explain", { type: "final", nodeId: "eksamen", question: "small", previous: "wrong" }), { kind: "advanced", nodeId: "eksamen" });
+	});
+
 	it("cannot skip an answer that carries a recorded verdict", () => {
 		assert.deepEqual(problem(afterQuizMiss, "quiz", { type: "check", nodeId: "n1", previous: "skipped" }), { kind: "skipped-graded" });
 		assert.deepEqual(problem(afterQuizHit, "quiz", { type: "check", nodeId: "n1", previous: "skipped" }), { kind: "skipped-graded" });

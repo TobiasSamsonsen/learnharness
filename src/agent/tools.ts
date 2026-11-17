@@ -241,6 +241,7 @@ function explainDescription(name: "explain" | "recall", nodeId: boolean, scope: 
 		(scope === "all"
 			? " In this course lesson, `type` final poses the lesson's FINAL PROBLEM: one unaided problem taking the whole skill, with no hint " +
 				"anywhere in `lead`, `question` or `details`, and it is a case not used earlier in this lesson (shorter if he asks, never a reuse); " +
+				"if he says it is too big or too hard, that is not an attempt: set `previous` to skipped and pose a smaller final on the same node; " +
 				"say what his last answer showed before the call, not in `lead`; after his answer, say what was right and wrong, then call finish_lesson. " +
 				"`type` recall is the lesson's OPENER: a short question on an earlier skill he learned (set `skill`), posed before the new material."
 			: "") +
