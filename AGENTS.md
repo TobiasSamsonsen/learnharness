@@ -35,6 +35,30 @@ The goal is tokens and speed, which means two things at once: **a subagent must 
 - the repo's pitfalls that apply (strict `noUncheckedIndexedAccess`; relative imports in `components/` use the `.ts` extension; leading tabs).
 A vague brief is the main source of redone work. If it takes more than a few sentences to specify, it is probably not a Haiku task.
 
+# Editing
+
+- Use the Edit/Write tools for code changes. Do not use sed, inline `python -c`/`node -e`, or heredoc patch scripts: they have mangled backslashes, tabs and newlines in this repo. If a script is unavoidable, write it to a file in the scratchpad first and run that.
+
+# Decisions
+
+- Before presenting a plan or a design choice, run the advisor on it. The advisor sharpens the options; it never replaces asking the owner. Every decision listed under "No guessing" still goes to the owner.
+
+# Verification
+
+- UI, ink, sketch and tutor changes are not done until checked on the target: the Tab S10+ or Pixel via adb screenshots for Android/native, Claude in Chrome (a sized iframe, since Chrome won't resize) at 360/412 px for phone layouts. Run the Kotlin tests when the native ink path changes.
+- If no device or browser is reachable, say so in the final summary with an explicit "NOT verified on device/browser" list. Never imply it was verified.
+
+# Git
+
+- Commit only files related to the current task. `git pull --rebase` before pushing main.
+- Merge feature branches by fast-forward only. If it can't fast-forward, stop and ask.
+- Delete a merged branch only after asking, and never touch upstream branches.
+
+# Windows gotchas
+
+- `node_modules` may be a junction: never `rm -rf` through it.
+- Pass a directory or a runner filter to tests, not a huge glob (command-line overflow).
+
 **Keep it from phoning home.** The brief states the small choices already made, and tells the subagent to decide the remaining trivial, mechanical, reversible ones itself (which of two equivalent greps, naming a local variable, formatting) and mention them in one line. It reports back early only for a real decision: a design, naming, data-shape, behavior, default or scope choice, which stays with the owner ("No guessing"). It never asks the owner anything directly; only the main session does.
 
 **Trust in proportion to the stakes.** Take routine results (search hits, check output, a clean typecheck it ran itself) at face value, and do not re-run or re-read what a subagent already ran and reported. Spot-check only a claim the next step depends on and that is expensive to get wrong: a "nothing else uses this" before a deletion, a conclusion that shapes a plan. For edits, trust the proof command it ran; glance at the diff only when the change touches shared or risky code.
