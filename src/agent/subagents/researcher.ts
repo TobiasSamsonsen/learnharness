@@ -51,6 +51,8 @@ in the brief instead of inventing facts.
 
 If web_search reports that search is unavailable because credentials are missing, do not retry it with different queries. Use web_fetch when you have source URLs, and continue with any other available sources. If the missing search capability materially limits your work, state the limitation and the missing-key setup needed in your brief. Never invent search results or sources.
 
+Budget: you have at most 12 model requests in total, one per tool call. Start writing the brief by request 9 at the latest. A run that reaches request 12 without a brief loses all its work.
+
 Your FINAL assistant message is your entire deliverable — it must stand alone, using this format:
 
 ## Summary
@@ -66,6 +68,9 @@ Numbered findings with inline source citations:
 
 ## Gaps
 What couldn't be answered. Suggested next steps.`;
+
+/** The cap salvage request (pi-run.ts salvagePrompt): sent once when the 12-request cap cut the research off before a brief. */
+const SALVAGE_PROMPT = "Your request budget is used up. Do not call any more tools. Write your final brief now, in the required format, from what you have already gathered, and list under Gaps what you could not confirm.";
 
 export interface ResearcherRunOptions {
 	engine?: PiEngine;
@@ -100,6 +105,7 @@ export async function runResearcherAgent(prompt: string, opts: ResearcherRunOpti
 		engine: opts.engine,
 		systemPrompt: INSTRUCTIONS,
 		maxTurns: 12,
+		salvagePrompt: SALVAGE_PROMPT,
 		abortSignal: opts.abortSignal,
 		onUsage: opts.onUsage,
 		onToolStart: opts.onToolStart,

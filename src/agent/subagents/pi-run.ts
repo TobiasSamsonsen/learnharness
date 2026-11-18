@@ -33,6 +33,11 @@ export interface SubagentRunOptions {
 	prompt?: string;
 	/** Max model calls (the old stepCountIs safety net). */
 	maxTurns: number;
+	/** Opt-in cap salvage (owner, 2026-11-18): when the maxTurns cap cuts the run off mid-work (its last assistant message
+	 *  still asked for tools), ONE more request runs with this user message appended, so the work already paid for is not
+	 *  lost. If that reply still asks for tools the returned text is empty (the caller's own "no text" failure applies)
+	 *  instead of mid-research narration passing as the deliverable. Without it nothing changes. */
+	salvagePrompt?: string;
 	/** Abort mid-model-call (the real-kill semantics). */
 	abortSignal?: AbortSignal;
 	/** Money channel: one call per model request. */
@@ -65,6 +70,15 @@ export interface SubagentRunResult {
 	newMessages: AgentMessage[];
 	/** The final assistant text (the deliverable). */
 	text: string;
+}
+
+/** The newest assistant message of a transcript, or undefined. */
+function lastAssistantOf(messages: readonly AgentMessage[]): AssistantMessage | undefined {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i] as { role?: string } | undefined;
+		if (message?.role === "assistant") return message as AssistantMessage;
+	}
+	return undefined;
 }
 
 export function subagentEngine(role: ModelRole | undefined, override?: PiEngine): PiEngine {
@@ -160,6 +174,12 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 			timestamp: Date.now(),
 		});
 		else await agent.continue();
+		// The cap salvage: only for a run the cap cut off (the last assistant message wanted tools), never after an abort or a
+		// provider error. The cap counter is already spent, so finishTurn ends the run right after this one request.
+		if (opts.salvagePrompt !== undefined && !aborted && !opts.abortSignal?.aborted && errorMessage === undefined
+			&& lastAssistantOf(agent.state.messages)?.stopReason === "toolUse") {
+			await agent.prompt({ role: "user", content: opts.salvagePrompt, timestamp: Date.now() });
+		}
 	} catch (error) {
 		runFailure = error;
 		throw error;
@@ -184,7 +204,9 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 		.slice(before);
 	const assistants = newMessages.filter((m) => (m as { role?: string }).role === "assistant") as AssistantMessage[];
 	const last = assistants[assistants.length - 1];
-	const text = last
+	// A salvage that still asked for tools has no deliverable: its text is interim narration.
+	const cutOff = opts.salvagePrompt !== undefined && last?.stopReason === "toolUse";
+	const text = last && !cutOff
 		? last.content
 				.filter((c): c is { type: "text"; text: string } => c.type === "text")
 				.map((c) => c.text)
