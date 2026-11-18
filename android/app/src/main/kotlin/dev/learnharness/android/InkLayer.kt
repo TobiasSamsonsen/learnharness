@@ -309,7 +309,9 @@ class InkLayer(context: Context) : FrameLayout(context) {
 
 	private fun previewLine() {
 		val l = line() ?: return
-		finished.setLive(InkWire.Stroke(view.penWorldSize(penSize), penColor, l))
+		// The preview is built from the two ends only: the renderer (and the smoothing before it) costs per point, a line is a point
+		// every 6 px, and the preview is rebuilt on every move, so a long line crawled. The committed line keeps all its points.
+		finished.setLive(InkWire.Stroke(view.penWorldSize(penSize), penColor, InkStraight.ends(l)))
 		updateAngle(l)
 	}
 

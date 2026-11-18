@@ -34,6 +34,11 @@ class InkStraightTest {
 		assertEquals(60f, p[p.size - 3], 1e-4f)
 	}
 
+	@Test fun theEndsOfALineAreItsFirstAndLastPointOnly() {
+		val e = InkStraight.ends(InkStraight.linePoints(0f, 0f, 600f, 0f, 0.7f))
+		assertEquals(listOf(0f, 0f, 0.7f, 600f, 0f, 0.7f), e.toList())
+	}
+
 	@Test fun straightenTurnsAWobblyStrokeIntoALineFromItsStartToItsEnd() {
 		val wobbly = floatArrayOf(10f, 10f, 0.4f, 40f, 17f, 0.6f, 70f, 6f, 0.5f, 110f, 12f, 0.5f)
 		val line = InkStraight.straighten(wobbly)!!

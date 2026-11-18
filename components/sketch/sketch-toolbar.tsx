@@ -208,12 +208,8 @@ export function SketchToolbar(p: SketchToolbarProps) {
 							aria-label="Hint"
 							aria-expanded={panel === "hint"}
 							title={p.hint.busy ? "Reading your sketch…" : p.hint.lines.length > 0 ? `Hints (${p.hint.lines.length} of ${p.hint.max} used)` : "Get a hint"}
-							onClick={() => {
-								const hint = p.hint!;
-								// the first press asks at once; with hints already given it opens them (the card has the ask button)
-								if (panel !== "hint" && hint.lines.length === 0 && !hint.disabled) hint.ask();
-								onPanel(panel === "hint" ? null : "hint");
-							}}
+							// only opens the card (owner, 2026-11-18): the learner reassesses there, and the card's own button asks
+							onClick={() => onPanel(panel === "hint" ? null : "hint")}
 							className={cn(barButton, panel === "hint" && "bg-accent", p.hint.nudge && p.hint.lines.length === 0 && "ring-2 ring-primary/50")}
 						>
 							<LightbulbIcon className={cn("size-4", p.hint.busy && "animate-pulse")} />

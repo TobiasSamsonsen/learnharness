@@ -822,15 +822,15 @@ describe("the Hint button in the sketch view (owner, 2026-11-17)", () => {
 		assert.ok(!document.querySelector('[data-testid="sketch-hint"]'));
 	});
 
-	it("the first press asks at once and opens the card; the card lists the hints and asks for another", async () => {
+	it("a press only opens the card and asks nothing; the card's own button asks", async () => {
 		const { hint, asked } = control();
 		await mount({ inkKey: "k-hint-first", onSubmit: async () => true, extra: { hint } });
 		await click("sketch-hint");
-		assert.equal(asked.length, 1, "no hint yet: the press asks");
+		assert.equal(asked.length, 0, "opening the card never spends a hint");
 		assert.ok(document.querySelector('[data-testid="sketch-hint-list"]'), "the card opens under the bar");
 		assert.ok(document.querySelector('[data-testid="sketch-panel-hint"][data-ink-hole]'), "inside a touch hole, so native ink never draws under it");
 		await click("sketch-hint-ask");
-		assert.equal(asked.length, 2, "the card's own button asks again");
+		assert.equal(asked.length, 1, "the card's own button asks");
 	});
 
 	it("with hints already given, a press only opens them, and the card shows the count", async () => {

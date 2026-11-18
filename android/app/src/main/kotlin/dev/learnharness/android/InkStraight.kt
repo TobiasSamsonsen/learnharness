@@ -69,6 +69,12 @@ object InkStraight {
 		return linePoints(fx, fy, sx, sy, if (n > 0) sum / n else 0.5f)
 	}
 
+	/** Just the two ends of a flat [x, y, pressure, …] line: a straight preview needs no more, and the renderer's cost grows with the points. */
+	fun ends(line: FloatArray): FloatArray {
+		if (line.size < 6) return line
+		return line.copyOfRange(0, 3) + line.copyOfRange(line.size - 3, line.size)
+	}
+
 	/** Is the stroke long enough (first to last point, world px at this zoom) to be a line rather than a dot? */
 	fun longEnough(points: FloatArray, zoom: Float): Boolean {
 		if (points.size < 6) return false
