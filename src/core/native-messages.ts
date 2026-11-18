@@ -48,6 +48,8 @@ import {
 	THINKING_LABEL,
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
+import { STEER_NEXT_TEXT } from "./answer-rules.ts";
+import { CHECK_NUDGE_TEXT } from "./check-nudge.ts";
 import { ANSWER_NEXT_TEXT, SKETCH_ANSWER_NEXT_TEXT, SKETCH_READ_FIRST_TEXT, SKETCH_UNSENT_NEXT_TEXT } from "./prose-gate.ts";
 import { hintsNextText, practiceHintMarkerText, type HintSize } from "./hints.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
@@ -93,7 +95,8 @@ export interface LhMarkerMessage {
 		| "compaction"
 		| "side-question"
 		| "side-question-told"
-		| "practice-hint";
+		| "practice-hint"
+		| "check-nudge";
 	/** The model-facing text ("" for plan blocks — UI-only). */
 	content: string;
 	display: boolean;
@@ -148,7 +151,8 @@ export function isSideQuestionMarker(m: LhMessage | AgentMessage | undefined): b
 	if ((m as { role?: string } | undefined)?.role !== "custom") return false;
 	const type = (m as LhMarkerMessage).customType;
 	// a practice Hint-button marker (2026-11-17) is the same kind of side entry: it leaves the tail's meaning alone
-	return type === "side-question" || type === "side-question-told" || type === "practice-hint";
+	// the hidden end-of-turn reminder (2026-11-18, core/check-nudge.ts) is one too: the model reads it, the tail keeps its meaning
+	return type === "side-question" || type === "side-question-told" || type === "practice-hint" || type === "check-nudge";
 }
 
 function tailIgnoringSideQuestions<T>(messages: readonly T[]): readonly T[] {
@@ -298,12 +302,13 @@ export function newAnswerResult(
 	const forModel = compactAnswerForModel(answer as QuestionAnswerData);
 	const hasSketch = (answer as QuestionAnswerData).sketch !== undefined;
 	// only the tools that carry a `lead`: the hint says "reply in the next question's `lead`", which an ask has not
-	if (LEAD_TOOLS.includes(toolName)) forModel.next = hasSketch ? SKETCH_ANSWER_NEXT_TEXT : (answer as QuestionAnswerData).sketchUnsent === true ? SKETCH_UNSENT_NEXT_TEXT : ANSWER_NEXT_TEXT;
+	const steered = (answer as QuestionAnswerData).dismissed === true && typeof (answer as QuestionAnswerData).steer === "string" && (answer as QuestionAnswerData).steer !== "";
+	if (LEAD_TOOLS.includes(toolName)) forModel.next = steered ? STEER_NEXT_TEXT : hasSketch ? SKETCH_ANSWER_NEXT_TEXT : (answer as QuestionAnswerData).sketchUnsent === true ? SKETCH_UNSENT_NEXT_TEXT : ANSWER_NEXT_TEXT;
 	else if (hasSketch) forModel.next = SKETCH_READ_FIRST_TEXT;
 	if (figures && LEAD_TOOLS.includes(toolName)) forModel.figures = figures;
 	// an answer that took hints is not unaided (owner, 2026-11-13 — core/hints.ts)
 	const hints = Array.isArray(forModel.hints) ? forModel.hints.length : 0;
-	if (hints > 0) forModel.next = [forModel.next, hintsNextText(hints)].filter(Boolean).join(" ");
+	if (hints > 0 && !steered) forModel.next = [forModel.next, hintsNextText(hints)].filter(Boolean).join(" ");
 	return {
 		id: newMessageId(),
 		role: "toolResult",
@@ -478,6 +483,12 @@ export function newPracticeHintMarker(problemCallId: string, n: number, size: Hi
 		details: { problemCallId, n, size, text },
 		timestamp: Date.now(),
 	};
+}
+
+/** The one hidden reminder a run gets when a turn that replies to a teach answer ends in text with no question (core/check-nudge.ts).
+ *  The model reads `content`; the transcript never shows it. */
+export function newCheckNudgeMarker(): LhMarkerMessage {
+	return { id: newMessageId(), role: "custom", customType: "check-nudge", content: CHECK_NUDGE_TEXT, display: false, details: {}, timestamp: Date.now() };
 }
 
 /** The learner's explicit move-on signal (owner round 16): appended by
@@ -1151,7 +1162,9 @@ export function answeredCallIds(messages: readonly LhMessage[]): Set<string> {
  *  dismissal pause and the continuation fold both read it. */
 function isDismissedResult(m: LhMessage): boolean {
 	if ((m as { role?: string }).role !== "toolResult") return false;
-	const details = (m as { details?: unknown }).details as { dismissed?: unknown } | undefined;
+	const details = (m as { details?: unknown }).details as { dismissed?: unknown; steer?: unknown } | undefined;
+	// a steer is a dismissal that WAKES the tutor (2026-11-18): it never leaves the dismissal pause
+	if (details?.dismissed === true && typeof details.steer === "string" && details.steer !== "") return false;
 	return details?.dismissed === true || readPluginQuestionCancellation((m as ToolResultMessage).details) !== null;
 }
 
@@ -1187,7 +1200,7 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 	if (message.role === "custom") {
 		if (["probe-handoff", "subagent-steer", "subagent-abort"].includes(message.customType)) return "automatic";
 		if (["practice-thinking", "plugin-problem-submission", "practice-next", "sketch-dispute", "lesson-finished"].includes(message.customType)) return "learner";
-		return ["graph-context", "plan-block", "problem-dismissed", "compaction", "side-question", "side-question-told", "practice-hint"].includes(message.customType) ? "neutral" : "unrecognizable";
+		return ["graph-context", "plan-block", "problem-dismissed", "compaction", "side-question", "side-question-told", "practice-hint", "check-nudge"].includes(message.customType) ? "neutral" : "unrecognizable";
 	}
 	if (message.role === "toolResult") {
 		const pluginAnswer = readPluginQuestionAnswer(message.details);
@@ -1198,7 +1211,7 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 		if (message.isError && (message.details as { questionRecovery?: unknown } | null)?.questionRecovery === true) {
 			return questionCallsOf(history as readonly LhMessage[]).some(call => call.status === "malformed" && call.toolCallId === message.toolCallId && call.tool === message.toolName) ? "learner" : "unrecognizable";
 		}
-		if (!(QUESTION_TOOLS as readonly string[]).includes(message.toolName) || message.isError || message.details == null || (message.details as { dismissed?: boolean }).dismissed) return "neutral";
+		if (!(QUESTION_TOOLS as readonly string[]).includes(message.toolName) || message.isError || message.details == null || ((message.details as { dismissed?: boolean; steer?: unknown }).dismissed && !((message.details as { steer?: unknown }).steer))) return "neutral";
 		const details = message.details as Partial<QuestionAnswerData>;
 		if (!["quiz", "ask", "explain"].includes(details.kind ?? "") || typeof details.questionText !== "string" || typeof details.dontKnow !== "boolean" || !Array.isArray(details.answers) || typeof details.answeredAt !== "string") return "unrecognizable";
 		const calls = history.flatMap((m) => m.role === "assistant" ? m.content.filter((b) => b.type === "toolCall" && b.id === message.toolCallId) : []);

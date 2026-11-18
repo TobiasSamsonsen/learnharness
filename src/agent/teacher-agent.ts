@@ -30,9 +30,10 @@ import { readSketchTool } from "./tools/sketch.ts";
 import { READ_SKETCH_TOOL, isDoubtfulReadResult, sketchIdsOf } from "../core/sketch-gate.ts";
 import { QUESTION_TOOLS, TOGGLEABLE_TOOLS, type EnabledTools } from "../core/pending.ts";
 import type { PluginToolContext } from "../core/plugins.ts";
-import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL, type SketchImageResolver } from "../core/native-messages.ts";
+import { toLlmMessages, nativeInputCause, newCheckNudgeMarker, PRACTICE_PROBLEM_TOOL, type SketchImageResolver } from "../core/native-messages.ts";
 import { PROSE_GATED_TOOLS, proseGateBlocks, proseGateReason, proseGateRefusedLast } from "../core/prose-gate.ts";
 import { leadFloorBlocks, leadFloorReason } from "../core/lead-floor-gate.ts";
+import { needsCheckNudge } from "../core/check-nudge.ts";
 import { verdictGateProblem, verdictGateReason } from "../core/verdict-gate.ts";
 import { VISUAL_GATE_REASON, visualGateBlocks } from "../core/visual-gate.ts";
 import { SHOW_FIGURE_TOOL } from "../core/figure-show.ts";
@@ -386,6 +387,7 @@ function baseAgentOptions(
 	const agentTools = contributions ? [...builtinTools, ...contributions.tools, ...(questionLedger?.tools ?? []), ...problemTools] : builtinTools;
 	// The force-text step (fork): after the prose gate refuses a question, hide the gated tools for one request, then give
 	// the whole registry back (contributions included, so a plugin's tools are never lost to it).
+	let nudged = false;
 	const forceTextUpdate = (turn: PrepareNextTurnContext) => {
 		if (!hasGatedTool(agentTools)) return undefined;
 		const hidden = !hasGatedTool(turn.context.tools);
@@ -477,6 +479,13 @@ function baseAgentOptions(
 		// Wave C registerLiveAgent-before-runPiTurn design depends on.
 		// undefined preserves normal scheduling (the old boolean false).
 		finishTurn: (turn) => {
+			// End a teaching turn with a check (owner, 2026-11-18 — core/check-nudge.ts): a text-only stop that replies to a teach answer gets ONE
+			// hidden reminder per run, handed to pi as a follow-up, so the run continues at its own stop instead of ending with nothing to answer.
+			if (!nudged && kind === "teacher" && hasGatedTool(agentTools) && needsCheckNudge(agent.state.messages, turn.message)) {
+				nudged = true;
+				agent.followUp(newCheckNudgeMarker() as unknown as AgentMessage);
+				return undefined;
+			}
 			// A plugin question's acknowledgment (or a plugin problem's pose) ends the run, like a native question.
 			if (turn.toolResults.some(result => questionLedger?.isAcknowledgment(result) || (kind === "practice" && isPluginProblemPoseAcknowledgment(result))) || stopper(turn)) return { action: "end" };
 			// The forced text-only reply is in: one more request, tools back.

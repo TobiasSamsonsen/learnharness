@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDownIcon, ChevronUpIcon, EllipsisIcon, EraserIcon, LightbulbIcon, MicIcon, MoonIcon, PenLineIcon, Redo2Icon, SendIcon, SunIcon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronUpIcon, EllipsisIcon, EraserIcon, LightbulbIcon, MessageSquareIcon, MicIcon, MoonIcon, PenLineIcon, Redo2Icon, SendIcon, SunIcon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
 import { ConfidenceButtons } from "@/components/confidence-buttons";
 import { isDictationActive } from "@/components/dictation";
 import { usePalmGuard } from "@/components/sketch/palm-guard";
@@ -97,6 +97,9 @@ onClose: () => void;
 	onConfidence: (index: number) => void;
 	/** The Hint button (owner, 2026-11-17): absent where the question or problem offers no hint. */
 	hint?: HintControl;
+	/** The Steer button (owner, 2026-11-18): set the question aside and write to the tutor instead; the dock opens its message box. Absent
+	 *  where the question cannot be steered. It lives in the More menu because the bar has no room beside Submit. */
+	onSteer?: () => void;
 }
 
 export function SketchToolbar(p: SketchToolbarProps) {
@@ -406,6 +409,24 @@ export function SketchToolbar(p: SketchToolbarProps) {
 									</button>
 									<SketchMic />
 								</PanelSection>
+								{p.onSteer && (
+									<PanelSection title="Tutor">
+										<button
+											type="button"
+											data-testid="sketch-steer"
+											aria-label="Tell the tutor"
+											title="Set this question aside and write to the tutor instead"
+											onClick={() => {
+												onPanel(null);
+												p.onSteer!();
+											}}
+											className="lh-touch inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium hover:bg-accent"
+										>
+											<MessageSquareIcon className="size-4" />
+											Tell the tutor
+										</button>
+									</PanelSection>
+								)}
 							</>
 						)}
 					</div>

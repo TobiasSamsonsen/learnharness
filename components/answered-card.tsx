@@ -32,7 +32,8 @@ export function AnsweredCard({ answer: savedAnswer, input, chatId, reading, mess
 	if (answer.dismissed) {
 		return (
 			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
-				<span className="font-medium">{answer.questionText}</span> — skipped
+				<span className="font-medium">{answer.questionText}</span> — {answer.steer ? "set aside" : "skipped"}
+				{answer.steer && <p data-testid="answered-steer" className="mt-1.5 whitespace-pre-wrap text-foreground/80">You told the tutor: {answer.steer}</p>}
 			</div>
 		);
 	}

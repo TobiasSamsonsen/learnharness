@@ -97,6 +97,11 @@ function defaultLesson(calls: string[][]): FauxResponseStep[] {
 			calls.push(context.messages.map((m) => JSON.stringify((m as { content: unknown }).content)));
 			return fauxAssistantMessage([fauxText("Right — Mercury it is.")]);
 		},
+		// the hidden end-of-turn reminder (2026-11-18, core/check-nudge.ts): a text-only reaction to a teach answer gets one more request
+		(context) => {
+			calls.push(context.messages.map((m) => JSON.stringify((m as { content: unknown }).content)));
+			return fauxAssistantMessage([fauxText("Now: which planet is closest to the sun?")]);
+		},
 	];
 }
 
@@ -327,16 +332,17 @@ describe("teacher chat flow (scripted model)", () => {
 		// grouping canon: consecutive assistant/toolResult messages bounded
 		// by user messages form one group). ──
 		const saved2 = chatStore.getChat(chat.id)!;
-		// Native: user, assistant, answer toolResult, reaction assistant.
-		assert.equal(saved2.messages.length, 4, "the answer + reaction append natively");
+		// Native: user, assistant, answer toolResult, reaction assistant, then the hidden reminder and the reply to it (2026-11-18).
+		assert.equal(saved2.messages.length, 6, "the answer + reaction (+ the hidden reminder and its reply) append natively");
 		assert.equal((saved2.messages[2] as { role?: string }).role, "toolResult", "the graded answer is the call's tool result");
 		const view2 = projectView(saved2.messages);
 		assert.equal(view2.length, 2, "the reaction continues the same assistant message (one group)");
 		const finalParts = view2[1]!.parts;
-		// the quiz's `lead` projects as a text part above its call; the reaction is the last text part
-		const textPart = [...finalParts].reverse().find((p) => p.type === "text");
-		assert.ok(textPart && textPart.type === "text", "reaction text appended after the tool part");
-		assert.match((textPart as { text?: string }).text!, /Mercury it is/);
+		// the quiz's `lead` projects as a text part above its call; the reaction follows the tool part (and, since 2026-11-18, the reply to the hidden reminder after it)
+		const textParts = finalParts.filter((p) => p.type === "text") as Array<{ text?: string }>;
+		assert.ok(textParts.length >= 2, "reaction text appended after the tool part");
+		assert.ok(textParts.some((p) => /Mercury it is/.test(p.text ?? "")), "the reaction is there");
+		assert.match(textParts.at(-1)!.text!, /closest to the sun/);
 		// The answered quiz part is still there, now with its output.
 		const answeredQuiz = finalParts.find((p) => p.type === "tool-quiz");
 		assert.ok(answeredQuiz && answeredQuiz.type === "tool-quiz" && (answeredQuiz as { state?: string }).state === "output-available");
@@ -348,7 +354,7 @@ describe("teacher chat flow (scripted model)", () => {
 		assert.equal(out.correct, true);
 
 		// The model actually received the graded answer as a tool result.
-		assert.equal(calls.length, 2, "model saw exactly two prompts");
+		assert.equal(calls.length, 3, "model saw exactly three prompts: the probe, the reaction, and the hidden reminder");
 		const toolResultSent = calls[1]!.some((c) => c.includes("toolResult") || c.includes("Mercury"));
 		assert.ok(toolResultSent, "continuation prompt carries the tool result to the model");
 
@@ -1018,7 +1024,7 @@ describe("mid-turn navigation (turn liveness + write-ahead)", () => {
 		const saved2 = chatStore.getChat(chat.id)!;
 		// Native: user, assistant, answer result, reaction — one append-only
 		// history; the projection still renders ONE assistant group.
-		assert.equal(saved2.messages.length, 4, "full turn persisted as usual at finish");
+		assert.equal(saved2.messages.length, 6, "full turn persisted as usual at finish (answer, reaction, hidden reminder, reply)");
 		assert.equal(projectView(saved2.messages).length, 2, "the projection groups the answered quiz + reaction");
 		assert.equal(isTurnRunning(chat.id), false, "registry cleared at finish");
 	});

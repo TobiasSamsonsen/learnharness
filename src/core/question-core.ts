@@ -566,6 +566,9 @@ export interface QuestionAnswerData {
 	committed?: string; // explain only (rendering): the model's committed answer
 	explanation?: string; // quiz only (rendering)
 	dismissed?: boolean;
+	/** A STEER (owner, 2026-11-18): the learner set the question aside and wrote to the tutor instead. It is a dismissal (so every reader that
+	 *  skips dismissed answers skips it: no grade, no mastery, no calibration) that carries his words, and it wakes the tutor. */
+	steer?: string;
 	/** The answer was sent while sketch ink on the page was NOT sent with it (the learner removed the sketch chip): the tutor is told, so
 	 *  a "my drawing failed" message is not graded as work (owner, 2026-11-15). */
 	sketchUnsent?: boolean;
@@ -933,7 +936,17 @@ export function dismissedAnswer(kind: QuestionKind, questionText: string): Quest
 	};
 }
 
+/** The steer record: the open question set aside, with what the learner wrote to the tutor and the hints he had taken on it. */
+export function steeredAnswer(kind: QuestionKind, questionText: string, text: string, hints?: readonly string[]): QuestionAnswerData {
+	return { ...dismissedAnswer(kind, questionText), steer: text.trim(), ...(hints && hints.length > 0 ? { hints: [...hints] } : {}) };
+}
+
 export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, unknown> {
+	if (ad.dismissed && typeof ad.steer === "string" && ad.steer !== "") {
+		const out: Record<string, unknown> = { kind: ad.kind, dismissed: true, steer: expandCitationsForModel(ad.steer) };
+		if (Array.isArray(ad.hints) && ad.hints.length > 0) out.hints = ad.hints.filter((h) => typeof h === "string");
+		return out;
+	}
 	if (ad.dismissed) return { kind: ad.kind, dismissed: true };
 	const out: Record<string, unknown> = { kind: ad.kind };
 	if (ad.dontKnow) out.dontKnow = true;

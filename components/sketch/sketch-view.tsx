@@ -69,6 +69,8 @@ export interface SketchViewProps {
 	/** The Hint button\'s controller (owner, 2026-11-17 — use-hints.ts), owned by the dock so a hint taken in either place shows in both.
 	 *  Absent where the question or problem offers no hint. */
 	hint?: HintControl;
+	/** The Steer button, in the More menu (owner, 2026-11-18): set the question aside and write to the tutor. Absent where it cannot be steered. */
+	onSteer?: () => void;
 }
 
 /** A text field the key belongs to (the sketch shortcuts are single letters and digits). */
@@ -99,6 +101,7 @@ export function SketchView({
 	blocked,
 	confidenceLevels = false,
 	hint,
+	onSteer,
 }: SketchViewProps) {
 	const ink = useInk(inkKey);
 	const kept = useKept(inkKey);
@@ -378,6 +381,7 @@ export function SketchView({
 				onSubmitBlocked={setNoted}
 				onConfidence={(index) => submit(index)}
 				hint={hint}
+				onSteer={onSteer}
 			/>
 			{/* The whole page is canvas; the problem floats above it (owner,
 			    2026-10-26) — draggable, collapsible to a pill. */}

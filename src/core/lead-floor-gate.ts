@@ -57,8 +57,16 @@ export function leadFloorReason(toolName: string): string {
  * recall is owed a real response either way.
  */
 function isMiss(result: ToolResultMessage): boolean {
+	// a steer is not an answer: nothing was wrong, so no repair is owed (the reply to what he wrote is the tutor's to size)
+	if (isSteeredResult(result)) return false;
 	if (result.toolName === "explain") return true;
 	return readAnswerVerdict(result) === "miss";
+}
+
+/** Did the learner set this question aside and write to the tutor instead (a steer)? */
+export function isSteeredResult(result: ToolResultMessage): boolean {
+	const details = result.details as { dismissed?: unknown; steer?: unknown } | null | undefined;
+	return details?.dismissed === true && typeof details.steer === "string" && details.steer !== "";
 }
 
 /** The verdict the answer result itself carries: "miss" (wrong or "don't know"), "hit" (correct), or undefined when it

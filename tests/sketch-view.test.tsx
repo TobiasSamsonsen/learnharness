@@ -809,6 +809,25 @@ describe("the paper spacing slider", () => {
 	});
 });
 
+describe("the Steer button in the sketch view (owner, 2026-11-18)", () => {
+	const click = (id: string) => act(async () => (document.querySelector(`[data-testid="${id}"]`) as HTMLElement).click());
+
+	it("is in the More menu, closes it, and hands over to the dock; absent where the question cannot be steered", async () => {
+		await mount({ inkKey: "k-steer-none", onSubmit: async () => true });
+		await click("sketch-more");
+		assert.ok(!document.querySelector('[data-testid="sketch-steer"]'), "not offered: nothing in the menu");
+		await act(async () => root!.unmount());
+		host!.remove();
+		let steered = 0;
+		await mount({ inkKey: "k-steer", onSubmit: async () => true, extra: { onSteer: () => void steered++ } });
+		await click("sketch-more");
+		assert.ok(document.querySelector('[data-testid="sketch-steer"]'), "offered in the More menu");
+		await click("sketch-steer");
+		assert.equal(steered, 1);
+		assert.ok(!document.querySelector('[data-testid="sketch-panel-more"]'), "the menu closes");
+	});
+});
+
 describe("the Hint button in the sketch view (owner, 2026-11-17)", () => {
 	const click = (id: string) => act(async () => (document.querySelector(`[data-testid="${id}"]`) as HTMLElement).click());
 	const control = (over: Record<string, unknown> = {}) => {

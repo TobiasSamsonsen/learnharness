@@ -134,6 +134,8 @@ describe("failed-response Retry (issue #110)", () => {
 			() => fauxAssistantMessage([fauxToolCall("quiz", QUIZ_INPUT, { id: "call-1" })], { stopReason: "toolUse" }),
 			networkFailure,
 			() => fauxAssistantMessage([fauxText("Right — Mercury it is.")]),
+			// the hidden end-of-turn reminder (2026-11-18, core/check-nudge.ts): a text-only reaction to a teach answer gets one more request
+			() => fauxAssistantMessage([fauxText("Now: which planet is closest to the sun?")]),
 		]);
 		const chat = createConfiguredChat("Test: retry after failed answer");
 		const answer = gradedAnswer();
@@ -148,16 +150,16 @@ describe("failed-response Retry (issue #110)", () => {
 
 		const saved = chatStore.getChat(chat.id)!.messages;
 		assertPreserved(before, saved);
-		assert.deepEqual(roles(chat.id), ["user", "assistant", "toolResult", "assistant", "assistant"]);
+		assert.deepEqual(roles(chat.id), ["user", "assistant", "toolResult", "assistant", "assistant", "custom", "assistant"]);
 		assert.equal(endsInFailedTurn(saved), false, "a new successful response supersedes the retained failure");
 		const results = saved.filter((m) => m.role === "toolResult" && m.toolCallId === "call-1");
 		assert.equal(results.length, 1, "the learner's answer was not submitted twice");
 		const result = results[0]!;
 		assert.ok(result.role === "toolResult");
 		assert.deepEqual(result.details, JSON.parse(JSON.stringify(answer)));
-		assert.match(JSON.stringify(saved.at(-1)), /Mercury it is/);
-		assert.deepEqual(contexts.at(-1), ["user", "assistant", "toolResult"]);
-		assert.match(histories.at(-1)!, /Mercury is the innermost/);
+		assert.match(JSON.stringify(saved.at(-3)), /Mercury it is/);
+		assert.deepEqual(contexts.at(-2), ["user", "assistant", "toolResult"], "the retry request itself");
+		assert.match(histories.at(-2)!, /Mercury is the innermost/);
 	});
 
 	it("a failed text turn retries without adding another learner message", async () => {

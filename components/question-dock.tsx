@@ -2,7 +2,7 @@
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ViewReaderRef, NativeQuestionViewState } from "./session-view-readers";
-import { ArrowDownIcon, CameraIcon, ChevronRightIcon, LightbulbIcon, PenLineIcon, PlayIcon, XIcon } from "lucide-react";
+import { ArrowDownIcon, CameraIcon, ChevronRightIcon, LightbulbIcon, MessageSquareIcon, PenLineIcon, PlayIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PhotoError, preparePhoto, releasePhoto, type PreparedPhoto } from "@/components/photo-answer";
 import { useCamera } from "@/components/use-camera";
@@ -27,6 +27,7 @@ import { hintEligible } from "@/src/core";
 import { hintLabel, useHints } from "@/components/use-hints";
 import {
 	buildAnswer,
+	steeredAnswer,
 	toClientQuestion,
 	normalizeQuizType,
 	CONFIDENCE_LEVELS,
@@ -464,6 +465,11 @@ function QuestionDockForm({
 	const [inkNote, setInkNote] = useState<string | null>(null);
 	const [confirmSkip, setConfirmSkip] = useState(false);
 	const inkWaiting = sketchAvailable && !skipInk && hasNewInk(inkState);
+	/* THE STEER BUTTON (owner, 2026-11-18): write to the tutor instead of answering. The open question is set aside (a dismissal that
+	 * carries these words and wakes the tutor: never graded) and comes back unless what is written changes the plan. Lesson checks only. */
+	const steerOffered = phase === "teach" && (kind === "quiz" || kind === "explain");
+	const [steerOpen, setSteerOpen] = useState(false);
+	const [steerText, setSteerText] = useState("");
 	type SubmitOverride = { confIdx?: number; dontKnow?: boolean };
 	const selFor = (ov?: SubmitOverride): DockSelection =>
 		ov?.dontKnow ? { ...sel, selected: new Set(), otherSelected: false, dontKnow: true } : sel;
@@ -586,6 +592,13 @@ function QuestionDockForm({
 			// ink left off a free-text answer on purpose: the tutor is told, so "my drawing failed" is not graded as work
 			...(skipInk && qd.kind === "explain" && hasNewInk(inkState) ? { sketchUnsent: true } : {}),
 		};
+	};
+	const sendSteer = () => {
+		const said = steerText.trim();
+		if (!said || compactionRunning || preparing) return;
+		setSteerOpen(false);
+		setSteerText("");
+		void onSubmit(steeredAnswer(qd.kind, qd.question, said, hintsRef.current));
 	};
 	const doSubmit = (ov?: SubmitOverride) => {
 		if (!(gateFor(ov).canSubmit || pendingInput)) return;
@@ -1168,6 +1181,40 @@ function QuestionDockForm({
 							)}
 						</div>
 					)}
+					{steerOffered && steerOpen && (
+						<div data-testid="question-steer-box" className="mx-1 mb-1.5 flex flex-col gap-1.5 rounded-lg border bg-muted/30 p-2">
+							<p className="text-xs text-muted-foreground">Tell the tutor something instead of answering. This question is set aside, not graded, and comes back unless you change the plan.</p>
+							<textarea
+								autoFocus
+								data-testid="question-steer-input"
+								aria-label="Message to the tutor"
+								value={steerText}
+								onChange={(e) => setSteerText(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Escape") {
+										controller?.claimEscape(e);
+										e.preventDefault();
+										setSteerOpen(false);
+										return;
+									}
+									if (enterSends(e)) {
+										e.preventDefault();
+										sendSteer();
+									}
+								}}
+								placeholder="What should the tutor do differently?"
+								className="field-sizing-content lh-input max-h-40 min-h-[4.5rem] w-full resize-none rounded-md bg-background px-2.5 py-2 outline-none placeholder:text-muted-foreground/70"
+							/>
+							<div className="flex justify-end gap-2">
+								<Button type="button" variant="ghost" data-testid="question-steer-cancel" onClick={() => setSteerOpen(false)} className="h-9 rounded-pill px-4 text-sm">
+									Cancel
+								</Button>
+								<Button type="button" data-testid="question-steer-send" disabled={!steerText.trim() || compactionRunning || preparing} onClick={sendSteer} className="h-9 rounded-pill px-4 text-sm">
+									Send to tutor
+								</Button>
+							</div>
+						</div>
+					)}
 					<div className="flex items-center gap-2 p-1">
 						{sketchAvailable && camera.available && (
 							<Button
@@ -1210,6 +1257,21 @@ function QuestionDockForm({
 								{hintLabel(hintCtl)}
 							</Button>
 						)}
+						{steerOffered && (
+							<Button
+								type="button"
+								variant="secondary"
+								data-testid="question-steer"
+								aria-label="Tell the tutor"
+								aria-expanded={steerOpen}
+								title="Set this question aside and write to the tutor instead"
+								onClick={() => setSteerOpen((open) => !open)}
+								className="lh-press h-9 gap-1.5 rounded-pill px-4 text-sm active:rounded-lg"
+							>
+								<MessageSquareIcon className="size-4" />
+								<span className="hidden @xl/dock:inline">Tell the tutor</span>
+							</Button>
+						)}
 						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
 							{compactionRunning ? "compacting session…" : <span className="lh-enter-hint [@media(pointer:coarse)]:hidden">↵ submits · ⇧↵ newline</span>}
 						</span>
@@ -1233,6 +1295,7 @@ function QuestionDockForm({
 					lessonText={typeof (input as { lead?: unknown }).lead === "string" ? (input as { lead: string }).lead : undefined}
 					inkKey={toolCallId}
 					hint={hintsOffered ? hintCtl : undefined}
+					onSteer={steerOffered ? () => { setSketching(false); setSteerOpen(true); } : undefined}
 					onSubmit={(sketch, confidenceIndex, onAccepted) => submitSketch(sketch, confidenceIndex, undefined, onAccepted)}
 					onClose={() => setSketching(false)}
 					onCancelDictation={onEscape}

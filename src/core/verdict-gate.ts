@@ -15,7 +15,7 @@
 
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import { FRESH_CASE } from "./answer-rules.ts";
-import { readAnswerVerdict } from "./lead-floor-gate.ts";
+import { isSteeredResult, readAnswerVerdict } from "./lead-floor-gate.ts";
 import { NO_LEAD_GATED_TOOLS } from "./prose-gate.ts";
 
 /** The teach questions the gate guards (the ones that take `previous`). */
@@ -93,6 +93,8 @@ export function verdictGateProblem(
 	if (declared === "skipped") {
 		// not an answer: nothing was graded, so a recorded verdict contradicts it, and the SAME question comes back
 		if (recorded !== undefined) return { kind: "skipped-graded" };
+		// a steer may change the plan (owner, 2026-11-18): the tutor re-asks the same step unless what he wrote moves it on
+		if (isSteeredResult(answered)) return null;
 		const was = argsOf(callOf(history, answered.toolCallId));
 		if (typeof was.nodeId !== "string" || was.nodeId === "") return null;
 		return now.nodeId === was.nodeId && now.type === was.type ? null : { kind: "skipped-moved", nodeId: was.nodeId };
