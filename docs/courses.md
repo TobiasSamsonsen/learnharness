@@ -590,6 +590,23 @@ A long set titles the session with three names and "+n more".
 - **2026-10-25 — the learner marker** for Finish lesson is a new marker type (`lesson-finished`, learner cause) rather than a user message, so the transcript shows a divider and the record says exactly what happened.
 - **2026-10-25 — the placement probe's skill** must be an exact course skill id (refused otherwise, with the id list); names are not resolved, so the record always carries canonical ids.
 
+## Planned — compaction of sources (owner, 2026-11-18)
+
+Not built; the design is open and every choice below goes to the owner first (AGENTS.md "No guessing").
+
+**Goal.** A course's sources (lecture slides, exam solutions, notes) grow into dozens of files (Matte 1 already has a page of slide PDFs per lecture, weeks 34-47). Keep what a learner and the tutor still need from a source once its detail is no longer needed, without carrying every page forever.
+
+**Idea.** Sources get tiers. While a skill the source feeds is being learned or reviewed, the source is full: its profile, `material_search` and `material_read` over the whole text. When the skills it feeds are learned and reviewed, or the owner asks, it is compacted into a **digest**: scope and targets, definitions and notation, theorem statements, the exam-relevant items and the page references to find the rest, with worked examples and prose cut. The digest replaces the full text in the tutor's prompt and in search; the original file stays (it is the only thing that can be re-read for detail).
+
+**Open design questions** (not decided):
+- trigger: automatic from the skill states, a button on the source, or both;
+- what a digest must keep, and whether the owner can pin parts of a source as never compacted;
+- reversible or one-way (re-extract from the original on demand);
+- where the digest lives (the material's folder beside `content.md`, so it syncs with the rest) and whether Sync source files interacts with it (a compacted source could drop its original from other devices);
+- the model slot and the cost for the digest call (the material profiler's slot, run in the background like the profile).
+
+**Reuse.** The chat compaction machinery (`core/compaction.ts`, `docs/compaction-accounting.md`: triggers, accounting, the marker) and the material profiler (`agent/subagents/material-profiler.ts`).
+
 ## Not in v1
 
 Skills on the home canvas · editing individual skills by hand after approval ·

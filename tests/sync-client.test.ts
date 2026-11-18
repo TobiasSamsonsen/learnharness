@@ -14,6 +14,7 @@ import {
 	removeSyncToken,
 	runSyncRound,
 	saveSyncRepo,
+	saveSyncSources,
 	saveSyncToken,
 } from "../components/settings/sync-client.ts";
 
@@ -45,7 +46,17 @@ describe("sync-client", () => {
 	it("saves the repo to the settings section", async () => {
 		const seen = stub({ "PUT /api/settings/sync": { json: { settings: {} } } });
 		assert.equal(await saveSyncRepo("me/sync"), null);
-		assert.deepEqual(seen[0], { method: "PUT", url: "/api/settings/sync", body: { repo: "me/sync" } });
+		assert.deepEqual(seen[0], { method: "PUT", url: "/api/settings/sync", body: { repo: "me/sync", sources: false } });
+	});
+
+	it("keeps the source-files switch when the repo is saved, and saves the switch with the saved repo", async () => {
+		const seen = stub({ "PUT /api/settings/sync": { json: { settings: {} } } });
+		assert.equal(await saveSyncRepo("me/sync", true), null);
+		assert.deepEqual(seen[0], { method: "PUT", url: "/api/settings/sync", body: { repo: "me/sync", sources: true } });
+		assert.equal(await saveSyncSources("me/sync", false), null);
+		assert.deepEqual(seen[1], { method: "PUT", url: "/api/settings/sync", body: { repo: "me/sync", sources: false } });
+		stub({ "GET /api/sync": { json: { configured: true } }, "GET /api/settings": { json: { settings: { sync: { repo: "me/sync", sources: true } } } } });
+		assert.equal((await loadSyncState()).sources, true);
 	});
 
 	it("hands back the server's own sentence when it refuses", async () => {
@@ -120,7 +131,7 @@ describe("sync-client", () => {
 		stub({ "PUT /api/settings/sync": "down", "POST /api/sync/run": "down", "GET /api/sync": "down", "GET /api/settings": "down" });
 		assert.equal(await saveSyncRepo("me/sync"), "Could not save the repository");
 		assert.deepEqual(await runSyncRound(), { status: null, error: "Sync failed" });
-		assert.deepEqual(await loadSyncState(), { status: null, repo: null });
+		assert.deepEqual(await loadSyncState(), { status: null, repo: null, sources: false });
 		stub({ "POST /api/sync/replace": "down" });
 		assert.deepEqual(await previewReplace(), { preview: null, error: "Could not check the repo" });
 		assert.deepEqual(await replaceFromRepo(), { status: null, error: "Replace failed" });

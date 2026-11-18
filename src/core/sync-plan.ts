@@ -89,7 +89,8 @@ const ID = "[A-Za-z0-9_-]+";
  *               strokes.json says which (`{"producer":"photo"}`), so the
  *               caller decides.
  *   exclude     stays on the device: model caches, secrets, jobs, material
- *               source files, debug output, the sync bookkeeping itself.
+ *               source files (unless the device syncs sources: SyncScopeOptions),
+ *               debug output, the sync bookkeeping itself.
  */
 export type SyncScope = "include" | "sketch-png" | "exclude";
 
@@ -109,19 +110,28 @@ const INCLUDE: readonly RegExp[] = [
 	new RegExp(`^materials/${ID}/${ID}/content\\.md$`),
 ];
 const SKETCH_PNG = new RegExp(`^sketches/${ID}/${ID}/\\d{1,2}\\.png$`);
+/** A material's original file (`source.pdf`, `source.md`, `source.png`…): it travels only when sources sync is on. */
+const SOURCE_FILE = new RegExp(`^materials/${ID}/${ID}/source\\.[A-Za-z0-9]{1,10}$`);
+
+/** What else a device chooses to sync (per device, never travels). */
+export interface SyncScopeOptions {
+	/** Sync the original files of lesson and course sources (owner, 2026-11-18). Off by default: the text summaries travel, the originals stay. */
+	sources?: boolean;
+}
 
 /** Classify one path, relative to the data dir, forward-slashed. */
-export function syncScope(relPath: string): SyncScope {
+export function syncScope(relPath: string, opts: SyncScopeOptions = {}): SyncScope {
 	if (relPath.includes("..") || relPath.startsWith("/")) return "exclude";
 	if (SKETCH_PNG.test(relPath)) return "sketch-png";
+	if (opts.sources === true && SOURCE_FILE.test(relPath)) return "include";
 	return INCLUDE.some((re) => re.test(relPath)) ? "include" : "exclude";
 }
 
 /** The part of a repo listing the app owns: the README, the bootstrap marker
  *  and anything else a person put there is never pulled, deleted or compared.
  *  A remote sketch PNG is kept: only photo sketches ever put one there. */
-export function ownedByApp<V>(files: Readonly<Record<string, V>>): Record<string, V> {
+export function ownedByApp<V>(files: Readonly<Record<string, V>>, opts: SyncScopeOptions = {}): Record<string, V> {
 	const out: Record<string, V> = {};
-	for (const [path, v] of Object.entries(files)) if (syncScope(path) !== "exclude") out[path] = v;
+	for (const [path, v] of Object.entries(files)) if (syncScope(path, opts) !== "exclude") out[path] = v;
 	return out;
 }

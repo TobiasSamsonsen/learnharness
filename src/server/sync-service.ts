@@ -24,7 +24,8 @@ export const SYNC_TOKEN_KEY = "LH_GITHUB_SYNC_TOKEN";
 const KEY = Symbol.for("lh.syncService");
 
 function readConfig(): SyncConfig {
-	return { repo: settingsStore.readSettings()?.sync?.repo ?? null, token: keyValue(SYNC_TOKEN_KEY) ?? null };
+	const sync = settingsStore.readSettings()?.sync;
+	return { repo: sync?.repo ?? null, token: keyValue(SYNC_TOKEN_KEY) ?? null, sources: sync?.sources === true };
 }
 
 /** A chat's turn, or its background compaction, rewrites the chat file asynchronously: leave it for a later round. */

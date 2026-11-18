@@ -45,6 +45,9 @@ async function mount(routes: Record<string, (call: Call) => { status?: number; j
 		document: dom.document,
 		navigator: globals.navigator ?? { userAgent: "", platform: "" },
 		HTMLElement: dom.window.HTMLElement,
+		// the settings-saved broadcast (notifySettingsSaved) dispatches a window event: it needs the DOM's own Event classes
+		Event: dom.window.Event,
+		CustomEvent: dom.window.CustomEvent,
 		IS_REACT_ACT_ENVIRONMENT: true,
 		fetch: async (url: string, init?: RequestInit) => {
 			const call: Call = { method: init?.method ?? "GET", url, body: init?.body ? JSON.parse(String(init.body)) : undefined };
@@ -118,6 +121,30 @@ describe("Settings → Sync", () => {
 			assert.equal(ui.q<HTMLButtonElement>("sync-run")!.hasAttribute("disabled"), false);
 			await ui.click("sync-run");
 			assert.match(ui.q("sync-status")!.textContent ?? "", /2 received · 1 sent/);
+		} finally {
+			ui.cleanup();
+		}
+	});
+
+	it("has a switch for syncing source files: off by default, and flipping it saves it with the repo", async () => {
+		const ready = status({ configured: true, repo: "me/sync", hasToken: true });
+		let on = false;
+		const ui = await mount({
+			"GET /api/sync": () => ({ json: ready }),
+			"GET /api/settings": () => ({ json: { settings: { sync: { repo: "me/sync", ...(on ? { sources: true } : {}) } } } }),
+			"PUT /api/settings/sync": (c) => {
+				on = (c.body as { sources?: boolean }).sources === true;
+				return { json: { settings: {} } };
+			},
+		});
+		try {
+			assert.ok(ui.q("sync-sources-row"), "the row is there");
+			assert.equal(ui.q("toggle-sync-source-files")!.getAttribute("aria-checked"), "false");
+			assert.equal(ui.q("sync-sources-note"), null);
+			await ui.click("toggle-sync-source-files");
+			assert.deepEqual(ui.calls.find((c) => c.method === "PUT")?.body, { repo: "me/sync", sources: true });
+			assert.equal(ui.q("toggle-sync-source-files")!.getAttribute("aria-checked"), "true");
+			assert.match(ui.q("sync-sources-note")!.textContent ?? "", /original files travel/);
 		} finally {
 			ui.cleanup();
 		}

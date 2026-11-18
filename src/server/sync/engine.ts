@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { mergeFile, type Side } from "../../core/sync-merge.ts";
-import { computeSyncPlan, ownedByApp, type SyncAction } from "../../core/sync-plan.ts";
+import { computeSyncPlan, ownedByApp, type SyncAction, type SyncScopeOptions } from "../../core/sync-plan.ts";
 import { GitHubError, type PushChange, type RemoteRepo, type RepoHead } from "./github.ts";
 import { applyProjection, gitBlobSha, projectionOf, readManifest, readSyncedFile, scanLocal, writeManifest } from "./local.ts";
 
@@ -35,6 +35,8 @@ export interface SyncDeps {
 	now?: () => Date;
 	/** True while a repo path is in use on this device in a way a rewrite could clobber (a running turn on that chat, say). Such a file is left for a later round. */
 	isBusy?: (rel: string) => boolean;
+	/** What else this device syncs (sources: the original files of lesson and course sources). */
+	scope?: SyncScopeOptions;
 	/** Called (synchronously, right after step 2) with every file written or removed here, so caches and open clients can refresh. */
 	onApplied?: (changes: AppliedChange[]) => void;
 }
@@ -166,10 +168,10 @@ async function round(deps: SyncDeps): Promise<SyncReport> {
 	// ── 1. ASYNC: read ──────────────────────────────────────────────────────
 	const head = await remote.head(branch);
 	const remoteShas: Record<string, string> = {};
-	if (head) for (const [p, e] of Object.entries(ownedByApp(await remote.tree(head.tree)))) remoteShas[p] = e.sha;
+	if (head) for (const [p, e] of Object.entries(ownedByApp(await remote.tree(head.tree), deps.scope))) remoteShas[p] = e.sha;
 	const manifest = readManifest(syncDir, repoName, branch);
 	const base = manifest.files;
-	const localShas = scanLocal(dataDir);
+	const localShas = scanLocal(dataDir, deps.scope);
 	const plan = computeSyncPlan(base, localShas, remoteShas);
 	if (plan.length === 0) {
 		report.idle = true;
@@ -372,12 +374,12 @@ export async function runReplace(deps: SyncDeps, opts: { dryRun?: boolean } = {}
 	// ── ASYNC: read ─────────────────────────────────────────────────────────
 	const head = await remote.head(branch);
 	const remoteShas: Record<string, string> = {};
-	if (head) for (const [p, e] of Object.entries(ownedByApp(await remote.tree(head.tree)))) remoteShas[p] = e.sha;
+	if (head) for (const [p, e] of Object.entries(ownedByApp(await remote.tree(head.tree), deps.scope))) remoteShas[p] = e.sha;
 	report.commit = head?.commit ?? null;
 	if (!head || Object.keys(remoteShas).length === 0) {
 		throw new ReplaceRefused("The repo holds no synced data, so there is nothing to replace this device with.");
 	}
-	const localShas = scanLocal(dataDir);
+	const localShas = scanLocal(dataDir, deps.scope);
 	const writePaths = Object.keys(remoteShas).filter((p) => localShas[p] !== remoteShas[p]);
 	// settings.json is shared in part only: it is replaced, never deleted
 	const removePaths = Object.keys(localShas).filter((p) => !(p in remoteShas) && p !== "settings.json");

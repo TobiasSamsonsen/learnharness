@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { applyPortableMaterials, applyPortableSettings, portableMaterials, portableSettings } from "../../core/sync-merge.ts";
-import { syncScope, type FileShas } from "../../core/sync-plan.ts";
+import { syncScope, type FileShas, type SyncScopeOptions } from "../../core/sync-plan.ts";
 
 /**
  * GitHub sync, the local half (fork addition, 2026-11-02): what this device
@@ -81,11 +81,11 @@ export function applyProjection(rel: string, localFull: string | null, incoming:
 }
 
 /** Every synced file under `dataDir`, as repo path → blob SHA (of what would be pushed). */
-export function scanLocal(dataDir: string): FileShas {
+export function scanLocal(dataDir: string, opts: SyncScopeOptions = {}): FileShas {
 	const out: Record<string, string> = {};
 	const candidates = [...ROOTS.flatMap((root) => [...walk(path.join(dataDir, root), root)]), "settings.json"];
 	for (const rel of candidates) {
-		const scope = syncScope(rel);
+		const scope = syncScope(rel, opts);
 		if (scope === "exclude") continue;
 		if (scope === "sketch-png" && !isPhotoSketch(dataDir, rel)) continue;
 		const bytes = readSyncedFile(dataDir, rel); // null: gone between the listing and the read
@@ -101,11 +101,11 @@ export function scanLocal(dataDir: string): FileShas {
  * shortly after the learner stops working. Sketch PNGs are left out (they
  * are renders, and a photo's arrives with its SVG).
  */
-export function quickFingerprint(dataDir: string): string {
+export function quickFingerprint(dataDir: string, opts: SyncScopeOptions = {}): string {
 	const h = createHash("sha1");
 	const candidates = [...ROOTS.flatMap((root) => [...walk(path.join(dataDir, root), root)]), "settings.json"];
 	for (const rel of candidates) {
-		if (syncScope(rel) !== "include") continue;
+		if (syncScope(rel, opts) !== "include") continue;
 		try {
 			const st = fs.statSync(path.join(dataDir, rel));
 			h.update(`${rel}\0${st.size}\0${Math.trunc(st.mtimeMs)}\n`);

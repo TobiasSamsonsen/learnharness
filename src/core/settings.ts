@@ -569,7 +569,7 @@ export interface UserSettings {
 	/** Explicit app-wide opt-in; absent/invalid is off, including older records. */
 	claudeCode?: { enabled?: boolean };
 	/** GitHub sync (fork addition, 2026-11-02): which private repo this device syncs with, "owner/repo". Per device (never travels); the token is in auth.json. */
-	sync?: { repo?: string };
+	sync?: { repo?: string; sources?: boolean };
 	agent?: AgentSettings;
 	/** The strong/cheap/vision model slots (model slots wave, 2026-09-20). */
 	models?: ModelsSettings;
@@ -1000,8 +1000,12 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.sync !== undefined) {
 		const raw = r.sync;
-		const repo = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>).repo : undefined;
-		out.sync = typeof repo === "string" && repo.trim().length > 0 && repo.length <= 200 ? { repo: repo.trim() } : {};
+		const rec = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+		const repo = rec.repo;
+		out.sync = {
+			...(typeof repo === "string" && repo.trim().length > 0 && repo.length <= 200 ? { repo: repo.trim() } : {}),
+			...(rec.sources === true ? { sources: true } : {}),
+		};
 	}
 	if (r.agent !== null && typeof r.agent === "object" && !Array.isArray(r.agent)) {
 		out.agent = sanitizeAgent(r.agent as Record<string, unknown>);

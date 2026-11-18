@@ -27,6 +27,8 @@ export interface SyncConfig {
 	/** "owner/repo" as typed, or null when sync is off. */
 	repo: string | null;
 	token: string | null;
+	/** This device also syncs the original files of lesson and course sources (owner, 2026-11-18). */
+	sources?: boolean;
 }
 
 export type { ReplacePreview, SyncStatus, SyncSummary };
@@ -164,6 +166,8 @@ export function createSyncService(deps: SyncServiceDeps): SyncService {
 	let seenFp: string | null = null;
 	let seenAt = 0;
 
+	/** What this device syncs besides the basics, read when a round starts. */
+	const scopeOf = (): { sources: boolean } => ({ sources: deps.readConfig().sources === true });
 	const keyOf = (c: SyncConfig): string => `${c.repo ?? ""}\0${c.token ?? ""}`;
 	const configured = (c: SyncConfig): boolean => parseRepo(c.repo) !== null && !!c.token;
 
@@ -196,7 +200,7 @@ export function createSyncService(deps: SyncServiceDeps): SyncService {
 		inFlight = (async () => {
 			const started = now();
 			lastRunAt = started.toISOString();
-			const before = quickFingerprint(deps.dataDir);
+			const before = quickFingerprint(deps.dataDir, scopeOf());
 			try {
 				const remote = makeRemote(target.owner, target.repo, token);
 				if (verified?.key !== key) {
@@ -212,6 +216,7 @@ export function createSyncService(deps: SyncServiceDeps): SyncService {
 					branch: verified.defaultBranch,
 					now,
 					isBusy: deps.isBusy,
+					scope: scopeOf(),
 					onApplied: deps.onApplied,
 				});
 				last = summarize(report, started.toISOString());
@@ -221,7 +226,7 @@ export function createSyncService(deps: SyncServiceDeps): SyncService {
 				blockedKey = null;
 				pausedUntil = 0;
 				const wroteLocal = report.pulled.length + report.merged.length + report.deletedLocal.length > 0;
-				syncedFp = seenFp = wroteLocal ? quickFingerprint(deps.dataDir) : before;
+				syncedFp = seenFp = wroteLocal ? quickFingerprint(deps.dataDir, scopeOf()) : before;
 				seenAt = now().getTime();
 			} catch (err) {
 				error = explain(err);
@@ -258,7 +263,7 @@ export function createSyncService(deps: SyncServiceDeps): SyncService {
 		try {
 			const c = await connect();
 			const report = await runReplace(
-				{ dataDir: deps.dataDir, syncDir: deps.syncDir, remote: c.remote, repoName: c.repoName, branch: c.branch, now, isBusy: deps.isBusy },
+				{ dataDir: deps.dataDir, syncDir: deps.syncDir, remote: c.remote, repoName: c.repoName, branch: c.branch, now, isBusy: deps.isBusy, scope: scopeOf() },
 				{ dryRun: true },
 			);
 			return { preview: report.counts, error: null };
@@ -287,6 +292,7 @@ export function createSyncService(deps: SyncServiceDeps): SyncService {
 					branch: c.branch,
 					now,
 					isBusy: deps.isBusy,
+					scope: scopeOf(),
 					onApplied: deps.onApplied,
 				});
 				last = {
@@ -298,7 +304,7 @@ export function createSyncService(deps: SyncServiceDeps): SyncService {
 				error = null;
 				blockedKey = null;
 				pausedUntil = 0;
-				syncedFp = seenFp = quickFingerprint(deps.dataDir);
+				syncedFp = seenFp = quickFingerprint(deps.dataDir, scopeOf());
 				seenAt = now().getTime();
 			} catch (err) {
 				error = explain(err);
@@ -324,7 +330,7 @@ export function createSyncService(deps: SyncServiceDeps): SyncService {
 				void syncNow();
 				return;
 			}
-			const fp = quickFingerprint(deps.dataDir);
+			const fp = quickFingerprint(deps.dataDir, scopeOf());
 			if (fp !== seenFp) {
 				seenFp = fp;
 				seenAt = t;

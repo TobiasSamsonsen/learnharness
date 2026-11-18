@@ -41,7 +41,8 @@ Repo paths mirror the data dir. Scope is `syncScope` in `src/core/sync-plan.ts`.
 | `sketches/<chat>/<sk>/strokes.json` and `N.svg` | a drawn page's `N.png` is a render of its SVG and does not travel; a photo sketch's does (owner). A synced sketch's PNG is re-rendered on first use (`ensureSketchPngs`) |
 | `settings.json`, portable part only | `models`, `agent`, `graph`, `compaction`, `learner` (the note and the applied claims, merged key by key; update every device before first use, since a build without `learner` pushes a file that erases it), `general.language/pace/difficulty`. Custom provider, Claude Code, dictation, appearance, notices and unknown keys stay on the device (owner) |
 | `prompts/**/*.md` | |
-| `materials/<chat>/index.json` (minus items still `reading`), `materials/<chat>/<id>/content.md` | original source files do not travel; the other device shows "original on another device" (owner) |
+| `materials/<chat>/index.json` (minus items still `reading`), `materials/<chat>/<id>/content.md` | original source files do not travel by default; the other device shows "original on another device" (owner) |
+| `materials/<chat or course>/<id>/source.<ext>` | only with **Sync source files** on (Settings → Sync; `settings.json` `sync.sources`, per device, off by default; owner, 2026-11-18). The originals (PDFs, notes, images) then travel like any file: the first round uploads them all, and a device with the switch off neither sends nor receives nor deletes them. Scope: `syncScope(rel, { sources })` / `ownedByApp` in `core/sync-plan.ts`, threaded through `SyncDeps.scope` |
 
 Never: `models/`, `jobs/`, `auth.json`, credentials, `debug/`, `sync/`.
 
@@ -118,8 +119,9 @@ device's divergent state.
   `data/sync/replaced-<time>/` (owner decision), reported in the status. It is
   not synced; delete it when no longer needed.
 - Not touched: settings that stay on the device (custom provider, Claude Code,
-  dictation, appearance), the token, original source files, `models/`. The
-  shared part of settings is replaced.
+  dictation, appearance), the token, original source files (unless Sync source
+  files is on: then a source file the repo lacks is removed here like any other,
+  after the backup), `models/`. The shared part of settings is replaced.
 - Refused: a repo holding no synced data (it would only delete everything), a
   public repo, and a round already running.
 - Skipped, and said so: a chat in use, a course still drafting, a file written
@@ -129,8 +131,11 @@ device's divergent state.
 
 ## Limits and known gaps
 
-- Text and web materials have no original on the other device either (their
-  source file is the text).
+- Text and web materials have no original on the other device either unless
+  Sync source files is on (their source file is the text).
+- Sync source files has no size cap: GitHub blocks a blob over 100 MiB and the
+  upload limit for a material is 100 MB. A large library makes the first round
+  slow and the repo large; history never shrinks.
 - Sketch SVGs are large (about 0.4 MB each); they dominate repo growth.
   GitHub recommends repos under 1 GB; history never shrinks.
 - Two devices extracting the same chat independently mint different node ids

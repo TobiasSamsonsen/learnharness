@@ -3,8 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { replacePreviewLines, syncNotes, syncStatusLine, type ReplacePreview, type SyncStatus } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { Button } from "@/components/ui/button";
-import { SettingsRow } from "./controls";
-import { loadSyncState, previewReplace, removeSyncToken, replaceFromRepo, runSyncRound, saveSyncRepo, saveSyncToken } from "./sync-client.ts";
+import { SettingsRow, Toggle } from "./controls";
+import { loadSyncState, previewReplace, removeSyncToken, replaceFromRepo, runSyncRound, saveSyncRepo, saveSyncSources, saveSyncToken } from "./sync-client.ts";
 
 /**
  * Settings → Sync (fork addition, 2026-11-02): keep chats, courses, sketches
@@ -22,6 +22,7 @@ const LINK = "shrink-0 text-xs text-foreground underline-offset-2 hover:underlin
 export function SyncSection() {
 	const [status, setStatus] = useState<SyncStatus | null>(null);
 	const [savedRepo, setSavedRepo] = useState<string | null>(null);
+	const [sources, setSources] = useState(false);
 	const [repo, setRepo] = useState("");
 	const [token, setToken] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -32,7 +33,8 @@ export function SyncSection() {
 	const loaded = useRef(false);
 
 	const load = useCallback(async () => {
-		const { status: next, repo: saved } = await loadSyncState();
+		const { status: next, repo: saved, sources: syncSources } = await loadSyncState();
+		setSources(syncSources);
 		if (next) setStatus(next);
 		else setError("Could not load the sync status.");
 		if (saved !== null) {
@@ -68,7 +70,7 @@ export function SyncSection() {
 	}
 
 	const saveRepo = () =>
-		act(() => saveSyncRepo(repo), () => {
+		act(() => saveSyncRepo(repo, sources), () => {
 			notifySettingsSaved("sync");
 			loaded.current = false; // adopt the normalised value the server stored
 		});
@@ -78,6 +80,7 @@ export function SyncSection() {
 			notifySettingsSaved("keys");
 		});
 	const removeToken = () => act(removeSyncToken, () => notifySettingsSaved("keys"));
+	const toggleSources = (on: boolean) => act(() => saveSyncSources(savedRepo ?? "", on), () => notifySettingsSaved("sync"));
 
 	async function syncNow(): Promise<void> {
 		setError(null);
@@ -187,6 +190,15 @@ export function SyncSection() {
 				</span>
 			</SettingsRow>
 
+			<SettingsRow label="Sync source files" hint="The original slides, PDFs and notes you add as sources" testid="sync-sources-row">
+				<Toggle label="Sync source files" checked={sources} disabled={busy} onChange={(on) => void toggleSources(on)} />
+			</SettingsRow>
+			{sources && (
+				<p data-testid="sync-sources-note" className="text-xs leading-relaxed text-muted-foreground">
+					On: the original files travel to the repo and to the other devices that turn this on (the first round uploads them all, so it can take a while on a big library). Off: only their text summaries travel, and the original stays on the device that added it.
+				</p>
+			)}
+
 			{error && (
 				<p role="alert" data-testid="sync-error" className="text-xs text-error">
 					{error}
@@ -225,7 +237,7 @@ export function SyncSection() {
 					<p data-testid="sync-replace-remove" className="text-xs leading-relaxed text-foreground">{replacePreviewLines(confirm).remove}</p>
 					<p data-testid="sync-replace-write" className="text-xs leading-relaxed text-muted-foreground">{replacePreviewLines(confirm).write}</p>
 					<p className="text-xs leading-relaxed text-muted-foreground">
-						A copy of everything replaced or removed is kept first, in the app&apos;s data folder under sync/. Settings that belong to this device, your token and original source files are not touched.
+						A copy of everything replaced or removed is kept first, in the app&apos;s data folder under sync/. Settings that belong to this device and your token are not touched, nor are original source files, unless "Sync source files" is on.
 					</p>
 					<div className="flex items-center gap-3">
 						<button

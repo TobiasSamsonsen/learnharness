@@ -26,23 +26,28 @@ async function send(method: string, url: string, body: unknown, fallback: string
 	}
 }
 
-/** The sync status and the repo saved on this device. Either is null when it could not be read. */
-export async function loadSyncState(): Promise<{ status: SyncStatus | null; repo: string | null }> {
+/** The sync status, the repo saved on this device and whether this device syncs source files. Status and repo are null when they could not be read. */
+export async function loadSyncState(): Promise<{ status: SyncStatus | null; repo: string | null; sources: boolean }> {
 	const [s, r] = await Promise.all([
 		fetch("/api/sync", { cache: "no-store" }).catch(() => null),
 		fetch("/api/settings", { cache: "no-store" }).catch(() => null),
 	]);
 	const status = s?.ok ? ((await s.json().catch(() => null)) as SyncStatus | null) : null;
 	let repo: string | null = null;
+	let sources = false;
 	if (r?.ok) {
 		const body = (await r.json().catch(() => null)) as { settings: UserSettings | null } | null;
 		repo = body ? (body.settings?.sync?.repo ?? "") : null;
+		sources = body?.settings?.sync?.sources === true;
 	}
-	return { status, repo };
+	return { status, repo, sources };
 }
 
-/** Save the repo (empty turns sync off). */
-export const saveSyncRepo = (repo: string): Promise<string | null> => send("PUT", "/api/settings/sync", { repo }, "Could not save the repository");
+/** Save the repo (empty turns sync off). The section is replaced whole, so the sources switch rides along. */
+export const saveSyncRepo = (repo: string, sources = false): Promise<string | null> => send("PUT", "/api/settings/sync", { repo, sources }, "Could not save the repository");
+
+/** Turn the syncing of source files on or off, keeping the repo saved on this device. */
+export const saveSyncSources = (savedRepo: string, sources: boolean): Promise<string | null> => send("PUT", "/api/settings/sync", { repo: savedRepo, sources }, "Could not save the setting");
 
 /** Store the token in the key store. It is never read back. */
 export const saveSyncToken = (value: string): Promise<string | null> => send("PUT", `/api/keys/${SYNC_TOKEN_ID}`, { value }, "Could not save the token");

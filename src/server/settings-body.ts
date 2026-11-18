@@ -188,15 +188,18 @@ export function parseClaudeCodeSettingsBody(body: unknown): SettingsBodyResult<{
 }
 
 /** sync: which private repo this device syncs with. Empty (or no repo) turns sync off; anything else must be owner/repo (a pasted GitHub URL is accepted and normalised). */
-export function parseSyncSettingsBody(body: unknown): SettingsBodyResult<{ repo?: string }> {
+export function parseSyncSettingsBody(body: unknown): SettingsBodyResult<{ repo?: string; sources?: boolean }> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
-	if (raw.repo === undefined || raw.repo === null) return { ok: true, settings: {} };
+	if (raw.sources !== undefined && typeof raw.sources !== "boolean") return { ok: false, error: "sources must be a boolean" };
+	// the whole section is replaced by a save, so both fields ride every body; `sources` is kept only when on
+	const sources = raw.sources === true ? { sources: true } : {};
+	if (raw.repo === undefined || raw.repo === null) return { ok: true, settings: { ...sources } };
 	if (typeof raw.repo !== "string") return { ok: false, error: "repo must be a string" };
-	if (raw.repo.trim() === "") return { ok: true, settings: {} };
+	if (raw.repo.trim() === "") return { ok: true, settings: { ...sources } };
 	const parsed = parseRepo(raw.repo);
 	if (!parsed) return { ok: false, error: "repo must look like owner/repo" };
-	return { ok: true, settings: { repo: `${parsed.owner}/${parsed.repo}` } };
+	return { ok: true, settings: { repo: `${parsed.owner}/${parsed.repo}`, ...sources } };
 }
 
 /** agent.models: only the six known background roles; each override's
