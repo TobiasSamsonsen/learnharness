@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute } from "../tool-execute.ts";
 import { safeFetch } from "./safe-fetch.ts";
+import { MATERIAL_MAX_BYTES } from "../../core/materials.ts";
 // The search-hit shape lives in the core port since the search wave
 // (2026-09-20); this alias keeps callers churn-free.
 import type { SearchHit as WebSearchResult, SearchProvider } from "../../core/search.ts";
@@ -80,7 +81,18 @@ function htmlToMarkdown(html: string): { title: string; content: string } | null
 	return { title: article.title ?? "", content: markdown };
 }
 
+/** What a link holds: a PDF's bytes (a lesson material keeps the real file), or its readable text. */
+export type FetchedLink = { pdf: Uint8Array } | { text: string };
+
 export async function fetchAndExtract(url: string): Promise<string> {
+	const link = await fetchLink(url, false);
+	// Pointer, not dead-end (researcher PDF wave, 2026-10-07): the researcher's web_fetch_pdf tool downloads + triages PDFs.
+	return "pdf" in link ? `web_fetch: this URL is a PDF document — call web_fetch_pdf on it to download and read it.` : link.text;
+}
+
+/** Fetch a link: a PDF comes back as its bytes (up to MATERIAL_MAX_BYTES), anything else as extracted text.
+ *  A lesson material takes this (2026-11-18): the web_fetch pointer sentence used to be stored as the material's text. */
+export async function fetchLink(url: string, readPdf = true): Promise<FetchedLink> {
 	const resp = await safeFetch(url, {
 		headers: {
 			"User-Agent": USER_AGENT,
@@ -97,10 +109,17 @@ export async function fetchAndExtract(url: string): Promise<string> {
 	const sourceLine = `Source: ${resp.url || url} (HTTP ${resp.status})`;
 
 	const contentType = resp.headers.get("content-type") ?? "";
-	if (contentType.includes("application/pdf")) {
-		// Pointer, not dead-end (researcher PDF wave, 2026-10-07): the
-		// researcher's web_fetch_pdf tool downloads + triages PDFs.
-		return `web_fetch: this URL is a PDF document — call web_fetch_pdf on it to download and read it.`;
+	const looksPdf = contentType.includes("application/pdf") || (/octet-stream/.test(contentType) && /\.pdf$/i.test(new URL(resp.url || url).pathname));
+	if (looksPdf) {
+		if (!readPdf) {
+			void resp.body?.cancel().catch(() => {});
+			return { pdf: new Uint8Array() };
+		}
+		const size = Number(resp.headers.get("content-length") ?? 0);
+		if (size > MATERIAL_MAX_BYTES) throw new Error("PDF too large");
+		const bytes = new Uint8Array(await resp.arrayBuffer());
+		if (bytes.byteLength > MATERIAL_MAX_BYTES) throw new Error("PDF too large");
+		return { pdf: bytes };
 	}
 	if (/image\/|audio\/|video\/|zip|octet-stream/.test(contentType)) {
 		throw new Error(`Unsupported content type: ${contentType.split(";")[0]}`);
@@ -109,16 +128,16 @@ export async function fetchAndExtract(url: string): Promise<string> {
 	if (length > MAX_RESPONSE_BYTES) throw new Error("Response too large");
 
 	const text = await resp.text();
-	if (!contentType.includes("html")) return `${sourceLine}\n\n${truncate(text)}`; // plain text / markdown / code
+	if (!contentType.includes("html")) return { text: `${sourceLine}\n\n${truncate(text)}` }; // plain text / markdown / code
 
 	const extracted = htmlToMarkdown(text);
 	if (extracted) {
 		const header = extracted.title ? `# ${extracted.title}\n\n${sourceLine}\n\n---\n\n` : `${sourceLine}\n\n---\n\n`;
-		return header + truncate(extracted.content);
+		return { text: header + truncate(extracted.content) };
 	}
 	// Readability failed — likely JS-rendered. Try Jina Reader.
 	const jina = await fetchViaJina(url);
-	if (jina) return truncate(jina);
+	if (jina) return { text: truncate(jina) };
 	throw new Error("Could not extract readable content (the page may be JavaScript-rendered)");
 }
 

@@ -18,6 +18,7 @@
  */
 
 import { Type, type Static } from "typebox";
+import { FRESH_CASE } from "./answer-rules.ts";
 import { stripModelValueDebris } from "./value-debris.ts";
 import type { SketchRef } from "./contracts/sketch.ts";
 import { expandCitationsForModel } from "./citations.ts";
@@ -305,6 +306,7 @@ const explainType = Type.Union([Type.Literal("predict"), Type.Literal("check"), 
 export const MISSING_QUESTION_MESSAGE =
 	"The call has no `question`. `question` is a required field of its own: send the question itself there. " +
 	"`lead` is only the text the learner reads before the question, so the question does not belong at the end of `lead` instead. " +
+	"Write `lead` as ordinary text with real line breaks: never the two characters backslash-n, and LaTeX with single backslashes (\\frac, not a doubled backslash). " +
 	"Send the call again straight away and do not mention the error to the learner.";
 
 /** How the tutor graded the learner's last answer (owner, 2026-11-14): the verdict gate (core/verdict-gate.ts) reads it. */
@@ -321,7 +323,7 @@ const leadField = Type.String({
 	minLength: 1,
 	description:
 		"The text he reads before the question: respond to his last answer (what it shows; if it was wrong, diagnose " +
-		"and repair it, and this question then asks that same step again on a fresh case; if it was right, teach the next step). Markdown. The question itself goes in `question`, with the instance he works on " +
+		"and repair it, and this question then asks that same step again on " + FRESH_CASE + "; if it was right, teach the next step). Markdown. The question itself goes in `question`, with the instance he works on " +
 		"(the matrix, function, numbers) written out in full there: the lead may teach with a DIFFERENT example, but never states " +
 		"the question's own instance and never carries out its steps. A one-line filler is " +
 		"not a lead. `lead` is never the question: `question` is a REQUIRED field of its own, so never end `lead` with " +

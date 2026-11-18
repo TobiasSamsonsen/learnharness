@@ -10,6 +10,7 @@ import type { SketchStore } from "../core/ports.ts";
  *   sketches/<chatId>/<sketchId>/strokes.json   the strokes as sent
  *   sketches/<chatId>/<sketchId>/<page>.svg     the page for the UI
  *   sketches/<chatId>/<sketchId>/<page>.png     the page for the model
+ *   sketches/<chatId>/hint-pages/<name>.json|-<page>.png   what a hint was written from (not a sketch: never synced)
  */
 
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
@@ -81,6 +82,14 @@ export const sketchStore: SketchStore = {
 		const tmp = `${file}.tmp`;
 		fs.writeFileSync(/* turbopackIgnore: true */ tmp, png);
 		fs.renameSync(/* turbopackIgnore: true */ tmp, /* turbopackIgnore: true */ file);
+	},
+
+	saveHintPage(chatId, name, pages, meta) {
+		if (!SAFE_ID.test(name)) throw new Error(`invalid hint page name: ${name}`);
+		const dir = path.join(/* turbopackIgnore: true */ chatDir(chatId), "hint-pages");
+		fs.mkdirSync(/* turbopackIgnore: true */ dir, { recursive: true });
+		pages.forEach((png, i) => fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, `${name}-${i}.png`), png));
+		fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, `${name}.json`), JSON.stringify(meta), "utf8");
 	},
 
 	removeAll(chatId) {

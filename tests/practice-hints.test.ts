@@ -13,7 +13,7 @@ import { after, describe, it } from "node:test";
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-practice-hints-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
-const { HINT_MAX, capGradeByHint, hintOutcomeProblems, parseHintReply, practiceHintEligible, practiceHintPrompt, practiceHintsOf } = await import("../src/core/hints.ts");
+const { HINT_MAX, capGradeByHint, hintOutcomeProblems, hintPrompt, parseHintReply, practiceHintEligible, practiceHintPrompt, practiceHintsOf, stripHintLabel } = await import("../src/core/hints.ts");
 const { newPracticeHintMarker, isSideQuestionMarker } = await import("../src/core/native-messages.ts");
 const { gradesForSkills } = await import("../src/agent/subagents/grader.ts");
 const { renderProblemSpan } = await import("../src/core/practice-grading.ts");
@@ -24,6 +24,35 @@ const { createFauxCore, fauxAssistantMessage, fauxText } = await import("@earend
 import type { PiEngine } from "../src/agent/models.ts";
 
 after(() => fs.rmSync(TMP_DATA, { recursive: true, force: true }));
+
+describe("a label the model wrote in front of the hint (2026-11-18)", () => {
+	it("is stripped: the card labels each hint itself", () => {
+		assert.equal(stripHintLabel("Hint 2: Look at the exponents."), "Look at the exponents.");
+		assert.equal(stripHintLabel("**Hint 2**: Look at the exponents."), "Look at the exponents.");
+		assert.equal(stripHintLabel("**Hint 2:** Look at the exponents."), "Look at the exponents.");
+		assert.equal(stripHintLabel("Hint 3 of 3 - Do the substitution."), "Do the substitution.");
+		assert.equal(stripHintLabel("Hint: look again."), "look again.");
+	});
+	it("leaves an ordinary hint alone, and never empties one", () => {
+		assert.equal(stripHintLabel("Hints help here: look again."), "Hints help here: look again.");
+		assert.equal(stripHintLabel("Hintergrund: look again."), "Hintergrund: look again.");
+		assert.equal(stripHintLabel("Hint 2:"), "Hint 2:");
+	});
+	it("is stripped from a practice hint too, after the size line", () => {
+		assert.equal(parseHintReply("SIZE: nudge\nHint 2: Check the sign.").text, "Check the sign.");
+	});
+});
+
+describe("hints after the first are told the page may have changed (2026-11-18)", () => {
+	it("only when a page rides along and an earlier hint exists", () => {
+		const changed = /may have changed since the earlier hints/;
+		assert.match(hintPrompt({ n: 2, earlier: ["Look at the roots."], ink: true }), changed);
+		assert.ok(!changed.test(hintPrompt({ n: 1, earlier: [], ink: true })));
+		assert.ok(!changed.test(hintPrompt({ n: 2, earlier: ["Look at the roots."] })));
+		assert.match(practiceHintPrompt({ n: 2, earlier: [{ size: "nudge", text: "x" }], ink: true }), changed);
+		assert.ok(!changed.test(practiceHintPrompt({ n: 1, earlier: [], ink: true })));
+	});
+});
 
 describe("the size label", () => {
 	it("is split off the first line", () => {
@@ -216,7 +245,7 @@ describe("the practice hint route", () => {
 		assert.equal((await handleHintRequest(chat.id, { toolCallId: "nope" }, scripted([]).engine)).status, 409);
 	});
 
-	it("reads the learner's current page: the page rides the call as an image, and nothing is stored", async () => {
+	it("reads the learner's current page: the page rides the call as an image and never enters the record", async () => {
 		const chat = practiceChat();
 		const sketch = { id: "sk_test_page_0001", producer: "web-canvas", strokes: [{ size: 3, color: "#111111", points: [10, 10, 0.5, 80, 40, 0.5, 150, 20, 0.5] }] };
 		const { engine, contexts } = scripted(["SIZE: slip\nLook again at the second line."]);
@@ -226,6 +255,19 @@ describe("the practice hint route", () => {
 		assert.match(sent, /CURRENT handwriting/);
 		assert.match(sent, /"type":"image"/);
 		assert.equal(chatStore.getChat(chat.id)!.messages.some((m) => (m as { customType?: string }).customType === "sketch"), false);
+	});
+
+	it("keeps the page the hint was written from, beside the chat's sketches and never as a sketch", async () => {
+		const chat = practiceChat();
+		const sketch = { id: "sk_test_page_0002", producer: "web-canvas", strokes: [{ size: 3, color: "#111111", points: [10, 10, 0.5, 80, 40, 0.5, 150, 20, 0.5] }] };
+		const res = await handleHintRequest(chat.id, { toolCallId: "pc1", sketch }, scripted(["SIZE: slip\nHint 1: Look again."]).engine);
+		assert.deepEqual((await res.json() as { hint: string }).hint, "Look again.");
+		const dir = path.join(TMP_DATA, "sketches", chat.id, "hint-pages");
+		assert.deepEqual(fs.readdirSync(dir).sort(), ["pc1_hint1-0.png", "pc1_hint1.json"]);
+		assert.equal(fs.readFileSync(path.join(dir, "pc1_hint1-0.png")).subarray(1, 4).toString(), "PNG");
+		const meta = JSON.parse(fs.readFileSync(path.join(dir, "pc1_hint1.json"), "utf8")) as { n: number; strokeCount: number };
+		assert.equal(meta.n, 1);
+		assert.equal(meta.strokeCount, 1);
 	});
 
 	it("a page that cannot be read is no ink: the hint goes out text-only", async () => {

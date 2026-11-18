@@ -12,7 +12,7 @@ import {
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { piEngineForSpec } from "../agent/models.ts";
 import { profileMaterial } from "../agent/subagents/material-profiler.ts";
-import { fetchAndExtract } from "../agent/tools/web.ts";
+import { fetchLink } from "../agent/tools/web.ts";
 import { materialTools } from "../agent/tools/materials.ts";
 import type { MaterialStore } from "../core/ports.ts";
 import { stores } from "./stores.ts";
@@ -149,12 +149,32 @@ export function addUploadedMaterial(
 export async function addLinkMaterial(chatId: string, url: string): Promise<Result<LessonMaterial>> {
 	if (!ownerExists(chatId)) return { ok: false, status: 404, error: "Unknown chat or course" };
 	if (!isMaterialUrl(url)) return { ok: false, status: 400, error: "The link must be an http(s) address" };
-	let markdown: string;
+	let link: Awaited<ReturnType<typeof fetchLink>>;
 	try {
-		markdown = await fetchAndExtract(url.trim());
+		link = await fetchLink(url.trim());
 	} catch (err) {
 		return { ok: false, status: 502, error: `Could not fetch ${url}: ${err instanceof Error ? err.message : String(err)}` };
 	}
+	if ("pdf" in link) {
+		// A link to a PDF is the PDF itself (2026-11-18): kept as the file, read like an upload. It used to be stored as web_fetch's
+		// "this URL is a PDF" sentence, which the PDF reader then rejected as an invalid PDF.
+		if (link.pdf.byteLength === 0) return { ok: false, status: 422, error: `${url} is an empty PDF` };
+		const pdfUrl = new URL(url.trim());
+		const last = decodeURIComponent(pdfUrl.pathname.split("/").filter(Boolean).pop() ?? "");
+		const fileName = (last || pdfUrl.host).replace(/[\\/:*?"<>|]+/g, "_");
+		const pdf = stores.materialStore.add(chatId, {
+			kind: "pdf",
+			name: (/\.pdf$/i.test(fileName) ? fileName : `${fileName}.pdf`).slice(0, 120),
+			ext: ".pdf",
+			bytes: link.pdf,
+			url: url.trim(),
+			mimeType: "application/pdf",
+			addedMidLesson: lessonStarted(chatId),
+		});
+		void startProfile(chatId, pdf);
+		return { ok: true, value: pdf };
+	}
+	const markdown = link.text;
 	if (!markdown.trim()) return { ok: false, status: 422, error: `${url} has no readable text` };
 	const title = markdown.match(/^#\s+(.+)$/m)?.[1]?.trim();
 	const u = new URL(url.trim());

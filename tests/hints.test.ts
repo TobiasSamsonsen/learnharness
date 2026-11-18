@@ -56,7 +56,7 @@ describe("the instruction texts", () => {
 	it("the tutor is told the answer was aided and to check the step again", () => {
 		assert.match(hintsNextText(1), /^He took 1 hint on this question/);
 		assert.match(hintsNextText(2), /^He took 2 hints on this question \(in `hints`\), so the answer is not unaided\./);
-		assert.match(hintsNextText(2), /check it once more on a fresh case, without hints\.$/);
+		assert.match(hintsNextText(2), /check it once more on a fresh case of the SAME size.*, without hints\.$/);
 	});
 
 	it("hints are sanitized: strings only, trimmed, capped in length and number", () => {

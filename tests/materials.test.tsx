@@ -206,6 +206,41 @@ describe("the service", () => {
 	});
 });
 
+describe("a link to a PDF (2026-11-18)", () => {
+	it("is stored as the PDF itself, named from the link, not as web_fetch's pointer sentence", async () => {
+		const { safeFetchOverride } = await import("../src/agent/tools/safe-fetch.ts");
+		const chat = chatStore.createChat("PDF link");
+		const bytes = new TextEncoder().encode("%PDF-1.4\n1 0 obj\n<</Type/Catalog>>\nendobj\ntrailer\n<</Root 1 0 R>>\n%%EOF\n");
+		safeFetchOverride.current = (async () => new Response(bytes, { headers: { "content-type": "application/pdf" } })) as typeof fetch;
+		try {
+			const added = await service.addLinkMaterial(chat.id, "https://wiki.example.org/_media/tma4400/43.1_presentasjon_6_.pdf");
+			assert.ok(added.ok, "the link is accepted");
+			if (!added.ok) return;
+			assert.equal(added.value.kind, "pdf");
+			assert.equal(added.value.name, "43.1_presentasjon_6_.pdf");
+			assert.equal(added.value.file, "source.pdf");
+			assert.equal(added.value.url, "https://wiki.example.org/_media/tma4400/43.1_presentasjon_6_.pdf");
+			assert.equal(fs.readFileSync(materialStore.filePath(chat.id, added.value)).subarray(0, 5).toString(), "%PDF-");
+			await service.waitForMaterials(chat.id, 5000);
+		} finally {
+			safeFetchOverride.current = undefined;
+		}
+	});
+
+	it("a page link is still stored as the page's text", async () => {
+		const { safeFetchOverride } = await import("../src/agent/tools/safe-fetch.ts");
+		const chat = chatStore.createChat("Page link");
+		safeFetchOverride.current = (async () => new Response(NOTES.repeat(4), { headers: { "content-type": "text/plain" } })) as typeof fetch;
+		try {
+			const added = await service.addLinkMaterial(chat.id, "https://example.org/notes");
+			assert.ok(added.ok && added.value.kind === "web" && added.value.file === "source.md");
+			await service.waitForMaterials(chat.id, 5000);
+		} finally {
+			safeFetchOverride.current = undefined;
+		}
+	});
+});
+
 describe("the agent seam", () => {
 	it("the section joins the prompt and the tools join the registry", () => {
 		const faux = createFauxCore({});

@@ -11,6 +11,7 @@
  * Pure: eligibility, the instruction texts (owner-approved), sanitizing.
  */
 
+import { FRESH_CASE, HINT_NOTATION_RULE } from "./answer-rules.ts";
 import { normalizeQuizType } from "./question-core.ts";
 
 /** Hints per question: where to look, the idea named, the move outlined. Never the answer. */
@@ -41,10 +42,12 @@ export function hintPrompt(input: { n: number; earlier: readonly string[]; think
 		"1: where to look (the part of the problem or of their own work to look at again). Name no rule.",
 		"2: the idea, rule or definition that applies, named, and why it applies here.",
 		"3: the move outlined in words: what to do, in order, without doing it.",
-		"Never a worked step, a number or expression from the answer, or which option is right or wrong. Do not repeat an earlier hint. Two or three sentences.",
+		"Never a worked step, a number or expression from the answer, or which option is right or wrong. Do not repeat an earlier hint. " + HINT_NOTATION_RULE,
+		"At most 40 words, one idea.",
 		"Reply with the hint only, as plain text (no tool calls, no preamble).",
 	];
 	if (input.ink) lines.push("", HINT_INK_LINE);
+	if (input.ink && input.earlier.length > 0) lines.push("", HINT_PAGE_CHANGED_LINE);
 	if (input.earlier.length > 0) {
 		lines.push("", "Hints already given on this question:");
 		input.earlier.forEach((h, i) => lines.push(`${i + 1}: ${h}`));
@@ -56,7 +59,7 @@ export function hintPrompt(input: { n: number; earlier: readonly string[]; think
 
 /** What the tutor is told with an answer that took hints. */
 export function hintsNextText(n: number): string {
-	return `He took ${n} hint${n === 1 ? "" : "s"} on this question (in \`hints\`), so the answer is not unaided. Do not re-teach what the hints already said. Before moving on from this step, check it once more on a fresh case, without hints.`;
+	return `He took ${n} hint${n === 1 ? "" : "s"} on this question (in \`hints\`), so the answer is not unaided. Do not re-teach what the hints already said. Before moving on from this step, check it once more on ${FRESH_CASE}, without hints.`;
 }
 
 /** The hints on an answer record (or a request body): strings only, trimmed, capped in length and number. */
@@ -97,6 +100,17 @@ export function isHintWeight(value: unknown): value is HintWeight {
 }
 
 /** The customType of the chat-record marker a practice hint leaves (core/native-messages.ts newPracticeHintMarker). */
+/** Added from the second hint on, when a page rides along (owner, 2026-11-18): the earlier hints are text from a moment ago, the image is now.
+ *  A learner who erased and rewrote after a hint got a second hint that still pointed at what they had already fixed. */
+export const HINT_PAGE_CHANGED_LINE =
+	"The page may have changed since the earlier hints (strokes added, erased or rewritten). Judge only from the image attached now: the earlier hints below say what you wrote then, not what is on the page. If the learner has already fixed what an earlier hint pointed at, do not point at it again; say something new about where they are now.";
+
+/** A hint without the label the model sometimes writes in front of it ("Hint 2:", "**Hint 2**:"): the card labels each hint itself. */
+export function stripHintLabel(text: string): string {
+	const stripped = text.replace(/^\s*(?:\*\*|__)?\s*hint\s*\d*(?:\s*(?:of|av|\/)\s*\d+)?\s*(?:\*\*|__)?\s*[:.)–—-]+\s*(?:\*\*|__)?\s*/i, "").trim();
+	return stripped === "" ? text.trim() : stripped;
+}
+
 export const PRACTICE_HINT_MARKER = "practice-hint";
 
 /** A practice problem takes the Hint button. Every posed practice problem does today; this is the one place a kind that must stay
@@ -113,10 +127,12 @@ export function practiceHintPrompt(input: { n: number; earlier: readonly { size:
 		"nudge: they need a push in the right direction: the idea, rule or part of the problem to rethink, without the step itself.",
 		"carry: they are stuck so hard that only the next move will carry them forward: outline it in words, without doing it.",
 		"Start low. Go up a size only when the learner is plainly still stuck after the earlier hints.",
-		"Never the committed solution, the final answer, a number or expression from it, or whether their work is right. Do not repeat an earlier hint. Two or three sentences.",
+		"Never the committed solution, the final answer, a number or expression from it, or whether their work is right. Do not repeat an earlier hint. " + HINT_NOTATION_RULE,
+		"At most 40 words, one idea.",
 		"Reply in exactly this form, plain text, no tool calls: a first line `SIZE: slip`, `SIZE: nudge` or `SIZE: carry`, then the hint on the following lines.",
 	];
 	if (input.ink) lines.push("", HINT_INK_LINE);
+	if (input.ink && input.earlier.length > 0) lines.push("", HINT_PAGE_CHANGED_LINE);
 	if (input.earlier.length > 0) {
 		lines.push("", "Hints already given on this problem:");
 		input.earlier.forEach((h, i) => lines.push(`${i + 1} (${h.size}): ${h.text}`));
@@ -131,10 +147,10 @@ export function practiceHintPrompt(input: { n: number; earlier: readonly { size:
 export function parseHintReply(reply: string): { size: HintSize; text: string; labelled: boolean } {
 	const trimmed = reply.trim();
 	const m = /^\s*\**\s*SIZE\s*:\s*([A-Za-z]+)\s*\**[^\S\n]*(?:\n|$)/i.exec(trimmed);
-	if (!m) return { size: HINT_SIZE_FALLBACK, text: trimmed.slice(0, HINT_TEXT_MAX), labelled: false };
+	if (!m) return { size: HINT_SIZE_FALLBACK, text: stripHintLabel(trimmed).slice(0, HINT_TEXT_MAX), labelled: false };
 	const word = m[1]!.toLowerCase();
 	const size = (HINT_SIZES as readonly string[]).includes(word) ? (word as HintSize) : null;
-	return { size: size ?? HINT_SIZE_FALLBACK, text: trimmed.slice(m[0].length).trim().slice(0, HINT_TEXT_MAX), labelled: size !== null };
+	return { size: size ?? HINT_SIZE_FALLBACK, text: stripHintLabel(trimmed.slice(m[0].length)).slice(0, HINT_TEXT_MAX), labelled: size !== null };
 }
 
 /** The model-facing text of a practice hint's chat marker: what the learner was told, and what it means for concluding. */

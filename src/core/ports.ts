@@ -305,6 +305,9 @@ export interface SketchStore {
 	missingPngs(chatId: string): { sketchId: string; page: number }[];
 	/** Store a page's PNG next to its SVG (the lazy re-render of a synced sketch). */
 	savePagePng(chatId: string, sketchId: string, page: number, png: Uint8Array): void;
+	/** The page a hint was written from (fork, 2026-11-18): kept so a hint that misses the learner's work can be checked against what the
+	 *  model saw. Best effort, never synced; `name` is a safe id. Removed with the lesson's sketches. */
+	saveHintPage(chatId: string, name: string, pages: Uint8Array[], meta: object): void;
 	/** Delete every sketch of a lesson (its deletion). */
 	removeAll(chatId: string): void;
 }

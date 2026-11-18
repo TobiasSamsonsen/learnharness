@@ -17,6 +17,7 @@
  */
 
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import { FRESH_CASE, NOTATION_RULE } from "./answer-rules.ts";
 import { sendToUserText } from "./native-messages.ts";
 import { LEAD_TOOLS, leadOf, tutorProse } from "./tutor-prose.ts";
 
@@ -59,7 +60,8 @@ export function proseGateReason(toolName: string): string {
  *  stays the backstop. */
 export const ANSWER_NEXT_TEXT =
 	"Reply in the next question's `lead`: what this answer shows. If it was wrong, the lead is the repair and the next question asks " +
-	"that same step again on a fresh case (same nodeId, type check): do not advance. If it was right, teach the next step there — or finish in text. " +
+	"that same step again on " + FRESH_CASE + " (same nodeId, type check): do not advance. If it was right, teach the next step there — or finish in text. " +
+	NOTATION_RULE + " " +
 	"Set `previous` to how you graded it. " +
 	"Do not plan the reply in thinking: only text and `lead` reach him.";
 
@@ -69,7 +71,8 @@ export const ANSWER_NEXT_TEXT =
 export const SKETCH_ANSWER_NEXT_TEXT =
 	"A sketch is attached: call read_sketch on it first, in this reply — before any other tool or text. " +
 	"Then reply in the next question's `lead`: what this answer shows. If it was wrong, the lead is the repair and the next question asks " +
-	"that same step again on a fresh case (same nodeId, type check): do not advance. If it was right, teach the next step there — or finish in text. " +
+	"that same step again on " + FRESH_CASE + " (same nodeId, type check): do not advance. If it was right, teach the next step there — or finish in text. " +
+	NOTATION_RULE + " " +
 	"Set `previous` to how you graded it. " +
 	"Do not plan the reply in thinking: only text and `lead` reach him. Work the correct answer out before you write; never correct yourself inside `lead`.";
 

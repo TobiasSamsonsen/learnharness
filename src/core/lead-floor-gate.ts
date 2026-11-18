@@ -35,7 +35,7 @@ const REASON_TAIL =
 	"A call that repeats a one-line filler will be refused again.";
 
 /** The refusal for a question that carries a `lead` (quiz, explain). */
-export const LEAD_FLOOR_REASON = REASON_HEAD + "Put the repair in `lead`, then call the question again with it. " + REASON_TAIL;
+export const LEAD_FLOOR_REASON = REASON_HEAD + "Put the repair in `lead` itself, in full: what you wrote in your thinking never reaches him, so write it again there. Then call the question again with it. " + REASON_TAIL;
 
 /** The refusal for a question without a `lead` (ask_user_question): the reply goes through send_to_user. */
 export const LEAD_FLOOR_REASON_NO_LEAD =

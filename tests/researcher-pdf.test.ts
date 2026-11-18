@@ -18,7 +18,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
 import { createPdfReadTools } from "../src/agent/tools/pdf-read.ts";
-import { createWebTools } from "../src/agent/tools/web.ts";
+import { createWebTools, fetchLink } from "../src/agent/tools/web.ts";
 import { safeFetchOverride } from "../src/agent/tools/safe-fetch.ts";
 
 /** Build a valid N-page PDF in memory — ASCII-only so string offsets ARE
@@ -178,6 +178,26 @@ describe("web_fetch — PDF pointer + source header", () => {
 			const out = asText(await web.web_fetch!.execute!("t11", { url: "https://example.com/paper.pdf" }));
 			assert.match(out, /PDF document/);
 			assert.match(out, /web_fetch_pdf/);
+		} finally {
+			safeFetchOverride.current = undefined;
+		}
+	});
+
+	it("fetchLink returns a PDF's real bytes (a lesson material keeps the file), and text for a page", async () => {
+		safeFetchOverride.current = (async () => pdfResponse()) as typeof fetch;
+		try {
+			const link = await fetchLink("https://example.com/slides.pdf");
+			assert.ok("pdf" in link, "a PDF link is the file, not the pointer sentence");
+			assert.equal(new TextDecoder().decode((link as { pdf: Uint8Array }).pdf.slice(0, 5)), "%PDF-");
+			const skipped = await fetchLink("https://example.com/slides.pdf", false);
+			assert.ok("pdf" in skipped && skipped.pdf.byteLength === 0, "without readPdf the body is not downloaded");
+		} finally {
+			safeFetchOverride.current = undefined;
+		}
+		safeFetchOverride.current = (async () => new Response("A plain text page with enough content to matter.", { headers: { "content-type": "text/plain" } })) as typeof fetch;
+		try {
+			const link = await fetchLink("https://example.com/page");
+			assert.ok("text" in link && /plain text page/.test(link.text));
 		} finally {
 			safeFetchOverride.current = undefined;
 		}

@@ -1,4 +1,4 @@
-import { HINT_MAX, HINT_THINKING_MAX, type HintSize, hintEligible, hintPrompt, hintsOf, parseHintReply, practiceHintEligible, practiceHintPrompt, practiceHintsOf } from "../core/hints.ts";
+import { HINT_MAX, HINT_THINKING_MAX, type HintSize, hintEligible, hintPrompt, hintsOf, parseHintReply, practiceHintEligible, practiceHintPrompt, practiceHintsOf, stripHintLabel } from "../core/hints.ts";
 import { activeProblemOf, hasProbeDone, newPracticeHintMarker } from "../core/native-messages.ts";
 import { emit } from "../core/events.ts";
 import { parseSketchPayload, SketchPayloadError } from "../core/sketch.ts";
@@ -13,7 +13,7 @@ import { isTurnRunning } from "./turn-liveness.ts";
  * question (owner, 2026-11-13 — core/hints.ts) or on the open practice problem (owner, 2026-11-17). ONE call on the chat's
  * own model with the session so far, the clarification call's twin (tutorSideCall): the question stays open.
  *
- * `sketch` (2026-11-17) is the learner's CURRENT page, kept plus unsent strokes: it is rendered here, never stored, and rides
+ * `sketch` (2026-11-17) is the learner's CURRENT page, kept plus unsent strokes: it is rendered here and rides
  * the call as an image, so the hint fits where they are stuck. Without it (no ink) the hint is text-only.
  *
  * A LESSON hint lives with the dock and rides the learner's answer; the route only writes the call's usage and answers
@@ -32,9 +32,11 @@ export async function handleHintRequest(chatId: string, body: unknown, engineOve
 
 	// The learner's current page, rendered without being stored (a bad or empty payload is no ink, not an error: the hint goes text-only).
 	let images: { data: string; mimeType: string }[] = [];
+	let strokeCount = 0;
 	if (raw.sketch !== undefined && raw.sketch !== null) {
 		try {
 			const sketch = parseSketchPayload(raw.sketch);
+			strokeCount = sketch.strokes.length;
 			if (sketch.strokes.length > 0 || sketch.photo) images = await renderSketchImages(sketch);
 		} catch (error) {
 			if (!(error instanceof SketchPayloadError)) {
@@ -76,8 +78,18 @@ export async function handleHintRequest(chatId: string, body: unknown, engineOve
 		engineOverride,
 	);
 	if (result instanceof Response) return result;
+	// What the hint was written from, kept beside the chat's sketches (2026-11-18): a hint that misses the learner's work can then be
+	// checked against the page the model saw. Best effort: a failed write never costs the learner the hint.
+	if (images.length > 0) {
+		try {
+			const name = `${toolCallId.replace(/[^A-Za-z0-9_-]/g, "_")}_hint${n}`;
+			stores.sketchStore.saveHintPage(chatId, name, images.map((i) => new Uint8Array(Buffer.from(i.data, "base64"))), { toolCallId, n, at: new Date().toISOString(), strokeCount, pages: images.length });
+		} catch (error) {
+			console.error(`[chat ${chatId}] hint page not kept:`, error);
+		}
+	}
 	const practiceEarlier = practice.earlier;
-	if (practiceEarlier === null) return Response.json({ hint: result.reply, n });
+	if (practiceEarlier === null) return Response.json({ hint: stripHintLabel(result.reply), n });
 
 	// A practice hint: split off the size, then write it into the record beside the open problem.
 	const given = parseHintReply(result.reply);

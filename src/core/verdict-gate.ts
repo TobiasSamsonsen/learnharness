@@ -14,6 +14,7 @@
  */
 
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import { FRESH_CASE } from "./answer-rules.ts";
 import { readAnswerVerdict } from "./lead-floor-gate.ts";
 import { NO_LEAD_GATED_TOOLS } from "./prose-gate.ts";
 
@@ -108,7 +109,7 @@ export function verdictGateProblem(
 }
 
 const TAIL =
-	"Put the repair in `lead` (what his answer shows and the step he is missing, worked out), then ask that step again on a fresh case. ";
+	"Put the repair in `lead` (what his answer shows and the step he is missing, worked out), then ask that step again on " + FRESH_CASE + ". ";
 
 /** The refusal text for a problem. */
 export function verdictGateReason(problem: VerdictGateProblem): string {
@@ -121,7 +122,7 @@ export function verdictGateReason(problem: VerdictGateProblem): string {
 		case "contradiction":
 			return (
 				"Refused: you set `previous` to right, but his last answer is recorded as wrong or \"don't know\". Set `previous` to wrong " +
-				"(or partly), repair it in `lead`, and ask the step again on a fresh case."
+				"(or partly), repair it in `lead`, and ask the step again on " + FRESH_CASE + "."
 			);
 		case "skipped-graded":
 			return (
