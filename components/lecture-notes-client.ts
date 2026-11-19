@@ -1,7 +1,7 @@
 import type { LectureNoteListItem } from "@/src/core";
 
 /** The lecture notes of a course, as the course page's row lists them (newest day first). [] on any failure. */
-export type LectureNoteItem = Pick<LectureNoteListItem, "id" | "title" | "date" | "inkAt">;
+export type LectureNoteItem = Pick<LectureNoteListItem, "id" | "title" | "date" | "inkAt" | "read">;
 
 const base = (courseId: string) => `/api/courses/${encodeURIComponent(courseId)}/lecture-notes`;
 
@@ -21,7 +21,7 @@ export async function createLectureNote(courseId: string, input: { title: string
 		const res = await fetch(base(courseId), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
 		if (!res.ok) return null;
 		const note = ((await res.json()) as { note?: LectureNoteItem }).note;
-		return note ? { ...note, inkAt: 0 } : null;
+		return note ? { ...note, inkAt: 0, read: "none" } : null;
 	} catch {
 		return null;
 	}
@@ -46,3 +46,39 @@ export async function deleteLectureNote(courseId: string, noteId: string): Promi
 
 /** The thumbnail of a note's ink; `inkAt` keys the cache (the picture changes only when the ink does). */
 export const thumbnailUrl = (courseId: string, noteId: string, inkAt: number) => `${base(courseId)}/${encodeURIComponent(noteId)}/thumbnail?v=${inkAt}`;
+
+/** What the tutor has of a note, segment by segment (GET .../transcript). */
+export interface NoteTranscriptView {
+	segments: { id: string; index: number; startedAt: number; endedAt: number; state: "unread" | "read" | "changed"; text: string; digest: string; edited: boolean }[];
+	digest: string;
+	status: LectureNoteItem["read"];
+	error?: string;
+}
+
+export async function fetchTranscript(courseId: string, noteId: string): Promise<NoteTranscriptView | null> {
+	try {
+		const res = await fetch(`${base(courseId)}/${encodeURIComponent(noteId)}/transcript`, { cache: "no-store" });
+		return res.ok ? ((await res.json()) as NoteTranscriptView) : null;
+	} catch {
+		return null;
+	}
+}
+
+export async function saveSegmentText(courseId: string, noteId: string, segId: string, text: string): Promise<boolean> {
+	try {
+		const res = await fetch(`${base(courseId)}/${encodeURIComponent(noteId)}/transcript/${encodeURIComponent(segId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+		return res.ok;
+	} catch {
+		return false;
+	}
+}
+
+/** Read again: the named segments, or (null) all of them. */
+export async function rereadNote(courseId: string, noteId: string, segments: string[] | null): Promise<boolean> {
+	try {
+		const res = await fetch(`${base(courseId)}/${encodeURIComponent(noteId)}/transcribe`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(segments ? { segments } : {}) });
+		return res.ok;
+	} catch {
+		return false;
+	}
+}

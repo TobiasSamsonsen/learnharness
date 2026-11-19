@@ -73,7 +73,7 @@ export interface SketchViewProps {
 	onSteer?: () => void;
 	/** A lecture note (owner plan, 2026-11-19): the canvas is the note's, nothing is submitted, new strokes get their id and segment
 	 *  from `stamp`, and the title and date show instead of the problem box. */
-	note?: { title: string; date: string; stamp: (stroke: SketchStroke) => void };
+	note?: { title: string; date: string; stamp: (stroke: SketchStroke) => void; /** Beside the title (a button), and over the canvas (a panel). */ extra?: React.ReactNode; panel?: React.ReactNode };
 }
 
 /** A text field the key belongs to (the sketch shortcuts are single letters and digits). */
@@ -412,9 +412,19 @@ export function SketchView({
 					</p>
 				)}
 				{note ? (
-					<p data-testid="note-title" className="pointer-events-none absolute left-3 top-2 max-w-[60%] truncate text-xs text-muted-foreground/80">
-						{note.title} · {note.date}
-					</p>
+					<>
+						<div className="pointer-events-none absolute left-3 top-2 flex max-w-[40%] items-center gap-2 text-xs text-muted-foreground/80">
+							<p data-testid="note-title" className="truncate">
+								{note.title} · {note.date}
+							</p>
+							{note.extra && (
+								<span data-ink-hole="" className="pointer-events-auto shrink-0">
+									{note.extra}
+								</span>
+							)}
+						</div>
+						{note.panel}
+					</>
 				) : (
 					<FloatingProblem label={label} statement={statement} lessonText={lessonText}>
 						{choices}

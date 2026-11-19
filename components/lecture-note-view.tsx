@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FileTextIcon } from "lucide-react";
 import { SketchView } from "@/components/sketch/sketch-view";
+import { LectureNoteTextPanel } from "@/components/lecture-note-text-panel";
 import { noteSession, type NoteSession } from "@/components/sketch/note-ink";
 import type { LectureNote } from "@/src/core";
 
@@ -14,6 +16,7 @@ type View = { kind: "loading" } | { kind: "ready"; note: LectureNote; session: N
 
 export function LectureNoteView({ courseId, noteId, onClose }: { courseId: string; noteId: string; onClose: () => void }) {
 	const [state, setState] = useState<View>({ kind: "loading" });
+	const [text, setText] = useState(false);
 
 	// One session per run of the effect: a run that is cleaned up leaves ITS session and ignores its late answer.
 	useEffect(() => {
@@ -36,7 +39,18 @@ export function LectureNoteView({ courseId, noteId, onClose }: { courseId: strin
 				label="Lecture note"
 				statement=""
 				inkKey={noteId}
-				note={{ title: state.note.title, date: state.note.date, stamp: state.session.stamp }}
+				note={{
+					title: state.note.title,
+					date: state.note.date,
+					stamp: state.session.stamp,
+					extra: (
+						<button type="button" data-testid="lecture-note-text-toggle" aria-pressed={text} onClick={() => setText((t) => !t)} className="lh-touch inline-flex items-center gap-1 rounded-full border bg-background/85 px-2.5 py-1 text-xs text-foreground hover:bg-muted">
+							<FileTextIcon className="size-3.5" />
+							Text
+						</button>
+					),
+					panel: text ? <LectureNoteTextPanel courseId={courseId} noteId={noteId} onClose={() => setText(false)} /> : null,
+				}}
 				onSubmit={async () => false}
 				onClose={onClose}
 			/>

@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import type { SketchStroke } from "../core/contracts/sketch.ts";
+import type { NoteDigest, NoteTranscript } from "../core/lecture-note-text.ts";
 import {
 	NOTE_ID_RE,
 	SEGMENT_ID_RE,
@@ -20,7 +21,10 @@ import {
  *
  *   lecture-notes/<courseId>/<noteId>/note.json        LectureNote (title, date: changes only on rename)
  *   lecture-notes/<courseId>/<noteId>/seg-<segId>.json  { startedAt, endedAt, strokes } in write order
+ *   lecture-notes/<courseId>/<noteId>/tr-<segId>.json   NoteTranscript: a segment read to text (synced)
+ *   lecture-notes/<courseId>/<noteId>/digest.json       NoteDigest: the lecture's one line (synced)
  *   lecture-notes/<courseId>/<noteId>/thumb.png         derived overview, never synced
+ *   lecture-notes/pending.json                          device-local: notes this device wrote ink for and has not read yet
  *
  * Synchronous fs like the other stores. Changes that the course page shows (create, rename, delete) announce
  * courses-changed; a segment save does not (the canvas is open, and the page must not refetch every few seconds).
@@ -117,6 +121,20 @@ export function deleteCourseNotes(courseId: string): void {
 	fs.rmSync(courseDir(courseId), { recursive: true, force: true });
 }
 
+/** The ids and sizes of a note's segment files, in write order, without reading them. */
+export function readSegmentFiles(courseId: string, noteId: string): { id: string; bytes: number }[] {
+	try {
+		const dir = noteDir(courseId, noteId);
+		return fs
+			.readdirSync(dir)
+			.filter((f) => /^seg-g[a-z0-9]{6,12}\.json$/.test(f))
+			.sort()
+			.map((f) => ({ id: f.slice(4, -5), bytes: fs.statSync(path.join(dir, f)).size }));
+	} catch {
+		return [];
+	}
+}
+
 /** Every segment of a note, in write order. */
 export function readSegments(courseId: string, noteId: string): NoteSegment[] {
 	let files: string[];
@@ -146,12 +164,101 @@ export function writeSegment(courseId: string, noteId: string, seg: NoteSegment)
 	const file = segFile(courseId, noteId, seg.id);
 	if (seg.strokes.length === 0) {
 		fs.rmSync(file, { force: true });
+		fs.rmSync(trFile(courseId, noteId, seg.id), { force: true });
 		return true;
 	}
 	const tmp = `${file}.tmp`;
 	fs.writeFileSync(tmp, JSON.stringify({ startedAt: seg.startedAt, endedAt: seg.endedAt, strokes: seg.strokes }), "utf8");
 	fs.renameSync(tmp, file);
 	return true;
+}
+
+const trFile = (courseId: string, noteId: string, segId: string) => {
+	if (!SEGMENT_ID_RE.test(segId)) throw new Error(`invalid segment id: ${segId}`);
+	return path.join(noteDir(courseId, noteId), `tr-${segId}.json`);
+};
+
+/** A segment file's size in bytes (the cheap fingerprint a reading records), or null when there is no such segment. */
+export function segmentBytes(courseId: string, noteId: string, segId: string): number | null {
+	try {
+		return fs.statSync(segFile(courseId, noteId, segId)).size;
+	} catch {
+		return null;
+	}
+}
+
+export function readTranscripts(courseId: string, noteId: string): Map<string, NoteTranscript> {
+	const out = new Map<string, NoteTranscript>();
+	let files: string[];
+	try {
+		files = fs.readdirSync(noteDir(courseId, noteId)).filter((f) => /^tr-g[a-z0-9]{6,12}\.json$/.test(f));
+	} catch {
+		return out;
+	}
+	for (const f of files) {
+		try {
+			const tr = JSON.parse(fs.readFileSync(path.join(noteDir(courseId, noteId), f), "utf8")) as NoteTranscript;
+			if (typeof tr?.text === "string" && typeof tr.bytes === "number") out.set(f.slice(3, -5), { ...tr, segId: f.slice(3, -5) });
+		} catch {
+			// a torn reading is as good as none: the segment reads as unread
+		}
+	}
+	return out;
+}
+
+export function writeTranscript(courseId: string, noteId: string, tr: NoteTranscript): void {
+	fs.writeFileSync(trFile(courseId, noteId, tr.segId), JSON.stringify(tr), "utf8");
+}
+
+export function readDigest(courseId: string, noteId: string): NoteDigest | null {
+	try {
+		const d = JSON.parse(fs.readFileSync(path.join(noteDir(courseId, noteId), "digest.json"), "utf8")) as NoteDigest;
+		return typeof d?.text === "string" && Array.isArray(d.from) ? d : null;
+	} catch {
+		return null;
+	}
+}
+
+export function writeDigest(courseId: string, noteId: string, digest: NoteDigest): void {
+	fs.writeFileSync(path.join(noteDir(courseId, noteId), "digest.json"), JSON.stringify(digest), "utf8");
+}
+
+// ─── device-local: which notes this device wrote ink for (only the writer reads it) ──────────────────────
+
+const pendingFile = () => path.join(/* turbopackIgnore: true */ PATHS.lectureNotes, "pending.json");
+
+function readPending(): string[] {
+	try {
+		const v = JSON.parse(fs.readFileSync(pendingFile(), "utf8")) as unknown;
+		return Array.isArray(v) ? v.filter((k): k is string => typeof k === "string") : [];
+	} catch {
+		return [];
+	}
+}
+
+function writePending(keys: string[]): void {
+	fs.mkdirSync(PATHS.lectureNotes, { recursive: true });
+	fs.writeFileSync(pendingFile(), JSON.stringify(keys), "utf8");
+}
+
+/** This device wrote ink for the note: it, and only it, reads the note's segments to text. */
+export function markPending(courseId: string, noteId: string): void {
+	const key = `${courseId}/${noteId}`;
+	const all = readPending();
+	if (!all.includes(key)) writePending([...all, key]);
+}
+
+export function clearPending(courseId: string, noteId: string): void {
+	const key = `${courseId}/${noteId}`;
+	const all = readPending();
+	if (all.includes(key)) writePending(all.filter((k) => k !== key));
+}
+
+export function pendingNotes(): { courseId: string; noteId: string }[] {
+	return readPending().flatMap((k) => {
+		const [courseId, noteId] = k.split("/");
+		return courseId && noteId && NOTE_ID_RE.test(noteId) ? [{ courseId, noteId }] : [];
+	});
 }
 
 /** The newest write to a note's ink (ms), or 0. */

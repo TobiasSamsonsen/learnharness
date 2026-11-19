@@ -16,6 +16,7 @@ import { profileMaterial } from "../agent/subagents/material-profiler.ts";
 import { fetchLink } from "../agent/tools/web.ts";
 import { materialTools } from "../agent/tools/materials.ts";
 import type { MaterialStore } from "../core/ports.ts";
+import { lectureNotesForTurn } from "./lecture-notes.ts";
 import { stores } from "./stores.ts";
 
 /**
@@ -228,6 +229,14 @@ export function sessionMaterials(chatId: string): MaterialStore {
  *  lookup tools; undefined when the lesson has none. A course session
  *  also sees its course's material. */
 export function materialsForTurn(chatId: string): { section: string; tools: AgentTool<any>[] } | undefined {
+	const sources = sourceMaterialsForTurn(chatId);
+	const notes = lectureNotesForTurn(chatId);
+	if (!notes) return sources;
+	if (!sources) return notes;
+	return { section: `${sources.section}\n\n${notes.section}`, tools: [...sources.tools, ...notes.tools] };
+}
+
+function sourceMaterialsForTurn(chatId: string): { section: string; tools: AgentTool<any>[] } | undefined {
 	const store = sessionMaterials(chatId);
 	const materials = store === stores.materialStore ? listMaterials(chatId) : store.list(chatId);
 	// the teacher's last message: material newer than it is announced once

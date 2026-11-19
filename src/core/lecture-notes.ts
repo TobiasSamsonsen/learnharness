@@ -19,8 +19,11 @@ export interface LectureNote {
 	updatedAt: string;
 }
 
+/** Has the tutor's text of a lecture been made? none: no ink yet. unread: some ink is not read yet. reading: it is being read now. read: all of it. error: the last reading failed. */
+export type NoteReadStatus = "none" | "unread" | "reading" | "read" | "error";
+
 /** A lecture as the course page lists it: `inkAt` is when its ink last changed (ms, 0: no ink yet), the key of its thumbnail. */
-export type LectureNoteListItem = LectureNote & { inkAt: number };
+export type LectureNoteListItem = LectureNote & { inkAt: number; read: NoteReadStatus };
 
 /** One segment of a lecture's ink: consecutive strokes in write order. */
 export interface NoteSegment {

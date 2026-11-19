@@ -85,7 +85,7 @@ export interface MaterialProfilerOptions {
 }
 
 /** One model call, no tools: the final text. */
-async function completeOnce(
+export async function completeOnce(
 	opts: MaterialProfilerOptions,
 	systemPrompt: string,
 	content: (TextContent | ImageContent)[],

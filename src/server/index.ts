@@ -73,7 +73,10 @@ export { addLinkMaterial, addUploadedMaterial, listMaterials, removeMaterial } f
 export {
 	createLectureNote,
 	deleteLectureNote,
+	editLectureNoteSegment,
+	lectureNoteTranscript,
 	leaveLectureNote,
+	rereadLectureNote,
 	lectureNoteThumbnail,
 	listLectureNotes,
 	readLectureNote,
@@ -81,7 +84,9 @@ export {
 	saveLectureNoteSegment,
 	updateLectureNote,
 	type LectureNoteListItem,
+	type TranscriptView,
 } from "./lecture-notes.ts";
+export { catchUpLectureNotes } from "./lecture-note-reading.ts";
 // Courses (fork addition — docs/courses.md).
 export {
 	approveCourse,

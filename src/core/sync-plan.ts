@@ -108,8 +108,8 @@ const INCLUDE: readonly RegExp[] = [
 	/^prompts\/(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.md$/,
 	new RegExp(`^materials/${ID}/index\\.json$`),
 	new RegExp(`^materials/${ID}/${ID}/content\\.md$`),
-	// Lecture notes (2026-11-19): the title record and the ink segments. Not thumb.png (derived) or a .tmp half-write.
-	new RegExp(`^lecture-notes/${ID}/${ID}/(?:note\\.json|seg-g[a-z0-9]{6,12}\\.json)$`),
+	// Lecture notes (2026-11-19): the title record, the ink segments and their readings. Not thumb.png (derived), pending.json (device-local) or a .tmp half-write.
+	new RegExp(`^lecture-notes/${ID}/${ID}/(?:note\\.json|digest\\.json|(?:seg|tr)-g[a-z0-9]{6,12}\\.json)$`),
 ];
 const SKETCH_PNG = new RegExp(`^sketches/${ID}/${ID}/\\d{1,2}\\.png$`);
 /** A material's original file (`source.pdf`, `source.md`, `source.png`…): it travels only when sources sync is on. */

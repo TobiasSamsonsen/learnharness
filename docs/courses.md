@@ -617,6 +617,22 @@ A long set titles the session with three names and "+n more".
 
 **Out of scope.** Dropping originals on other devices (Sync source files), a finer per-section index, and cost accounting (profiler spend is already untracked).
 
+## Lecture notes (owner, 2026-11-19)
+
+The learner takes notes during a lecture with the sketch feature, saved in the course; the tutor reads them as extra knowledge of what the course really covered, for a course whose sources are few or vague. Decisions (all owner's): one note per lecture with a title and a date (default today); an infinite canvas, not pages; the tutor gets a one-line-per-lecture index in its prompt plus two lookup tools; tutor sessions only (teach, practice and clarify: the planner, the weigher and the drafter read sources only); the notes never satisfy the sources gate.
+
+**Data** (`src/store/lecture-notes.ts`, sole writer). `data/lecture-notes/<courseId>/<noteId>/`: `note.json` (title, date; changes on rename only), `seg-<id>.json` (a SEGMENT of the ink: strokes in write order), `tr-<id>.json` (that segment read to text), `digest.json` (the lecture's one line), `thumb.png` (derived, never synced). `data/lecture-notes/pending.json` is device-local: the notes this device wrote ink for and has not read yet. A stroke carries an optional `id` and `seg` (contracts/sketch.ts); a segment closes at 1,600 x 1,600 px of ink, 400 strokes or a 3 minute pause (core/lecture-notes.ts `placeStroke`; a stroke's segment is fixed when it is drawn, a pixel cut's pieces inherit it). A segment save is validated for shape and size only (2 MB), never for render limits.
+
+**Saving** (`components/sketch/note-ink.ts`). The canvas keeps the note as one flat stroke list under the note's id; only changed segments are PUT to the device's own server 3 s after the last change and when the note is left; an IndexedDB copy of the unconfirmed segments is kept until the server confirms (a failed save is shown and retried). Notes do not use the browser's storage for ink or the unsent-ink drafts. The shell's stroke wire leaves `id` and `seg` out (its fast reader falls back to a slow one at an unknown key).
+
+**Reading** (`src/server/lecture-note-reading.ts`, `agent/subagents/note-transcriber.ts`). When the learner LEAVES a note the device that wrote its ink reads each segment without a current reading, once, in write order (each call is told how the previous part ended; a segment over the 6-tile render limit is split in write order), on the vision slot, then makes the lecture's digest from the segment digests (one more text call). A reading records the segment file's size, so a changed segment is read again; a reading the learner corrected is kept and shown as "ink changed after your correction" (never overwritten). A note left unread (app killed, no vision model) is caught up on the next server start and the next leave. A device that only received the ink by sync never reads: the writer's readings (`tr-*.json`, `digest.json`) sync as well.
+
+**Tutor** (`materialsForTurn`, src/server/materials.ts, the same seam as the sources). A course session's prompt gets `## The learner's lecture notes`: the rules (the sources win on exact wording; the notes show what was covered, stressed and found hard) and a line per read lecture (date, title, digest up to 200 characters), the newest 40, older ones folded into one searchable line. Tools: `lecture_note_search` (regex or literal, hits newest lecture first) and `lecture_note_read` (a lecture or one segment; `image: true` with a segment also returns the handwriting as an image, verified through the claude-code engine's tool bridge 2026-11-19). The wording of the rules is the author's draft, to be confirmed by the owner.
+
+**UI.** A "Lecture notes" row under the Exam card on the course page (components/lecture-notes-row.tsx): a "+" card, then a card per lecture with an ink thumbnail, title, date and a read dot; a card opens the note full screen (`?notes=<id>`), its ⋯ renames, redates or deletes. The note view is the sketch view without Submit, Hint, Steer and Clear; its "Text" button opens what the tutor reads, per segment, editable.
+
+**Not built yet:** the lasso (move, delete, copy and paste, recolor, scale and rotate; every sketch surface), the 0.1x to 8x zoom range, the Tab checks (native ink with thousands of strokes), the confirmed prompt wording.
+
 ## Not in v1
 
 Skills on the home canvas · editing individual skills by hand after approval ·

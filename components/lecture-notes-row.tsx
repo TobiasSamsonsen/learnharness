@@ -44,6 +44,14 @@ function useOpenNote(): [string | null, (id: string | null) => void] {
 
 const CARD_W = "w-40 shrink-0 snap-start";
 
+const READ_DOT: Record<LectureNoteItem["read"], { label: string; dot: string } | null> = {
+	none: null,
+	unread: { label: "Not read to text yet (it is read when you leave the note)", dot: "bg-amber-500" },
+	reading: { label: "Reading your handwriting…", dot: "animate-pulse bg-sky-500" },
+	read: { label: "Read: the tutor can use this note", dot: "bg-emerald-500" },
+	error: { label: "Could not be read to text", dot: "bg-red-500" },
+};
+
 export function LectureNotesRow({ courseId }: { courseId: string }) {
 	const [notes, setNotes] = useState<LectureNoteItem[] | null>(null);
 	const [openId, setOpenId] = useOpenNote();
@@ -83,7 +91,8 @@ export function LectureNotesRow({ courseId }: { courseId: string }) {
 				{(notes ?? []).map((n) => (
 					<div key={n.id} data-testid="lecture-note-card" className={cn(CARD_W, "group relative")}>
 						<button type="button" onClick={() => setOpenId(n.id)} className="block w-full text-left">
-							<div className="aspect-[4/3] overflow-hidden rounded-lg border border-border/60 bg-white">
+							<div className="relative aspect-[4/3] overflow-hidden rounded-lg border border-border/60 bg-white">
+								{READ_DOT[n.read] && <span data-testid="lecture-note-read" data-read={n.read} title={READ_DOT[n.read]!.label} className={cn("absolute bottom-1.5 right-1.5 size-2.5 rounded-full ring-2 ring-white", READ_DOT[n.read]!.dot)} />}
 								{n.inkAt > 0 ? (
 									// eslint-disable-next-line @next/next/no-img-element
 									<img src={thumbnailUrl(courseId, n.id, n.inkAt)} alt="" loading="lazy" className="size-full object-cover" />
