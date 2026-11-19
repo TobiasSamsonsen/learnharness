@@ -12,7 +12,7 @@ export type { LectureNoteListItem };
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { lectureNoteTools } from "../agent/tools/lecture-notes.ts";
 import { cutDigest, lectureIndexSection, readState, type LookupNote } from "../core/lecture-note-text.ts";
-import { segmentStartOf } from "../core/lecture-notes.ts";
+import { noteLabel, segmentStartOf } from "../core/lecture-notes.ts";
 import * as notes from "../store/lecture-notes.ts";
 import { editSegmentText, noteReadError, noteReadStatus, readLectureNote as readNoteToText, segmentImages } from "./lecture-note-reading.ts";
 import { stores } from "./stores.ts";
@@ -167,7 +167,7 @@ function lookupNotes(courseId: string): LookupNote[] {
 		const trs = notes.readTranscripts(courseId, n.id);
 		return {
 			id: n.id,
-			title: n.title,
+			title: noteLabel(n),
 			date: n.date,
 			// ids and fingerprints only: a lookup never parses a lecture's ink
 			segments: notes.readSegmentFiles(courseId, n.id).map((seg, i) => {
@@ -186,7 +186,7 @@ function lookupNotes(courseId: string): LookupNote[] {
 export function lectureNotesForTurn(chatId: string): { section: string; tools: AgentTool<any>[] } | undefined {
 	const courseId = stores.chatStore.getChat(chatId)?.course?.courseId;
 	if (!courseId || !courseExists(courseId)) return undefined;
-	const lectures = notes.listNotes(courseId).map((n) => ({ id: n.id, title: n.title, date: n.date, digest: cutDigest(notes.readDigest(courseId, n.id)?.text ?? "") }));
+	const lectures = notes.listNotes(courseId).map((n) => ({ id: n.id, title: noteLabel(n), date: n.date, digest: cutDigest(notes.readDigest(courseId, n.id)?.text ?? "") }));
 	const section = lectureIndexSection(lectures);
 	if (!section) return undefined;
 	return { section, tools: Object.values(lectureNoteTools({ notes: () => lookupNotes(courseId), images: (noteId, segId) => segmentImages(courseId, noteId, segId) })) };

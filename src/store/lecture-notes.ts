@@ -10,7 +10,7 @@ import {
 	SEGMENT_ID_RE,
 	type LectureNote,
 	type NoteSegment,
-	defaultNoteTitle,
+	autoTitle,
 	newNoteId,
 	normalizeNoteTitle,
 	parseNoteDate,
@@ -81,10 +81,13 @@ export function listNotes(courseId: string): LectureNote[] {
 export function createNote(courseId: string, input: { title?: unknown; date?: unknown }): LectureNote {
 	const date = parseNoteDate(input.date) ?? todayDate();
 	const now = new Date().toISOString();
+	// a title the learner typed is theirs for good; a blank field gets the date and, once the notes are read, their topic
+	const typed = normalizeNoteTitle(input.title);
 	const note: LectureNote = {
 		id: newNoteId(),
 		courseId,
-		title: normalizeNoteTitle(input.title) ?? defaultNoteTitle(date),
+		title: typed ?? autoTitle(date),
+		titleBy: typed ? "learner" : "auto",
 		date,
 		createdAt: now,
 		updatedAt: now,
@@ -97,13 +100,23 @@ export function createNote(courseId: string, input: { title?: unknown; date?: un
 export function updateNote(courseId: string, noteId: string, patch: { title?: unknown; date?: unknown }): LectureNote | null {
 	const note = getNote(courseId, noteId);
 	if (!note) return null;
-	const title = patch.title === undefined ? note.title : normalizeNoteTitle(patch.title);
+	const typed = patch.title === undefined ? undefined : normalizeNoteTitle(patch.title);
 	const date = patch.date === undefined ? note.date : parseNoteDate(patch.date);
-	if (title === null || date === null) return null;
-	const next: LectureNote = { ...note, title, date, updatedAt: new Date().toISOString() };
+	if (typed === null || date === null) return null;
+	let next: LectureNote = { ...note, date, updatedAt: new Date().toISOString() };
+	if (typed !== undefined) next = { ...next, title: typed, titleBy: "learner" };
+	else if (note.titleBy === "auto") next = { ...next, title: autoTitle(date, note.topic) }; // redated: the date half follows
 	writeNote(next);
 	emit("courses-changed", {});
 	return next;
+}
+
+/** What the notes are about, as read from them: an automatic title takes it (the learner's own title is left alone). */
+export function setNoteTopic(courseId: string, noteId: string, topic: string): void {
+	const note = getNote(courseId, noteId);
+	if (!note || note.topic === topic) return;
+	writeNote({ ...note, topic, ...(note.titleBy === "auto" ? { title: autoTitle(note.date, topic) } : {}) });
+	emit("courses-changed", {});
 }
 
 /** The learner left the note: announce it so the course page refetches the row (thumbnail, order). */

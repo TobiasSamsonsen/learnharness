@@ -19,7 +19,7 @@ import { useNativeInk } from "@/components/sketch/use-native-ink";
 import { loadEraser, loadPen, loadToolbar, saveEraser, savePen, saveToolbar, SKETCH_COLORS, SKETCH_WIDTHS, type EraserSettings, type PenSettings, type ToolbarPrefs } from "@/components/sketch/pen-settings";
 import { afterHydrate, applyOp, hasNewInk, pagePayload, readInk, revertOp, sendPage, thawInk, useInk, useInkSaveFailed, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
 import { cn } from "@/lib/utils";
-import { boundsOf, pasteCopies, restyleStroke, SketchPayloadError, sketchStrokeCut, transformStroke, translation, type Affine, type SketchPayload, type SketchStroke } from "@/src/core";
+import { boundsOf, pasteCopies, restyleStroke, SketchPayloadError, sketchStrokeCut, titleShowsDate, transformStroke, translation, type Affine, type SketchPayload, type SketchStroke } from "@/src/core";
 import { useInteractionLayer } from "../interaction-layers";
 
 /**
@@ -172,10 +172,16 @@ export function SketchView({
 	useEffect(() => {
 		if (!lassoOn && selection.size > 0) setSelection(NO_SELECTION);
 	}, [lassoOn, selection]);
+	// Sent (dimmed) ink can be lassoed too: selecting leaves it where it is (hidden here, drawn by the lasso); the first EDIT thaws it into the
+	// working page, as the eraser's first touch does, and the edit lands on the thawed copies.
+	const keptAll = ink.thawed === undefined ? kept?.strokes : undefined;
+	const keptSelectable = keptStatus === "ready" ? keptAll : undefined;
+	const keptDisplay = useMemo(() => (keptAll && selection.size > 0 ? keptAll.filter((s) => !selection.has(s)) : keptAll), [keptAll, selection]);
+	const lassoStrokes = useMemo(() => (keptSelectable ? [...ink.strokes, ...keptSelectable] : ink.strokes), [ink.strokes, keptSelectable]);
 	useEffect(() => {
 		// an undo (or anything else) took the selected strokes away: nothing is selected any more
-		if (selection.size > 0 && shown.length === ink.strokes.length) setSelection(NO_SELECTION);
-	}, [selection, shown, ink.strokes]);
+		if (selection.size > 0 && !ink.strokes.some((s) => selection.has(s)) && !keptAll?.some((s) => selection.has(s))) setSelection(NO_SELECTION);
+	}, [selection, ink.strokes, keptAll]);
 	const setInk = (next: InkState) => {
 	setPanel(null);
 	writeInk(inkKey, next);
@@ -249,14 +255,23 @@ export function SketchView({
 	const cut = (path: number[], radius: number) => afterHydrate(inkKey, () => cutNow(path, radius));
 	const erase = (indices: number[]) => afterHydrate(inkKey, () => eraseNow(indices));
 	// The Android shell's native ink layer, when the setting is on (owner, M10): it draws under the transparent page
-	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: shown, kept: ink.thawed === undefined ? kept?.strokes : undefined, tool: nativeTool, pen, tone, eraser, onStroke: addStroke, onErase: erase, onCut: cut });
+	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: shown, kept: keptDisplay, tool: nativeTool, pen, tone, eraser, onStroke: addStroke, onErase: erase, onCut: cut });
 	/** The lasso's actions. Each is ONE operation in the history (undo takes it back) on the working strokes. */
 	const viewApi = (): ViewApi | null => (native.active ? { get: () => native.viewRef.current, set: native.setView, subscribe: native.onView } : webViewApi.current);
-	const selectedIndexes = (state: InkState) => state.strokes.flatMap((s, i) => (selection.has(s) ? [i] : []));
+	/** The page with the selection in it: working strokes by index, and sent ones as their thawed copies (thawing the page now, once). */
+	const gatherSelection = (): { state: InkState; indexes: number[] } => {
+		let state = readInk(inkKey);
+		const working = state.strokes.flatMap((s, i) => (selection.has(s) ? [i] : []));
+		const keptHit = keptSelectable ? keptSelectable.flatMap((s, k) => (selection.has(s) ? [k] : [])) : [];
+		if (keptHit.length === 0 || !kept || state.thawed !== undefined) return { state, indexes: working };
+		const base = state.strokes.length;
+		state = thawInk(state, kept); // the copies sit right after the unsent strokes, in the kept page's order
+		return { state, indexes: [...working, ...keptHit.map((k) => base + k)] };
+	};
 	const changeSelection = (make: (s: SketchStroke) => SketchStroke) =>
 		afterHydrate(inkKey, () => {
-			const state = readInk(inkKey);
-			const changes = selectedIndexes(state).map((index) => ({ index, before: state.strokes[index]!, after: make(state.strokes[index]!) }));
+			const { state, indexes } = gatherSelection();
+			const changes = indexes.map((index) => ({ index, before: state.strokes[index]!, after: make(state.strokes[index]!) }));
 			if (changes.length === 0) return;
 			const op: InkOp = { kind: "transform", changes };
 			record(state, applyOp(state.strokes, op), op);
@@ -266,14 +281,14 @@ export function SketchView({
 	const restyleSelection = (style: { color?: string; size?: number }) => changeSelection((s) => restyleStroke(s, style));
 	const deleteSelection = () =>
 		afterHydrate(inkKey, () => {
-			const state = readInk(inkKey);
-			const removed = selectedIndexes(state).map((index) => ({ index, stroke: state.strokes[index]! }));
+			const { state, indexes } = gatherSelection();
+			const removed = indexes.map((index) => ({ index, stroke: state.strokes[index]! }));
 			if (removed.length === 0) return;
 			record(state, applyOp(state.strokes, { kind: "erase", removed }), { kind: "erase", removed });
 			setSelection(NO_SELECTION);
 		});
 	const copySelection = () => {
-		const picked = readInk(inkKey).strokes.filter((s) => selection.has(s));
+		const picked = [...readInk(inkKey).strokes.filter((s) => selection.has(s)), ...(keptSelectable ?? []).filter((s) => selection.has(s))];
 		if (picked.length === 0) return;
 		lassoClipboard = picked;
 		setPasteReady(true);
@@ -482,11 +497,11 @@ export function SketchView({
 						<ZoomIndicator zoomPct={native.zoomPct} />
 					</>
 				) : (
-					<SketchCanvas strokes={shown} viewApiRef={webViewApi} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={nativeTool} brush={pen} eraser={eraser} background={background} tone={tone} paperSize={paperSize} onStroke={addStroke} onErase={erase} onCut={cut} onTwoFingerTap={undo} />
+					<SketchCanvas strokes={shown} viewApiRef={webViewApi} kept={keptDisplay} tool={nativeTool} brush={pen} eraser={eraser} background={background} tone={tone} paperSize={paperSize} onStroke={addStroke} onErase={erase} onCut={cut} onTwoFingerTap={undo} />
 				)}
 {lassoOn && (
 					<LassoLayer
-						strokes={ink.strokes}
+						strokes={lassoStrokes}
 						selected={selection}
 						onSelect={setSelection}
 						onTransform={transformSelection}
@@ -508,7 +523,7 @@ export function SketchView({
 					<>
 						<div className="pointer-events-none absolute left-3 top-2 flex max-w-[40%] items-center gap-2 text-xs text-muted-foreground/80">
 							<p data-testid="note-title" className="truncate">
-								{note.title} · {note.date}
+								{titleShowsDate(note) ? note.title : `${note.title} · ${note.date}`}
 							</p>
 							{note.extra && (
 								<span data-ink-hole="" className="pointer-events-auto shrink-0">

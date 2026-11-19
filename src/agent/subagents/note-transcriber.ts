@@ -1,6 +1,7 @@
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { completeOnce, type MaterialProfilerOptions } from "./material-profiler.ts";
 import { cutDigest } from "../../core/lecture-note-text.ts";
+import { cleanTopic } from "../../core/lecture-notes.ts";
 
 /**
  * The lecture-note reader (owner plan, 2026-11-19): turns one SEGMENT of a learner's handwritten lecture notes (its rendered
@@ -21,7 +22,10 @@ Transcribe everything exactly as written, in reading order: words in the languag
 
 Then write a line containing exactly ${DIGEST_SPLIT} and, after it, ONE line of at most 200 characters saying what this part of the lecture is about: the topics, anything marked as important or as relevant to the exam, anything the learner found hard.`;
 
-const LECTURE_INSTRUCTIONS = `You summarise one lecture, from the one-line digests of its parts, for a tutor's index. Write ONE line of at most 200 characters: the lecture's topics in order, then anything marked as important or exam-relevant, then anything the learner found hard. No preamble, no quotation marks.`;
+const LECTURE_INSTRUCTIONS = `You label one lecture for a tutor's index, from the one-line digests of its parts. Reply with exactly two lines.
+
+TITLE: the lecture's main subject as a short title, the way a student labels a notebook page: 2 to 6 words, the mathematical subject itself (for example "Eigenvalues and Eigenvectors", "Taylor Polynomials", "Epsilon-Delta Continuity"). Write it in the language named below: Title Case in English, sentence case in Norwegian ("Egenverdier og egenvektorer"). If the notes cover two topics, join the two main ones with "and" ("og"); if more, name the broader subject. No date, no "Lecture" or "Notes" or "Introduction to", no quotation marks, no final full stop.
+DIGEST: ONE line of at most 200 characters: the topics in order, then anything marked as important or exam-relevant, then anything the learner found hard.`;
 
 export interface SegmentInput {
 	title: string;
@@ -50,9 +54,20 @@ export async function transcribeSegment(input: SegmentInput, opts: MaterialProfi
 	return splitTranscript(await completeOnce(opts, SEGMENT_INSTRUCTIONS, content));
 }
 
-/** The lecture's one-line digest from its segments' digests (in order). */
-export async function digestLecture(input: { title: string; date: string; digests: string[] }, opts: MaterialProfilerOptions): Promise<string> {
+/** The lecture's title (its topic) and one-line digest from its segments' digests (in order). Either may be empty when the model did not give it. */
+export async function digestLecture(
+	input: { title: string; date: string; digests: string[]; language: string },
+	opts: MaterialProfilerOptions,
+): Promise<{ topic: string | null; digest: string }> {
 	const lines = input.digests.filter((d) => d !== "").map((d, i) => `${i + 1}. ${d}`).join("\n");
-	if (lines === "") return "";
-	return cutDigest(await completeOnce(opts, LECTURE_INSTRUCTIONS, [{ type: "text", text: `Lecture: ${input.title} (${input.date}).\nParts:\n${lines}` }]));
+	if (lines === "") return { topic: null, digest: "" };
+	const reply = await completeOnce(opts, LECTURE_INSTRUCTIONS, [{ type: "text", text: `Language: ${input.language}.\nLecture: ${input.title} (${input.date}).\nParts:\n${lines}` }]);
+	return splitLectureReply(reply);
+}
+
+/** TITLE: / DIGEST: lines of the lecture reply (a reply without them is taken as the digest). Pure. */
+export function splitLectureReply(reply: string): { topic: string | null; digest: string } {
+	const title = /^\s*TITLE\s*:\s*(.+)$/im.exec(reply)?.[1];
+	const digest = /^\s*DIGEST\s*:\s*([\s\S]+)$/im.exec(reply)?.[1];
+	return { topic: title ? cleanTopic(title) : null, digest: cutDigest(digest ?? (title ? "" : reply)) };
 }

@@ -18,6 +18,7 @@ const sketch = await import("../src/core/sketch.ts");
 const { syncScope } = await import("../src/core/sync-plan.ts");
 const { courseStore } = await import("../src/store/courses.ts");
 const svc = await import("../src/server/lecture-notes.ts");
+const notes = await import("../src/store/lecture-notes.ts");
 const courses = await import("../src/server/courses.ts");
 const { PATHS } = await import("../config.ts");
 const { subscribe } = await import("../src/core/events.ts");
@@ -80,7 +81,8 @@ describe("note fields", () => {
 		assert.equal(core.normalizeNoteTitle("  Taylor   series \n"), "Taylor series");
 		assert.equal(core.normalizeNoteTitle("   "), null);
 		assert.equal(core.normalizeNoteTitle("x".repeat(500))!.length, core.NOTE_TITLE_MAX);
-		assert.equal(core.defaultNoteTitle("2026-03-12"), "Lecture 12 Mar");
+		assert.equal(core.defaultNoteTitle("2026-03-12"), "26.03.12");
+		assert.equal(core.autoTitle("2026-03-12", "Eigenvalues and Eigenvectors"), "26.03.12 - Eigenvalues and Eigenvectors");
 		assert.match(core.todayDate(), /^\d{4}-\d{2}-\d{2}$/);
 	});
 
@@ -90,6 +92,24 @@ describe("note fields", () => {
 		assert.match(svg, /^<svg /);
 		const nums = [...svg.matchAll(/points="([^"]+)"/g)].flatMap((m) => m[1]!.split(/[ ,]/).map(Number));
 		assert.ok(nums.every((n) => n >= 0 && n <= 480));
+	});
+});
+
+describe("titles from the notes", () => {
+	it("cleans what the model wrote: one line, no quotes, no label, no date, no final full stop, at most 60 characters", () => {
+		assert.equal(core.cleanTopic('"Eigenvalues and Eigenvectors."'), "Eigenvalues and Eigenvectors");
+		assert.equal(core.cleanTopic("Title: Taylor Polynomials\nsome remark"), "Taylor Polynomials");
+		assert.equal(core.cleanTopic("Lecture: 26.03.12 - Epsilon-Delta Continuity"), "Epsilon-Delta Continuity");
+		assert.equal(core.cleanTopic("Forelesning - Egenverdier og egenvektorer"), "Egenverdier og egenvektorer");
+		assert.equal(core.cleanTopic("**Linear Maps**"), "Linear Maps");
+		assert.equal(core.cleanTopic("  \n  "), null);
+		assert.equal(core.cleanTopic("2026-03-12"), null);
+		const long = core.cleanTopic("word ".repeat(40))!;
+		assert.ok(long.length <= 60 && !long.endsWith(" "));
+		assert.equal(core.noteLabel({ title: "26.03.12 - Limits", titleBy: "auto", topic: "Limits" }), "Limits");
+		assert.equal(core.noteLabel({ title: "My own", titleBy: "learner", topic: "Limits" }), "My own");
+		assert.equal(core.titleShowsDate({ title: "26.03.12 - Limits", date: "2026-03-12" }), true);
+		assert.equal(core.titleShowsDate({ title: "My own", date: "2026-03-12" }), false);
 	});
 });
 
@@ -137,7 +157,9 @@ describe("the service over the store", () => {
 		const a = svc.createLectureNote(course.id, { title: "  Limits ", date: "2026-11-10" })!;
 		const b = svc.createLectureNote(course.id, { date: "2026-11-12" })!;
 		assert.equal(a.title, "Limits");
-		assert.equal(b.title, "Lecture 12 Nov");
+		assert.equal(b.title, "26.11.12");
+		assert.equal(b.titleBy, "auto");
+		assert.equal(a.titleBy, "learner");
 		assert.match(a.id, core.NOTE_ID_RE);
 		assert.deepEqual(svc.listLectureNotes(course.id)!.map((n) => n.id), [b.id, a.id]);
 		assert.equal(svc.updateLectureNote(course.id, a.id, { title: "Limits and continuity", date: "2026-11-13" })!.date, "2026-11-13");
@@ -151,6 +173,25 @@ describe("the service over the store", () => {
 		svc.leaveLectureNote(course.id, a.id);
 		assert.ok(announced > before, "leaving the note does (and reading it, which starts here because this device wrote the ink)");
 		off();
+	});
+
+	it("an automatic title follows the topic and the date; a title the learner typed is never overwritten", () => {
+		const auto = svc.createLectureNote(course.id, { date: "2026-03-12" })!;
+		const typed = svc.createLectureNote(course.id, { title: "My notes", date: "2026-03-12" })!;
+		assert.deepEqual([auto.titleBy, typed.titleBy], ["auto", "learner"]);
+		notes.setNoteTopic(course.id, auto.id, "Eigenvalues and Eigenvectors");
+		notes.setNoteTopic(course.id, typed.id, "Eigenvalues and Eigenvectors");
+		assert.equal(notes.getNote(course.id, auto.id)!.title, "26.03.12 - Eigenvalues and Eigenvectors");
+		assert.equal(notes.getNote(course.id, typed.id)!.title, "My notes");
+		// redating an automatic title moves its date half; saving the dialog without a title keeps it automatic
+		const redated = svc.updateLectureNote(course.id, auto.id, { date: "2026-03-14" })!;
+		assert.equal(redated.title, "26.03.14 - Eigenvalues and Eigenvectors");
+		assert.equal(redated.titleBy, "auto");
+		// a rename makes it the learner's own for good
+		const renamed = svc.updateLectureNote(course.id, auto.id, { title: "Eigen stuff" })!;
+		assert.deepEqual([renamed.title, renamed.titleBy], ["Eigen stuff", "learner"]);
+		notes.setNoteTopic(course.id, auto.id, "Something else");
+		assert.equal(notes.getNote(course.id, auto.id)!.title, "Eigen stuff");
 	});
 
 	it("saves segments in write order, flattens them with their seg, and an empty save removes one", () => {

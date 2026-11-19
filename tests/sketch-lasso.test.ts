@@ -21,7 +21,7 @@ import {
 	transformStroke,
 	translation,
 } from "../src/core/sketch-lasso.ts";
-import { applyOp, revertOp, validOp, type InkOp } from "../components/sketch/ink-memory.ts";
+import { applyOp, revertOp, thawInk, validOp, type InkOp } from "../components/sketch/ink-memory.ts";
 import type { SketchStroke } from "../src/core/contracts/sketch.ts";
 
 const line = (x0: number, y0: number, x1: number, y1: number, extra: Partial<SketchStroke> = {}): SketchStroke => ({ size: 4, points: [x0, y0, 0.5, (x0 + x1) / 2, (y0 + y1) / 2, 0.5, x1, y1, 0.5], ...extra });
@@ -110,5 +110,28 @@ describe("the history operations of the lasso", () => {
 		assert.equal(validOp({ kind: "paste", added: [a] }), true);
 		assert.equal(validOp({ kind: "transform", changes: [{ index: "0", before: a, after: b }] }), false);
 		assert.equal(validOp({ kind: "paste", added: [{ nope: 1 }] }), false);
+	});
+});
+
+describe("the lasso on sent (dimmed) ink", () => {
+	it("the first edit thaws the kept page; the selected kept strokes are the thawed copies at the indexes after the unsent ones, and undo gives the thawed page back", () => {
+		const unsent = line(0, 0, 10, 10, { id: "ka" });
+		const k0 = line(100, 0, 110, 10), k1 = line(100, 50, 110, 60), k2 = line(100, 100, 110, 110);
+		const base = 1; // unsent strokes before the thaw
+		const thawed = thawInk({ strokes: [unsent], undo: [], redo: [] }, { id: "sk_1", strokes: [k0, k1, k2] });
+		assert.equal(thawed.thawed, "sk_1");
+		assert.deepEqual(thawed.strokes.slice(1).map((s) => s.fresh), [false, false, false], "the copies are marked as sent");
+		// the learner selected k0 and k2: they are the copies at base + 0 and base + 2
+		const picked = [base + 0, base + 2];
+		const changes = picked.map((index) => ({ index, before: thawed.strokes[index]!, after: transformStroke(thawed.strokes[index]!, translation(0, 200)) }));
+		const op: InkOp = { kind: "transform", changes };
+		const done = applyOp(thawed.strokes, op);
+		assert.equal(done[1]!.points[1], 200);
+		assert.equal(done[2], thawed.strokes[2], "the unselected copy is untouched");
+		assert.equal(done[3]!.points[1], 300);
+		assert.equal(done[1]!.fresh, undefined, "an edited stroke is new ink again: it gets the margin bracket on the next submit");
+		assert.deepEqual(revertOp(done, op), thawed.strokes);
+		// the kept page itself was never touched
+		assert.equal(k0.points[1], 0);
 	});
 });

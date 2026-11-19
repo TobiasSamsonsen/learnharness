@@ -13,6 +13,10 @@ export interface LectureNote {
 	id: string;
 	courseId: string;
 	title: string;
+	/** Who set the title: "auto" (the date and the topic read from the notes) or "learner" (typed or renamed: never overwritten). Absent = learner. */
+	titleBy?: "auto" | "learner";
+	/** What the notes are about, as read from them (a short subject): the second half of an automatic title. */
+	topic?: string;
 	/** The lecture's day, "YYYY-MM-DD" (defaults to today, editable). */
 	date: string;
 	createdAt: string;
@@ -80,10 +84,41 @@ export function normalizeNoteTitle(value: unknown): string | null {
 	return t.length > 0 ? t : null;
 }
 
-/** The default title for a lecture note dated `date` ("Lecture 12 Mar"). */
+/** The date as the titles write it: YY.MM.DD ("26.03.12" for 2026-03-12). */
+export function noteDateTag(date: string): string {
+	return `${date.slice(2, 4)}.${date.slice(5, 7)}.${date.slice(8, 10)}`;
+}
+
+/** The title a note gets from its date and what the notes are about: "26.03.12 - Eigenvalues and Eigenvectors"; the date alone before they are read. */
+export function autoTitle(date: string, topic?: string): string {
+	return topic ? `${noteDateTag(date)} - ${topic}` : noteDateTag(date);
+}
+
+/** The default title for a lecture note dated `date`: the date tag alone. */
 export function defaultNoteTitle(date: string): string {
-	const d = new Date(`${date}T00:00:00Z`);
-	return `Lecture ${d.getUTCDate()} ${d.toLocaleString("en-GB", { month: "short", timeZone: "UTC" })}`;
+	return autoTitle(date);
+}
+
+/** A title the model wrote, made fit: one line, no quotes, no "Lecture:" label, no date, no final full stop, at most 60 characters on a word edge. null when nothing is left. */
+export function cleanTopic(raw: string): string | null {
+	let t = (raw.split(/\r?\n/).find((l) => l.trim() !== "") ?? "").trim();
+	t = t.replace(/^(?:title|tittel)\s*:\s*/i, "");
+	t = t.replace(/^[\s"'`*_«»“”‘’]+|[\s"'`*_«»“”‘’]+$/g, "");
+	t = t.replace(/^(?:lecture|notes?|forelesning|notater?)\s*[:\-–—]\s*/i, "");
+	t = t.replace(/\b\d{1,4}[./-]\d{1,2}[./-]\d{1,4}\b/g, " "); // a date the model added
+	t = t.replace(/^[\s\-–—:]+|[\s\-–—:]+$/g, "").replace(/\s+/g, " ").replace(/[.。]+$/, "").trim();
+	if (t.length > 60) t = t.slice(0, 60).replace(/\s+\S*$/, "").trim();
+	return t === "" ? null : t;
+}
+
+/** What the tutor and the lookup tools call a lecture: the topic of an automatic title (its date is shown beside), else the learner's own title. */
+export function noteLabel(n: Pick<LectureNote, "title" | "titleBy" | "topic">): string {
+	return n.titleBy === "auto" && n.topic ? n.topic : n.title;
+}
+
+/** Does the title already say the date (an automatic one does)? */
+export function titleShowsDate(n: Pick<LectureNote, "title" | "date">): boolean {
+	return n.title.startsWith(noteDateTag(n.date));
 }
 
 // ─── segments ────────────────────────────────────────────────────────────────

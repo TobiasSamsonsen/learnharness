@@ -2,7 +2,7 @@ import { emit } from "../core/events.ts";
 import { planSketch } from "../core/sketch.ts";
 import type { SketchPayload, SketchStroke } from "../core/contracts/sketch.ts";
 import { cutDigest, readState, type NoteDigest, type NoteTranscript } from "../core/lecture-note-text.ts";
-import type { NoteReadStatus, NoteSegment } from "../core/lecture-notes.ts";
+import { noteLabel, type NoteReadStatus, type NoteSegment } from "../core/lecture-notes.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { piEngineForSpec } from "../agent/models.ts";
 import { digestLecture, transcribeSegment } from "../agent/subagents/note-transcriber.ts";
@@ -104,7 +104,7 @@ async function readNote(courseId: string, noteId: string, force: ReadonlySet<str
 		// only a segment that needs reading is parsed
 		const seg = notes.readSegment(courseId, noteId, id);
 		if (!seg || fingerprint === null) continue;
-		const tr = await readOneSegment(seg, fingerprint, { title: note.title, date: note.date, previous }, engine);
+		const tr = await readOneSegment(seg, fingerprint, { title: noteLabel(note), date: note.date, previous }, engine);
 		if (!tr) continue;
 		notes.writeTranscript(courseId, noteId, tr);
 		trs = new Map(trs).set(id, tr);
@@ -124,9 +124,12 @@ async function remakeDigest(courseId: string, noteId: string, engine: ReturnType
 	if (have && have.from.join("|") === from.join("|")) return;
 	const digests = ordered.map((t) => t.digest).filter((d) => d !== "");
 	if (digests.length === 0) return;
-	const text = digests.length === 1 ? cutDigest(digests[0]!) : await digestLecture({ title: note.title, date: note.date, digests }, { engine });
-	const digest: NoteDigest = { text, from, at: new Date().toISOString() };
+	// one call always (also for a single part): it gives the lecture's digest and its topic, the second half of an automatic title
+	const language = stores.courseStore.getCourse(courseId)?.language === "nb" ? "Norwegian (Bokmål)" : "English";
+	const out = await digestLecture({ title: note.title, date: note.date, digests, language }, { engine });
+	const digest: NoteDigest = { text: out.digest || cutDigest(digests[0]!), from, at: new Date().toISOString() };
 	notes.writeDigest(courseId, noteId, digest);
+	if (out.topic) notes.setNoteTopic(courseId, noteId, out.topic);
 }
 
 /**

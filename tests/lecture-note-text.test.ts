@@ -15,7 +15,8 @@ const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-lecture-text-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
 const text = await import("../src/core/lecture-note-text.ts");
-const { splitTranscript, transcribeSegment, digestLecture, DIGEST_SPLIT } = await import("../src/agent/subagents/note-transcriber.ts");
+const transcriberModule = await import("../src/agent/subagents/note-transcriber.ts");
+const { splitTranscript, transcribeSegment, digestLecture, DIGEST_SPLIT } = transcriberModule;
 const { lectureNoteTools } = await import("../src/agent/tools/lecture-notes.ts");
 const { courseStore } = await import("../src/store/courses.ts");
 const { chatStore } = await import("../src/store/chats.ts");
@@ -108,6 +109,13 @@ describe("reading a segment (scripted model)", () => {
 	}
 	const say = (t: string) => () => fauxAssistantMessage(t);
 
+	it("splits the lecture reply into a topic and a digest, cleaning the topic", () => {
+		const { splitLectureReply } = transcriberModule;
+		assert.deepEqual(splitLectureReply('TITLE: "Taylor Polynomials."\nDIGEST: Taylor; exam hint'), { topic: "Taylor Polynomials", digest: "Taylor; exam hint" });
+		assert.deepEqual(splitLectureReply("just a digest line"), { topic: null, digest: "just a digest line" });
+		assert.deepEqual(splitLectureReply("TITLE: Limits"), { topic: "Limits", digest: "" });
+	});
+
 	it("splits the reply at the digest line, and a reply without one still gives the text", () => {
 		assert.deepEqual(splitTranscript(`line 1\n${DIGEST_SPLIT}\nlimits, exam hint`), { text: "line 1", digest: "limits, exam hint" });
 		assert.deepEqual(splitTranscript("just text"), { text: "just text", digest: "" });
@@ -117,8 +125,8 @@ describe("reading a segment (scripted model)", () => {
 		const seg = await transcribeSegment({ title: "Limits", date: "2026-11-10", images: [{ data: "iVBORw0KGgo=", mimeType: "image/png" }], previous: "the lim" }, { engine: engine([say(`$\\lim x$ [marked: exam]\n${DIGEST_SPLIT}\nlimits; exam`)]) });
 		assert.equal(seg.text, "$\\lim x$ [marked: exam]");
 		assert.equal(seg.digest, "limits; exam");
-		assert.equal(await digestLecture({ title: "Limits", date: "2026-11-10", digests: ["limits; exam", "series; hard: remainder"] }, { engine: engine([say("Limits then series; exam hint; remainder is hard")]) }), "Limits then series; exam hint; remainder is hard");
-		assert.equal(await digestLecture({ title: "x", date: "2026-11-10", digests: [""] }, { engine: engine([]) }), "");
+		assert.deepEqual(await digestLecture({ title: "Limits", date: "2026-11-10", digests: ["limits; exam", "series; hard: remainder"], language: "English" }, { engine: engine([say("TITLE: Limits and Series\nDIGEST: Limits then series; exam hint; remainder is hard")]) }), { topic: "Limits and Series", digest: "Limits then series; exam hint; remainder is hard" });
+		assert.deepEqual(await digestLecture({ title: "x", date: "2026-11-10", digests: [""], language: "English" }, { engine: engine([]) }), { topic: null, digest: "" });
 	});
 });
 

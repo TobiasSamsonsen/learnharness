@@ -2,6 +2,7 @@ import type { LectureNoteListItem } from "@/src/core";
 
 /** The lecture notes of a course, as the course page's row lists them (newest day first). [] on any failure. */
 export type LectureNoteItem = Pick<LectureNoteListItem, "id" | "title" | "date" | "inkAt" | "read">;
+/** Send `title` only when the learner typed or changed it: the server then keeps it as theirs for good (a blank one is made from the date and the topic read from the notes). */
 
 const base = (courseId: string) => `/api/courses/${encodeURIComponent(courseId)}/lecture-notes`;
 
@@ -16,7 +17,7 @@ export async function fetchLectureNotes(courseId: string): Promise<LectureNoteIt
 }
 
 /** The new note, or null when the server refused (the course is gone). */
-export async function createLectureNote(courseId: string, input: { title: string; date: string }): Promise<LectureNoteItem | null> {
+export async function createLectureNote(courseId: string, input: { title?: string; date: string }): Promise<LectureNoteItem | null> {
 	try {
 		const res = await fetch(base(courseId), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
 		if (!res.ok) return null;

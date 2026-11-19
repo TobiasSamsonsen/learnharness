@@ -8,7 +8,7 @@ import { HEAD_COUNT, PAGE_HEAD } from "@/components/section-heads";
 import { LectureNoteView } from "@/components/lecture-note-view";
 import { createLectureNote, deleteLectureNote, fetchLectureNotes, thumbnailUrl, updateLectureNote, type LectureNoteItem } from "@/components/lecture-notes-client";
 import { useNotifyHub } from "@/components/server-events";
-import { defaultNoteTitle, todayDate } from "@/src/core";
+import { defaultNoteTitle, titleShowsDate, todayDate } from "@/src/core";
 import { cn } from "@/lib/utils";
 
 /**
@@ -102,8 +102,8 @@ export function LectureNotesRow({ courseId }: { courseId: string }) {
 									</div>
 								)}
 							</div>
-							<div className="mt-1.5 truncate text-sm font-medium text-foreground">{n.title}</div>
-							<div className="text-xs tabular-nums text-muted-foreground">{n.date}</div>
+							<div className="mt-1.5 line-clamp-2 text-sm font-medium leading-snug text-foreground">{n.title}</div>
+							{!titleShowsDate(n) && <div className="text-xs tabular-nums text-muted-foreground">{n.date}</div>}
 						</button>
 						<button
 							type="button"
@@ -160,11 +160,13 @@ function NoteDialog({
 		setBusy(true);
 		setError(null);
 		if (editing) {
-			const ok = await updateLectureNote(courseId, editing.id, { title: title.trim() || defaultNoteTitle(date), date });
+			// the title goes only when it was changed: an unchanged (or emptied) field keeps an automatic title automatic
+			const changed = title.trim() !== "" && title.trim() !== editing.title;
+			const ok = await updateLectureNote(courseId, editing.id, { ...(changed ? { title: title.trim() } : {}), date });
 			if (ok) onDone();
 			else setError("Could not save the change.");
 		} else {
-			const created = await createLectureNote(courseId, { title: title.trim() || defaultNoteTitle(date), date });
+			const created = await createLectureNote(courseId, { ...(title.trim() ? { title: title.trim() } : {}), date });
 			if (created) onDone(created.id);
 			else setError("Could not create the note.");
 		}
