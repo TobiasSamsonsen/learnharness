@@ -12,9 +12,10 @@ export interface SketchView {
 	y: number;
 }
 
-/** Narrow on purpose: with a pen of fixed screen width the writing size on the page can drift at most MAX_ZOOM / MIN_ZOOM (6x) between two strokes. */
-export const MIN_ZOOM = 0.5;
-export const MAX_ZOOM = 3;
+/** 0.1x to 8x (owner, 2026-11-19: a whole lecture on screen at once, and small writing close up; the M13 plan's range). It was 0.5x to 3x
+ *  while the pen had a width on screen; the pen is a width on the page now, so the zoom cannot change what is written. */
+export const MIN_ZOOM = 0.1;
+export const MAX_ZOOM = 8;
 /** What the lasso needs of whoever owns the view (the web canvas, or the native hook): read it, move it, be told of changes. */
 export interface ViewApi {
 	get(): SketchView;

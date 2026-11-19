@@ -86,7 +86,7 @@ describe("the infinite canvas's view", () => {
 	});
 
 	it("ink too big to fit at the minimum zoom opens at the minimum zoom, with its top-left corner in view", () => {
-		const huge = [[-2000, -1000, 0.5, 3000, 2000, 0.5]];
+		const huge = [[-20000, -10000, 0.5, 30000, 20000, 0.5]]; // wider than 800 px at 0.1x too
 		const v = fitInk(huge, 800, 600);
 		assert.equal(v.zoom, MIN_ZOOM);
 		const a = toScreen(v, -2000, -1000);

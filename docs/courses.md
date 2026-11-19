@@ -631,7 +631,9 @@ The learner takes notes during a lecture with the sketch feature, saved in the c
 
 **UI.** A "Lecture notes" row under the Exam card on the course page (components/lecture-notes-row.tsx): a "+" card, then a card per lecture with an ink thumbnail, title, date and a read dot; a card opens the note full screen (`?notes=<id>`), its ⋯ renames, redates or deletes. The note view is the sketch view without Submit, Hint, Steer and Clear; its "Text" button opens what the tutor reads, per segment, editable.
 
-**Not built yet:** the lasso (move, delete, copy and paste, recolor, scale and rotate; every sketch surface), the 0.1x to 8x zoom range, the Tab checks (native ink with thousands of strokes), the confirmed prompt wording.
+**Lasso and zoom (owner, 2026-11-19).** The sketch view has a Lasso tool on every surface (answers and lecture notes alike): a loop around ink selects it (a stroke is in when half of its points are), then it moves (drag inside), scales (a corner), turns (the top handle), is copied, pasted, deleted or given another colour or width. It is a web layer over the canvas (`components/sketch/lasso-layer.tsx`, a touch hole so the Android shell's pen reaches the page; no shell change), the selected strokes are drawn by the layer while the canvas or the native layer is handed the rest, and each action is one history operation (`transform`, `paste` or the existing erase). Sent (dimmed) ink is not selectable. The zoom is 0.1x to 8x everywhere (the pen is a width on the page, so zoom cannot change what is written).
+
+**Not verified on a device:** native ink on the Tab with thousands of strokes (open, pan at 0.1x, lasso, save timing), the shell's pen and two-finger gestures through the lasso layer, and the prompt wording of the lecture-notes rules, which is the author's draft awaiting the owner.
 
 ## Not in v1
 

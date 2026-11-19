@@ -25,10 +25,10 @@ class InkViewTest {
 
 	@Test fun theViewLineAcceptsOnlyUsableViews() {
 		assertNotNull(InkView.parse(1f, 0f, 0f))
-		assertNotNull(InkView.parse(3f, -1e5f, 1e5f))
-		assertNotNull(InkView.parse(0.5f, 0f, 0f))
-		assertNull(InkView.parse(0.45f, 0f, 0f))
-		assertNull(InkView.parse(3.5f, 0f, 0f))
+		assertNotNull(InkView.parse(8f, -1e5f, 1e5f))
+		assertNotNull(InkView.parse(0.1f, 0f, 0f))
+		assertNull(InkView.parse(0.05f, 0f, 0f))
+		assertNull(InkView.parse(8.5f, 0f, 0f))
 		assertNull(InkView.parse(Float.NaN, 0f, 0f))
 		assertNull(InkView.parse(1f, Float.POSITIVE_INFINITY, 0f))
 		assertNull(InkView.parse(null, 0f, 0f))
