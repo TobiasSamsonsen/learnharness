@@ -46,13 +46,14 @@ export function panBy(view: SketchView, dsx: number, dsy: number): SketchView {
 }
 
 /**
- * The pen's width in WORLD units (owner, 2026-11-15): the chosen width is a size on SCREEN, so the pen lays down the
- * same on-screen thickness at every zoom and the learner writes everything at one size. The stroke is stored in page
- * units (size / zoom); strokes already on the page keep their page width when the view zooms afterwards. Kept inside
- * what the validator accepts. (Replaces the 2026-11-10 page-size pen that was 90% at MAX_ZOOM.)
+ * The pen's width in WORLD units (owner, 2026-11-19): the chosen width is a size on the PAGE, the same whatever the
+ * zoom is when the stroke is drawn, so a line is exactly as thick as any other line of the same pen: zoomed in every
+ * line looks bolder, zoomed out thinner, like real paper. Kept inside what the validator accepts. (Replaces the
+ * 2026-11-15 screen-constant pen, stored as size / zoom, which made the same pen draw a different page width at every
+ * zoom.)
  */
-export function penWorldSize(size: number, zoom: number): number {
-	return Math.round(Math.min(MAX_WORLD_SIZE, Math.max(MIN_WORLD_SIZE, size / zoom)) * 100) / 100;
+export function penWorldSize(size: number): number {
+	return Math.round(Math.min(MAX_WORLD_SIZE, Math.max(MIN_WORLD_SIZE, size)) * 100) / 100;
 }
 
 /**

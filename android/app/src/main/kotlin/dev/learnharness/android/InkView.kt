@@ -20,11 +20,11 @@ data class InkView(val zoom: Float = 1f, val x: Float = 0f, val y: Float = 0f) {
 	fun pxY(wy: Float, density: Float): Float = (wy - y) * density * zoom
 
 	/**
-	 * The pen's width in world units (the web's penWorldSize): the chosen width is a size on SCREEN, so the stored
-	 * world size is size / zoom and the pen lays down the same on-screen thickness at every zoom.
+	 * The pen's width in world units (the web's penWorldSize): the chosen width is a size on the PAGE, the same at
+	 * every zoom, so on screen it is penWorldSize * zoom (bolder zoomed in, thinner zoomed out).
 	 */
 	fun penWorldSize(size: Float): Float {
-		val v = (size / zoom).coerceIn(MIN_WORLD_SIZE, MAX_WORLD_SIZE)
+		val v = size.coerceIn(MIN_WORLD_SIZE, MAX_WORLD_SIZE)
 		return (v * 100f).roundToInt() / 100f
 	}
 

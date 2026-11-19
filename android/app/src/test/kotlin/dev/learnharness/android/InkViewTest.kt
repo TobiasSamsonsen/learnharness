@@ -16,12 +16,11 @@ class InkViewTest {
 		assertEquals(-40f, v.worldY(60f, density), 0.001f)
 	}
 
-	@Test fun thePenIsASizeOnScreen_theWorldWidthIsTheChosenWidthOverTheZoom() {
+	@Test fun thePenIsASizeOnThePage_theWorldWidthIsTheChosenWidthAtEveryZoom() {
 		assertEquals("the chosen width at 1x", 4f, InkView(1f).penWorldSize(4f), 0.001f)
-		assertEquals("half the world width at 2x", 2f, InkView(2f).penWorldSize(4f), 0.001f)
-		assertEquals("a third at 3x", 1.33f, InkView(3f).penWorldSize(4f), 0.001f)
-		assertEquals("thin at 3x stays valid", 0.67f, InkView(3f).penWorldSize(2f), 0.001f)
-		assertEquals("zoomed out it doubles", 8f, InkView(0.5f).penWorldSize(4f), 0.001f)
+		assertEquals("the same at 3x", 4f, InkView(3f).penWorldSize(4f), 0.001f)
+		assertEquals("the same zoomed out", 4f, InkView(0.5f).penWorldSize(4f), 0.001f)
+		assertEquals("clamped up to what the validator accepts", 0.5f, InkView(1f).penWorldSize(0.1f), 0.001f)
 	}
 
 	@Test fun theViewLineAcceptsOnlyUsableViews() {

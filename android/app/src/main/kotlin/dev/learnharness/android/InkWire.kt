@@ -27,7 +27,7 @@ sealed interface InkOp {
 	data class Eraser(val strokeMode: Boolean, val radius: Float) : InkOp
 	/** The sheet's tone (M13): a dark sheet shows ink in lighter variants. A display choice; the strokes are unchanged. */
 	data class Sheet(val dark: Boolean) : InkOp
-	/** The pen's colour (#rrggbb) and base size in world units (CSS px at zoom 1; the pen is a size on screen, stored as size / zoom): the strokes drawn from now on use it. */
+	/** The pen's colour (#rrggbb) and base size in world units (CSS px at zoom 1; the pen is a size on the page, the chosen width at every zoom): the strokes drawn from now on use it. */
 	data class Brush(val color: String, val size: Float) : InkOp
 	/** The finished strokes of the page being written (page CSS px). */
 	data class Strokes(val strokes: List<InkWire.Stroke>) : InkOp

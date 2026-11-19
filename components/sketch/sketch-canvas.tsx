@@ -25,9 +25,8 @@ import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, penWorldSize, pinchStep, t
  * server then normalises the size to the writing, glyph-adaptive).
  *
  * The view (components/sketch/view-transform.ts) says which part of the plane
- * the canvas shows. The pen has a width on SCREEN (stored in world units as
- * size / zoom), so it lays down the same thickness at every zoom and the
- * learner writes everything at one size.
+ * the canvas shows. The pen has a width on the PAGE (world units), the same at
+ * every zoom, so zoomed in every line looks bolder and zoomed out thinner.
  *
  * Input (owner, M13c; modelled on how note apps do it — GoodNotes and
  * Samsung Notes' zoom lock): a pen draws. Once a pen has been seen, one
@@ -552,7 +551,7 @@ export function SketchCanvas({
 						pointerType: e.pointerType,
 						points,
 						erase: erasing ? new Set<number>() : null,
-						size: penWorldSize(brushRef.current.size, view.current.zoom),
+						size: penWorldSize(brushRef.current.size),
 						radius: eraserWorldRadius(eraserRef.current.radius, view.current.zoom),
 						straight: false,
 						cut: null,
