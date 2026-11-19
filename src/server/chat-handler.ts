@@ -67,7 +67,7 @@ import { resolveLessonLanguage } from "../core/language.ts";
 import { resolvePace } from "../core/pace.ts";
 import { resolveDifficulty } from "../core/difficulty.ts";
 import { materialsForTurn } from "./materials.ts";
-import { ensureSketchPngs, normalizePhotoSketch, persistInputSketch, resolveSketchRef, sketchImagesFor } from "./sketches.ts";
+import { ensureSketchPngs, hintPagesFor, normalizePhotoSketch, persistInputSketch, resolveSketchRef, sketchImagesFor } from "./sketches.ts";
 import { courseForTurn } from "./courses.ts";
 import { finishLessonTool, finishSessionTool } from "../agent/tools/course.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
@@ -796,6 +796,7 @@ export async function handleChatInput(
 		// Sketch answers (fork addition, 2026-10-26): the stored pages, read
 		// back at the model boundary — agent state never carries the bytes.
 		sketchImages: sketchImagesFor(chatId),
+		hintPages: hintPagesFor(chatId),
 		// The course section (fork addition — docs/courses.md §4): a course
 		// session's per-turn rules; absent for other sessions. A Learn
 		// session's teacher also gets finish_lesson; every other course

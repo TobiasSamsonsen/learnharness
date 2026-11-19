@@ -15,7 +15,7 @@ import type { Grade } from "../../core/mastery.ts";
 import type { PiEngine } from "../models.ts";
 import { runSubmitAgent } from "./submit-agent.ts";
 
-const INSTRUCTIONS = `You grade how well a learner used each skill on ONE practice problem, after it ended. You did not tutor them. Grade only from the transcript, per skill: again < hard < good < easy, never more than the learner demonstrated.
+const BASE_INSTRUCTIONS = `You grade how well a learner used each skill on ONE practice problem, after it ended. You did not tutor them. Grade only from the transcript, per skill: again < hard < good < easy, never more than the learner demonstrated.
 
 Who did the work decides: a tutor message that points at where the work is wrong or at what to do next is a hint, even a gentle one.
 
@@ -49,12 +49,22 @@ export const gradeSchema = Type.Object({
 
 export type GradeVerdict = Static<typeof gradeSchema>;
 
+/** Added to the Hints paragraph when grading a lesson's final problem that has hints from earlier checks (owner, 2026-11-19). */
+export const LESSON_HINTS_SENTENCE =
+	"A lesson's final problem is unaided, but hints from the learner's earlier checks in the same lesson are listed under HINTS ON EARLIER CHECKS: they have no size, so size them yourself, and name `hint` as their combined weight on the lesson's skill. Grade what the final problem shows; do not lower the grade twice for the same hint.";
+
+export function graderInstructions(input: { lessonHints?: boolean }): string {
+	return input.lessonHints ? BASE_INSTRUCTIONS.replace("A slip hint never lowers a grade.", () => "A slip hint never lowers a grade. " + LESSON_HINTS_SENTENCE) : BASE_INSTRUCTIONS;
+}
+
 export interface GradeInput {
 	skills: ReadonlyArray<{ id: string; name: string }>;
 	/** core/practice-grading renderProblemSpan. */
 	transcript: string;
 	/** The session's problem size, when it has one (core/difficulty.ts). */
 	difficulty?: string;
+	/** The transcript ends with a block of hints from the lesson's earlier checks (core/final-problem.ts lessonHintsBlock). */
+	lessonHints?: boolean;
 }
 
 export function graderPrompt(input: GradeInput): string {
@@ -98,7 +108,7 @@ export async function gradeProblem(input: GradeInput, deps: { engine: PiEngine |
 		toolDescription: "Submit one grade (again, hard, good or easy) and the combined hint weight for every listed skill.",
 		parameters: gradeSchema,
 		fill: (v: GradeVerdict) => ({ grades: v.grades ?? [] }),
-		systemPrompt: INSTRUCTIONS,
+		systemPrompt: graderInstructions(input),
 		prompt: graderPrompt(input),
 		engine: deps.engine,
 		signal: deps.signal,

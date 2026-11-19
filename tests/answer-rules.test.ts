@@ -12,19 +12,29 @@ import { ANSWER_NEXT_TEXT, SKETCH_ANSWER_NEXT_TEXT } from "../src/core/prose-gat
 import { MISSING_QUESTION_MESSAGE } from "../src/core/question-core.ts";
 import { verdictGateReason } from "../src/core/verdict-gate.ts";
 
+describe("a right answer after hints moves on (owner, 2026-11-19)", () => {
+	it("the hinted-answer text asks for no recheck and no mention of the system", () => {
+		const text = hintsNextText(1);
+		assert.match(text, /If the answer was right, go on/);
+		assert.ok(!text.includes(FRESH_CASE) && !/once more/.test(text));
+	});
+});
+
 describe("a step asked again is the same size", () => {
 	it("every place that says \"fresh case\" now says what size", () => {
 		assert.match(FRESH_CASE, /SAME size/);
 		for (const text of [
 			ANSWER_NEXT_TEXT,
 			SKETCH_ANSWER_NEXT_TEXT,
-			hintsNextText(1),
 			verdictGateReason({ kind: "contradiction" } as never),
 		]) {
 			assert.ok(text.includes(FRESH_CASE), text.slice(0, 80));
 		}
-		assert.ok(paceSection("teacher", "crash", undefined).includes(FRESH_CASE), "crash pace");
-		assert.ok(paceSection("teacher", "efficient", undefined).includes(FRESH_CASE), "efficient pace");
+		for (const pace of ["crash", "efficient"] as const) {
+			const text = paceSection("teacher", pace, undefined);
+			assert.ok(!/hinted answer is the exception/.test(text), pace);
+			if (pace === "crash") assert.match(text, /right answer after hints still moves on/);
+		}
 	});
 });
 

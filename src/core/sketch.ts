@@ -619,3 +619,34 @@ export function isSketchRef(value: unknown): value is SketchRef {
 	const v = value as Partial<SketchRef>;
 	return typeof v.id === "string" && SKETCH_ID_RE.test(v.id) && Array.isArray(v.pages);
 }
+
+// ─── hint pages (owner, 2026-11-19) ──────────────────────────────────────────
+
+/** The id of the page a lesson hint was written from: sketch-shaped (`sk_` + 16 chars), so read_sketch and the
+ *  sketch label machinery take it, and never a real sketch id (those are hex, and "h" is not). One per hint. */
+export function hintPageId(toolCallId: string, n: number): string {
+	let a = 0x811c9dc5;
+	let b = 0x01000193;
+	for (let i = 0; i < toolCallId.length; i++) {
+		const c = toolCallId.charCodeAt(i);
+		a = Math.imul(a ^ c, 0x01000193) >>> 0;
+		b = Math.imul(b + c, 0x85ebca6b) >>> 0;
+	}
+	return `sk_h${a.toString(16).padStart(8, "0")}${b.toString(16).padStart(8, "0").slice(0, 7)}_${n}`;
+}
+
+const HINT_PAGE_ID_RE = /^sk_h[0-9a-f]{15}_[1-9]$/;
+/** Is this the id of a hint page (not a sketch the learner sent)? */
+export function isHintPageId(value: unknown): value is string {
+	return typeof value === "string" && HINT_PAGE_ID_RE.test(value);
+}
+
+/** The name a hint's page files are kept under (store/sketches.ts saveHintPage). */
+export function hintPageName(toolCallId: string, n: number): string {
+	return `${toolCallId.replace(/[^A-Za-z0-9_-]/g, "_")}_hint${n}`;
+}
+
+/** What the tutor reads on the first page of a hint page (owner-approved wording, 2026-11-19). */
+export function hintPageNote(n: number, count: number): string {
+	return ` This page shows the learner's work at the moment they took hint ${n} of ${count}, before any change they made after it (the answer's own page may already be fixed). Record what it shows with read_sketch, using this id, in this reply and before you respond: exactly what is written, errors included, never corrected. It is not an answer: do not grade it or reply to it, and a doubt in it does not stop the turn.`;
+}

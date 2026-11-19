@@ -11,6 +11,8 @@
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import { PRACTICE_HINT_MARKER } from "./hints.ts";
 import { PRACTICE_CONCLUDE_TOOL, PRACTICE_PROBLEM_TOOL, type LhMessage } from "./native-messages.ts";
+import { hintPageId, isHintPageId } from "./sketch.ts";
+import { readSketchCall } from "./sketch-gate.ts";
 
 /** The read_sketch tool's name (agent/tools/sketch.ts), spelled here so core stays free of agent imports. */
 const READ_SKETCH = "read_sketch";
@@ -63,6 +65,16 @@ export function taggedSkillsOf(span: readonly LhMessage[]): string[] {
  *  own conclusion. Tool acknowledgements and thinking are left out. */
 export function renderProblemSpan(span: readonly LhMessage[], concludeCallId: string): string {
 	const lines: string[] = [];
+	// what the tutor read on the page each hint was written from (owner, 2026-11-19), the newest reading of each
+	const pageReadings = new Map<string, string>();
+	for (const m of span) {
+		if (roleOf(m) !== "assistant") continue;
+		for (const b of (m as AssistantMessage).content) {
+			if (b.type !== "toolCall" || b.name !== READ_SKETCH) continue;
+			const read = readSketchCall(b.arguments);
+			if (read && isHintPageId(read.sketchId)) pageReadings.set(read.sketchId, read.reading.reading.replace(/\s+/g, " ").trim().slice(0, 800));
+		}
+	}
 	for (const m of span) {
 		const role = roleOf(m);
 		if (role === "user") {
@@ -73,8 +85,9 @@ export function renderProblemSpan(span: readonly LhMessage[], concludeCallId: st
 			if (custom.customType === "practice-thinking") lines.push(`LEARNER (work submitted):\n${textOf(custom.content).trim()}`);
 			else if (custom.customType === "sketch-dispute") lines.push("LEARNER disputes the read-back of their sketch.");
 			else if (custom.customType === PRACTICE_HINT_MARKER) {
-				const d = (m as { details?: { size?: unknown; text?: unknown } }).details;
-				lines.push(`HINT BY BUTTON (size ${String(d?.size)}, given on the learner's request): ${String(d?.text ?? "")}`);
+				const d = (m as { details?: { size?: unknown; text?: unknown; problemCallId?: unknown; n?: unknown } }).details;
+				const page = typeof d?.problemCallId === "string" && typeof d.n === "number" ? pageReadings.get(hintPageId(d.problemCallId, d.n)) : undefined;
+				lines.push(`HINT BY BUTTON (size ${String(d?.size)}, given on the learner's request): ${String(d?.text ?? "")}${page ? ` Work on the page when this hint was taken: ${page}.` : ""}`);
 			}
 		} else if (role === "assistant") {
 			for (const b of (m as AssistantMessage).content) {

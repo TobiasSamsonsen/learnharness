@@ -6,6 +6,8 @@
  * agent state and the SSE stream never carry image bytes.
  */
 
+import type { HintPageResolver } from "../core/native-messages.ts";
+import { hintPageName } from "../core/sketch.ts";
 import { parseSketchPayload, planSketch, SKETCH_PHOTO_MAX_DATA, type SketchImageResolver, type SketchPayload, type TurnInput } from "../core/index.ts";
 import { normalizePhoto } from "../agent/image-processing/normalize.ts";
 import { providerSafePng } from "../agent/subagents/headless.ts";
@@ -132,6 +134,18 @@ export function sketchImagesFor(chatId: string): SketchImageResolver {
 			cache.set(key, png ? { data: Buffer.from(png).toString("base64"), mimeType: sniffImageMime(png) } : null);
 		}
 		return cache.get(key) ?? null;
+	};
+}
+
+/** The pages a lesson hint was written from, read back at the model boundary (owner, 2026-11-19). Kept on the device that
+ *  gave the hint only: elsewhere there are none, and the tutor is told nothing about them. */
+export function hintPagesFor(chatId: string): HintPageResolver {
+	return (toolCallId, n) => {
+		try {
+			return stores.sketchStore.hintPagePngs(chatId, hintPageName(toolCallId, n)).map((png) => ({ data: Buffer.from(png).toString("base64"), mimeType: sniffImageMime(png) }));
+		} catch {
+			return [];
+		}
 	};
 }
 

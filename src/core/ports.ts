@@ -308,6 +308,8 @@ export interface SketchStore {
 	/** The page a hint was written from (fork, 2026-11-18): kept so a hint that misses the learner's work can be checked against what the
 	 *  model saw. Best effort, never synced; `name` is a safe id. Removed with the lesson's sketches. */
 	saveHintPage(chatId: string, name: string, pages: Uint8Array[], meta: object): void;
+	/** The kept pages of one hint (owner, 2026-11-19: the tutor reads them with the hinted answer), in page order; [] when none are kept on this device. */
+	hintPagePngs(chatId: string, name: string): Uint8Array[];
 	/** Delete every sketch of a lesson (its deletion). */
 	removeAll(chatId: string): void;
 }

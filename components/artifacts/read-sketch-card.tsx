@@ -7,7 +7,7 @@ import { ChatActionsContext } from "@/components/chat";
 import { SketchThumbnail } from "@/components/sketch/sketch-thumbnail";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { healReadSketchArguments, repairMathForDisplay, type ArtifactPartProps } from "@/src/core";
+import { healReadSketchArguments, isHintPageId, repairMathForDisplay, type ArtifactPartProps } from "@/src/core";
 
 /**
  * The read-back (Android plan M2, owner wording "I read:"): the tutor's
@@ -178,6 +178,8 @@ export function ReadSketchCard({ part }: ArtifactPartProps) {
 	const actions = useContext(ChatActionsContext);
 	const { sketchId, reading, open } = readingOf(part, actions);
 	if (!sketchId || !reading) return null;
+	// The tutor's record of the page a hint was written from (owner, 2026-11-19) is for the tutor and the grader, not a card.
+	if (isHintPageId(sketchId)) return null;
 	// The answer or thinking card that shows this sketch carries its newest reading (owner, 2026-10-29): no second box.
 	if (actions?.sketchReadings?.shown(sketchId)) return null;
 

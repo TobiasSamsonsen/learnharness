@@ -54,8 +54,8 @@ import { ANSWER_NEXT_TEXT, SKETCH_ANSWER_NEXT_TEXT, SKETCH_READ_FIRST_TEXT, SKET
 import { hintsNextText, practiceHintMarkerText, type HintSize } from "./hints.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import type { SketchRef } from "./contracts/sketch.ts";
-import { SKETCH_MAX_REQUEST_PAGES, sketchLabel, sketchStubText } from "./sketch.ts";
-import { SKETCH_DISPUTE_MARKER, isDoubtfulReadResult, sketchOccurrencesOf, sketchReplayPlan, type SketchOccurrence } from "./sketch-gate.ts";
+import { SKETCH_MAX_REQUEST_PAGES, hintPageId, hintPageNote, sketchLabel, sketchStubText } from "./sketch.ts";
+import { READ_SKETCH_TOOL, SKETCH_DISPUTE_MARKER, isDoubtfulReadResult, readSketchCall, sketchOccurrencesOf, sketchReplayPlan, type SketchOccurrence } from "./sketch-gate.ts";
 import { parseQuestionInput } from "./tool-parts.ts";
 import { expandCitationsForModel } from "./citations.ts";
 import { readPluginQuestionMessageAnnotation, readPluginQuestionAnswer, readPluginQuestionCancellation, samePluginQuestionOccurrence, type PluginQuestionAnnotationRead, type PluginQuestionOccurrence, type PluginQuestionOccurrenceMap, type PluginQuestionSnapshot } from "./plugin-questions.ts";
@@ -845,6 +845,63 @@ export function requestSketchPages(
 /** Model-facing projection options (the server wires the sketch resolver). */
 export interface ToLlmOptions {
 	sketchImage?: SketchImageResolver;
+	/** The pages a lesson hint was written from (owner, 2026-11-19): hint `n` (1-based) of a question call; [] when none are kept here. */
+	hintPages?: HintPageResolver;
+}
+
+/** Loads the kept pages of one hint for the model projection (the server's resolver). */
+export type HintPageResolver = (toolCallId: string, n: number) => { data: string; mimeType: string }[];
+
+/** The hint-page ids the tutor has already recorded with read_sketch: those pages ride as images only until they are read. */
+function hintPagesReadIn(messages: readonly AgentMessage[]): Set<string> {
+	const read = new Set<string>();
+	for (const m of messages) {
+		if ((m as { role?: string }).role !== "assistant") continue;
+		for (const b of (m as AssistantMessage).content) {
+			if (b.type !== "toolCall" || b.name !== READ_SKETCH_TOOL) continue;
+			const id = readSketchCall(b.arguments)?.sketchId;
+			if (id) read.add(id);
+		}
+	}
+	return read;
+}
+
+/** The blocks of ONE hint's kept pages: per page the sketch-shaped label (the first with the tutor's instruction), then the
+ *  image. Nothing once the tutor has read that page (core/sketch.ts hintPageId), or when none are kept here. */
+function pagesOfHint(toolCallId: string, n: number, count: number, resolve: HintPageResolver | undefined, read: ReadonlySet<string>): (TextContent | ImageContent)[] {
+	const id = hintPageId(toolCallId, n);
+	if (!resolve || read.has(id)) return [];
+	let images: { data: string; mimeType: string }[] = [];
+	try {
+		images = resolve(toolCallId, n);
+	} catch {
+		images = [];
+	}
+	const out: (TextContent | ImageContent)[] = [];
+	images.forEach((image, i) => {
+		out.push({ type: "text", text: sketchLabel(id, i, images.length) + (i === 0 ? hintPageNote(n, count) : "") });
+		out.push({ type: "image", data: image.data, mimeType: image.mimeType });
+	});
+	return out;
+}
+
+/** The pages a hinted LESSON answer carries, one set per hint taken. A steered answer's hints do not count. */
+function hintPageBlocks(result: ToolResultMessage, resolve: HintPageResolver | undefined, read: ReadonlySet<string>): (TextContent | ImageContent)[] {
+	const d = result.details as { hints?: unknown; dismissed?: unknown } | null | undefined;
+	if (!resolve || result.isError || !d || d.dismissed === true || !Array.isArray(d.hints) || d.hints.length === 0) return [];
+	const count = d.hints.length;
+	const out: (TextContent | ImageContent)[] = [];
+	for (let n = 1; n <= count && n <= 9; n++) out.push(...pagesOfHint(result.toolCallId, n, count, resolve, read));
+	return out;
+}
+
+/** The pages of one PRACTICE hint (its marker names the problem's call and the hint's number): they ride the marker's message. */
+function practiceHintPageBlocks(marker: LhMarkerMessage, messages: readonly AgentMessage[], resolve: HintPageResolver | undefined, read: ReadonlySet<string>): (TextContent | ImageContent)[] {
+	if (marker.customType !== "practice-hint") return [];
+	const d = marker.details as { problemCallId?: unknown; n?: unknown } | null | undefined;
+	if (!d || typeof d.problemCallId !== "string" || typeof d.n !== "number" || d.n < 1 || d.n > 9) return [];
+	const count = messages.filter((x) => (x as { customType?: string }).customType === "practice-hint" && ((x as LhMarkerMessage).details as { problemCallId?: unknown } | null)?.problemCallId === d.problemCallId).length;
+	return pagesOfHint(d.problemCallId, d.n, Math.max(count, d.n), resolve, read);
 }
 
 export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOptions = {}): Message[] {
@@ -884,6 +941,7 @@ export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOpti
 	const leading =
 		(messages[0] as { role?: string } | undefined)?.role === "system" ? (messages[0] as Message) : null;
 	const elided = sketchReplayPlan(messages);
+	const hintPagesRead = hintPagesReadIn(messages);
 	const occurrenceAt = new Map(sketchOccurrencesOf(messages).map((o) => [o.index, o]));
 	const attached = new Set(requestSketchPages(messages, start).map(({ index, page }) => `${index}/${page}`));
 	const out: Message[] = [];
@@ -911,7 +969,7 @@ export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOpti
 				role: "user",
 				content: problemSubmission ? nativeAnswerContent(marker.content, { answer: problemSubmission.images?.submission, thinking: problemSubmission.images?.thinking })
 					: [...(occurrence ? sketchBlocks(occurrence, opts.sketchImage, attached, elided) : []), { type: "text", text: marker.customType === "practice-thinking" || marker.customType === "side-question" ? expandCitationsForModel(marker.content) : marker.content }, ...(marker.customType === "practice-thinking"
-						? (marker.details as { images?: ImageContent[] } | null)?.images ?? [] : [])],
+						? (marker.details as { images?: ImageContent[] } | null)?.images ?? [] : []), ...practiceHintPageBlocks(marker, messages, opts.hintPages, hintPagesRead)],
 				timestamp: marker.timestamp,
 			});
 			continue;
@@ -921,10 +979,11 @@ export function toLlmMessages(messages: readonly AgentMessage[], opts: ToLlmOpti
 		// Learner citations are links in the record; the wire carries them
 		// expanded (core/citations.ts) — the one model-facing rewrite.
 		const answerSketch = role === "toolResult" ? occurrenceAt.get(i) : undefined;
-		if (answerSketch) {
-			// The answer's JSON first (it names the sketch), then its pages.
+		const hintPages = role === "toolResult" ? hintPageBlocks(m as ToolResultMessage, opts.hintPages, hintPagesRead) : [];
+		if (answerSketch || hintPages.length > 0) {
+			// The answer's JSON first (it names the sketch), then its pages, then the pages its hints were written from.
 			const result = native as ToolResultMessage;
-			out.push({ ...result, content: [...result.content, ...sketchBlocks(answerSketch, opts.sketchImage, attached, elided)] });
+			out.push({ ...result, content: [...result.content, ...(answerSketch ? sketchBlocks(answerSketch, opts.sketchImage, attached, elided) : []), ...hintPages] });
 		} else {
 			out.push(role === "user" ? expandUserCitations(native as UserMessage) : (native as Message));
 		}

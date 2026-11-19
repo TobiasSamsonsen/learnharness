@@ -1,7 +1,7 @@
 import { HINT_MAX, HINT_THINKING_MAX, type HintSize, hintEligible, hintPrompt, hintsOf, parseHintReply, practiceHintEligible, practiceHintPrompt, practiceHintsOf, stripHintLabel } from "../core/hints.ts";
 import { activeProblemOf, hasProbeDone, newPracticeHintMarker } from "../core/native-messages.ts";
 import { emit } from "../core/events.ts";
-import { parseSketchPayload, SketchPayloadError } from "../core/sketch.ts";
+import { hintPageName, parseSketchPayload, SketchPayloadError } from "../core/sketch.ts";
 import type { PiEngine } from "../agent/models.ts";
 import { tutorSideCall } from "./clarify.ts";
 import { renderSketchImages } from "./sketches.ts";
@@ -82,7 +82,7 @@ export async function handleHintRequest(chatId: string, body: unknown, engineOve
 	// checked against the page the model saw. Best effort: a failed write never costs the learner the hint.
 	if (images.length > 0) {
 		try {
-			const name = `${toolCallId.replace(/[^A-Za-z0-9_-]/g, "_")}_hint${n}`;
+			const name = hintPageName(toolCallId, n);
 			stores.sketchStore.saveHintPage(chatId, name, images.map((i) => new Uint8Array(Buffer.from(i.data, "base64"))), { toolCallId, n, at: new Date().toISOString(), strokeCount, pages: images.length });
 		} catch (error) {
 			console.error(`[chat ${chatId}] hint page not kept:`, error);

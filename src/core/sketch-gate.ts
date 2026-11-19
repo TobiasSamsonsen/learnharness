@@ -22,7 +22,7 @@ import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai"
 import { healEncodedArguments } from "./argument-heal.ts";
 import { QUESTION_TOOLS } from "./pending.ts";
 import type { SketchRef } from "./contracts/sketch.ts";
-import { sketchOfMessage } from "./sketch.ts";
+import { hintPageId, sketchOfMessage } from "./sketch.ts";
 
 export const READ_SKETCH_TOOL = "read_sketch";
 /** The marker the learner's dispute appends (native-messages.ts). */
@@ -131,6 +131,15 @@ export function sketchIdsOf(messages: readonly AgentMessage[]): Set<string> {
 	for (const m of messages) {
 		const ref = sketchOfMessage(m);
 		if (ref) ids.add(ref.id);
+		// the page each lesson hint was written from (owner, 2026-11-19): read_sketch may name it
+		const answer = m as { role?: string; toolCallId?: string; toolName?: string; details?: { hints?: unknown; dismissed?: unknown } | null };
+		const marker = m as { role?: string; customType?: string; details?: { problemCallId?: unknown; n?: unknown } | null };
+		if (marker.role === "custom" && marker.customType === "practice-hint" && typeof marker.details?.problemCallId === "string" && typeof marker.details.n === "number" && marker.details.n >= 1 && marker.details.n <= 9) {
+			ids.add(hintPageId(marker.details.problemCallId, marker.details.n));
+		}
+		if (answer.role === "toolResult" && answer.toolCallId && (QUESTION_TOOLS as readonly string[]).includes(answer.toolName ?? "") && answer.details?.dismissed !== true && Array.isArray(answer.details?.hints)) {
+			for (let n = 1; n <= answer.details.hints.length && n <= 9; n++) ids.add(hintPageId(answer.toolCallId, n));
+		}
 	}
 	return ids;
 }

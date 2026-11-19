@@ -30,7 +30,7 @@ import { readSketchTool } from "./tools/sketch.ts";
 import { READ_SKETCH_TOOL, isDoubtfulReadResult, sketchIdsOf } from "../core/sketch-gate.ts";
 import { QUESTION_TOOLS, TOGGLEABLE_TOOLS, type EnabledTools } from "../core/pending.ts";
 import type { PluginToolContext } from "../core/plugins.ts";
-import { toLlmMessages, nativeInputCause, newCheckNudgeMarker, PRACTICE_PROBLEM_TOOL, type SketchImageResolver } from "../core/native-messages.ts";
+import { toLlmMessages, nativeInputCause, newCheckNudgeMarker, PRACTICE_PROBLEM_TOOL, type HintPageResolver, type SketchImageResolver } from "../core/native-messages.ts";
 import { PROSE_GATED_TOOLS, proseGateBlocks, proseGateReason, proseGateRefusedLast } from "../core/prose-gate.ts";
 import { leadFloorBlocks, leadFloorReason } from "../core/lead-floor-gate.ts";
 import { needsCheckNudge } from "../core/check-nudge.ts";
@@ -199,6 +199,8 @@ export interface AgentBuildOptions {
 	 *  page for the model projection (server/sketches.ts sketchImagesFor).
 	 *  Absent → sketches reach the model as text stubs. */
 	sketchImages?: SketchImageResolver;
+	/** The pages a lesson hint was written from (owner, 2026-11-19): shown to the tutor with the hinted answer, until it has read them. */
+	hintPages?: HintPageResolver;
 	/** Native conversation identity: the existing persisted chat id, reused
 	 * across reconstructed prober, teacher, and practice Agents.
 	 * Debug: when set AND LH_PROVIDER_EVENTS=1, raw provider stream events
@@ -514,7 +516,7 @@ function baseAgentOptions(
 		// UI-only markers (plan-block) drop, the app's id fields strip, and
 		// an abort's dangling question call gets its INTERRUPTED result. It
 		// must never throw (pi's convertToLlm contract).
-		convertToLlm: (messages) => toLlmMessages(messages, { sketchImage: opts.sketchImages }),
+		convertToLlm: (messages) => toLlmMessages(messages, { sketchImage: opts.sketchImages, ...(opts.hintPages ? { hintPages: opts.hintPages } : {}) }),
 		// Two sources may change the next request, and neither may silence the other (the later of two spreads would):
 		// the force-text step (fork) and upstream's side-conversation updates (new exchanges appended before the request).
 		...(forceText || opts.contextUpdates ? { prepareNextTurnWithContext: (turn: PrepareNextTurnContext) => {

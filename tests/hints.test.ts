@@ -53,10 +53,11 @@ describe("the instruction texts", () => {
 		assert.ok(!first.includes("has written so far"));
 	});
 
-	it("the tutor is told the answer was aided and to check the step again", () => {
+	it("the tutor is told the answer was aided, and that a right one moves on with no recheck", () => {
 		assert.match(hintsNextText(1), /^He took 1 hint on this question/);
 		assert.match(hintsNextText(2), /^He took 2 hints on this question \(in `hints`\), so the answer is not unaided\./);
-		assert.match(hintsNextText(2), /check it once more on a fresh case of the SAME size.*, without hints\.$/);
+		assert.match(hintsNextText(2), /If the answer was right, go on: the hints do not make it a miss and need no recheck/);
+		assert.doesNotMatch(hintsNextText(2), /once more/);
 	});
 
 	it("hints are sanitized: strings only, trimmed, capped in length and number", () => {

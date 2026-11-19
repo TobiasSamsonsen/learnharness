@@ -17,7 +17,7 @@
 import type { AfterToolCallContext, AfterToolCallResult } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { FINISH_LESSON_TOOL } from "../core/course-session.ts";
-import { FINISH_NOT_PASSED_TEXT, finalProblemSpanOf, recallOpenersOf, renderFinalProblemSpan } from "../core/final-problem.ts";
+import { FINISH_NOT_PASSED_TEXT, finalProblemSpanOf, lessonHintsBlock, recallOpenersOf, renderFinalProblemSpan } from "../core/final-problem.ts";
 import { gradeFailureReason } from "../core/grade-failure.ts";
 import type { Grade } from "../core/mastery.ts";
 import type { LhMessage } from "../core/native-messages.ts";
@@ -67,7 +67,10 @@ export function lessonGradeHook(ctx: LessonGradeContext): (call: AfterToolCallCo
 		// no final problem in the transcript (the finish gate let the call through after its refusal cap): nothing to grade
 		if (span.length === 0) return undefined;
 		try {
-			const outcome = await grader({ skills: [ctx.skill], transcript: renderFinalProblemSpan(span, toolCall.id), difficulty: "final problem of a lesson" }, signal, ctx.sessionModel);
+			// the hints taken on the lesson's earlier checks ride after the final problem's lines (owner, 2026-11-19)
+			const hints = lessonHintsBlock(live, toolCall.id);
+			const transcript = [renderFinalProblemSpan(span, toolCall.id), hints].filter(Boolean).join("\n\n");
+			const outcome = await grader({ skills: [ctx.skill], transcript, difficulty: "final problem of a lesson", ...(hints ? { lessonHints: true } : {}) }, signal, ctx.sessionModel);
 			const details = { grades: outcome.grades, ...(outcome.gradedBy ? { gradedBy: outcome.gradedBy } : {}), ...(outcome.gradeError ? { gradeError: outcome.gradeError } : {}) };
 			const grade = outcome.grades.find((g) => g.skill === ctx.skill.id)?.grade;
 			if (grade === "again") return { content: [{ type: "text", text: FINISH_NOT_PASSED_TEXT }], details, isError: true };

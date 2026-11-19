@@ -11,7 +11,7 @@
  * Pure: eligibility, the instruction texts (owner-approved), sanitizing.
  */
 
-import { FRESH_CASE, HINT_NOTATION_RULE } from "./answer-rules.ts";
+import { HINT_NOTATION_RULE } from "./answer-rules.ts";
 import { normalizeQuizType } from "./question-core.ts";
 
 /** Hints per question: where to look, the idea named, the move outlined. Never the answer. */
@@ -59,7 +59,7 @@ export function hintPrompt(input: { n: number; earlier: readonly string[]; think
 
 /** What the tutor is told with an answer that took hints. */
 export function hintsNextText(n: number): string {
-	return `He took ${n} hint${n === 1 ? "" : "s"} on this question (in \`hints\`), so the answer is not unaided. Do not re-teach what the hints already said. Before moving on from this step, check it once more on ${FRESH_CASE}, without hints.`;
+	return `He took ${n} hint${n === 1 ? "" : "s"} on this question (in \`hints\`), so the answer is not unaided. Do not re-teach what the hints already said. If the answer was right, go on: the hints do not make it a miss and need no recheck, and never mention them or the system in your reply. If it was wrong, repair it as above.`;
 }
 
 /** The hints on an answer record (or a request body): strings only, trimmed, capped in length and number. */

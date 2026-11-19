@@ -229,6 +229,17 @@ ends with ONE unaided problem (`core/final-problem.ts`):
   the finish into an error result ("NOT FINISHED"): the transcript holds no clean finish, the
   skill stays not learned, and the teacher repairs the gap and poses a new final problem. A
   grading that fails altogether lets the finish stand; the fold counts it as `hard`.
+  Hint-button hints taken on the lesson's earlier checks (not steered answers, not the tutor's own
+  repairs) ride after the final problem's lines as a labelled block (`lessonHintsBlock` in
+  `core/final-problem.ts`, owner 2026-11-19); the grader sizes them and the usual cap applies
+  (nudge: Good at most, carry: Hard at most), never down to `again`.
+  The page each hint was written from (kept under `sketches/<chat>/hint-pages/`, on the device that
+  gave the hint only) rides the hinted answer to the tutor as images under sketch-shaped labels
+  (`hintPageId` in `core/sketch.ts`, `toLlmMessages`'s `hintPages` resolver) until the tutor has
+  recorded them with `read_sketch`; a hint-page read never ends the turn and has no card, and its
+  reading is added to that hint's line in the grader's block. Practice hints work the same way
+  (owner, 2026-11-19): a `practice-hint` marker's page rides the marker's message, and the reading
+  is added to its `HINT BY BUTTON` line (`renderProblemSpan`).
 - **The Finish lesson button** no longer finishes a Learn session. It appends a `lesson-finished`
   marker with `details.request: true` ("Finish requested · final problem next") whose text tells
   the teacher to pose the final problem at once. `sessionFinishOf` skips request markers; a Learn

@@ -15,6 +15,7 @@
 
 import { Type, type Static } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { isHintPageId } from "../../core/sketch.ts";
 import { invalidInputResult } from "../tool-execute.ts";
 
 export const readSketchInputObject = Type.Object({
@@ -71,11 +72,13 @@ export function readSketchTool(ctx: ReadSketchContext): AgentTool<typeof readSke
 			if (input.reading.trim().length === 0) {
 				return invalidInputResult("read_sketch", ["reading is empty — transcribe what is written"]);
 			}
-			ctx.onRead?.(input.sketchId, input.uncertain);
-			const doubtful = input.uncertain.length > 0;
+			// A hint page (owner, 2026-11-19) is the work at an earlier moment, not an answer: a doubt in it never stops the turn.
+			const hintPage = isHintPageId(input.sketchId);
+			if (!hintPage) ctx.onRead?.(input.sketchId, input.uncertain);
+			const doubtful = !hintPage && input.uncertain.length > 0;
 			return {
 				content: [{ type: "text", text: doubtful ? READ_SKETCH_DOUBT_ACK : READ_SKETCH_ACK }],
-				details: { sketchId: input.sketchId, doubts: input.uncertain.length, settled: input.settled?.length ?? 0 },
+				details: { sketchId: input.sketchId, doubts: hintPage ? 0 : input.uncertain.length, settled: input.settled?.length ?? 0, ...(hintPage ? { hintPage: true } : {}) },
 				// Open doubts end the turn: the card asks for the clarification, and
 				// the paragraph waits until everything is verified (owner, 2026-10-26).
 				...(doubtful ? { terminate: true } : {}),

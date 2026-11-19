@@ -14,6 +14,8 @@ import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai"
 import { FINISH_LESSON_TOOL } from "./course-session.ts";
 import type { LhMessage } from "./native-messages.ts";
 import { normalizeQuizType } from "./question-core.ts";
+import { hintPageId } from "./sketch.ts";
+import { readSketchCall } from "./sketch-gate.ts";
 
 /** The free-recall teach tool: the final problem is one of its calls. */
 const EXPLAIN_TOOL = "explain";
@@ -196,4 +198,69 @@ export function recallOpenersOf(messages: readonly LhMessage[], finishCallId: st
 		}
 	}
 	return out;
+}
+
+// ─── hints taken on the lesson's earlier checks (owner, 2026-11-19) ──────────────────────────────────────────────
+
+/** How the tutor graded an answer (its next question's `previous`), in the words the grader reads. */
+const PREVIOUS_WORDS: Record<string, string> = { right: "right", wrong: "wrong", partly: "partly right", skipped: "set aside" };
+
+/** The Hint-button hints the learner took on the lesson's earlier checks, as a block the grader reads after the final
+ *  problem's lines; "" when there were none. A final problem or recall opener takes no hint; a steered answer (the question
+ *  set aside to write to the tutor) is not an answer, so its hints do not count (owner, 2026-11-18); the tutor's own repairs
+ *  while teaching are not listed. Hints sit on each answer record, the ladder level is the array position. */
+export function lessonHintsBlock(messages: readonly LhMessage[], finishCallId: string): string {
+	const end = messages.findIndex((m) => roleOf(m) === "assistant" && (m as AssistantMessage).content.some((b) => b.type === "toolCall" && b.id === finishCallId));
+	const upTo = end < 0 ? messages.length : end;
+	const calls = new Map<string, { question: string; unaided: boolean }>();
+	const lines: string[] = [];
+	// what the tutor read on each hint's page (core/sketch.ts hintPageId), the newest reading of each
+	const pageReadings = new Map<string, string>();
+	for (let i = 0; i < upTo; i++) {
+		if (roleOf(messages[i]) !== "assistant") continue;
+		for (const b of (messages[i] as AssistantMessage).content) {
+			if (b.type !== "toolCall" || b.name !== READ_SKETCH) continue;
+			const read = readSketchCall(b.arguments);
+			if (read) pageReadings.set(read.sketchId, read.reading.reading.replace(/\s+/g, " ").trim().slice(0, 800));
+		}
+	}
+	for (let i = 0; i < upTo; i++) {
+		const m = messages[i];
+		if (roleOf(m) === "assistant") {
+			for (const b of (m as AssistantMessage).content) {
+				if (b.type !== "toolCall" || !QUESTION_TOOL_NAMES.includes(b.name)) continue;
+				const args = (b.arguments ?? {}) as Record<string, unknown>;
+				calls.set(b.id, { question: String(args.question ?? ""), unaided: isFinalCall(b) || isRecallCall(b) });
+			}
+			continue;
+		}
+		if (roleOf(m) !== "toolResult") continue;
+		const r = m as ToolResultMessage;
+		const call = calls.get(r.toolCallId);
+		const d = r.details as { hints?: unknown; dismissed?: unknown; dontKnow?: unknown; questionText?: unknown } | null | undefined;
+		if (!call || call.unaided || r.isError || !d || d.dismissed === true || !Array.isArray(d.hints)) continue;
+		const hints = d.hints.filter((h): h is string => typeof h === "string" && h.trim() !== "");
+		if (hints.length === 0) continue;
+		let outcome = d.dontKnow === true ? "I don't know" : "";
+		if (!outcome) {
+			for (let k = i + 1; k < upTo && !outcome; k++) {
+				if (roleOf(messages[k]) !== "assistant") continue;
+				for (const b of (messages[k] as AssistantMessage).content) {
+					const prev = b.type === "toolCall" ? (b.arguments as { previous?: unknown } | undefined)?.previous : undefined;
+					if (typeof prev === "string" && PREVIOUS_WORDS[prev]) {
+						outcome = PREVIOUS_WORDS[prev]!;
+						break;
+					}
+				}
+				break;
+			}
+		}
+		const question = (typeof d.questionText === "string" && d.questionText ? d.questionText : call.question).replace(/\s+/g, " ").trim().slice(0, 200);
+		hints.forEach((h, n) => {
+			const page = pageReadings.get(hintPageId(r.toolCallId, n + 1));
+			lines.push(`Check «${question}», hint ${n + 1} of 3: ${h.trim()}${page ? ` Work on the page when this hint was taken: ${page}.` : ""}${outcome ? ` The learner's answer to that check was: ${outcome}.` : ""}`);
+		});
+	}
+	if (lines.length === 0) return "";
+	return ["HINTS ON EARLIER CHECKS OF THIS LESSON (the learner's Hint button, given while they were being taught; none on the final problem, which was unaided).", ...lines].join("\n\n");
 }

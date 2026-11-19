@@ -92,6 +92,18 @@ export const sketchStore: SketchStore = {
 		fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, `${name}.json`), JSON.stringify(meta), "utf8");
 	},
 
+	hintPagePngs(chatId, name) {
+		if (!SAFE_ID.test(name)) return [];
+		const dir = path.join(/* turbopackIgnore: true */ chatDir(chatId), "hint-pages");
+		const out: Uint8Array[] = [];
+		for (let i = 0; i < 20; i++) {
+			const png = readOrNull(() => new Uint8Array(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, `${name}-${i}.png`))));
+			if (!png) break;
+			out.push(png);
+		}
+		return out;
+	},
+
 	removeAll(chatId) {
 		fs.rmSync(/* turbopackIgnore: true */ chatDir(chatId), { recursive: true, force: true });
 	},
