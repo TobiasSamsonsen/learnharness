@@ -31,8 +31,9 @@ function subscribeParam(onChange: () => void): () => void {
 
 /** The open note's id from the address, and a setter that pushes it there (null closes). */
 function useOpenNote(): [string | null, (id: string | null) => void] {
-	const id = useSyncExternalStore(subscribeParam, () => new URLSearchParams(window.location.search).get(PARAM), () => null);
+	const id = useSyncExternalStore(subscribeParam, () => (window.location ? new URLSearchParams(window.location.search).get(PARAM) : null), () => null);
 	const set = useCallback((next: string | null) => {
+		if (!window.location) return;
 		const url = new URL(window.location.href);
 		if (next) url.searchParams.set(PARAM, next);
 		else url.searchParams.delete(PARAM);
@@ -46,10 +47,10 @@ const CARD_W = "w-40 shrink-0 snap-start";
 
 const READ_DOT: Record<LectureNoteItem["read"], { label: string; dot: string } | null> = {
 	none: null,
-	unread: { label: "Not read to text yet (it is read when you leave the note)", dot: "bg-amber-500" },
-	reading: { label: "Reading your handwriting…", dot: "animate-pulse bg-sky-500" },
-	read: { label: "Read: the tutor can use this note", dot: "bg-emerald-500" },
-	error: { label: "Could not be read to text", dot: "bg-red-500" },
+	unread: { label: "Not read to text yet (it is read when you leave the note)", dot: "bg-warning" },
+	reading: { label: "Reading your handwriting…", dot: "animate-pulse bg-primary" },
+	read: { label: "Read: the tutor can use this note", dot: "bg-success" },
+	error: { label: "Could not be read to text", dot: "bg-error" },
 };
 
 export function LectureNotesRow({ courseId }: { courseId: string }) {

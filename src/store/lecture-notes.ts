@@ -185,6 +185,7 @@ export function readSegments(courseId: string, noteId: string): NoteSegment[] {
 export function writeSegment(courseId: string, noteId: string, seg: NoteSegment): boolean {
 	if (!getNote(courseId, noteId)) return false;
 	const file = segFile(courseId, noteId, seg.id);
+	fingerprints.delete(file);
 	// the overview is of the ink as it was: any change to a segment drops it (it is drawn again when the card asks)
 	fs.rmSync(thumbFile(courseId, noteId), { force: true });
 	if (seg.strokes.length === 0) {
@@ -203,7 +204,7 @@ const trFile = (courseId: string, noteId: string, segId: string) => {
 	return path.join(noteDir(courseId, noteId), `tr-${segId}.json`);
 };
 
-const fingerprints = new Map<string, { mtimeMs: number; size: number; value: string }>();
+const fingerprints = new Map<string, { mtimeMs: number; size: number; ino: number; value: string }>();
 
 /**
  * A segment file's fingerprint (its size and a hash of its content), or null when there is no such segment. What a reading records, so a
@@ -215,9 +216,10 @@ export function segmentFingerprint(courseId: string, noteId: string, segId: stri
 	try {
 		const st = fs.statSync(file);
 		const hit = fingerprints.get(file);
-		if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.value;
+		// a write renames a new file into place (new inode), and drops the entry besides: two writes inside one clock tick cannot share a hash
+		if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size && hit.ino === st.ino) return hit.value;
 		const value = `${st.size}-${createHash("sha1").update(fs.readFileSync(file)).digest("hex").slice(0, 16)}`;
-		fingerprints.set(file, { mtimeMs: st.mtimeMs, size: st.size, value });
+		fingerprints.set(file, { mtimeMs: st.mtimeMs, size: st.size, ino: st.ino, value });
 		return value;
 	} catch {
 		return null;

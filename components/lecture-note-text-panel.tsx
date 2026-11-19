@@ -79,7 +79,7 @@ export function LectureNoteTextPanel({ courseId, noteId, onClose }: { courseId: 
 								<span>
 									Segment {s.index} {clock(s.startedAt) && `· from ${clock(s.startedAt)}`}
 								</span>
-								<span className={cn(s.state === "read" ? "text-muted-foreground" : "text-amber-500")}>{STATE_LABEL[s.state]}{s.edited && s.state === "read" ? " · corrected by you" : ""}</span>
+								<span className={cn(s.state === "read" ? "text-muted-foreground" : "text-warning")}>{STATE_LABEL[s.state]}{s.edited && s.state === "read" ? " · corrected by you" : ""}</span>
 							</div>
 							<textarea
 								value={value}
