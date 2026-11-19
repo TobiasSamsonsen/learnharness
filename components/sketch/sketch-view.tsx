@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { isDictationActive } from "@/components/dictation";
 import { FloatingProblem } from "@/components/sketch/floating-problem";
 import { SketchCanvas, type SketchTool } from "@/components/sketch/sketch-canvas";
+import { LassoLayer } from "@/components/sketch/lasso-layer";
+import { toWorld, type ViewApi } from "@/components/sketch/view-transform";
 import { ZoomIndicator } from "@/components/sketch/zoom-indicator";
 import { loadTone, saveTone, type SheetTone } from "@/components/sketch/sketch-sheet";
 import { loadBackground, loadPaperSize, nextBackground, PAPER_SIZES, saveBackground, savePaperSize, type SketchBackground } from "@/components/sketch/sketch-background";
@@ -17,7 +19,7 @@ import { useNativeInk } from "@/components/sketch/use-native-ink";
 import { loadEraser, loadPen, loadToolbar, saveEraser, savePen, saveToolbar, SKETCH_COLORS, SKETCH_WIDTHS, type EraserSettings, type PenSettings, type ToolbarPrefs } from "@/components/sketch/pen-settings";
 import { afterHydrate, applyOp, hasNewInk, pagePayload, readInk, revertOp, sendPage, thawInk, useInk, useInkSaveFailed, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
 import { cn } from "@/lib/utils";
-import { SketchPayloadError, sketchStrokeCut, type SketchPayload, type SketchStroke } from "@/src/core";
+import { boundsOf, pasteCopies, restyleStroke, SketchPayloadError, sketchStrokeCut, transformStroke, translation, type Affine, type SketchPayload, type SketchStroke } from "@/src/core";
 import { useInteractionLayer } from "../interaction-layers";
 
 /**
@@ -76,6 +78,11 @@ export interface SketchViewProps {
 	note?: { title: string; date: string; stamp: (stroke: SketchStroke) => void; /** Beside the title (a button), and over the canvas (a panel). */ extra?: React.ReactNode; panel?: React.ReactNode };
 }
 
+const NO_SELECTION: ReadonlySet<SketchStroke> = new Set();
+
+/** What the lasso copied (kept for the session, across sketches: copy here, paste in another lecture). */
+let lassoClipboard: readonly SketchStroke[] = [];
+
 /** A text field the key belongs to (the sketch shortcuts are single letters and digits). */
 function isEditable(target: EventTarget | null): boolean {
 	const el = target as HTMLElement | null;
@@ -110,6 +117,10 @@ export function SketchView({
 	const ink = useInk(inkKey);
 	const kept = useKept(inkKey);
 	const [tool, setTool] = useState<SketchTool>("pen");
+	// The lasso's selection, by stroke identity: a stroke the page replaced (an undo, a move) simply falls out of it.
+	const [selection, setSelection] = useState<ReadonlySet<SketchStroke>>(NO_SELECTION);
+	const webViewApi = useRef<ViewApi | null>(null);
+	const [pasteReady, setPasteReady] = useState(() => lassoClipboard.length > 0);
 	const [pen, setPenState] = useState<PenSettings>(loadPen);
 	const setPen = (next: PenSettings) => {
 		setPenState(next);
@@ -154,6 +165,17 @@ export function SketchView({
 	// the options panel belongs to its tool: another tool (the E key, say) takes it away
 	useEffect(() => setPanel((p) => ((p === "pen" || p === "eraser") && p !== tool ? null : p)), [tool]);
 	const canvasRef = useRef<HTMLDivElement | null>(null);
+	// While the lasso holds a selection the canvas (or the native layer) is handed the rest of the ink; the lasso draws the selection itself.
+	const lassoOn = tool === "lasso";
+	const shown = useMemo(() => (selection.size === 0 ? ink.strokes : ink.strokes.filter((s) => !selection.has(s))), [ink.strokes, selection]);
+	const nativeTool = tool === "lasso" ? "pen" : tool;
+	useEffect(() => {
+		if (!lassoOn && selection.size > 0) setSelection(NO_SELECTION);
+	}, [lassoOn, selection]);
+	useEffect(() => {
+		// an undo (or anything else) took the selected strokes away: nothing is selected any more
+		if (selection.size > 0 && shown.length === ink.strokes.length) setSelection(NO_SELECTION);
+	}, [selection, shown, ink.strokes]);
 	const setInk = (next: InkState) => {
 	setPanel(null);
 	writeInk(inkKey, next);
@@ -219,6 +241,7 @@ export function SketchView({
 	const redo = () => afterHydrate(inkKey, redoNow);
 	const addStroke = (stroke: InkState["strokes"][number]) =>
 		afterHydrate(inkKey, () => {
+			setSelection(NO_SELECTION);
 			note?.stamp(stroke); // in place: the native layer recognises the stroke it reported by its identity
 			addStrokeNow(stroke);
 		});
@@ -226,7 +249,55 @@ export function SketchView({
 	const cut = (path: number[], radius: number) => afterHydrate(inkKey, () => cutNow(path, radius));
 	const erase = (indices: number[]) => afterHydrate(inkKey, () => eraseNow(indices));
 	// The Android shell's native ink layer, when the setting is on (owner, M10): it draws under the transparent page
-	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: ink.strokes, kept: ink.thawed === undefined ? kept?.strokes : undefined, tool, pen, tone, eraser, onStroke: addStroke, onErase: erase, onCut: cut });
+	const native = useNativeInk({ inkKey, wrapperRef: canvasRef, strokes: shown, kept: ink.thawed === undefined ? kept?.strokes : undefined, tool: nativeTool, pen, tone, eraser, onStroke: addStroke, onErase: erase, onCut: cut });
+	/** The lasso's actions. Each is ONE operation in the history (undo takes it back) on the working strokes. */
+	const viewApi = (): ViewApi | null => (native.active ? { get: () => native.viewRef.current, set: native.setView, subscribe: native.onView } : webViewApi.current);
+	const selectedIndexes = (state: InkState) => state.strokes.flatMap((s, i) => (selection.has(s) ? [i] : []));
+	const changeSelection = (make: (s: SketchStroke) => SketchStroke) =>
+		afterHydrate(inkKey, () => {
+			const state = readInk(inkKey);
+			const changes = selectedIndexes(state).map((index) => ({ index, before: state.strokes[index]!, after: make(state.strokes[index]!) }));
+			if (changes.length === 0) return;
+			const op: InkOp = { kind: "transform", changes };
+			record(state, applyOp(state.strokes, op), op);
+			setSelection(new Set(changes.map((c) => c.after)));
+		});
+	const transformSelection = (m: Affine) => changeSelection((s) => transformStroke(s, m));
+	const restyleSelection = (style: { color?: string; size?: number }) => changeSelection((s) => restyleStroke(s, style));
+	const deleteSelection = () =>
+		afterHydrate(inkKey, () => {
+			const state = readInk(inkKey);
+			const removed = selectedIndexes(state).map((index) => ({ index, stroke: state.strokes[index]! }));
+			if (removed.length === 0) return;
+			record(state, applyOp(state.strokes, { kind: "erase", removed }), { kind: "erase", removed });
+			setSelection(NO_SELECTION);
+		});
+	const copySelection = () => {
+		const picked = readInk(inkKey).strokes.filter((s) => selection.has(s));
+		if (picked.length === 0) return;
+		lassoClipboard = picked;
+		setPasteReady(true);
+	};
+	const pasteClipboard = () =>
+		afterHydrate(inkKey, () => {
+			if (lassoClipboard.length === 0) return;
+			// the copy lands in the middle of what the learner is looking at
+			const box = boundsOf(lassoClipboard);
+			const api = viewApi();
+			const size = canvasRef.current?.getBoundingClientRect();
+			let dx = 24, dy = 24;
+			if (box && api && size) {
+				const c = toWorld(api.get(), size.width / 2, size.height / 2);
+				dx = c.x - (box.x0 + box.x1) / 2;
+				dy = c.y - (box.y0 + box.y1) / 2;
+			}
+			const added = pasteCopies(lassoClipboard, dx, dy);
+			if (note) for (const s of added) note.stamp(s); // pasted ink is new ink: it joins the open segment of a lecture note
+			const state = readInk(inkKey);
+			const op: InkOp = { kind: "paste", added };
+			record(state, applyOp(state.strokes, op), op);
+			setSelection(new Set(added));
+		});
 	// Submit has been pressed on a quiz answer: the confidence buttons stand in for it until one is pressed
 	const [asking, setAsking] = useState(false);
 	const submit = (confidenceIndex?: number) => {
@@ -264,8 +335,8 @@ export function SketchView({
 		const c = SKETCH_COLORS[i];
 		if (c) setPen({ ...pen, color: c.value });
 	};
-	const handlers = useRef({ undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, stepWidth, cycleBackground, confirmOpen: confirmClear, cancelConfirm: () => setConfirmClear(false), panelOpen: panel !== null, closePanel: () => setPanel(null) });
-	handlers.current = { undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, stepWidth, cycleBackground, confirmOpen: confirmClear, cancelConfirm: () => setConfirmClear(false), panelOpen: panel !== null, closePanel: () => setPanel(null) };
+	const handlers = useRef({ undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, stepWidth, cycleBackground, confirmOpen: confirmClear, cancelConfirm: () => setConfirmClear(false), panelOpen: panel !== null, closePanel: () => setPanel(null), selectionOpen: selection.size > 0, clearSelection: () => setSelection(NO_SELECTION), lasso: lassoOn, selectLasso: () => setTool("lasso"), copy: copySelection, paste: pasteClipboard, del: deleteSelection });
+	handlers.current = { undo, redo, submit, onClose, onCancelDictation, toggleEraser, pickColor, stepWidth, cycleBackground, confirmOpen: confirmClear, cancelConfirm: () => setConfirmClear(false), panelOpen: panel !== null, closePanel: () => setPanel(null), selectionOpen: selection.size > 0, clearSelection: () => setSelection(NO_SELECTION), lasso: lassoOn, selectLasso: () => setTool("lasso"), copy: copySelection, paste: pasteClipboard, del: deleteSelection };
 	// drawing on, or the answer changing under the page, puts Submit back
 	const strokeCount = ink.strokes.length;
 	useEffect(() => setAsking(false), [strokeCount, blocked, disabled, confidenceLevels]);
@@ -284,9 +355,15 @@ export function SketchView({
 			} else if (mod && e.key.toLowerCase() === "z") {
 				if (e.shiftKey) h.redo();
 				else h.undo();
-			} else if (!mod && !e.altKey && !e.shiftKey && /^[egEG1-5[\]]$/.test(e.key) && !isEditable(e.target)) {
+			} else if (h.lasso && !isEditable(e.target) && ((mod && (e.key.toLowerCase() === "c" || e.key.toLowerCase() === "v")) || (!mod && (e.key === "Delete" || e.key === "Backspace") && h.selectionOpen))) {
+				// the lasso's own keys: copy, paste, delete the selection (a field keeps its own copy and paste)
+				if (e.key === "Delete" || e.key === "Backspace") h.del();
+				else if (e.key.toLowerCase() === "c") h.copy();
+				else h.paste();
+			} else if (!mod && !e.altKey && !e.shiftKey && /^[egEGlL1-5[\]]$/.test(e.key) && !isEditable(e.target)) {
 				const k = e.key.toLowerCase();
-				if (k === "[") h.stepWidth(-1);
+				if (k === "l") h.selectLasso();
+				else if (k === "[") h.stepWidth(-1);
 				else if (k === "]") h.stepWidth(1);
 				else if (k === "e") h.toggleEraser();
 				else if (k === "g") h.cycleBackground();
@@ -308,6 +385,7 @@ export function SketchView({
 		onClose: () => {
 			const h = handlers.current;
 			if (h.confirmOpen) { h.cancelConfirm(); return "handled-without-close"; }
+			if (h.selectionOpen) { h.clearSelection(); return "handled-without-close"; }
 			if (h.panelOpen) { h.closePanel(); return "handled-without-close"; }
 			if (isDictationActive() && h.onCancelDictation) { h.onCancelDictation(); return "handled-without-close"; }
 			h.onClose();
@@ -404,7 +482,22 @@ export function SketchView({
 						<ZoomIndicator zoomPct={native.zoomPct} />
 					</>
 				) : (
-					<SketchCanvas strokes={ink.strokes} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={tool} brush={pen} eraser={eraser} background={background} tone={tone} paperSize={paperSize} onStroke={addStroke} onErase={erase} onCut={cut} onTwoFingerTap={undo} />
+					<SketchCanvas strokes={shown} viewApiRef={webViewApi} kept={ink.thawed === undefined ? kept?.strokes : undefined} tool={nativeTool} brush={pen} eraser={eraser} background={background} tone={tone} paperSize={paperSize} onStroke={addStroke} onErase={erase} onCut={cut} onTwoFingerTap={undo} />
+				)}
+{lassoOn && (
+					<LassoLayer
+						strokes={ink.strokes}
+						selected={selection}
+						onSelect={setSelection}
+						onTransform={transformSelection}
+						onRestyle={restyleSelection}
+						onDelete={deleteSelection}
+						onCopy={copySelection}
+						onPaste={pasteClipboard}
+						canPaste={pasteReady}
+						tone={tone}
+						viewApi={viewApi}
+					/>
 				)}
 {empty && ink.strokes.length === 0 && (
 					<p aria-hidden data-testid="sketch-empty-hint" className="pointer-events-none absolute inset-x-0 bottom-[20%] text-center text-sm text-muted-foreground/70">

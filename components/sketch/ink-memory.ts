@@ -26,7 +26,11 @@ export type InkOp =
 	/** Clear: every unsent stroke went at once (undo brings them all back). */
 	| { kind: "clear"; removed: SketchStroke[] }
 	/** The pixel eraser: each touched stroke (by index in the strokes it was cut from) became these pieces (maybe none). */
-	| { kind: "cut"; changes: { index: number; stroke: SketchStroke; pieces: SketchStroke[] }[] };
+	| { kind: "cut"; changes: { index: number; stroke: SketchStroke; pieces: SketchStroke[] }[] }
+	/** The lasso (2026-11-19): selected strokes moved, scaled, turned or restyled, each replaced IN PLACE (same index) by its new version. */
+	| { kind: "transform"; changes: { index: number; before: SketchStroke; after: SketchStroke }[] }
+	/** The lasso's paste: strokes added at the end (undo takes them out again). */
+	| { kind: "paste"; added: SketchStroke[] };
 
 export interface InkState {
 	/** The page being written. Normally just the unsent ink. After a THAW (below) it is the whole page: the
@@ -140,6 +144,10 @@ export function validOp(op: unknown): op is InkOp {
 			return strokes(v.removed);
 		case "cut":
 			return Array.isArray(v.changes) && v.changes.every((c: { index?: unknown; stroke?: unknown; pieces?: unknown }) => typeof c?.index === "number" && validStroke(c.stroke) && strokes(c.pieces));
+		case "transform":
+			return Array.isArray(v.changes) && v.changes.every((c: { index?: unknown; before?: unknown; after?: unknown }) => typeof c?.index === "number" && validStroke(c.before) && validStroke(c.after));
+		case "paste":
+			return strokes(v.added);
 		default:
 			return false;
 	}
@@ -698,6 +706,11 @@ export async function sendPage(
 /** Apply an operation to the strokes. */
 export function applyOp(strokes: SketchStroke[], op: InkOp): SketchStroke[] {
 	if (op.kind === "add") return [...strokes, op.stroke];
+	if (op.kind === "paste") return [...strokes, ...op.added];
+	if (op.kind === "transform") {
+		const after = new Map(op.changes.map((c) => [c.index, c.after]));
+		return strokes.map((s, i) => after.get(i) ?? s);
+	}
 	if (op.kind === "clear") return strokes.filter((s) => s.fresh === false); // what was sent stays
 	if (op.kind === "cut") {
 		const pieces = new Map(op.changes.map((c) => [c.index, c.pieces]));
@@ -710,6 +723,14 @@ export function applyOp(strokes: SketchStroke[], op: InkOp): SketchStroke[] {
 /** Reverse an operation. */
 export function revertOp(strokes: SketchStroke[], op: InkOp): SketchStroke[] {
 	if (op.kind === "add") return strokes.filter((s) => s !== op.stroke);
+	if (op.kind === "paste") {
+		const gone = new Set(op.added);
+		return strokes.filter((s) => !gone.has(s));
+	}
+	if (op.kind === "transform") {
+		const before = new Map(op.changes.map((c) => [c.index, c.before]));
+		return strokes.map((s, i) => before.get(i) ?? s);
+	}
 	if (op.kind === "clear") return [...strokes, ...op.removed];
 	if (op.kind === "cut") {
 		// ascending: every change before this one is already back to one stroke, so its index is still right

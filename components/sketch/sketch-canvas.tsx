@@ -13,7 +13,7 @@ import { liftTap, moveTap, startTap, type TapTracker } from "@/components/sketch
 import { dist, HOLD_MS, isHeld, linePoints, MIN_LINE_PX, snapAngle } from "@/components/sketch/straight-line";
 import { lineAngle, straightSegments, type Segment } from "@/components/sketch/line-angle";
 import { paintAngleGuide } from "@/components/sketch/angle-guide";
-import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, penWorldSize, pinchStep, thinPath, toScreen, toWorld, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
+import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, penWorldSize, pinchStep, thinPath, toScreen, toWorld, zoomAbout, type SketchView, type ViewApi } from "@/components/sketch/view-transform";
 
 /**
  * The web canvas (Android plan M1 + M3, infinite since M13c): an unbounded
@@ -63,7 +63,7 @@ export function lowestInk(strokes: readonly SketchStroke[]): number {
 	return low;
 }
 
-export type SketchTool = "pen" | "eraser";
+export type SketchTool = "pen" | "eraser" | "lasso";
 
 /** A stable "no kept page": a fresh `[]` default per render would look like new ink to the draw effect. */
 const NO_STROKES: readonly SketchStroke[] = [];
@@ -101,6 +101,7 @@ export function SketchCanvas({
 	onErase,
 	onCut,
 	onTwoFingerTap,
+	viewApiRef,
 	}: {
 	/** The unsent ink (editable). */
 	strokes: readonly SketchStroke[];
@@ -125,6 +126,8 @@ export function SketchCanvas({
 	onCut?: (path: number[], radius: number) => void;
 	/** Two fingers tapped together (M16b): undo, as in the note apps. */
 	onTwoFingerTap?: () => void;
+	/** Filled with this canvas's view (the lasso reads and moves it, and hears of every change). */
+	viewApiRef?: { current: ViewApi | null };
 	}) {
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -355,13 +358,22 @@ export function SketchCanvas({
 		draw();
 	};
 
+	const viewListeners = useRef(new Set<(v: SketchView) => void>());
+	if (viewApiRef) {
+		// the latest closures, every render: the lasso calls these from its own handlers
+		viewApiRef.current = { get: () => view.current, set: (v) => setViewRef.current(v), subscribe: (fn) => (viewListeners.current.add(fn), () => void viewListeners.current.delete(fn)) };
+	}
+	const setViewRef = useRef<(v: SketchView) => void>(() => {});
 	const setView = (next: SketchView) => {
 		view.current = next;
+		viewListeners.current.forEach((fn) => fn(next));
 		setZoomPct(Math.round(next.zoom * 100));
 		drawSoon();
 		clearTimeout(settleTimer.current);
 		settleTimer.current = setTimeout(settle, SETTLE_MS);
 	};
+
+	setViewRef.current = setView;
 
 	// Size the backing store to the viewport (and the screen's density); open on the ink the first time.
 	useEffect(() => {
@@ -377,6 +389,7 @@ export function SketchCanvas({
 			if (!fitted.current && r.width > 0 && r.height > 0) {
 				fitted.current = true;
 				view.current = fitInk([...keptRef.current, ...strokesRef.current].map((s) => s.points), r.width, r.height);
+				viewListeners.current.forEach((fn) => fn(view.current));
 				setZoomPct(Math.round(view.current.zoom * 100));
 			}
 			draw();

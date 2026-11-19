@@ -15,6 +15,12 @@ export interface SketchView {
 /** Narrow on purpose: with a pen of fixed screen width the writing size on the page can drift at most MAX_ZOOM / MIN_ZOOM (6x) between two strokes. */
 export const MIN_ZOOM = 0.5;
 export const MAX_ZOOM = 3;
+/** What the lasso needs of whoever owns the view (the web canvas, or the native hook): read it, move it, be told of changes. */
+export interface ViewApi {
+	get(): SketchView;
+	set(view: SketchView): void;
+	subscribe(listener: (view: SketchView) => void): () => void;
+}
 export const HOME_VIEW: SketchView = { zoom: 1, x: 0, y: 0 };
 
 /** Stroke widths the validator accepts (core/sketch.ts: 0.5 to 64). */

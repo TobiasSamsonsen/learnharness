@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDownIcon, ChevronUpIcon, EllipsisIcon, EraserIcon, LightbulbIcon, MessageSquareIcon, MicIcon, MoonIcon, PenLineIcon, Redo2Icon, SendIcon, SunIcon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronUpIcon, EllipsisIcon, EraserIcon, LassoSelectIcon, LightbulbIcon, MessageSquareIcon, MicIcon, MoonIcon, PenLineIcon, Redo2Icon, SendIcon, SunIcon, Trash2Icon, Undo2Icon, XIcon } from "lucide-react";
 import { ConfidenceButtons } from "@/components/confidence-buttons";
 import { isDictationActive } from "@/components/dictation";
 import { usePalmGuard } from "@/components/sketch/palm-guard";
@@ -118,26 +118,26 @@ export function SketchToolbar(p: SketchToolbarProps) {
 		return () => document.removeEventListener("pointerdown", onDown, true);
 	}, [panel, onPanel]);
 
-	const toolButton = (which: "pen" | "eraser") => {
+	const toolButton = (which: "pen" | "eraser" | "lasso") => {
 		const active = p.tool === which;
-		const name = which === "pen" ? "Pen" : "Eraser";
+		const name = which === "pen" ? "Pen" : which === "eraser" ? "Eraser" : "Lasso";
 		return (
 			<button
 				type="button"
-				data-testid={which === "pen" ? "sketch-tool-pen" : "sketch-eraser"}
+				data-testid={which === "pen" ? "sketch-tool-pen" : which === "eraser" ? "sketch-eraser" : "sketch-lasso"}
 				aria-label={name}
 				aria-pressed={active}
-				aria-expanded={active ? panel === which : undefined}
-				title={active ? `${name} options` : name}
+				aria-expanded={active && which !== "lasso" ? panel === which : undefined}
+				title={active && which !== "lasso" ? `${name} options` : name}
 				onClick={() => {
 					if (!active) {
 						p.onTool(which);
 						onPanel(null);
-					} else onPanel(panel === which ? null : which);
+					} else if (which !== "lasso") onPanel(panel === which ? null : which);
 				}}
 				className={cn(barButton, active && "bg-accent")}
 			>
-				{which === "pen" ? <PenLineIcon className="size-4" /> : <EraserIcon className="size-4" />}
+				{which === "pen" ? <PenLineIcon className="size-4" /> : which === "eraser" ? <EraserIcon className="size-4" /> : <LassoSelectIcon className="size-4" />}
 				{which === "pen" && (
 					<span
 						aria-hidden
@@ -195,6 +195,7 @@ export function SketchToolbar(p: SketchToolbarProps) {
 					<span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border" />
 					{toolButton("pen")}
 					{toolButton("eraser")}
+					{toolButton("lasso")}
 					<button
 						type="button"
 						data-testid="sketch-more"

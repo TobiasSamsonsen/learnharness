@@ -88,6 +88,8 @@ export interface NativeInk {
 	/** Be told of every view change (a gesture, the wheel, a zoom button), for what the page draws under the shell's ink, like the paper.
 	 *  Called at once and without a React render: a pan or zoom used to re-render the whole sketch view per event. Returns the unsubscribe. */
 	onView: (listener: (view: SketchView) => void) => () => void;
+	/** Move the view (the lasso pans and zooms through it, as the shell's own gestures do). */
+	setView: (view: SketchView) => void;
 /** Back to the ink: the home view when it fits, else a view that shows all of it. */
 }
 
@@ -295,5 +297,6 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 		zoomPct,
 		viewRef: view,
 		onView,
+		setView: applyView,
 };
 }

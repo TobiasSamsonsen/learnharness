@@ -100,6 +100,7 @@ export * from "./lecture-notes.ts";
 export * from "./lecture-note-text.ts";
 // Sketch answers (fork addition, 2026-10-26 — the Android plan M1).
 export * from "./sketch.ts";
+export * from "./sketch-lasso.ts";
 export * from "./sketch-gate.ts";
 export * from "./ink-bridge.ts";
 export * from "./speech-bridge.ts";
