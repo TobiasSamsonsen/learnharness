@@ -119,3 +119,12 @@ test("strokesJson: the same text JSON.stringify makes, stroke by stroke, and aga
 	grown.points.push(3, 4, 0.5);
 	assert.equal(strokesJson([grown]), JSON.stringify([grown]));
 });
+
+test("strokesJson for the shell leaves a lecture note's id and seg out (its fast reader knows no other keys); every other writer keeps them", () => {
+	const note = { size: 4, id: "kabc", seg: "g1abc2def", points: [1, 2, 0.5] };
+	const plain = { size: 4, points: [3, 4, 0.5] };
+	assert.equal(strokesJson([note, plain], true), JSON.stringify([{ size: 4, points: [1, 2, 0.5] }, plain]));
+	assert.equal(strokesJson([note, plain]), JSON.stringify([note, plain]), "saves keep the ids");
+	assert.equal(strokesJson([note], true), JSON.stringify([{ size: 4, points: [1, 2, 0.5] }]), "the second time, from the kept text");
+	assert.match(encodeInkOp({ op: "strokes", strokes: [note] }), /^strokes \[\{"size":4,"points":\[1,2,0\.5\]\}\]$/);
+});

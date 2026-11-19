@@ -43,7 +43,7 @@ export function announceApplied(changes: readonly AppliedChange[]): void {
 	for (const { path: rel } of changes) {
 		const chat = /^(?:chats|sketches|materials)\/([^/.]+)(?:\.json|\/)/.exec(rel);
 		if (chat) chats.add(chat[1] as string);
-		if (rel.startsWith("courses/")) courses = true;
+		if (rel.startsWith("courses/") || rel.startsWith("lecture-notes/")) courses = true;
 	}
 	if (chats.size > 0) emit("chats-changed", {});
 	for (const chatId of chats) emit("record-changed", { chatId });

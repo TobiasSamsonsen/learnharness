@@ -100,6 +100,8 @@ onClose: () => void;
 	/** The Steer button (owner, 2026-11-18): set the question aside and write to the tutor instead; the dock opens its message box. Absent
 	 *  where the question cannot be steered. It lives in the More menu because the bar has no room beside Submit. */
 	onSteer?: () => void;
+	/** A lecture note (2026-11-19): nothing is submitted and nothing is cleared in one go (a note is deleted from its card). */
+	noteMode?: boolean;
 }
 
 export function SketchToolbar(p: SketchToolbarProps) {
@@ -223,7 +225,7 @@ export function SketchToolbar(p: SketchToolbarProps) {
 							)}
 						</button>
 					)}
-					{!p.asking && (
+					{!p.asking && !p.noteMode && (
 						<button
 							type="button"
 							data-testid="sketch-submit"
@@ -393,20 +395,22 @@ export function SketchToolbar(p: SketchToolbarProps) {
 									</button>
 								</PanelSection>
 								<PanelSection title="Page">
-									<button
-										type="button"
-										data-testid="sketch-clear"
-										aria-label="Clear"
-										disabled={!p.canClear}
-										onClick={() => {
-											onPanel(null);
-											p.onClear();
-										}}
-										className="lh-touch inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
-									>
-										<Trash2Icon className="size-4" />
-										Clear
-									</button>
+									{!p.noteMode && (
+										<button
+											type="button"
+											data-testid="sketch-clear"
+											aria-label="Clear"
+											disabled={!p.canClear}
+											onClick={() => {
+												onPanel(null);
+												p.onClear();
+											}}
+											className="lh-touch inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+										>
+											<Trash2Icon className="size-4" />
+											Clear
+										</button>
+									)}
 									<SketchMic />
 								</PanelSection>
 								{p.onSteer && (

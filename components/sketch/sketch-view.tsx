@@ -17,7 +17,7 @@ import { useNativeInk } from "@/components/sketch/use-native-ink";
 import { loadEraser, loadPen, loadToolbar, saveEraser, savePen, saveToolbar, SKETCH_COLORS, SKETCH_WIDTHS, type EraserSettings, type PenSettings, type ToolbarPrefs } from "@/components/sketch/pen-settings";
 import { afterHydrate, applyOp, hasNewInk, pagePayload, readInk, revertOp, sendPage, thawInk, useInk, useInkSaveFailed, useKept, writeInk, type InkOp, type InkState } from "@/components/sketch/ink-memory";
 import { cn } from "@/lib/utils";
-import { SketchPayloadError, sketchStrokeCut, type SketchPayload } from "@/src/core";
+import { SketchPayloadError, sketchStrokeCut, type SketchPayload, type SketchStroke } from "@/src/core";
 import { useInteractionLayer } from "../interaction-layers";
 
 /**
@@ -71,6 +71,9 @@ export interface SketchViewProps {
 	hint?: HintControl;
 	/** The Steer button, in the More menu (owner, 2026-11-18): set the question aside and write to the tutor. Absent where it cannot be steered. */
 	onSteer?: () => void;
+	/** A lecture note (owner plan, 2026-11-19): the canvas is the note's, nothing is submitted, new strokes get their id and segment
+	 *  from `stamp`, and the title and date show instead of the problem box. */
+	note?: { title: string; date: string; stamp: (stroke: SketchStroke) => void };
 }
 
 /** A text field the key belongs to (the sketch shortcuts are single letters and digits). */
@@ -102,6 +105,7 @@ export function SketchView({
 	confidenceLevels = false,
 	hint,
 	onSteer,
+	note,
 }: SketchViewProps) {
 	const ink = useInk(inkKey);
 	const kept = useKept(inkKey);
@@ -213,7 +217,11 @@ export function SketchView({
 	// is applied on top of the stored ink, never on an empty page that would then be saved over it.
 	const undo = () => afterHydrate(inkKey, undoNow);
 	const redo = () => afterHydrate(inkKey, redoNow);
-	const addStroke = (stroke: InkState["strokes"][number]) => afterHydrate(inkKey, () => addStrokeNow(stroke));
+	const addStroke = (stroke: InkState["strokes"][number]) =>
+		afterHydrate(inkKey, () => {
+			note?.stamp(stroke); // in place: the native layer recognises the stroke it reported by its identity
+			addStrokeNow(stroke);
+		});
 	const clear = () => afterHydrate(inkKey, clearNow);
 	const cut = (path: number[], radius: number) => afterHydrate(inkKey, () => cutNow(path, radius));
 	const erase = (indices: number[]) => afterHydrate(inkKey, () => eraseNow(indices));
@@ -311,7 +319,8 @@ export function SketchView({
 	// they are worked out again only when the ink or the kept page is another one.
 	const keptShown = ink.thawed === undefined ? kept?.strokes : undefined;
 	const saveFailed = useInkSaveFailed(inkKey);
-	const share = useMemo(() => limitShare(ink.strokes, keptShown), [ink.strokes, keptShown]);
+	// a lecture note has no stroke or point limit to warn about: it is saved in segments, not submitted as one page
+	const share = useMemo(() => (note ? 0 : limitShare(ink.strokes, keptShown)), [ink.strokes, keptShown, note]);
 	const empty = useMemo(() => !hasNewInk(ink), [ink]);
 	const canUndo = useMemo(() => ink.undo.length > 0 || ink.strokes.some((s) => s.fresh !== false), [ink]);
 	if (typeof document === "undefined") return null;
@@ -325,6 +334,7 @@ export function SketchView({
 		blocked,
 		share,
 		saveFailed,
+		inNote: note !== undefined,
 	});
 	return createPortal(
 		<div
@@ -382,6 +392,7 @@ export function SketchView({
 				onConfidence={(index) => submit(index)}
 				hint={hint}
 				onSteer={onSteer}
+				noteMode={note !== undefined}
 			/>
 			{/* The whole page is canvas; the problem floats above it (owner,
 			    2026-10-26) — draggable, collapsible to a pill. */}
@@ -400,9 +411,15 @@ export function SketchView({
 						Write or draw here
 					</p>
 				)}
-				<FloatingProblem label={label} statement={statement} lessonText={lessonText}>
-					{choices}
-				</FloatingProblem>
+				{note ? (
+					<p data-testid="note-title" className="pointer-events-none absolute left-3 top-2 max-w-[60%] truncate text-xs text-muted-foreground/80">
+						{note.title} · {note.date}
+					</p>
+				) : (
+					<FloatingProblem label={label} statement={statement} lessonText={lessonText}>
+						{choices}
+					</FloatingProblem>
+				)}
 				{confirmClear && (
 					// a touch hole (data-ink-hole): the native layer must not draw under it
 					<div data-ink-hole="" data-testid="sketch-clear-dialog" role="alertdialog" aria-modal="true" aria-labelledby="sketch-clear-title" className="absolute inset-0 z-20 grid place-items-center bg-black/40 p-4">

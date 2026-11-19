@@ -78,6 +78,7 @@ import { callUsage } from "../agent/subagents/extraction.ts";
 import { materialTools } from "../agent/tools/materials.ts";
 import { plannerGraphTools } from "../agent/tools/planner-graph.ts";
 import { stampNewSession } from "./chats.ts";
+import { removeCourseLectureNotes } from "./lecture-notes.ts";
 import { listMaterials, removeMaterial, waitForMaterials } from "./materials.ts";
 import { stores } from "./stores.ts";
 
@@ -537,6 +538,7 @@ export function deleteCourse(courseId: string): boolean {
 	weighRuns().get(courseId)?.abort();
 	for (const m of stores.materialStore.list(courseId)) removeMaterial(courseId, m.id);
 	stores.materialStore.removeAll(courseId);
+	removeCourseLectureNotes(courseId);
 	return stores.courseStore.deleteCourse(courseId);
 }
 

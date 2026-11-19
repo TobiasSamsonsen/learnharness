@@ -38,6 +38,9 @@ export const PATHS = {
 	/** Lesson source material (fork addition): data/materials/<chatId>/ —
 	 *  index.json plus one folder per material (src/store/materials.ts). */
 	materials: path.join(/* turbopackIgnore: true */ DATA_ROOT, "materials"),
+	/** Lecture notes (fork addition, 2026-11-19): data/lecture-notes/<courseId>/<noteId>/ — note.json plus one seg-<id>.json
+	 *  per segment of ink (src/store/lecture-notes.ts). */
+	lectureNotes: path.join(/* turbopackIgnore: true */ DATA_ROOT, "lecture-notes"),
 	/** Courses (fork addition — docs/courses.md): one JSON record per
 	 *  course (src/store/courses.ts). */
 	courses: path.join(/* turbopackIgnore: true */ DATA_ROOT, "courses"),

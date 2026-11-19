@@ -5,6 +5,7 @@ import { Loader2Icon } from "lucide-react";
 import { examDateLabel, forecastLine, readinessBasis, readinessStep, understandingColor, type Readiness, SKILL_WEIGHTS, WEIGHT_LABELS, type CoursePlan, type CourseMode, type CourseSkillView, type SkillWeightValue } from "@/src/core";
 import { cn } from "@/lib/utils";
 import { PAGE_HEAD, SECTION_HEAD } from "@/components/section-heads";
+import { LectureNotesRow } from "@/components/lecture-notes-row";
 
 /**
  * The exam plan on the course page (owner, 2026-11-13 — core/exam-plan.ts): today's list and the exam card (the
@@ -262,61 +263,64 @@ export function ExamPlanSection(props: ExamPlanSectionProps) {
 					</div>
 				</div>
 			)}
-			<div className={CARD}>
-				<div className={PAGE_HEAD}>Exam</div>
-				{examDate ? (
-					<div className="flex items-baseline gap-2" data-testid="course-exam-countdown">
-						<span className="font-mono text-4xl font-semibold leading-none">{examCountdown(plan.daysLeft ?? 0)}</span>
-						<span className="text-sm text-muted-foreground">{examDateLabel(examDate)}</span>
-					</div>
-				) : (
-					<input
-						type="date"
-						aria-label="Exam date"
-						data-testid="course-exam-date"
-						value=""
-						onChange={(e) => void patch({ examDate: e.target.value === "" ? null : e.target.value })}
-						className="rounded-md border bg-background px-2 py-1 text-xs outline-none"
-					/>
-				)}
-				{readiness && <ReadinessStrip readiness={readiness} />}
-				{(examDate || plan.skillsLeft > 0) && (
-					<p className="text-xs text-muted-foreground" data-testid="course-plan-headline">
-						{skillsLeftLabel(plan.skillsLeft)}
-					</p>
-				)}
-				{f && (
-					<p className={cn("text-xs", f.status === "behind" ? "text-warning" : "text-muted-foreground")} data-testid="course-plan-forecast">
-						{forecastLine(f)}
-					</p>
-				)}
-				{(weighing || starting) && (
-					<span className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="course-weighing">
-						<Loader2Icon className="size-3.5 animate-spin" />
-						Reading the exams…
-					</span>
-				)}
-				{hasWeights && !weighing && (
-					<p className="text-xs text-muted-foreground" data-testid="course-weights-summary">
-						Skills weighed by exam importance.
-					</p>
-				)}
-				{!hasWeights && !weighing && !starting && (
-					<p className="text-xs text-muted-foreground" data-testid="course-exam-readiness-prompt">
-						Weigh by exams to get a readiness score.
-					</p>
-				)}
-				{!hasWeights && (
-					<button type="button" className={BTN} disabled={!canWeigh || weighing || starting || busy} data-testid="course-weigh-button" onClick={() => void weigh()}>
-						Weigh by exams
-					</button>
-				)}
-				{weightsError && !weighing && (
-					<p className="text-xs text-error" data-testid="course-weights-error">
-						Weighing failed: {weightsError}
-					</p>
-				)}
-				{error && <p className="text-xs text-error">{error}</p>}
+			<div className="min-w-0 space-y-3" data-testid="course-exam-column">
+				<div className={CARD}>
+					<div className={PAGE_HEAD}>Exam</div>
+					{examDate ? (
+						<div className="flex items-baseline gap-2" data-testid="course-exam-countdown">
+							<span className="font-mono text-4xl font-semibold leading-none">{examCountdown(plan.daysLeft ?? 0)}</span>
+							<span className="text-sm text-muted-foreground">{examDateLabel(examDate)}</span>
+						</div>
+					) : (
+						<input
+							type="date"
+							aria-label="Exam date"
+							data-testid="course-exam-date"
+							value=""
+							onChange={(e) => void patch({ examDate: e.target.value === "" ? null : e.target.value })}
+							className="rounded-md border bg-background px-2 py-1 text-xs outline-none"
+						/>
+					)}
+					{readiness && <ReadinessStrip readiness={readiness} />}
+					{(examDate || plan.skillsLeft > 0) && (
+						<p className="text-xs text-muted-foreground" data-testid="course-plan-headline">
+							{skillsLeftLabel(plan.skillsLeft)}
+						</p>
+					)}
+					{f && (
+						<p className={cn("text-xs", f.status === "behind" ? "text-warning" : "text-muted-foreground")} data-testid="course-plan-forecast">
+							{forecastLine(f)}
+						</p>
+					)}
+					{(weighing || starting) && (
+						<span className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="course-weighing">
+							<Loader2Icon className="size-3.5 animate-spin" />
+							Reading the exams…
+						</span>
+					)}
+					{hasWeights && !weighing && (
+						<p className="text-xs text-muted-foreground" data-testid="course-weights-summary">
+							Skills weighed by exam importance.
+						</p>
+					)}
+					{!hasWeights && !weighing && !starting && (
+						<p className="text-xs text-muted-foreground" data-testid="course-exam-readiness-prompt">
+							Weigh by exams to get a readiness score.
+						</p>
+					)}
+					{!hasWeights && (
+						<button type="button" className={BTN} disabled={!canWeigh || weighing || starting || busy} data-testid="course-weigh-button" onClick={() => void weigh()}>
+							Weigh by exams
+						</button>
+					)}
+					{weightsError && !weighing && (
+						<p className="text-xs text-error" data-testid="course-weights-error">
+							Weighing failed: {weightsError}
+						</p>
+					)}
+					{error && <p className="text-xs text-error">{error}</p>}
+				</div>
+				<LectureNotesRow courseId={courseId} />
 			</div>
 		</section>
 	);

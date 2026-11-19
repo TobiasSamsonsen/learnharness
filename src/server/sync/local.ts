@@ -19,7 +19,7 @@ export function gitBlobSha(bytes: Uint8Array): string {
 
 /** The data dir's synced entries. Anything else (models/, jobs/, debug/,
  *  sync/, secrets) is never even listed: models/ alone is 1.7 GB. */
-const ROOTS = ["chats", "courses", "graph", "sketches", "prompts", "materials"] as const;
+const ROOTS = ["chats", "courses", "graph", "sketches", "prompts", "materials", "lecture-notes"] as const;
 
 function* walk(dir: string, rel: string): Generator<string> {
 	let entries: fs.Dirent[];

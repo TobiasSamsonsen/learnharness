@@ -118,6 +118,52 @@ export function sketchOfMessage(m: AgentMessage): SketchRef | null {
 /** A payload that breaks the contract (callers map it to their 400). */
 export class SketchPayloadError extends Error {}
 
+/** A stroke id or segment id of a lecture note: short and safe for a file name and an ink key. */
+const NOTE_ID_RE = /^[A-Za-z0-9_-]{1,24}$/;
+
+/** A fresh stroke id (lecture notes): the draw time and a random tail, so two devices never mint the same one. */
+export function newStrokeId(): string {
+	return `k${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** Validate ONE stroke (shape and ranges only, no counts or render limits); returns a clean copy. `i` names it in the error. */
+export function parseSketchStroke(raw: unknown, i = 0): SketchStroke {
+	const s = raw as Record<string, unknown>;
+	if (typeof s !== "object" || s === null) throw new SketchPayloadError(`stroke ${i} must be an object`);
+	if (typeof s.size !== "number" || !(s.size >= 0.5 && s.size <= 64)) {
+		throw new SketchPayloadError(`stroke ${i} size is out of range`);
+	}
+	if (s.color !== undefined && (typeof s.color !== "string" || !COLOR_RE.test(s.color))) {
+		throw new SketchPayloadError(`stroke ${i} color is invalid`);
+	}
+	const p = s.points;
+	if (!Array.isArray(p) || p.length < 3 || p.length % 3 !== 0) {
+		throw new SketchPayloadError(`stroke ${i} points must be [x, y, pressure] triples`);
+	}
+	for (let k = 0; k < p.length; k++) {
+		const n = p[k];
+		const ok =
+			typeof n === "number" &&
+			Number.isFinite(n) &&
+			(k % 3 === 2 ? n >= 0 && n <= 1 : Math.abs(n) <= 1_000_000);
+		if (!ok) throw new SketchPayloadError(`stroke ${i} has an invalid point value`);
+	}
+	if (s.fresh !== undefined && typeof s.fresh !== "boolean") {
+		throw new SketchPayloadError(`stroke ${i} fresh must be a boolean`);
+	}
+	for (const key of ["id", "seg"] as const) {
+		if (s[key] !== undefined && (typeof s[key] !== "string" || !NOTE_ID_RE.test(s[key] as string))) {
+			throw new SketchPayloadError(`stroke ${i} ${key} is invalid`);
+		}
+	}
+	const stroke: SketchStroke = { size: s.size, points: p as number[] };
+	if (s.color !== undefined) stroke.color = s.color;
+	if (s.fresh === true) stroke.fresh = true;
+	if (s.id !== undefined) stroke.id = s.id as string;
+	if (s.seg !== undefined) stroke.seg = s.seg as string;
+	return stroke;
+}
+
 /** Validate a wire payload (hand-written: the limits are counts and bytes
  *  no schema expresses). Returns a clean copy; throws SketchPayloadError. */
 export function parseSketchPayload(value: unknown): SketchPayload {
@@ -132,33 +178,8 @@ export function parseSketchPayload(value: unknown): SketchPayload {
 	}
 	let points = 0;
 	const strokes: SketchStroke[] = v.strokes.map((raw, i) => {
-		const s = raw as Record<string, unknown>;
-		if (typeof s !== "object" || s === null) throw new SketchPayloadError(`stroke ${i} must be an object`);
-		if (typeof s.size !== "number" || !(s.size >= 0.5 && s.size <= 64)) {
-			throw new SketchPayloadError(`stroke ${i} size is out of range`);
-		}
-		if (s.color !== undefined && (typeof s.color !== "string" || !COLOR_RE.test(s.color))) {
-			throw new SketchPayloadError(`stroke ${i} color is invalid`);
-		}
-		const p = s.points;
-		if (!Array.isArray(p) || p.length < 3 || p.length % 3 !== 0) {
-			throw new SketchPayloadError(`stroke ${i} points must be [x, y, pressure] triples`);
-		}
-		for (let k = 0; k < p.length; k++) {
-			const n = p[k];
-			const ok =
-				typeof n === "number" &&
-				Number.isFinite(n) &&
-				(k % 3 === 2 ? n >= 0 && n <= 1 : Math.abs(n) <= 1_000_000);
-			if (!ok) throw new SketchPayloadError(`stroke ${i} has an invalid point value`);
-		}
-		points += p.length / 3;
-		if (s.fresh !== undefined && typeof s.fresh !== "boolean") {
-			throw new SketchPayloadError(`stroke ${i} fresh must be a boolean`);
-		}
-		const stroke: SketchStroke = { size: s.size, points: p as number[] };
-		if (s.color !== undefined) stroke.color = s.color;
-		if (s.fresh === true) stroke.fresh = true;
+		const stroke = parseSketchStroke(raw, i);
+		points += stroke.points.length / 3;
 		return stroke;
 	});
 	if (points > SKETCH_MAX_POINTS) throw new SketchPayloadError(`sketch has more than ${SKETCH_MAX_POINTS} points`);
@@ -570,7 +591,13 @@ export function sketchStrokeCut(s: SketchStroke, path: readonly number[], radius
 				// the cut ends are new points; between them only the original ones stay
 				if (orig || i === 0 || i === run.length - 1) points.push(q2(x), q2(y), q2(q));
 			});
-			pieces.push(s.color === undefined ? { size: s.size, points } : { size: s.size, color: s.color, points });
+			const piece: SketchStroke = s.color === undefined ? { size: s.size, points } : { size: s.size, color: s.color, points };
+			// a lecture note's piece stays in its parent's segment, with an id of its own
+			if (s.seg !== undefined) {
+				piece.seg = s.seg;
+				piece.id = newStrokeId();
+			}
+			pieces.push(piece);
 		}
 		run = [];
 	};

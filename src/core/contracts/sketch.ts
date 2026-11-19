@@ -24,6 +24,10 @@ export interface SketchStroke {
 	 *  these strokes' rows in the margin. Only ever sent as `true`; never
 	 *  stored — a stored stroke is kept ink. */
 	fresh?: boolean;
+	/** Lecture notes only (2026-11-19): a stable id (letters, digits, _ and -, at most 24) and the id of the segment of
+	 *  the note this stroke belongs to. Absent on answer sketches. */
+	id?: string;
+	seg?: string;
 	points: number[];
 }
 

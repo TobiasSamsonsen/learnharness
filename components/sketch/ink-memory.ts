@@ -227,7 +227,28 @@ function setSaveFailed(key: string, failed: boolean): void {
 	notify();
 }
 
+/** Pages that are not kept in the browser's storage at all (lecture notes, 2026-11-19): a key with a registered prefix hands its
+ *  (debounced) state to its own saver instead, which owns durability. */
+type InkPersistHandler = (key: string, state: InkState) => void;
+const persistHandlers: { prefix: string; fn: InkPersistHandler }[] = [];
+export function registerInkPersist(prefix: string, fn: InkPersistHandler): void {
+	const i = persistHandlers.findIndex((h) => h.prefix === prefix);
+	if (i >= 0) persistHandlers[i] = { prefix, fn };
+	else persistHandlers.push({ prefix, fn });
+}
+const handlerFor = (key: string): InkPersistHandler | undefined => persistHandlers.find((h) => key.startsWith(h.prefix))?.fn;
+
+/** A saver of a handled page (note-ink.ts) reports that its save failed or has recovered: the view says so. */
+export function markInkSaveFailed(key: string, failed: boolean): void {
+	setSaveFailed(key, failed);
+}
+
 function persistInk(key: string, state: InkState): void {
+	const handler = handlerFor(key);
+	if (handler) {
+		handler(key, state);
+		return;
+	}
 	// the server copy goes first and does not depend on the local write: a full store must not stop it
 	if (state.thawed !== undefined) {
 		// a thawed page is the sent page with edits: the server already holds the sent part, and no draft is kept
@@ -531,7 +552,7 @@ export function writeKept(key: string, page: KeptPage | null): void {
 const restoreTried = new Set<string>();
 /** A page opened with no ink of its own asks the server for its draft, once per session: the browser's copy may be gone. */
 export function restoreDraft(key: string): void {
-	if (restoreTried.has(key) || !inkDraftsEnabled()) return;
+	if (restoreTried.has(key) || !inkDraftsEnabled() || handlerFor(key)) return;
 	restoreTried.add(key);
 	// only a page that is really empty asks the server: after hydration, "empty" is true
 	afterHydrate(key, () => {

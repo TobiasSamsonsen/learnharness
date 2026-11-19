@@ -78,14 +78,21 @@ const BRUSH_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
  * The point count guards the one edit that could make a kept text stale.
  */
 const strokeText = new WeakMap<SketchStroke, { len: number; text: string }>();
-export function strokesJson(strokes: readonly SketchStroke[]): string {
+/** The same for the shell's wire: without a lecture note's `id` and `seg`. The shell's fast reader (InkJson.kt) returns null at a key it
+ *  does not know and the page then goes through the slow general reader, about ten times slower, on every push of a note of thousands of
+ *  strokes; the shell has no use for either key. */
+const shellText = new WeakMap<SketchStroke, { len: number; text: string }>();
+export function strokesJson(strokes: readonly SketchStroke[], forShell = false): string {
 	let out = "[";
 	for (let i = 0; i < strokes.length; i++) {
 		const s = strokes[i]!;
-		let kept = strokeText.get(s);
+		const own = forShell && (s.id !== undefined || s.seg !== undefined);
+		const cache = own ? shellText : strokeText;
+		let kept = cache.get(s);
 		if (!kept || kept.len !== s.points.length) {
-			kept = { len: s.points.length, text: JSON.stringify(s) };
-			strokeText.set(s, kept);
+			const { id: _id, seg: _seg, ...plain } = s;
+			kept = { len: s.points.length, text: JSON.stringify(own ? plain : s) };
+			cache.set(s, kept);
 		}
 		out += i === 0 ? kept.text : "," + kept.text;
 	}
@@ -115,7 +122,7 @@ export function encodeInkOp(op: NativeInkOp): string {
 			return `brush ${op.color} ${num(op.size)}`;
 		case "strokes":
 		case "kept":
-			return `${op.op} ${strokesJson(op.strokes)}`;
+			return `${op.op} ${strokesJson(op.strokes, true)}`;
 		case "view":
 			if (!(op.zoom >= 0.5 && op.zoom <= 3) || !Number.isFinite(op.x) || !Number.isFinite(op.y)) throw new Error("view needs a zoom of 0.5-3 and finite coordinates");
 			return `view ${op.zoom.toFixed(4)} ${num(op.x)} ${num(op.y)}`;
