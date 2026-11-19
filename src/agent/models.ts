@@ -17,6 +17,7 @@ import { type ModelRole } from "../../config.ts";
 import { DEFAULT_THINKING_ORDER } from "../core/settings.ts";
 import packageMetadata from "../../package.json" with { type: "json" };
 import { chatGPTModel } from "./chatgpt-bridge.ts";
+import { withGeminiFourModels } from "./google-gemini-4.ts";
 import { chatGPTStream } from "./chatgpt-stream.ts";
 import type { ChatGPTDispatchLifecycle } from "./chatgpt-request-cycle.ts";
 import { createClaudeCodeProvider } from "./claude-code/provider.ts";
@@ -90,7 +91,9 @@ export function piModels() {
 			// replace its lazy forwarding; preserve the native factory's auth/catalog.
 			collection.setProvider(provider.id === "amazon-bedrock"
 				? { ...provider, ...lazyApi(() => import("@earendil-works/pi-ai/api/bedrock-converse-stream")) }
-				: provider);
+				: provider.id === "google"
+					? withGeminiFourModels(provider)
+					: provider);
 		}
 		collection.setProvider(createClaudeCodeProvider(streamClaudeCode));
 	}
