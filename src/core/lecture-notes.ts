@@ -56,6 +56,12 @@ export function newSegmentId(now = Date.now()): string {
 	return `g${now.toString(36)}`;
 }
 
+/** When a segment began (epoch ms): its id is the draw time of its first stroke. */
+export function segmentStartOf(segId: string): number {
+	const n = Number.parseInt(segId.slice(1), 36);
+	return Number.isFinite(n) ? n : 0;
+}
+
 /** A calendar date as YYYY-MM-DD, or null when it is not a real day. */
 export function parseNoteDate(value: unknown): string | null {
 	if (typeof value !== "string" || !DATE_RE.test(value)) return null;

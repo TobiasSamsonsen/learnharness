@@ -49,7 +49,7 @@ export const thumbnailUrl = (courseId: string, noteId: string, inkAt: number) =>
 
 /** What the tutor has of a note, segment by segment (GET .../transcript). */
 export interface NoteTranscriptView {
-	segments: { id: string; index: number; startedAt: number; endedAt: number; state: "unread" | "read" | "changed"; text: string; digest: string; edited: boolean }[];
+	segments: { id: string; index: number; startedAt: number; state: "unread" | "read" | "changed"; text: string; digest: string; edited: boolean }[];
 	digest: string;
 	status: LectureNoteItem["read"];
 	error?: string;

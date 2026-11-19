@@ -27,7 +27,7 @@ const { syncScope } = await import("../src/core/sync-plan.ts");
 
 import type { NoteTranscript } from "../src/core/lecture-note-text.ts";
 
-const tr = (segId: string, bytes: number, over: Partial<NoteTranscript> = {}): NoteTranscript => ({ segId, bytes, text: "t", digest: "d", edited: false, at: "2026-11-19T10:00:00Z", ...over });
+const tr = (segId: string, fingerprint: string, over: Partial<NoteTranscript> = {}): NoteTranscript => ({ segId, fingerprint, text: "t", digest: "d", edited: false, at: "2026-11-19T10:00:00Z", ...over });
 
 async function call(tool: { execute: (...a: never[]) => Promise<unknown> }, args: unknown) {
 	return (await (tool.execute as (id: string, a: unknown) => Promise<{ content: { type: string; text?: string }[] }>)("c1", args)).content;
@@ -35,12 +35,13 @@ async function call(tool: { execute: (...a: never[]) => Promise<unknown> }, args
 const textOf = (c: { type: string; text?: string }[]) => c.map((x) => x.text ?? "").join("");
 
 describe("read state and the index", () => {
-	it("a reading is current while the ink has the size it had; a corrected one is kept when the ink changes", () => {
-		assert.equal(text.readState(undefined, 10), "unread");
-		assert.equal(text.readState(tr("g1", 10), 10), "read");
-		assert.equal(text.readState(tr("g1", 10), 12), "unread");
-		assert.equal(text.readState(tr("g1", 10, { edited: true }), 12), "changed");
-		assert.equal(text.readState(tr("g1", 10, { edited: true }), 10), "read");
+	it("a reading is current while the ink has the fingerprint it had; a corrected one is kept when the ink changes", () => {
+		assert.equal(text.readState(undefined, "a"), "unread");
+		assert.equal(text.readState(tr("g1", "a"), "a"), "read");
+		assert.equal(text.readState(tr("g1", "a"), "b"), "unread");
+		assert.equal(text.readState(tr("g1", "a"), null), "unread", "no such segment");
+		assert.equal(text.readState(tr("g1", "a", { edited: true }), "b"), "changed");
+		assert.equal(text.readState(tr("g1", "a", { edited: true }), "a"), "read");
 	});
 
 	it("the index is empty until a lecture has a digest, lists newest first, and folds the oldest past 40", () => {
@@ -71,7 +72,7 @@ describe("looking up a note", () => {
 		id,
 		title,
 		date,
-		segments: texts.map((t, i) => ({ index: i + 1, id: `g${i}aaaaaa`, startedAt: 1_700_000_000_000, endedAt: 1_700_000_600_000, text: t, state: t ? ("read" as const) : ("unread" as const) })),
+		segments: texts.map((t, i) => ({ index: i + 1, id: `g${i}aaaaaa`, startedAt: 1_700_000_000_000, text: t, state: t ? ("read" as const) : ("unread" as const) })),
 	});
 	const all = [mk("ln_1", "Limits", "2026-11-10", ["epsilon-delta\nlim x->0 [marked: exam]", ""]), mk("ln_2", "Series", "2026-11-12", ["Taylor $f(x)$\nwhy remainder?"])];
 
@@ -124,8 +125,8 @@ describe("reading a segment (scripted model)", () => {
 describe("the tools", () => {
 	const lookup: import("../src/core/lecture-note-text.ts").LookupNote[] = [
 		{ id: "ln_1", title: "Limits", date: "2026-11-10", segments: [
-			{ index: 1, id: "g1aaaaaa", startedAt: 0, endedAt: 0, text: "epsilon-delta", state: "read" },
-			{ index: 2, id: "g2aaaaaa", startedAt: 0, endedAt: 0, text: "[diagram: a graph]", state: "changed" },
+			{ index: 1, id: "g1aaaaaa", startedAt: 0, text: "epsilon-delta", state: "read" },
+			{ index: 2, id: "g2aaaaaa", startedAt: 0, text: "[diagram: a graph]", state: "changed" },
 		] },
 	];
 	const asked: string[] = [];
@@ -188,14 +189,47 @@ describe("the service and the course session", () => {
 	it("a course session's prompt gets the index and the tools once a lecture is read; a lesson outside a course gets nothing", () => {
 		const n = svc.createLectureNote(course.id, { title: "Taylor", date: "2026-11-13" })!;
 		svc.saveLectureNoteSegment(course.id, n.id, "g1aaaaaaa", body(2));
-		const bytes = notes.segmentBytes(course.id, n.id, "g1aaaaaaa")!;
-		notes.writeTranscript(course.id, n.id, tr("g1aaaaaaa", bytes, { text: "Taylor $f$ [marked: exam]", digest: "Taylor; exam" }));
+		const fingerprint = notes.segmentFingerprint(course.id, n.id, "g1aaaaaaa")!;
+		notes.writeTranscript(course.id, n.id, tr("g1aaaaaaa", fingerprint, { text: "Taylor $f$ [marked: exam]", digest: "Taylor; exam" }));
 		notes.writeDigest(course.id, n.id, { text: "Taylor series; exam hint", from: ["g1aaaaaaa:t"], at: "t" });
 		const chat = chatStore.createChat("Practice", "practice", { courseId: course.id, mode: "practice", skillIds: [] });
 		const turn = materialsForTurn(chat.id)!;
 		assert.match(turn.section, /13 Nov · Taylor: Taylor series; exam hint/);
 		assert.deepEqual(turn.tools.map((t) => t.name).sort(), ["lecture_note_read", "lecture_note_search"]);
 		assert.equal(materialsForTurn(chatStore.createChat("Plain").id), undefined);
+	});
+
+	it("a recolour or a move that keeps the file's size still changes the fingerprint, and the reading is marked", () => {
+		const n = svc.createLectureNote(course.id, { title: "Same size", date: "2026-11-14" })!;
+		const stroke = (color: string, x: number) => ({ size: 4, color, points: [x, 0, 0.5, x + 10, 10, 0.5] });
+		const save = (s: unknown) => svc.saveLectureNoteSegment(course.id, n.id, "g1aaaaaaa", JSON.stringify({ startedAt: 1, endedAt: 2, strokes: [s] }));
+		save(stroke("#dc2626", 10));
+		const before = notes.segmentFingerprint(course.id, n.id, "g1aaaaaaa")!;
+		save(stroke("#2563eb", 10)); // another colour, the same number of characters
+		const after = notes.segmentFingerprint(course.id, n.id, "g1aaaaaaa")!;
+		assert.equal(before.split("-")[0], after.split("-")[0], "the file is exactly as large");
+		assert.notEqual(before, after);
+		assert.equal(notes.segmentFingerprint(course.id, n.id, "g1aaaaaaa"), after, "stable while the file is untouched (served from the cache)");
+		assert.equal(notes.segmentFingerprint(course.id, n.id, "g9nosuchsg"), null);
+	});
+
+	it("looking a note up never parses its ink, and changing the ink drops its thumbnail", async () => {
+		const n = svc.createLectureNote(course.id, { title: "Heavy", date: "2026-11-15" })!;
+		svc.saveLectureNoteSegment(course.id, n.id, "g1aaaaaaa", body(3));
+		notes.writeTranscript(course.id, n.id, tr("g1aaaaaaa", notes.segmentFingerprint(course.id, n.id, "g1aaaaaaa")!, { text: "epsilon", digest: "d" }));
+		notes.writeDigest(course.id, n.id, { text: "heavy lecture", from: ["g1aaaaaaa:t"], at: "t" });
+		// a segment file that could not be parsed at all is still listed, with its reading: only ids and fingerprints are used
+		fs.writeFileSync(path.join(TMP_DATA, "lecture-notes", course.id, n.id, "seg-g2aaaaaaa.json"), "{ not json");
+		const chat = chatStore.createChat("Practice", "practice", { courseId: course.id, mode: "practice", skillIds: [] });
+		const turn = materialsForTurn(chat.id)!;
+		const search = turn.tools.find((t) => t.name === "lecture_note_search")!;
+		const out = (await (search.execute as (id: string, a: unknown) => Promise<{ content: { text: string }[] }>)("c1", { query: "epsilon", note: n.id })).content[0]!.text;
+		assert.match(out, /Heavy · segment 1 of 2/);
+		// the overview: made once, and gone when the ink changes
+		assert.ok((await svc.lectureNoteThumbnail(course.id, n.id)) !== null);
+		assert.ok(fs.existsSync(notes.thumbFile(course.id, n.id)));
+		svc.saveLectureNoteSegment(course.id, n.id, "g1aaaaaaa", body(4));
+		assert.equal(fs.existsSync(notes.thumbFile(course.id, n.id)), false);
 	});
 
 	it("readings and the digest travel with the note; the device-local list does not", () => {

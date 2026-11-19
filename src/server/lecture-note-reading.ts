@@ -30,7 +30,7 @@ export function noteReadStatus(courseId: string, noteId: string): NoteReadStatus
 	if (segments.length === 0) return "none";
 	if (reading.has(key(courseId, noteId))) return "reading";
 	const trs = notes.readTranscripts(courseId, noteId);
-	if (segments.every((s) => readState(trs.get(s.id), s.bytes) !== "unread")) return "read";
+	if (segments.every((s) => readState(trs.get(s.id), notes.segmentFingerprint(courseId, noteId, s.id)) !== "unread")) return "read";
 	return lastError.has(key(courseId, noteId)) ? "error" : "unread";
 }
 
@@ -55,14 +55,14 @@ async function imagesFor(strokes: SketchStroke[]): Promise<{ data: string; mimeT
 
 /** What one segment looks like, for the model and for `lecture_note_read` with an image: the rendered pages (maybe several parts). */
 export async function segmentImages(courseId: string, noteId: string, segId: string): Promise<{ data: string; mimeType: string }[]> {
-	const seg = notes.readSegments(courseId, noteId).find((s) => s.id === segId);
+	const seg = notes.readSegment(courseId, noteId, segId);
 	if (!seg) return [];
 	return ((await imagesFor(seg.strokes)) ?? []).flat();
 }
 
 async function readOneSegment(
 	seg: NoteSegment,
-	bytes: number,
+	fingerprint: string,
 	ctx: { title: string; date: string; previous?: string },
 	engine: ReturnType<typeof piEngineForSpec>,
 ): Promise<NoteTranscript | null> {
@@ -77,7 +77,7 @@ async function readOneSegment(
 		if (out.digest) digests.push(out.digest);
 		previous = out.text;
 	}
-	return { segId: seg.id, bytes, text, digest: cutDigest(digests.join(" ")), edited: false, at: new Date().toISOString() };
+	return { segId: seg.id, fingerprint, text, digest: cutDigest(digests.join(" ")), edited: false, at: new Date().toISOString() };
 }
 
 async function readNote(courseId: string, noteId: string, force: ReadonlySet<string> | "all" | null): Promise<void> {
@@ -90,22 +90,24 @@ async function readNote(courseId: string, noteId: string, force: ReadonlySet<str
 		return;
 	}
 	const engine = piEngineForSpec(spec);
-	const segments = notes.readSegments(courseId, noteId);
 	let trs = notes.readTranscripts(courseId, noteId);
 	let previous: string | undefined;
 	let changed = false;
-	for (const seg of segments) {
-		const bytes = notes.segmentBytes(courseId, noteId, seg.id) ?? 0;
-		const have = trs.get(seg.id);
-		const forced = force === "all" || (force !== null && force.has(seg.id));
-		if (have && !forced && (readState(have, bytes) === "read" || have.edited)) {
+	for (const { id } of notes.readSegmentFiles(courseId, noteId)) {
+		const fingerprint = notes.segmentFingerprint(courseId, noteId, id);
+		const have = trs.get(id);
+		const forced = force === "all" || (force !== null && force.has(id));
+		if (have && !forced && (readState(have, fingerprint) === "read" || have.edited)) {
 			previous = have.text;
 			continue;
 		}
-		const tr = await readOneSegment(seg, bytes, { title: note.title, date: note.date, previous }, engine);
+		// only a segment that needs reading is parsed
+		const seg = notes.readSegment(courseId, noteId, id);
+		if (!seg || fingerprint === null) continue;
+		const tr = await readOneSegment(seg, fingerprint, { title: note.title, date: note.date, previous }, engine);
 		if (!tr) continue;
 		notes.writeTranscript(courseId, noteId, tr);
-		trs = new Map(trs).set(seg.id, tr);
+		trs = new Map(trs).set(id, tr);
 		previous = tr.text;
 		changed = true;
 	}
@@ -116,7 +118,7 @@ async function remakeDigest(courseId: string, noteId: string, engine: ReturnType
 	const note = notes.getNote(courseId, noteId);
 	if (!note) return;
 	const trs = notes.readTranscripts(courseId, noteId);
-	const ordered = notes.readSegments(courseId, noteId).flatMap((s) => (trs.has(s.id) ? [trs.get(s.id)!] : []));
+	const ordered = notes.readSegmentFiles(courseId, noteId).flatMap((s) => (trs.has(s.id) ? [trs.get(s.id)!] : []));
 	const from = ordered.map((t) => `${t.segId}:${t.at}`);
 	const have = notes.readDigest(courseId, noteId);
 	if (have && have.from.join("|") === from.join("|")) return;
@@ -165,10 +167,10 @@ export function catchUpLectureNotes(): void {
 
 /** The learner corrected a segment's text: kept as written, and the lecture's digest is remade. */
 export function editSegmentText(courseId: string, noteId: string, segId: string, text: string): boolean {
-	const bytes = notes.segmentBytes(courseId, noteId, segId);
-	if (bytes === null) return false;
+	const fingerprint = notes.segmentFingerprint(courseId, noteId, segId);
+	if (fingerprint === null) return false;
 	const have = notes.readTranscripts(courseId, noteId).get(segId);
-	notes.writeTranscript(courseId, noteId, { segId, bytes, text, digest: have?.digest ?? "", edited: true, at: new Date().toISOString() });
+	notes.writeTranscript(courseId, noteId, { segId, fingerprint, text, digest: have?.digest ?? "", edited: true, at: new Date().toISOString() });
 	emit("courses-changed", {});
 	return true;
 }

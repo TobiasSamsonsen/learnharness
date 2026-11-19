@@ -51,7 +51,10 @@ class InkFrame(context: Context, private val webView: WebView, private val close
 				is InkOp.Kept -> layer.finished.setKept(op.strokes)
 				is InkOp.View -> layer.setView(op.view)
 				is InkOp.Ack -> layer.finished.ackPending()
-				is InkOp.Caps -> layer.reportsHits = op.hits
+				is InkOp.Caps -> {
+					layer.reportsHits = op.hits
+					send(InkWire.zoomRangeLine()) // the page keeps its views inside what this shell follows (an older shell never says, so the page stays in 0.5x to 3x)
+				}
 			}
 		} catch (e: RuntimeException) {
 			close()

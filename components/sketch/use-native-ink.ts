@@ -4,7 +4,11 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { decodeShellLine, encodeInkOp, eraseHits, isErasedExactly, type NativeInkOp, type NativeInkRect, type NativeInkTool, type SketchStroke } from "@/src/core";
 import { SKETCH_ERASER_RADIUS } from "@/components/sketch/sketch-canvas";
 import { useViewGestures } from "@/components/sketch/use-view-gestures";
-import { eraserWorldRadius, fitInk, HOME_VIEW, panBy, roundView, thinPath, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
+import { eraserWorldRadius, fitInk, HOME_VIEW, MAX_ZOOM, MIN_ZOOM, panBy, roundView, thinPath, zoomAbout, type SketchView } from "@/components/sketch/view-transform";
+
+/** What a shell that does not announce its range follows (before 2026-11-19). */
+const LEGACY_MIN_ZOOM = 0.5;
+const LEGACY_MAX_ZOOM = 3;
 
 /**
  * The native ink surface, web side (Android plan M10, docs/android/m10-plan.md). In the Android shell
@@ -123,8 +127,11 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 	const emitView = (v: SketchView) => viewListeners.current.forEach((fn) => fn(v));
 
 	/** Adopt a view (as the shell will hold it) and tell the shell. */
+	// the zoom the shell follows: an older shell (no `zoomrange` line) only draws through 0.5x to 3x, and drops a `view` line outside it
+	const zoomRange = useRef({ min: LEGACY_MIN_ZOOM, max: LEGACY_MAX_ZOOM });
+	const inRange = (v: SketchView): SketchView => ({ ...v, zoom: Math.min(zoomRange.current.max, Math.max(zoomRange.current.min, v.zoom)) });
 	const applyView = (next: SketchView) => {
-		const v = roundView(next);
+		const v = roundView(inRange(next));
 		view.current = v;
 		setZoomPct(Math.round(v.zoom * 100));
 		emitView(v);
@@ -178,7 +185,7 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 		// the first time, open on the ink (the home view when it fits)
 		if (!fitted.current && size.current.w > 0 && size.current.h > 0) {
 			fitted.current = true;
-			view.current = roundView(fitAll());
+			view.current = roundView(inRange(fitAll()));
 			setZoomPct(Math.round(view.current.zoom * 100));
 			emitView(view.current);
 		}
@@ -239,6 +246,9 @@ export function useNativeInk(options: NativeInkOptions): NativeInk {
 					break;
 				case "penseen":
 					break; // the shell already switched to "touch goes to the page"
+				case "zoomrange":
+					zoomRange.current = { min: Math.max(MIN_ZOOM, shell.min), max: Math.min(MAX_ZOOM, shell.max) };
+					break;
 			}
 		};
 		bridge.addEventListener("message", onMessage);

@@ -12,6 +12,7 @@ export type { LectureNoteListItem };
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { lectureNoteTools } from "../agent/tools/lecture-notes.ts";
 import { cutDigest, lectureIndexSection, readState, type LookupNote } from "../core/lecture-note-text.ts";
+import { segmentStartOf } from "../core/lecture-notes.ts";
 import * as notes from "../store/lecture-notes.ts";
 import { editSegmentText, noteReadError, noteReadStatus, readLectureNote as readNoteToText, segmentImages } from "./lecture-note-reading.ts";
 import { stores } from "./stores.ts";
@@ -93,16 +94,17 @@ const THUMB_W = 480;
 const THUMB_H = 360;
 
 /** The overview PNG of a note, rendered once per change of its ink (cached beside it). null: unknown note or no ink. */
-export async function lectureNoteThumbnail(courseId: string, noteId: string): Promise<Uint8Array | null> {
+export async function lectureNoteThumbnail(courseId: string, noteId: string): Promise<{ png: Uint8Array; etag: string } | null> {
 	const note = courseExists(courseId) ? notes.getNote(courseId, noteId) : null;
 	if (!note) return null;
 	const file = notes.thumbFile(courseId, noteId);
 	const inkAt = notes.inkModifiedAt(courseId, noteId);
 	if (inkAt === 0) return null;
 	try {
-		if (fs.statSync(file).mtimeMs >= inkAt) return new Uint8Array(fs.readFileSync(file));
+		const st = fs.statSync(file);
+		if (st.mtimeMs >= inkAt) return { png: new Uint8Array(fs.readFileSync(file)), etag: `"${Math.round(st.mtimeMs)}-${st.size}"` };
 	} catch {
-		// not rendered yet
+		// not rendered yet (a change to the ink removes it)
 	}
 	const strokes = notes.readSegments(courseId, noteId).flatMap((s) => s.strokes);
 	const svg = noteThumbnailSvg(strokes, THUMB_W, THUMB_H);
@@ -110,7 +112,8 @@ export async function lectureNoteThumbnail(courseId: string, noteId: string): Pr
 	const { Resvg } = await import("@resvg/resvg-js");
 	const png = new Uint8Array(new Resvg(svg, { fitTo: { mode: "width", value: THUMB_W } }).render().asPng());
 	fs.writeFileSync(file, png);
-	return png;
+	const st = fs.statSync(file);
+	return { png, etag: `"${Math.round(st.mtimeMs)}-${st.size}"` };
 }
 
 /** The learner left the note: the course page refetches its row (the thumbnail follows the ink). */
@@ -123,7 +126,7 @@ export function leaveLectureNote(courseId: string, noteId: string): boolean {
 }
 
 export interface TranscriptView {
-	segments: { id: string; index: number; startedAt: number; endedAt: number; state: "unread" | "read" | "changed"; text: string; digest: string; edited: boolean }[];
+	segments: { id: string; index: number; startedAt: number; state: "unread" | "read" | "changed"; text: string; digest: string; edited: boolean }[];
 	digest: string;
 	status: ReturnType<typeof noteReadStatus>;
 	error?: string;
@@ -133,10 +136,9 @@ export interface TranscriptView {
 export function lectureNoteTranscript(courseId: string, noteId: string): TranscriptView | null {
 	if (!courseExists(courseId) || notes.getNote(courseId, noteId) === null) return null;
 	const trs = notes.readTranscripts(courseId, noteId);
-	const segments = notes.readSegments(courseId, noteId).map((seg, i) => {
+	const segments = notes.readSegmentFiles(courseId, noteId).map((seg, i) => {
 		const tr = trs.get(seg.id);
-		const bytes = notes.segmentBytes(courseId, noteId, seg.id) ?? 0;
-		return { id: seg.id, index: i + 1, startedAt: seg.startedAt, endedAt: seg.endedAt, state: readState(tr, bytes), text: tr?.text ?? "", digest: tr?.digest ?? "", edited: tr?.edited ?? false };
+		return { id: seg.id, index: i + 1, startedAt: segmentStartOf(seg.id), state: readState(tr, notes.segmentFingerprint(courseId, noteId, seg.id)), text: tr?.text ?? "", digest: tr?.digest ?? "", edited: tr?.edited ?? false };
 	});
 	return { segments, digest: notes.readDigest(courseId, noteId)?.text ?? "", status: noteReadStatus(courseId, noteId), error: noteReadError(courseId, noteId) };
 }
@@ -167,9 +169,10 @@ function lookupNotes(courseId: string): LookupNote[] {
 			id: n.id,
 			title: n.title,
 			date: n.date,
-			segments: notes.readSegments(courseId, n.id).map((seg, i) => {
+			// ids and fingerprints only: a lookup never parses a lecture's ink
+			segments: notes.readSegmentFiles(courseId, n.id).map((seg, i) => {
 				const tr = trs.get(seg.id);
-				return { index: i + 1, id: seg.id, startedAt: seg.startedAt, endedAt: seg.endedAt, text: tr?.text ?? "", state: readState(tr, notes.segmentBytes(courseId, n.id, seg.id) ?? 0) };
+				return { index: i + 1, id: seg.id, startedAt: segmentStartOf(seg.id), text: tr?.text ?? "", state: readState(tr, notes.segmentFingerprint(courseId, n.id, seg.id)) };
 			}),
 		};
 	});

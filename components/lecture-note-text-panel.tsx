@@ -77,7 +77,7 @@ export function LectureNoteTextPanel({ courseId, noteId, onClose }: { courseId: 
 						<div key={s.id} data-testid="lecture-note-segment" className="space-y-1.5">
 							<div className="flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
 								<span>
-									Segment {s.index} {clock(s.startedAt) && `· ${clock(s.startedAt)}–${clock(s.endedAt)}`}
+									Segment {s.index} {clock(s.startedAt) && `· from ${clock(s.startedAt)}`}
 								</span>
 								<span className={cn(s.state === "read" ? "text-muted-foreground" : "text-amber-500")}>{STATE_LABEL[s.state]}{s.edited && s.state === "read" ? " · corrected by you" : ""}</span>
 							</div>

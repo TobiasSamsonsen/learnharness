@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { PATHS } from "../../config.ts";
@@ -121,17 +122,26 @@ export function deleteCourseNotes(courseId: string): void {
 	fs.rmSync(courseDir(courseId), { recursive: true, force: true });
 }
 
-/** The ids and sizes of a note's segment files, in write order, without reading them. */
-export function readSegmentFiles(courseId: string, noteId: string): { id: string; bytes: number }[] {
+/** The ids of a note's segment files, in write order, without reading them. */
+export function readSegmentFiles(courseId: string, noteId: string): { id: string }[] {
 	try {
-		const dir = noteDir(courseId, noteId);
 		return fs
-			.readdirSync(dir)
+			.readdirSync(noteDir(courseId, noteId))
 			.filter((f) => /^seg-g[a-z0-9]{6,12}\.json$/.test(f))
 			.sort()
-			.map((f) => ({ id: f.slice(4, -5), bytes: fs.statSync(path.join(dir, f)).size }));
+			.map((f) => ({ id: f.slice(4, -5) }));
 	} catch {
 		return [];
+	}
+}
+
+/** One segment with its strokes (null: none, or unreadable). */
+export function readSegment(courseId: string, noteId: string, segId: string): NoteSegment | null {
+	try {
+		const raw = JSON.parse(fs.readFileSync(segFile(courseId, noteId, segId), "utf8")) as Partial<NoteSegment>;
+		return Array.isArray(raw.strokes) ? { id: segId, startedAt: Number(raw.startedAt) || 0, endedAt: Number(raw.endedAt) || 0, strokes: raw.strokes as SketchStroke[] } : null;
+	} catch {
+		return null;
 	}
 }
 
@@ -162,6 +172,8 @@ export function readSegments(courseId: string, noteId: string): NoteSegment[] {
 export function writeSegment(courseId: string, noteId: string, seg: NoteSegment): boolean {
 	if (!getNote(courseId, noteId)) return false;
 	const file = segFile(courseId, noteId, seg.id);
+	// the overview is of the ink as it was: any change to a segment drops it (it is drawn again when the card asks)
+	fs.rmSync(thumbFile(courseId, noteId), { force: true });
 	if (seg.strokes.length === 0) {
 		fs.rmSync(file, { force: true });
 		fs.rmSync(trFile(courseId, noteId, seg.id), { force: true });
@@ -178,10 +190,22 @@ const trFile = (courseId: string, noteId: string, segId: string) => {
 	return path.join(noteDir(courseId, noteId), `tr-${segId}.json`);
 };
 
-/** A segment file's size in bytes (the cheap fingerprint a reading records), or null when there is no such segment. */
-export function segmentBytes(courseId: string, noteId: string, segId: string): number | null {
+const fingerprints = new Map<string, { mtimeMs: number; size: number; value: string }>();
+
+/**
+ * A segment file's fingerprint (its size and a hash of its content), or null when there is no such segment. What a reading records, so a
+ * changed segment is told from an unchanged one whatever the change (a move or a recolour can keep the size). The hash is kept per file
+ * until its size or modification time changes, so listing notes stays cheap.
+ */
+export function segmentFingerprint(courseId: string, noteId: string, segId: string): string | null {
+	const file = segFile(courseId, noteId, segId);
 	try {
-		return fs.statSync(segFile(courseId, noteId, segId)).size;
+		const st = fs.statSync(file);
+		const hit = fingerprints.get(file);
+		if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.value;
+		const value = `${st.size}-${createHash("sha1").update(fs.readFileSync(file)).digest("hex").slice(0, 16)}`;
+		fingerprints.set(file, { mtimeMs: st.mtimeMs, size: st.size, value });
+		return value;
 	} catch {
 		return null;
 	}
@@ -198,7 +222,7 @@ export function readTranscripts(courseId: string, noteId: string): Map<string, N
 	for (const f of files) {
 		try {
 			const tr = JSON.parse(fs.readFileSync(path.join(noteDir(courseId, noteId), f), "utf8")) as NoteTranscript;
-			if (typeof tr?.text === "string" && typeof tr.bytes === "number") out.set(f.slice(3, -5), { ...tr, segId: f.slice(3, -5) });
+			if (typeof tr?.text === "string" && typeof tr.fingerprint === "string") out.set(f.slice(3, -5), { ...tr, segId: f.slice(3, -5) });
 		} catch {
 			// a torn reading is as good as none: the segment reads as unread
 		}

@@ -128,3 +128,8 @@ test("strokesJson for the shell leaves a lecture note's id and seg out (its fast
 	assert.equal(strokesJson([note], true), JSON.stringify([{ size: 4, points: [1, 2, 0.5] }]), "the second time, from the kept text");
 	assert.match(encodeInkOp({ op: "strokes", strokes: [note] }), /^strokes \[\{"size":4,"points":\[1,2,0\.5\]\}\]$/);
 });
+
+test("decodeShellLine: the shell's zoom range, and nothing that is not a range", () => {
+	assert.deepEqual(decodeShellLine("zoomrange 0.1 8"), { kind: "zoomrange", min: 0.1, max: 8 });
+	for (const bad of ["zoomrange", "zoomrange 0.1", "zoomrange 8 0.1", "zoomrange 0 8", "zoomrange a b", "zoomrange 0.1 8 9"]) assert.equal(decodeShellLine(bad), null, bad);
+});

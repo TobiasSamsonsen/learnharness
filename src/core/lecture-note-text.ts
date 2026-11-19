@@ -4,10 +4,11 @@
  * index in its prompt. This module holds the shapes and the pure rules: the read state of a segment, the index, the search.
  */
 
-/** One segment's reading. `bytes` is the size of the segment's ink file when it was read: the cheap test that the ink has not changed since. */
+/** One segment's reading. */
 export interface NoteTranscript {
 	segId: string;
-	bytes: number;
+	/** The segment file's fingerprint when it was read (its size and a hash of its content): the ink has not changed while it is the same. */
+	fingerprint: string;
 	/** The learner's writing as text: math in LaTeX between $, `[diagram: …]` and `[unclear: …]` where the writing could not be read as text. */
 	text: string;
 	/** One line of what the segment is about (topics, emphasis, what the learner marked as hard). */
@@ -20,9 +21,9 @@ export interface NoteTranscript {
 /** unread: no reading of the ink as it is now. read: the text matches the ink. changed: the learner's corrected text is kept but the ink changed since. */
 export type SegmentReadState = "unread" | "read" | "changed";
 
-export function readState(tr: NoteTranscript | undefined, bytes: number): SegmentReadState {
+export function readState(tr: NoteTranscript | undefined, fingerprint: string | null): SegmentReadState {
 	if (!tr) return "unread";
-	if (tr.bytes === bytes) return "read";
+	if (tr.fingerprint === fingerprint) return "read";
 	return tr.edited ? "changed" : "unread";
 }
 
@@ -83,8 +84,8 @@ export function lectureIndexSection(lectures: readonly IndexedLecture[]): string
 export interface LookupSegment {
 	index: number;
 	id: string;
+	/** Epoch ms of the segment's first stroke (the segment id is the draw time). */
 	startedAt: number;
-	endedAt: number;
 	text: string;
 	state: SegmentReadState;
 }
@@ -109,8 +110,7 @@ export function pickNote(notes: readonly LookupNote[], ref: string): LookupNote 
 }
 
 export function segmentLabel(note: LookupNote, seg: LookupSegment): string {
-	const t = (ms: number) => (ms > 0 ? new Date(ms).toISOString().slice(11, 16) : "");
-	const when = seg.startedAt > 0 ? `, written ${t(seg.startedAt)}–${t(seg.endedAt)} UTC` : "";
+	const when = seg.startedAt > 0 ? `, started ${new Date(seg.startedAt).toISOString().slice(11, 16)} UTC` : "";
 	return `${note.date} ${note.title} · segment ${seg.index} of ${note.segments.length}${when}`;
 }
 

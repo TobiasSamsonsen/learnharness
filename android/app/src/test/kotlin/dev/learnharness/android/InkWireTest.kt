@@ -86,6 +86,7 @@ class InkWireTest {
 		assertEquals("gesture -12.5 3 1.5000 200 310.25", InkWire.gestureLine(-12.5f, 3f, 1.5f, 200f, 310.25f))
 		assertEquals("a broken scale is no pinch", "gesture 0 0 1.0000 0 0", InkWire.gestureLine(0f, 0f, Float.NaN, 0f, 0f))
 		assertEquals("penseen", InkWire.PEN_SEEN)
+		assertEquals("the range the shell draws through, said when the page asks (an older shell never says)", "zoomrange 0.1 8", InkWire.zoomRangeLine())
 		assertEquals("fallback no surface available", InkWire.fallbackLine("no\nsurface   available"))
 		assertNotNull(InkWire.strokes(InkWire.strokesJson(listOf(InkWire.Stroke(4f, null, floatArrayOf(1f, 2f, 0.5f))))))
 	}

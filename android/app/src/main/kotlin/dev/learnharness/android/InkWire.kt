@@ -173,6 +173,9 @@ object InkWire {
 
 	const val PEN_SEEN = "penseen"
 
+	/** The zoom range this shell draws through, sent when the page says `caps`. */
+	fun zoomRangeLine() = "zoomrange ${n(InkView.MIN_ZOOM)} ${n(InkView.MAX_ZOOM)}"
+
 	/** Float rounding margin for the eraser's bounding-box reject, page px. */
 	private const val BOX_SLACK = 0.01f
 

@@ -182,10 +182,11 @@ describe("the service over the store", () => {
 		const n = svc.createLectureNote(course.id, {})!;
 		assert.equal(await svc.lectureNoteThumbnail(course.id, n.id), null);
 		svc.saveLectureNoteSegment(course.id, n.id, "g1aaaaaaa", body([stroke(0, 0), stroke(300, 200)]));
-		const png = (await svc.lectureNoteThumbnail(course.id, n.id))!;
+		const { png, etag } = (await svc.lectureNoteThumbnail(course.id, n.id))!;
 		assert.deepEqual([...png.slice(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
 		const again = (await svc.lectureNoteThumbnail(course.id, n.id))!;
-		assert.equal(Buffer.compare(Buffer.from(png), Buffer.from(again)), 0, "served from the cache");
+		assert.equal(Buffer.compare(Buffer.from(png), Buffer.from(again.png)), 0, "served from the cache");
+		assert.equal(again.etag, etag);
 		const list = svc.listLectureNotes(course.id)!.find((x) => x.id === n.id)!;
 		assert.ok(list.inkAt > 0);
 	});

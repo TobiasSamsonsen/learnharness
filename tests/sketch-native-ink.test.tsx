@@ -342,7 +342,21 @@ describe("native ink is on", () => {
 		assert.ok(views().at(-1)!.startsWith("view 1.6000 "), views().at(-1));
 		assert.equal(byId("sketch-zoom-level")!.textContent, "160%");
 		await shell.say("gesture 0 0 1000 5 5");
+		assert.ok(views().at(-1)!.startsWith("view 3.0000 "), "a shell that never announced a range follows 0.5x to 3x only, so the page stops at 3x");
+		await shell.say("gesture 0 0 0.0001 5 5");
+		assert.ok(views().at(-1)!.startsWith("view 0.5000 "), "and at 0.5x");
+	});
+
+	it("a shell that announces its zoom range (0.1x to 8x) is followed through all of it", async () => {
+		const shell = fakeShell();
+		await mount("k-zoomrange");
+		const views = () => shell.posted.filter((l) => l.startsWith("view "));
+		assert.ok(shell.posted.includes("caps hits"), "the page asked, so the shell can answer");
+		await shell.say("zoomrange 0.1 8");
+		await shell.say("gesture 0 0 1000 5 5");
 		assert.ok(views().at(-1)!.startsWith("view 8.0000 "), "the zoom stops at 8x");
+		await shell.say("gesture 0 0 0.00001 5 5");
+		assert.ok(views().at(-1)!.startsWith("view 0.1000 "), "and at 0.1x");
 	});
 
 	it("touches that reach the page pinch the view only as two settled fingertips: a resting palm does not zoom it (owner, 2026-10-31)", async () => {

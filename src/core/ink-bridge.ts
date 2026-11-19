@@ -23,6 +23,8 @@
  *                                     top-left corner; the web owns it, the shell draws and converts touch points through it
  *   ack                               the stroke the shell just reported is in the store: keep it as drawn; after an `erased`
  *                                     line, the erase is in the store: keep the strokes the shell already removed
+ *   (shell → page) zoomrange <min> <max>  sent in answer to `caps hits`: the zoom range the shell's layer follows (0.1-8 since 2026-11-19). A shell that
+ *                                     never says it follows only 0.5-3, and the page keeps every view inside that.
  *   caps hits                         this page understands `erased` (sent once, with the first `open`). A shell that has not
  *                                     seen it keeps sending `erase`, and a shell that does not know `caps` ignores the line, so
  *                                     the two can be any versions apart (the page is a server bundle, the shell an APK)
@@ -151,6 +153,8 @@ export type ShellEvent =
 	| { kind: "erased"; count: number; indices: number[] }
 	| { kind: "gesture"; dx: number; dy: number; scale: number; fx: number; fy: number }
 	| { kind: "penseen" }
+	/** The zoom range the shell's layer follows (2026-11-19: 0.1-8; an older shell never says, and only follows 0.5-3). */
+	| { kind: "zoomrange"; min: number; max: number }
 	| { kind: "fallback"; reason: string };
 
 /** One line from the shell, or null when it is not one the page understands (never throws). */
@@ -185,6 +189,10 @@ export function decodeShellLine(line: string): ShellEvent | null {
 			}
 			case "penseen":
 				return rest === "" ? { kind: "penseen" } : null;
+			case "zoomrange": {
+				const [min, max, ...extra] = rest.split(" ").map(Number);
+				return extra.length === 0 && Number.isFinite(min) && Number.isFinite(max) && min! > 0 && min! <= max! ? { kind: "zoomrange", min: min!, max: max! } : null;
+			}
 			case "fallback":
 				return { kind: "fallback", reason: rest || "unavailable" };
 			default:
