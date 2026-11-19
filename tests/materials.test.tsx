@@ -15,6 +15,7 @@ import { InteractionLayersProvider } from "../components/interaction-layers";
 // the shared layers need their provider (AppShell mounts it; renders here have no shell)
 const renderToStaticMarkup = (node: React.ReactElement) => renderBare(<InteractionLayersProvider>{node}</InteractionLayersProvider>);
 import { createFauxCore, fauxAssistantMessage } from "@earendil-works/pi-ai";
+import type { LessonMaterial } from "../src/core/materials.ts";
 
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-materials-"));
 process.env.LH_DATA_DIR = TMP_DATA;
@@ -82,6 +83,102 @@ describe("the core", () => {
 			Date.parse("2026-03-01T00:00:00Z"),
 		)!;
 		assert.doesNotMatch(later, /Just added/);
+	});
+
+	describe("the catalog (owner, 2026-11-19)", () => {
+		const PROFILE = (tag: string, pad = 0) =>
+			`Intro line\n## Scope and targets\n- target ${tag} (p. 1)\n\n## Contents\n- topic ${tag} (p. 2-5)\n\n## Definitions and terminology\n- term ${tag}: x${"y".repeat(pad)}\n\n## Notation and conventions\n- symbol ${tag}\n\n## Approach and order\n- order ${tag}\n\n## Exercises\n- ex ${tag}`;
+		const mat = (id: string, profile: string): LessonMaterial => ({
+			id, kind: "pdf", name: `${id}.pdf`, file: "source.pdf", bytes: 1, addedAt: "t", status: "ready", profile,
+		});
+		const many = (n: number, pad: number) => Array.from({ length: n }, (_, i) => mat(`mat_${i}`, PROFILE(String(i), pad)));
+		const section = (ms: LessonMaterial[], pinned?: Set<string>) => core.materialsPromptSection(ms, () => "p", undefined, pinned)!;
+
+		it("a catalog entry is Scope and Contents only, and capped", () => {
+			const entry = core.catalogEntry(PROFILE("a"));
+			assert.match(entry, /## Scope and targets/);
+			assert.match(entry, /## Contents/);
+			assert.doesNotMatch(entry, /Definitions|Notation|Exercises|Intro line/);
+			// no recognisable headings: the start of the profile instead
+			assert.equal(core.catalogEntry("plain profile text"), "plain profile text");
+			const long = core.catalogEntry(`## Contents\n${"- a line of contents\n".repeat(200)}`);
+			assert.ok(long.length <= core.CATALOG_CONTENTS_CHARS + 2);
+			assert.match(long, /…$/);
+			// a long Scope never crowds out the page references
+			const both = core.catalogEntry(`## Scope and targets\n${"- a long target line\n".repeat(100)}\n## Contents\n- p. 1: Title.\n- p. 2: Theorem.`);
+			assert.match(both, /## Scope and targets/);
+			assert.match(both, /- p\. 2: Theorem\.$/);
+			assert.ok(both.length <= core.CATALOG_ENTRY_CHARS + 20);
+			// no headings and a long profile: the start, capped
+			assert.ok(core.catalogEntry("z\n".repeat(2000)).length <= core.CATALOG_ENTRY_CHARS + 2);
+		});
+
+		it("definitions and notation are cut out, or null", () => {
+			const dn = core.definitionsAndNotation(PROFILE("a"))!;
+			assert.match(dn, /## Definitions and terminology/);
+			assert.match(dn, /## Notation and conventions/);
+			assert.doesNotMatch(dn, /Scope|Exercises/);
+			assert.equal(core.definitionsAndNotation("## Contents\n- x"), null);
+		});
+
+		it("under the threshold every profile rides in full, as before", () => {
+			const s = section(many(3, 100));
+			assert.match(s, /LOOK IT UP/);
+			assert.doesNotMatch(s, /CATALOG:/);
+			assert.match(s, /## Exercises\n- ex 2/);
+		});
+
+		it("over the threshold the sources become catalog entries under the catalog rules", () => {
+			const s = section(many(30, 1000));
+			assert.match(s, /CATALOG:/);
+			assert.doesNotMatch(s, /LOOK IT UP/);
+			assert.match(s, /TARGET AND SCOPE/);
+			assert.match(s, /## Contents\n- topic 29/);
+			assert.doesNotMatch(s, /term 29/);
+			assert.doesNotMatch(s, /## Exercises/);
+		});
+
+		it("the threshold is on the combined profile size, both sides of the limit", () => {
+			const one = (n: number) => [mat("mat_x", "y".repeat(n))];
+			assert.doesNotMatch(section(one(core.CATALOG_THRESHOLD_CHARS)), /CATALOG:/);
+			assert.match(section(one(core.CATALOG_THRESHOLD_CHARS + 1)), /CATALOG:/);
+		});
+
+		it("a pinned source keeps its full profile; pinned sources over the cap keep definitions and notation only", () => {
+			const ms = many(30, 1000);
+			const s = section(ms, new Set(["mat_3"]));
+			assert.match(s, /term 3:/);
+			assert.match(s, /## Exercises\n- ex 3/);
+			assert.doesNotMatch(s, /term 4:/);
+			// every source pinned: the full profiles alone pass the threshold
+			const all = section(ms, new Set(ms.map((m) => m.id)));
+			assert.match(all, /term 29:/);
+			assert.match(all, /symbol 29/);
+			assert.doesNotMatch(all, /## Exercises/);
+			assert.doesNotMatch(all, /## Approach and order/);
+		});
+
+		it("unready sources keep their honest status in catalog mode", () => {
+			const ms = [...many(30, 1000), { ...mat("mat_r", ""), status: "reading" as const, profile: undefined }];
+			assert.match(section(ms), /Still being read/);
+		});
+
+		it("which sources a conversation has read comes from its stored tool calls", () => {
+			const ms = [mat("mat_a", "p"), mat("mat_b", "p"), mat("mat_c", "p")];
+			const call = (name: string, args: unknown) => ({ role: "assistant", content: [{ type: "toolCall", id: "1", name, arguments: args }] });
+			const got = core.readMaterialIds(
+				[
+					call("material_read", { material: "mat_a", pages: "1" }),
+					call("material_search", { query: "x" }), // across everything: pins nothing
+					call("material_search", { query: "x", material: "mat_b.pdf" }), // by name
+					call("material_read", { material: "nope" }), // unknown: ignored
+					call("plan_init", { material: "mat_c" }), // not a lookup tool
+					{ role: "user", content: "hi" },
+				],
+				ms,
+			);
+			assert.deepEqual([...got].sort(), ["mat_a", "mat_b"]);
+		});
 	});
 });
 

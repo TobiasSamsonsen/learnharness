@@ -7,6 +7,7 @@ import {
 	isMaterialUrl,
 	materialKindFor,
 	materialsPromptSection,
+	readMaterialIds,
 	type LessonMaterial,
 } from "../core/materials.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
@@ -234,7 +235,8 @@ export function materialsForTurn(chatId: string): { section: string; tools: Agen
 	const lastAssistant = [...messages].reverse().find((m) => (m as { role?: string }).role === "assistant") as
 		| { timestamp?: number }
 		| undefined;
-	const section = materialsPromptSection(materials, (m) => store.filePath(chatId, m), lastAssistant?.timestamp);
+	// catalog mode pins what this conversation has read (core/materials.ts), from the stored tool calls
+	const section = materialsPromptSection(materials, (m) => store.filePath(chatId, m), lastAssistant?.timestamp, readMaterialIds(messages, materials));
 	if (!section) return undefined;
 	return { section, tools: Object.values(materialTools({ chatId, store })) };
 }

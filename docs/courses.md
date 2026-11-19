@@ -590,22 +590,21 @@ A long set titles the session with three names and "+n more".
 - **2026-10-25 — the learner marker** for Finish lesson is a new marker type (`lesson-finished`, learner cause) rather than a user message, so the transcript shows a divider and the record says exactly what happened.
 - **2026-10-25 — the placement probe's skill** must be an exact course skill id (refused otherwise, with the id list); names are not resolved, so the record always carries canonical ids.
 
-## Planned — compaction of sources (owner, 2026-11-18)
+## Source catalog (owner, 2026-11-19)
 
-Not built; the design is open and every choice below goes to the owner first (AGENTS.md "No guessing").
+**Problem.** Every tutor turn's system prompt carried the full profile (400-1200 words) of every ready source. Matte 1 has 27 slide PDFs, so that was about 35-40k tokens per turn (estimate), most of it irrelevant to the skill at hand. Search and read always use the original files and are unchanged.
 
-**Goal.** A course's sources (lecture slides, exam solutions, notes) grow into dozens of files (Matte 1 already has a page of slide PDFs per lecture, weeks 34-47). Keep what a learner and the tutor still need from a source once its detail is no longer needed, without carrying every page forever.
+**Design.** The profile is already the index (built once, in the background, when a source is added). Tutor turns (teach, practice, clarify; `materialsForTurn`) now choose by size:
+- **Under 24,000 characters** (about 6k tokens) of combined ready profiles: every profile in full, as before.
+- **Over it: a catalog.** Each source shows as a catalog entry, cut from its profile with no model call: "Scope and targets" and "Contents" (page references), each section cut to its own budget, Scope 500 characters and Contents 700, so a long Scope never crowds out the page references (`catalogEntry`; a profile without those headings gets its start, up to 1,200). The rules text switches to `CATALOG_RULES`: pick the sources that bear on the lesson and read them.
+- **Pinned sources.** A source this conversation has read, through `material_read` or `material_search` with its `material` argument, keeps its full profile (definitions and notation included) every turn. Pins are derived from the chat's stored assistant tool calls each turn (`readMaterialIds`), so chat compaction does not unpin, and nothing new is stored. If the pinned profiles alone pass the threshold, they keep only their entry plus the definitions and notation sections. The first turn is catalog-only; the sources gate forces a lookup before `plan_init`, which pins what it reads.
+- The course planner and exam weigher are unchanged: they still get every full profile through `materialBlock`.
 
-**Idea.** Sources get tiers. While a skill the source feeds is being learned or reviewed, the source is full: its profile, `material_search` and `material_read` over the whole text. When the skills it feeds are learned and reviewed, or the owner asks, it is compacted into a **digest**: scope and targets, definitions and notation, theorem statements, the exam-relevant items and the page references to find the rest, with worked examples and prose cut. The digest replaces the full text in the tutor's prompt and in search; the original file stays (it is the only thing that can be re-read for detail).
+**Why pins come from tool calls.** `plan_init`'s `sources` field is free text and is not stored, so the plan cannot name sources reliably.
 
-**Open design questions** (not decided):
-- trigger: automatic from the skill states, a button on the source, or both;
-- what a digest must keep, and whether the owner can pin parts of a source as never compacted;
-- reversible or one-way (re-extract from the original on demand);
-- where the digest lives (the material's folder beside `content.md`, so it syncs with the rest) and whether Sync source files interacts with it (a compacted source could drop its original from other devices);
-- the model slot and the cost for the digest call (the material profiler's slot, run in the background like the profile).
+**Cost to know.** A newly pinned source changes the system prompt once, so that turn misses the prompt cache (the same happens when a source is added mid-lesson).
 
-**Reuse.** The chat compaction machinery (`core/compaction.ts`, `docs/compaction-accounting.md`: triggers, accounting, the marker) and the material profiler (`agent/subagents/material-profiler.ts`).
+**Out of scope.** Dropping originals on other devices (Sync source files), a finer per-section index, and cost accounting (profiler spend is already untracked).
 
 ## Not in v1
 
