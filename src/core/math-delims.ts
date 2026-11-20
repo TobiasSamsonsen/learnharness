@@ -114,8 +114,24 @@ export function healOverescapedCommands(text: string): string {
 	return text.includes("\\\\") ? mapMathContent(text, recoverCommandRuns) : text;
 }
 
+const ROW_ENV = /\\begin\{((?:[pbBvV]|small)?matrix\*?|cases|array)\}[\s\S]*?\\end\{\1\}/g;
+
+/** The opposite slip: a row break written as ONE backslash (`1&0\3&1`) because
+ * the model applied "single backslashes" to the row separator too. Only inside
+ * matrix-family environments, only a run of exactly one backslash directly before
+ * a digit or minus (never a valid TeX command, so nothing legitimate is touched;
+ * letters and symbols like \, \; \{ stay). Owner-approved boundary 2026-11-20. */
+export function healLostRowBreaks(text: string): string {
+	if (!/\\begin\{/.test(text)) return text;
+	return mapMathContent(text, (inner, display) => {
+		const healed = inner.replace(ROW_ENV, env => outsideTexComments(env, part =>
+			part.replace(/\\+/g, (run, offset: number) => run.length === 1 && /[0-9-]/.test(part[offset + 1] ?? "") ? "\\\\" : run)));
+		return healed !== inner && !canParseTex(healed, display) && canParseTex(inner, display) ? inner : healed;
+	});
+}
+
 /** Presentation-only, language-independent recovery. Shape parsing, saved
  * identities, grading and model history must use the unprojected source. */
 export function repairMathForDisplay(text: string): string {
-	return healOverescapedCommands(restoreMathEscapes(recoverDocumentLayout(text)));
+	return healLostRowBreaks(healOverescapedCommands(restoreMathEscapes(recoverDocumentLayout(text))));
 }

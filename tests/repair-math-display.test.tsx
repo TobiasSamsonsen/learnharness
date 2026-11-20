@@ -252,3 +252,39 @@ describe("practice display surfaces", () => {
 		assert.deepEqual(toLlmMessages(concluded), history);
 	});
 });
+
+describe("healLostRowBreaks — a matrix row written with one backslash (Tab chat 2026-11-20)", () => {
+	const bad = [
+		String.raw`$L=\begin{pmatrix}1&0\3&1\end{pmatrix},\ U=\begin{pmatrix}1&2\0&-2\end{pmatrix}$`,
+		String.raw`$L=\begin{pmatrix}1&0\1/3&1\end{pmatrix},\ U=\begin{pmatrix}3&4\0&2/3\end{pmatrix}$`,
+		String.raw`$L=\begin{pmatrix}1&0\1/3&1\end{pmatrix},\ U=\begin{pmatrix}3&4\0&-2/3\end{pmatrix}$`,
+		String.raw`$L=\begin{pmatrix}1&0\3&1\end{pmatrix},\ U=\begin{pmatrix}3&4\0&2/3\end{pmatrix}$`,
+	];
+	it("restores the two-backslash row break before a digit", () => {
+		assert.equal(repairMathForDisplay(bad[1]!),
+			String.raw`$L=\begin{pmatrix}1&0\\1/3&1\end{pmatrix},\ U=\begin{pmatrix}3&4\\0&2/3\end{pmatrix}$`);
+	});
+	it("restores it before a minus sign, in every matrix-family environment", () => {
+		assert.equal(repairMathForDisplay(String.raw`$\begin{bmatrix}1&2\-3&4\end{bmatrix}$`), String.raw`$\begin{bmatrix}1&2\\-3&4\end{bmatrix}$`);
+		assert.equal(repairMathForDisplay(String.raw`$\begin{cases}1&x\0&y\end{cases}$`), String.raw`$\begin{cases}1&x\\0&y\end{cases}$`);
+	});
+	it("renders two real rows for each stored label", () => {
+		for (const label of bad) {
+			const { document } = parseHTML(renderToStaticMarkup(<ToolContentResponse>{label}</ToolContentResponse>));
+			assert.equal(document.querySelectorAll(".mtable").length, 2);
+			for (const table of document.querySelectorAll(".mtable")) {
+				assert.ok(table.querySelectorAll(".vlist > span").length >= 2, "two rows, not one flattened row");
+			}
+		}
+	});
+	it("leaves legitimate TeX alone", () => {
+		for (const ok of [
+			String.raw`$\begin{pmatrix}1&2\\3&4\end{pmatrix}$`, // already correct
+			String.raw`$\begin{pmatrix}1\,2&3\end{pmatrix}$`, // thin space
+			String.raw`$\begin{pmatrix}\frac12&\alpha\end{pmatrix}$`, // commands
+			String.raw`$\begin{pmatrix}1&2\\\3\end{pmatrix}$`, // a run of three is not ours
+			String.raw`$x\3$ and $\begin{pmatrix}1\end{pmatrix}\3$`, // outside any environment
+			"`" + String.raw`\begin{pmatrix}1&0\3\end{pmatrix}` + "`", // code
+		]) assert.equal(repairMathForDisplay(ok), ok);
+	});
+});
