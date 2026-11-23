@@ -1,9 +1,10 @@
 "use client";
 
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
-import { DownloadIcon } from "lucide-react";
+import { DownloadIcon, MaximizeIcon } from "lucide-react";
 import { Toggle } from "@/components/settings/controls";
 import { InvertDiscIcon } from "@/components/artifacts/invert-disc";
+import { useSessionMermaid } from "@/components/session-overlay";
 import { ChatActionsContext } from "@/components/chat";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
@@ -137,6 +138,7 @@ function DemoFrame({
 	initialInverted?: boolean;
 }) {
 	const actions = useContext(ChatActionsContext);
+	const overlay = useSessionMermaid();
 	const iframeRef = useRef<HTMLIFrameElement | null>(null);
 	const [state, setState] = useState<DemoBridgeState>(INITIAL_DEMO_BRIDGE_STATE);
 	// Brightness inversion (owner, 2026-10-07): the switch state PERSISTS on
@@ -170,7 +172,7 @@ function DemoFrame({
 	}, []);
 
 	return (
-		<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="demo-card">
+		<div className="rounded-xl border bg-card p-4 text-card-foreground sm:mx-auto sm:max-w-[44rem]" data-testid="demo-card">
 			{/* Caption header (owner, 2026-10-07): kind label + title in the
 			   label's size/tracking (title normal-case, foreground) — the
 			   figure card's grammar plus a name. Switch + download far right. */}
@@ -199,6 +201,18 @@ function DemoFrame({
 					>
 						<DownloadIcon className="size-3.5" />
 					</button>
+					{overlay?.openDemo && (
+						<button
+							type="button"
+							aria-label="Open demo fullscreen"
+							title="Open fullscreen (restarts the demo)"
+							onClick={() => overlay.openDemo?.({ html, title }, inverted)}
+							data-testid="demo-open"
+							className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						>
+							<MaximizeIcon className="size-3.5" />
+						</button>
+					)}
 				</div>
 			</div>
 			{state.error && (
@@ -208,33 +222,44 @@ function DemoFrame({
 					onSend={actions ? () => actions.sendText(`The demo "${title}" threw an error: ${state.error}`) : undefined}
 				/>
 			)}
-			<iframe
-				ref={iframeRef}
-				title={title}
-				// allow-scripts ONLY — no allow-same-origin: the demo can run code
-				// but never touch the app's storage, cookies, or DOM.
-				sandbox="allow-scripts"
-				srcDoc={srcDoc}
-				// scrolling OFF (owner, 2026-10-07): the bridge auto-sizes the
-				// iframe to its content, so an internal scrollbar can only appear
-				// before the first resize lands — and a scrollable iframe TRAPS
-				// the wheel (session scrolling stalls over the demo). With
-				// scrolling disabled the wheel chains straight to the session.
-				scrolling="no"
-				// Phones (owner, 2026-10-27): one card, not a card in a card — the
-					// iframe cancels the card's side padding and drops its own border
-					// and corners; from `sm` up it is the bordered inset again.
-					className="-mx-4 mt-2 w-[calc(100%+2rem)] max-w-none rounded-none border-0 bg-white sm:mx-0 sm:w-full sm:max-w-full sm:rounded-lg sm:border"
-				// content-box: the bridge reports the CONTENT height — with the
-				// preflight's border-box the 2px border would eat into it and clip
-				// the bottom of the demo (smoke finding, 2026-10-07).
-				style={{
-					height: state.height ?? 360,
-					boxSizing: "content-box",
-					filter: inverted ? "invert(1) hue-rotate(180deg)" : undefined,
-				}}
-				data-testid="demo-iframe"
-			/>
+			{/* Smaller figures (owner, 2026-11-23): from `sm` up the demo keeps its
+			   layout width but is drawn at 0.75 (the sm:[--k:0.75] class below), so a two-column demo stays
+			   two columns instead of reflowing taller in a narrower card. The
+			   wrapper owns the scaled box (--k) and the phone/sm chrome; the iframe
+			   is laid out at 1/k of it and shrunk with a transform. Phones: k = 1. */}
+			<div
+				className="relative -mx-4 mt-2 w-[calc(100%+2rem)] max-w-none overflow-hidden rounded-none border-0 [--k:1] sm:mx-0 sm:w-full sm:max-w-full sm:rounded-lg sm:border sm:[--k:0.75]"
+				style={{ height: `calc(${state.height ?? 360}px * var(--k))` }}
+				data-testid="demo-frame"
+			>
+				<iframe
+					ref={iframeRef}
+					title={title}
+					// allow-scripts ONLY — no allow-same-origin: the demo can run code
+					// but never touch the app's storage, cookies, or DOM.
+					sandbox="allow-scripts"
+					srcDoc={srcDoc}
+					// scrolling OFF (owner, 2026-10-07): the bridge auto-sizes the
+					// iframe to its content, so an internal scrollbar can only appear
+					// before the first resize lands — and a scrollable iframe TRAPS
+					// the wheel (session scrolling stalls over the demo). With
+					// scrolling disabled the wheel chains straight to the session.
+					scrolling="no"
+					// Phones (owner, 2026-10-27): one card, not a card in a card — the
+					// wrapper cancels the card's side padding and drops its border and
+					// corners; from `sm` up it is the bordered inset again. The iframe
+					// itself is borderless, so the bridge's CONTENT height is exact
+					// (a border would eat into it and clip the bottom of the demo).
+					className="absolute left-0 top-0 block max-w-none origin-top-left border-0 bg-white"
+					style={{
+						width: "calc(100% / var(--k))",
+						height: state.height ?? 360,
+						transform: "scale(var(--k))",
+						filter: inverted ? "invert(1) hue-rotate(180deg)" : undefined,
+					}}
+					data-testid="demo-iframe"
+				/>
+			</div>
 		</div>
 	);
 }

@@ -72,6 +72,7 @@ import {
 import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext, type SessionImage } from "@/components/session-overlay";
+import { DemoOverlay } from "@/components/demo-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
 import { upstreamSelectionTools } from "@/components/fork-switches";
 import { ArrowRightIcon, ClipboardCheckIcon, DumbbellIcon, MessageCircleQuestionIcon, WaypointsIcon } from "lucide-react";
@@ -1442,7 +1443,7 @@ export function Chat({
 	// Figure focus (2026-10-07): the figure card's fullscreen button — same
 	// overlay shell as mermaid, but carrying the raw svg + the card's invert
 	// state so the fullscreen view stays faithful to the toggled card.
-	const [figureFocus, setFigureFocus] = useState<{ svg: string; inverted: boolean } | { image: SessionImage } | null>(null);
+	const [figureFocus, setFigureFocus] = useState<{ svg: string; inverted: boolean } | { image: SessionImage } | { demo: { html: string; title: string }; inverted: boolean } | null>(null);
 
 	// Overlay mirrors for the layered-Esc gate (owner 2026-10-04): the
 	// lh:kbd-abort-turn handler reads these at EVENT time — declared here
@@ -1870,6 +1871,7 @@ export function Chat({
 				openMermaid: setMermaidFocus,
 				openFigure: (svg, inverted) => setFigureFocus({ svg, inverted }),
 				openImage: image => setFigureFocus({ image }),
+				openDemo: (demo, inverted) => setFigureFocus({ demo, inverted }),
 			}}
 		>
 		<JobsContext.Provider value={jobs}>
@@ -2522,7 +2524,15 @@ export function Chat({
 				{mermaidFocus !== null && (
 					<MermaidOverlay chart={mermaidFocus} onClose={() => setMermaidFocus(null)} />
 				)}
-				{figureFocus !== null && (
+				{figureFocus !== null && "demo" in figureFocus && (
+					<DemoOverlay
+						html={figureFocus.demo.html}
+						title={figureFocus.demo.title}
+						inverted={figureFocus.inverted}
+						onClose={() => setFigureFocus(null)}
+					/>
+				)}
+				{figureFocus !== null && !("demo" in figureFocus) && (
 					<MermaidOverlay
 						{...figureFocus}
 						onClose={() => setFigureFocus(null)}

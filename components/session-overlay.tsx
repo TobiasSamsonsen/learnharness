@@ -45,6 +45,8 @@ export const SessionMermaidContext = createContext<{
 	openMermaid: (chart: string) => void;
 	openFigure: (svg: string, inverted: boolean) => void;
 	openImage?: (image: SessionImage) => void;
+	/** The demo card's fullscreen button (owner, 2026-11-23): a fresh copy of the demo in the session overlay. */
+	openDemo?: (demo: { html: string; title: string }, inverted: boolean) => void;
 } | null>(null);
 
 export function useSessionMermaid() {

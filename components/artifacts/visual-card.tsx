@@ -108,8 +108,8 @@ export function VisualOutputCard({
 		<div
 			className={
 				!invertible || natural !== null
-					? "my-4 mx-auto w-fit max-w-full"
-					: "my-4 w-full"
+					? "my-4 mx-auto w-fit max-w-full sm:max-w-lg"
+					: "my-4 w-full sm:mx-auto sm:max-w-lg"
 			}
 			data-testid="visual-card"
 		>

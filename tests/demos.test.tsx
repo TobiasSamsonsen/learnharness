@@ -38,9 +38,13 @@ import {
 	DEMO_BRIDGE_SCRIPT,
 	DemoCard,
 	DemoErrorChip,
+	DemoOutputCard,
 	INITIAL_DEMO_BRIDGE_STATE,
 	reduceDemoBridgeState,
 } from "../components/artifacts/demo-card.tsx";
+import { DemoOverlay } from "../components/demo-overlay.tsx";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
+import { SessionMermaidContext } from "../components/session-overlay.tsx";
 import { svgNaturalWidth, VisualCard, VisualOutputCard } from "../components/artifacts/visual-card.tsx";
 import { slugFilename } from "../components/artifacts/download.ts";
 import { chartSize } from "../components/session-overlay.tsx";
@@ -253,6 +257,34 @@ const DEMO_HTML = "<!doctype html><html><body><h1>oscillator</h1><script>let t=0
 function part(state: string, output?: unknown) {
 	return { type: "tool-demo", state, toolCallId: "call-1", input: { title: "Oscillator", brief: "b" }, output };
 }
+
+describe("demo fullscreen (owner, 2026-11-23)", () => {
+	const output = { title: "Oscillator", html: DEMO_HTML };
+	it("shows the fullscreen button only where a session overlay can open it", () => {
+		assert.ok(!renderToStaticMarkup(<DemoOutputCard output={output} />).includes('data-testid="demo-open"'));
+		const withOverlay = renderToStaticMarkup(
+			<SessionMermaidContext.Provider value={{ openMermaid() {}, openFigure() {}, openDemo() {} }}>
+				<DemoOutputCard output={output} />
+			</SessionMermaidContext.Provider>,
+		);
+		assert.ok(withOverlay.includes('data-testid="demo-open"'));
+	});
+	it("the card is width-capped from sm up", () => {
+		const html = renderToStaticMarkup(<DemoOutputCard output={output} />);
+		assert.match(html, /sm:max-w-\[44rem\]/);
+	});
+	it("the overlay mounts the same sandboxed iframe, with the invert state", () => {
+		const html = renderToStaticMarkup(
+			<InteractionLayersProvider>
+				<DemoOverlay html={DEMO_HTML} title="Oscillator" inverted onClose={() => {}} />
+			</InteractionLayersProvider>,
+		);
+		assert.match(html, /data-testid="demo-overlay-iframe"/);
+		assert.match(html, /sandbox="allow-scripts"/);
+		assert.match(html, /invert\(1\) hue-rotate\(180deg\)/);
+		assert.ok(html.includes("demo-bridge") || html.includes("demo-resize"), "bridge injected");
+	});
+});
 
 describe("dispatch card rendering (the tool-call ack box)", () => {
 	const ackPart = { type: "tool-research", state: "output-available", toolCallId: "call-1", input: { question: "q" }, output: "Dispatched (job j1)." };
