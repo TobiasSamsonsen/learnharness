@@ -175,7 +175,11 @@ class InkLayer(context: Context) : FrameLayout(context) {
 	/** Drop the gesture in progress (a second finger turned it into a scroll, or the system cancelled it). */
 	fun cancel(event: MotionEvent?) {
 		val current = id
-		if (current != null && event != null) inProgress.cancelStroke(current, event)
+		// Without an event (the sketch closed, a new page began) the stroke must still be cancelled: dropping only our id would leave the
+		// library drawing it for good, in screen space, where nothing moves or erases it.
+		if (current != null) {
+			if (event != null) inProgress.cancelStroke(current, event) else inProgress.cancelStroke(current)
+		}
 		id = null
 		points.clear()
 		erasing = false
@@ -211,6 +215,9 @@ class InkLayer(context: Context) : FrameLayout(context) {
 		}
 		when (action) {
 			MotionEvent.ACTION_DOWN -> {
+				// a stroke whose lift never reached us would be left drawing: cancel it before this one starts
+				id?.let { inProgress.cancelStroke(it) }
+				id = null
 				points = ArrayList()
 				endGesture()
 				erasing = eraser || event.getToolType(index) == MotionEvent.TOOL_TYPE_ERASER || (event.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
