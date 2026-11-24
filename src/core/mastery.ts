@@ -62,6 +62,10 @@ const DAY_MS = 86_400_000;
 /** A confident placement answer seeds the skill's stability to at least this
  *  many days (understanding ≈ 6.3: known), then FSRS runs normally. */
 export const PLACEMENT_SEED_DAYS = 40;
+/** A `good` placement answer (right with low confidence or minor slip) seeds
+ *  the skill as learned/needs-practice (~12 days ≈ understanding 4.3) and
+ *  unlocks/credits its prerequisites. */
+export const PLACEMENT_GOOD_SEED_DAYS = 12;
 /** …and an inferred prerequisite to this many (≈ 3.5: learning — one answer
  *  proves less about what lies under it, so it comes back for review within a
  *  week and real practice confirms it; was 20 days until 2026-11-16). */
@@ -75,8 +79,8 @@ const GRADE_NUMBER: Record<Grade, 1 | 2 | 3 | 4> = { again: 1, hard: 2, good: 3,
 export type ProblemOutcome = "solved" | "solvedWithHints" | "movedOn" | "surrendered" | "taught" | "dismissed";
 
 /** The non-problem evidence: a finished Learn session, and the placement
- *  test's three grades. */
-export type SkillOutcome = ProblemOutcome | "finished" | "placementKnown" | "placementUnsure" | "placementMiss" | "retestMiss";
+ *  test's graded outcomes. */
+export type SkillOutcome = ProblemOutcome | "finished" | "placementKnown" | "placementGood" | "placementUnsure" | "placementMiss" | "retestMiss";
 
 /** One piece of evidence on one skill. */
 export interface SkillEvent {
@@ -114,6 +118,8 @@ export function defaultGrade(outcome: SkillOutcome): Grade | null {
 			return "good";
 		case "placementKnown":
 			return "easy";
+		case "placementGood":
+			return "good";
 		case "solvedWithHints":
 		case "placementUnsure":
 			return "hard";
@@ -252,27 +258,56 @@ export function skillEventsOf(messages: readonly LhMessage[], link: ChatCourseLi
 	}
 	const events: SkillEvent[] = [];
 	if (link.mode === "placement") {
-		// the placement test: probe calls tagged with one skill, graded by
-		// the learner's answer (its toolResult details — QuestionAnswerData)
-		const skillOf = new Map<string, string>();
+		// the placement test: probe/recall calls tagged with one skill, graded by
+		// the placement grader (stored on the answer or its read_sketch result),
+		// falling back to legacy MC grading when no grader verdict is present.
+		const callOf = new Map<string, { skill: string; toolName: string }>();
 		for (const m of messages) {
 			if ((m as { role?: string }).role !== "assistant") continue;
 			for (const block of (m as AssistantMessage).content) {
-				if (block.type !== "toolCall" || block.name !== "probe") continue;
+				if (block.type !== "toolCall" || (block.name !== "probe" && block.name !== "recall")) continue;
 				const skill = (block.arguments as { skill?: unknown } | undefined)?.skill;
-				if (typeof skill === "string") skillOf.set(block.id, skill);
+				if (typeof skill === "string") callOf.set(block.id, { skill, toolName: block.name });
 			}
 		}
-		for (const m of messages) {
+		for (let i = 0; i < messages.length; i++) {
+			const m = messages[i]!;
 			if ((m as { role?: string }).role !== "toolResult") continue;
 			const result = m as ToolResultMessage;
-			const skillId = skillOf.get(result.toolCallId);
-			const answer = result.details as QuestionAnswerData | undefined;
-			if (!skillId || result.isError || !answer || typeof answer !== "object" || answer.dismissed) continue;
-			// a retest (owner, 2026-11-16): a miss on a skill learned before is a lapse; on one never learned the fold
-			// ignores the `again`, so a miss still changes nothing there
-			const grade = placementGrade(answer);
-			events.push({ skillId, at: result.timestamp, outcome: link.retest && grade === "placementMiss" ? "retestMiss" : grade, placement: false });
+			const info = callOf.get(result.toolCallId);
+			const answer = result.details as (QuestionAnswerData & { placementGrade?: { grade?: unknown } }) | undefined;
+			if (!info || result.isError || !answer || typeof answer !== "object" || answer.dismissed) continue;
+
+			let graded: Grade | undefined;
+			const directGrade = answer.placementGrade?.grade;
+			if (typeof directGrade === "string" && GRADE_SET.has(directGrade)) {
+				graded = directGrade as Grade;
+			} else if (typeof answer.sketch?.id === "string" && answer.sketch.id !== "") {
+				for (let j = i + 1; j < messages.length; j++) {
+					const later = messages[j] as { role?: string };
+					if (later.role !== "toolResult") continue;
+					const rs = later as ToolResultMessage;
+					if (rs.isError || rs.toolName !== "read_sketch") continue;
+					const rd = rs.details as { sketchId?: unknown; placementGrade?: { grade?: unknown } } | undefined;
+					if (rd?.sketchId === answer.sketch.id && typeof rd.placementGrade?.grade === "string" && GRADE_SET.has(rd.placementGrade.grade)) {
+						graded = rd.placementGrade.grade as Grade;
+					}
+				}
+			}
+
+			let outcome: SkillOutcome;
+			if (graded) {
+				outcome = graded === "easy" ? "placementKnown"
+					: graded === "good" ? "placementGood"
+					: graded === "hard" ? "placementUnsure"
+					: link.retest ? "retestMiss" : "placementMiss";
+			} else if (info.toolName === "probe") {
+				const grade = placementGrade(answer);
+				outcome = link.retest && grade === "placementMiss" ? "retestMiss" : grade;
+			} else {
+				outcome = answer.dontKnow ? (link.retest ? "retestMiss" : "placementMiss") : "placementUnsure";
+			}
+			events.push({ skillId: info.skill, at: result.timestamp, outcome, placement: false });
 		}
 	}
 	let active: string[] | null = null;
@@ -334,23 +369,33 @@ export function foldSkills(events: readonly SkillEvent[], requiresOf: (id: strin
 		const state = states.get(skillId);
 		if (state && state.stability < days) state.stability = days;
 	};
-	/** A clean placement credit: the skill itself `easy` and seeded known, every
-	 *  transitive prerequisite `good` and seeded lower (inferred, so weaker
-	 *  evidence). */
-	const credit = (skillId: string, at: number) => {
-		review(skillId, "easy", at);
-		seed(skillId, PLACEMENT_SEED_DAYS);
+	/** Credit every transitive prerequisite `good` and seeded lower (inferred,
+	 *  so weaker evidence), skipping any directly missed. */
+	const creditPrereqs = (skillId: string, at: number) => {
 		for (const id of prerequisiteClosure(skillId, requiresOf)) {
 			if (id === skillId || missedDirectly.has(id)) continue;
 			review(id, "good", at);
 			seed(id, PREREQUISITE_SEED_DAYS);
 		}
 	};
+	/** A clean placement credit: the skill itself `easy` and seeded known, plus
+	 *  transitive prerequisites. */
+	const credit = (skillId: string, at: number) => {
+		review(skillId, "easy", at);
+		seed(skillId, PLACEMENT_SEED_DAYS);
+		creditPrereqs(skillId, at);
+	};
 	const sorted = [...events].sort((a, b) => a.at - b.at);
 	for (const event of sorted) {
 		if (event.outcome === "dismissed" || event.outcome === "placementMiss") continue;
 		if (event.outcome === "placementKnown") {
 			credit(event.skillId, event.at);
+			continue;
+		}
+		if (event.outcome === "placementGood") {
+			review(event.skillId, "good", event.at);
+			seed(event.skillId, PLACEMENT_GOOD_SEED_DAYS);
+			creditPrereqs(event.skillId, event.at);
 			continue;
 		}
 		const grade = event.grade ?? defaultGrade(event.outcome);

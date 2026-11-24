@@ -945,6 +945,51 @@ describe("wake pipeline (src/server/jobs.ts)", () => {
 		assert.equal(firedHandoff.steers[0]!.id, `steer_probe_${chat.id}`, "the handoff IS the wake turn's input");
 	});
 
+	it("parks subagent-steer while awaiting plan approval (phase plan with tree), but wakes before plan_init and never parks probe-handoff", async () => {
+		const chat = chatStore.createChat("Test: plan-approval parking");
+		trackChat(chat.id);
+		chatStore.saveMessages(chat.id, nativeToolMessages("teach me calc", "probe_done", "call-pd2", { ok: true }));
+
+		let fired: SteerMessage[] = [];
+		setTurnRunner(async (_cid, input) => {
+			fired.push(...((input as SteerInput).steers as SteerMessage[]));
+			return 200;
+		});
+
+		// 1. Phase is "plan" WITHOUT a tree yet (before plan_init): subagent-steer still wakes the teacher.
+		const jobPre = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-pre-plan" });
+		trackJob(jobPre.id);
+		const resPre: ResearchResult = { brief: "Pre-plan research.", sources: [] };
+		jobStore.updateJob(jobPre.id, { result: resPre, status: "done", activity: "finished", delivery: { kind: "result", status: "pending" } });
+		const steerPre = buildSubagentSteer(jobPre, resPre);
+		await deliverJobResult(steerPre);
+		await waitFor(() => fired.some((s) => s.id === steerPre.id), 8000, "pre-plan_init steer wakes");
+
+		// 2. Now plan_init created a tree and the learner hasn't approved yet: subagent-steer is parked.
+		fired = [];
+		chatStore.saveMessages(chat.id, [
+			...chatStore.getChat(chat.id)!.messages,
+			steerPre as never,
+		]);
+		chatStore.saveTree(chat.id, {
+			rootId: "root",
+			nodes: [{ id: "root", label: "Root", parentId: null, kind: "concept", summary: "s" }],
+		} as never);
+		const jobParked = jobStore.createJob({ kind: "research", chatId: chat.id, toolCallId: "call-parked" });
+		trackJob(jobParked.id);
+		const resParked: ResearchResult = { brief: "Figure ready.", sources: [] };
+		jobStore.updateJob(jobParked.id, { result: resParked, status: "done", activity: "finished", delivery: { kind: "result", status: "pending" } });
+		const steerParked = buildSubagentSteer(jobParked, resParked);
+		void deliverJobResult(steerParked);
+		await delay(1200);
+		assert.equal(fired.length, 0, "subagent-steer is parked while awaiting plan approval");
+
+		// 3. probe-handoff is never parked even when tree is present.
+		const handoff = buildProbeHandoffSteer(chat.id);
+		void deliverJobResult(handoff);
+		await waitFor(() => fired.some((s) => s.id === handoff.id), 8000, "probe-handoff never parked");
+	});
+
 	it("a redelivered handoff dedupes via the transcript (idempotent by steer id)", async () => {
 		const chat = chatStore.createChat("Test: handoff idempotent");
 		trackChat(chat.id);

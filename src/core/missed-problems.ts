@@ -81,3 +81,35 @@ export function openMisses(problems: readonly ConcludedProblem[]): MissedProblem
 export function missesForSession(open: readonly MissedProblem[], skillIds: readonly string[], max = 6): MissedProblem[] {
 	return open.filter((p) => p.skills.some((s) => skillIds.includes(s))).slice(0, max);
 }
+
+export const RECENT_SOLVED_STATEMENT_MAX = 240;
+
+/**
+ * Recently solved problems per skill in this session (newest first, up to `perSkill` per skill,
+ * deduplicated and capped at `maxTotal`), so Practice/Review varies the angle and surface.
+ */
+export function recentSolvedForSession(
+	problems: readonly ConcludedProblem[],
+	skillIds: readonly string[],
+	perSkill = 2,
+	maxTotal = 8,
+): ConcludedProblem[] {
+	const wanted = new Set(skillIds);
+	const solved = problems
+		.filter((p) => p.outcome === "solved" && p.skills.some((s) => wanted.has(s)))
+		.sort((a, b) => b.at - a.at);
+	const counts = new Map<string, number>();
+	const picked: ConcludedProblem[] = [];
+	const seen = new Set<string>();
+	for (const p of solved) {
+		const key = `${p.chatId}:${p.at}`;
+		if (seen.has(key)) continue;
+		const matching = p.skills.filter((s) => wanted.has(s));
+		if (!matching.some((s) => (counts.get(s) ?? 0) < perSkill)) continue;
+		seen.add(key);
+		for (const s of matching) counts.set(s, (counts.get(s) ?? 0) + 1);
+		picked.push({ ...p, statement: p.statement.slice(0, RECENT_SOLVED_STATEMENT_MAX) });
+		if (picked.length >= maxTotal) break;
+	}
+	return picked;
+}

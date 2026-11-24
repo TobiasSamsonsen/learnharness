@@ -51,7 +51,12 @@ export interface ReadSketchContext {
 	known: () => ReadonlySet<string>;
 	/** A read went through — the practice gate's mid-turn flip. */
 	onRead?: (sketchId: string, uncertain: readonly string[]) => void;
+	/** Optional mode-specific acknowledgement text (defaults to READ_SKETCH_ACK). */
+	ack?: string;
 }
+
+export const PLACEMENT_READ_SKETCH_ACK =
+	"Reading recorded. Do not teach; write at most one short line if helpful, then pose the next question or finish.";
 
 export function readSketchTool(ctx: ReadSketchContext): AgentTool<typeof readSketchInputObject> {
 	return {
@@ -77,7 +82,7 @@ export function readSketchTool(ctx: ReadSketchContext): AgentTool<typeof readSke
 			if (!hintPage) ctx.onRead?.(input.sketchId, input.uncertain);
 			const doubtful = !hintPage && input.uncertain.length > 0;
 			return {
-				content: [{ type: "text", text: doubtful ? READ_SKETCH_DOUBT_ACK : READ_SKETCH_ACK }],
+				content: [{ type: "text", text: doubtful ? READ_SKETCH_DOUBT_ACK : (ctx.ack ?? READ_SKETCH_ACK) }],
 				details: { sketchId: input.sketchId, doubts: hintPage ? 0 : input.uncertain.length, settled: input.settled?.length ?? 0, ...(hintPage ? { hintPage: true } : {}) },
 				// Open doubts end the turn: the card asks for the clarification, and
 				// the paragraph waits until everything is verified (owner, 2026-10-26).

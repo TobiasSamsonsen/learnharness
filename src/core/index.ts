@@ -108,6 +108,7 @@ export * from "./speech-bridge.ts";
 // (fork addition, 2026-10-24 — docs/courses.md).
 export * from "./skills.ts";
 export * from "./mastery.ts";
+export * from "./placement-frontier.ts";
 export * from "./skill-visual.ts";
 export * from "./course-draft.ts";
 export * from "./course-session.ts";

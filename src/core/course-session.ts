@@ -13,6 +13,7 @@
 
 import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { CourseMode } from "./contracts/course.ts";
+import type { SkillWeightValue } from "./exam-plan.ts";
 import type { LessonLanguage } from "./language.ts";
 import { newGraphContextMessage, newMessageId, type GraphContextPick, type LhMarkerMessage, type LhMessage } from "./native-messages.ts";
 
@@ -133,6 +134,10 @@ export interface SessionSkill {
 	needsReview: boolean;
 	/** The note its last lesson left (finishSummaryOf): what the learner showed and what to practice. */
 	note?: string;
+	/** Direct prerequisite skill ids within this session (placement context). */
+	requires?: readonly string[];
+	/** Exam priority weight (0–3; placement context when exam weights exist). */
+	priority?: SkillWeightValue;
 }
 
 export const COURSE_MODE_LABEL: Record<CourseMode, string> = {
@@ -171,7 +176,12 @@ export function newCourseContextMessage(opts: {
 		`[Session context] — this session belongs to the course "${opts.courseTitle}" (${COURSE_MODE_LABEL[opts.mode]}).`,
 		"",
 		opts.mode === "learn" ? "The skill this lesson teaches (id — name: statement · state):" : opts.mode === "practice" && opts.skills.length > 1 ? "The session's skills, in a mixed order (id — name: statement · state):" : "The session's skills, prerequisites first (id — name: statement · state):",
-		...opts.skills.map((s) => `- [${s.id}] ${s.name}: ${s.statement} · ${stateLabel(s)}${s.note && opts.mode !== "learn" ? `\n  note from its last lesson: ${s.note}` : ""}`),
+		...opts.skills.map((s) => {
+			const weightTag = opts.mode === "placement" && s.priority !== undefined ? (s.priority === 0 ? " · w=0 (not examined)" : ` · w=${s.priority}`) : "";
+			const reqTag = opts.mode === "placement" && s.requires && s.requires.length > 0 ? ` · requires: ${s.requires.join(", ")}` : "";
+			const noteTag = s.note && opts.mode !== "learn" ? `\n  note from its last lesson: ${s.note}` : "";
+			return `- [${s.id}] ${s.name}: ${s.statement} · ${stateLabel(s)}${weightTag}${reqTag}${noteTag}`;
+		}),
 	];
 	if (opts.background && opts.background.length > 0) {
 		lines.push("", "Its prerequisite skills (id — name: statement · state):", ...opts.background.map((s) => `- [${s.id}] ${s.name}: ${s.statement} · ${stateLabel(s)}`));
@@ -262,6 +272,13 @@ export interface MissedForPrompt {
 	date: string;
 }
 
+/** A recently solved problem in the course, shown so Practice/Review varies the angle/surface. */
+export interface RecentSolvedForPrompt {
+	statement: string;
+	skillNames: string[];
+	date: string;
+}
+
 /** The block that has a practice or review session retest each open miss as a VARIANT (owner, 2026-11-16). */
 function missedBlock(missed: readonly MissedForPrompt[]): string[] {
 	if (missed.length === 0) return [];
@@ -272,7 +289,16 @@ function missedBlock(missed: readonly MissedForPrompt[]): string[] {
 	];
 }
 
-export function coursePromptSection(mode: CourseMode, courseTitle: string, skills: readonly SessionSkill[], retest = false, missed: readonly MissedForPrompt[] = []): string {
+function recentSolvedBlock(recentSolved: readonly RecentSolvedForPrompt[]): string[] {
+	if (recentSolved.length === 0) return [];
+	return [
+		"",
+		"RECENTLY SOLVED — the learner already solved the problems below cleanly on these skills. Vary the angle, function, or sub-skill (never repeat the same template with swapped numbers when the skill has broader scope):",
+		...recentSolved.map((s) => `- (${s.skillNames.join(", ")}; ${s.date}) ${s.statement.replace(/\s+/g, " ").trim()}`),
+	];
+}
+
+export function coursePromptSection(mode: CourseMode, courseTitle: string, skills: readonly SessionSkill[], retest = false, missed: readonly MissedForPrompt[] = [], recentSolved: readonly RecentSolvedForPrompt[] = []): string {
 	const body: string[] = [];
 	if (mode === "learn") {
 		const skill = skills[0];
@@ -295,17 +321,19 @@ export function coursePromptSection(mode: CourseMode, courseTitle: string, skill
 				"",
 			);
 		}
+		const weightedCount = skills.filter((s) => (s.priority ?? 1) > 0).length;
+		const targetCount = placementQuestionTarget(weightedCount || skills.length);
 		body.push(
-			`This is the PLACEMENT TEST for the course "${courseTitle}": find which of the course's skills the learner already has, so their studying starts at their real edge instead of the most basic skill. The session context lists every skill, prerequisites first, with its id.`,
+			`This is the PLACEMENT TEST for the course "${courseTitle}": find which of the course's skills the learner already has, so their studying starts at their real edge instead of the most basic skill. The session context lists every skill, prerequisites first, with its id, \`requires\` edges, and any exam weight.`,
 			"",
-			"- Ask with `probe`: one multiple-choice question per call, testing exactly ONE skill — set `skill` to its id. Never a question per proposition.",
-			`- **Aim for about ${placementQuestionTarget(skills.length)} questions** — the test narrows down, it does not cover every skill.`,
-			"- **Hardest technical skills first.** Open with the technical skills that have the most prerequisites beneath them, with a genuinely hard question. A confident correct answer credits that skill and everything it requires — never ask about a credited skill again. After a miss, an \"I don't know\", or a correct answer below the confidence line, move down to that skill's prerequisites.",
-			"- **Judgment skills last.** Skills a sensible adult can answer by common sense (using AI, reflecting, judging code, choosing an application) come only after every technical skill is tested or credited.",
-			`- How the course reads each answer: correct with confidence ≥ ${PLACEMENT_KNOWN_CONFIDENCE} → known (and its prerequisites with it, except any the learner missed directly — a direct miss always wins); less sure → learned; wrong or "I don't know" → ${retest ? "a lapse on a skill learned before, not credited on one never learned" : "not credited"}. Nothing you write changes this — ask questions whose answer really shows the skill.`,
-			"- Short and hard: the difficulty is the trap, not the length (the question rule below).",
-			`- When every skill is tested or credited, end with a short summary — what is solid and where to start. State only counts you actually counted. Then call \`${FINISH_SESSION_TOOL}\` and pose no further question.`,
-			`- **At about ${placementQuestionTarget(skills.length)} questions with skills still neither tested nor credited, ask ONCE with \`ask_user_question\`**: continue testing the remaining skills, or finish now — say how many remain. Continue → keep testing until every skill is tested or credited. Finish now → the summary names the untested skills plainly as not tested (never as known, never as unknown), then call \`${FINISH_SESSION_TOOL}\`.`,
+			"- Ask with `recall` (open-ended, sketch/text + confidence) for calculation, derivation, circuit/code design, or worked-procedure skills, and `probe` (multiple-choice + confidence) for quick conceptual or discrimination skills. One question per turn, testing ONE skill — set `skill` to its id.",
+			`- **Aim for about ${targetCount} questions** — the test narrows down from the top of the DAG, it does not cover every skill.`,
+			"- **Top-down exam-weighted frontier first.** Always pick from the top-down frontier reported in the live placement status (highest exam weight `w=3/2/1` and most uncovered prerequisites first; `w=0` skills held last). A strong (`easy` or `good`) answer credits that skill and everything it requires — never re-ask an already-credited skill (the tool refuses it). After `hard` or `again`, step down to that skill's prerequisites.",
+			"- **Judgment skills last.** Skills a sensible adult can answer by common sense (using AI, reflecting, judging code, choosing an application) come only after technical skills in their priority tier.",
+			`- How a separate grader rates each answer (weighing the answer, any sketch read-back, and stated confidence as context): \`easy\` → known (40d) + prerequisites credited; \`good\` → learned, needs practice (12d) + prerequisites credited; \`hard\` → partial/shaky, learned without prerequisite credit; \`again\` → ${retest ? "a lapse on a skill learned before, not credited on one never learned (and blocks inferred credit)" : "not credited, and blocks inferred prerequisite credit"}. Nothing you write changes this — ask short, clean questions whose answer really shows the skill.`,
+			"- **Short and clean (~1–2 min).** Difficulty comes from the concept or trap, never from calculation length. No datasheet/pinout or UI-menu memorization.",
+			`- When every skill is tested or credited, end with a short summary — what is solid and where to start (only counts you actually observed). Then call \`${FINISH_SESSION_TOOL}\` and pose no further question.`,
+			`- **Checkpoint (\`ask_user_question\`):** ask ONCE either at about ${targetCount} questions with weighted skills still remaining, OR as soon as all examined (\`w≥1\`) skills are covered and only \`w=0\` skills remain — state the exact remaining weighted and \`w=0\` counts from the live status. Continue → keep testing; Finish now → summarize the untested skills plainly as not tested, then call \`${FINISH_SESSION_TOOL}\`.`,
 		);
 	} else {
 		body.push(`This practice session belongs to the course "${courseTitle}".`, "", TAGGING_LAW, "");
@@ -326,6 +354,6 @@ export function coursePromptSection(mode: CourseMode, courseTitle: string, skill
 			);
 		}
 	}
-	if (mode === "practice" || mode === "review") body.push(...missedBlock(missed));
+	if (mode === "practice" || mode === "review") body.push(...missedBlock(missed), ...recentSolvedBlock(recentSolved));
 	return `<course>\n${body.filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n").trim()}\n</course>`;
 }

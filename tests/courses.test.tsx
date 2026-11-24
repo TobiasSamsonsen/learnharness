@@ -582,14 +582,14 @@ describe("course sessions (core/course-session.ts)", () => {
 			assert.match(session.coursePromptSection(mode, "Calc", [sk("sk_a")]), /`skills` field MUST name them/);
 		}
 		const placement = session.coursePromptSection("placement", "Calc", Array.from({ length: 32 }, (_, i) => sk(`sk_${i}`)));
-		assert.match(placement, /PLACEMENT TEST[\s\S]*`probe`[\s\S]*set `skill`[\s\S]*Hardest technical skills first[\s\S]*Judgment skills last/);
+		assert.match(placement, /PLACEMENT TEST[\s\S]*`recall`[\s\S]*`probe`[\s\S]*set `skill`[\s\S]*Top-down exam-weighted frontier first[\s\S]*Judgment skills last/);
 		assert.match(placement, /about 11 questions/, "a third of the skills, rounded");
-		assert.match(placement, /never ask about a credited skill again/);
-		assert.match(placement, /confidence ≥ 70 → known[\s\S]*a direct miss always wins/);
+		assert.match(placement, /never re-ask an already-credited skill/);
+		assert.match(placement, /separate grader rates each answer[\s\S]*`easy` → known[\s\S]*`good` → learned[\s\S]*`hard` → partial[\s\S]*blocks inferred prerequisite credit/);
 		assert.doesNotMatch(placement, /Roughly one question per skill/);
 		// the soft target is a checkpoint, not a stop (owner, 2026-10-25)
-		assert.match(placement, /At about 11 questions with skills still neither tested nor credited, ask ONCE with `ask_user_question`/);
-		assert.match(placement, /Continue → keep testing until every skill is tested or credited/);
+		assert.match(placement, /Checkpoint \(`ask_user_question`\):[\s\S]*ask ONCE either at about 11 questions with weighted skills still remaining/);
+		assert.match(placement, /Continue → keep testing/);
 		assert.match(placement, /untested skills plainly as not tested/);
 		assert.doesNotMatch(placement, /`skills` field/, "no problem tagging law in a quiz test");
 		const review = session.coursePromptSection("review", "Calc", []);
@@ -1184,7 +1184,7 @@ describe("the course tools", () => {
 		assert.match(prompt, /Solve it before you write a single option/, "the shared question craft composes");
 		assert.doesNotMatch(prompt, /# Teach — one step at a time/, "no teaching doctrine");
 		const agent = createPlacementAgent({ skills }, { engine: { model: { id: "fixture" } as never, streamFn: (() => {}) as never } });
-		assert.deepEqual(agent.state.tools.map((t) => t.name).sort(), ["ask_user_question", "circuit_solve", "figure_guide", "probe", "read_sketch"]);
+		assert.deepEqual(agent.state.tools.map((t) => t.name).sort(), ["ask_user_question", "circuit_solve", "figure_guide", "probe", "read_sketch", "recall"]);
 	});
 
 	it("finish_lesson logs once, then says it already did", async () => {

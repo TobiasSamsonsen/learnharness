@@ -189,7 +189,7 @@ export function AnsweredCard({ answer: savedAnswer, input, chatId, reading, mess
 			    "I don't know" sent none (its slider was grayed out), explain and
 			    ask never had one, and records from before the feature carry no
 			    field — nothing to show, nothing rendered. */}
-			{isQuiz && answer.confidence != null && (
+			{answer.confidence != null && (
 				<div className="mt-3 flex items-center gap-3" data-testid="answered-confidence">
 					<ConfidenceRail value={answer.confidence} className="min-w-0 flex-1" />
 					<span className="w-9 shrink-0 text-right font-mono text-sm tabular-nums text-muted-foreground">
@@ -197,7 +197,7 @@ export function AnsweredCard({ answer: savedAnswer, input, chatId, reading, mess
 					</span>
 				</div>
 			)}
-			{answer.dontKnow && isQuiz && (
+			{answer.dontKnow && (isQuiz || answer.tool === "recall") && (
 				<div className="mt-2 text-sm text-muted-foreground">Answered “I don't know”.</div>
 			)}
 

@@ -144,6 +144,56 @@ function lastSuccessfulPlanInit(parts: LhViewPart[]): number {
 	return idx;
 }
 
+const normalizeProblemText = (s: string): string =>
+	s
+		.replace(/\$\$/g, "")
+		.replace(/\$/g, "")
+		.replace(/[*_`#]/g, "")
+		.replace(/\s+/g, " ")
+		.trim()
+		.toLowerCase();
+
+/**
+ * Strip a duplicated problem statement that a practice/review model printed as
+ * chat prose immediately before calling `problem({ statement })`, preserving
+ * any short orientation line above it.
+ */
+export function stripDuplicateProblemProse(prose: string, statement: string): string {
+	const normStmt = normalizeProblemText(statement);
+	if (normStmt.length < 30) return prose;
+	const probe = normStmt.slice(0, Math.min(48, normStmt.length));
+	const normProse = normalizeProblemText(prose);
+	if (!normProse.includes(probe)) return prose;
+
+	const lines = prose.split(/\r?\n/);
+	let cutAt = lines.length;
+	for (let i = 0; i < lines.length; i++) {
+		const rawLine = lines[i]!;
+		const normLine = normalizeProblemText(rawLine);
+		if (!normLine) continue;
+		if (/^(oppgave|problem)(\s*\(.*\))?:?$/.test(normLine)) {
+			cutAt = i;
+			break;
+		}
+		if (normLine.length >= 20 && normStmt.startsWith(normLine.slice(0, Math.min(36, normLine.length)))) {
+			cutAt = i;
+			break;
+		}
+		if (normLine.includes(probe.slice(0, 30))) {
+			cutAt = i;
+			break;
+		}
+	}
+	if (cutAt < lines.length) {
+		return lines.slice(0, cutAt).join("\n").trim();
+	}
+	const headingMatch = prose.match(/(?:^|\s)(?:#{1,4}\s*|\*\*)(?:Oppgave|Problem)\b/i);
+	if (headingMatch && headingMatch.index !== undefined) {
+		return prose.slice(0, headingMatch.index).trim();
+	}
+	return "";
+}
+
 /** Project the native record (+ live turn working list) into the client's
  *  view messages. Pure: the same input always projects to the same list. */
 export function projectView(messages: readonly LhMessage[], live?: LiveTurnState): LhViewMessage[] {
@@ -356,7 +406,22 @@ export function projectView(messages: readonly LhMessage[], live?: LiveTurnState
 					rest.push(part);
 				}
 			}
-			const parts: LhViewPart[] = [...reasoning, ...rest];
+			// Suppress duplicated problem statements printed as prose before `problem(...)`
+			const problemPart = rest.find((p) => p.type === "tool-problem" && p.state !== "output-error");
+			const problemStmt = typeof (problemPart?.input as { statement?: unknown } | undefined)?.statement === "string"
+				? (problemPart!.input as { statement: string }).statement
+				: undefined;
+			if (problemPart && problemStmt) {
+				const pIdx = rest.indexOf(problemPart);
+				for (let i = 0; i < pIdx; i++) {
+					const tp = rest[i]!;
+					if (tp.type === "text" && typeof tp.text === "string") {
+						tp.text = stripDuplicateProblemProse(tp.text, problemStmt);
+					}
+				}
+			}
+			const cleanedRest = rest.filter((p) => !(p.type === "text" && typeof p.text === "string" && p.text.trim() === ""));
+			const parts: LhViewPart[] = [...reasoning, ...cleanedRest];
 			if (parts.length === 0) {
 				// An arrived-but-silent STREAMING message (owner, optimistic
 				// round 3, 2026-10-02): the turn's first applied event can

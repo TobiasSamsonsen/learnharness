@@ -467,6 +467,8 @@ function QuestionDockForm({
 	const inkWaiting = sketchAvailable && !skipInk && hasNewInk(inkState);
 	/* THE STEER BUTTON (owner, 2026-11-18): write to the tutor instead of answering. The open question is set aside (a dismissal that
 	 * carries these words and wakes the tutor: never graded) and comes back unless what is written changes the plan. Lesson checks only. */
+	const placementRecall = toolName === "recall" && typeof (input as { skill?: unknown } | undefined)?.skill === "string";
+	const showConfidence = kind === "quiz" || placementRecall;
 	const steerOffered = phase === "teach" && (kind === "quiz" || kind === "explain");
 	const [steerOpen, setSteerOpen] = useState(false);
 	const [steerText, setSteerText] = useState("");
@@ -482,13 +484,14 @@ function QuestionDockForm({
 			text,
 			confidenceSet: ov?.confIdx !== undefined || confIdx !== null,
 			hasSketch: photo !== null || inkWaiting,
+			requireConfidence: placementRecall,
 		});
 	// Images waiting in the host's adapter count as an answer (upstream): an empty form may still be sent with them.
 	const pendingInput = hasPendingInput?.(qd) === true;
 	const { canSubmit: formCanSubmit } = gateFor();
 	const canSubmit = formCanSubmit || pendingInput;
 	// An answer is picked (the confidence buttons wait for this and nothing else).
-	const answerPicked = dockSubmitGate({ kind, mode: qd.mode, sel, other, text, confidenceSet: true }).canSubmit || pendingInput;
+	const answerPicked = dockSubmitGate({ kind, mode: qd.mode, sel, other, text, confidenceSet: true, hasSketch: photo !== null || inkWaiting, requireConfidence: placementRecall }).canSubmit || pendingInput;
 	const currentQuestion = useRef(qd); currentQuestion.current = qd;
 	const mounted = useRef(true);
 	useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -500,11 +503,11 @@ function QuestionDockForm({
 			return { question: qd, draft: { dontKnow: sel.dontKnow,
 				values: [...sel.selected].flatMap(index => qd.options[index] ? [qd.options[index]!.value] : []),
 				otherSelected: sel.otherSelected, other, text: answerTextRef.current, thinking: thinkingTextRef.current,
-				...(kind === "quiz" && confIdx !== null ? { confidence: CONFIDENCE_STOPS[confIdx] } : {}) } };
+				...(showConfidence && confIdx !== null ? { confidence: CONFIDENCE_STOPS[confIdx] } : {}) } };
 		};
 		viewReader.current = read;
 		return () => { if (viewReader.current === read) viewReader.current = null; };
-	}, [viewReader, qd, kind]);
+	}, [viewReader, qd, showConfidence]);
 	const viewPresentationKey = JSON.stringify({ ...toClientQuestion(qd), questionType: qd.questionType });
 	useLayoutEffect(() => { viewReader?.changed?.(); }, [viewReader, sel, other, text, thinking, confIdx, viewPresentationKey]);
 
@@ -587,7 +590,7 @@ function QuestionDockForm({
 			thinking: qd.mode !== "text" ? thinkingTextRef.current.trim() || undefined : undefined,
 			// Always chosen on a picked quiz answer (canSubmit waits for it);
 			// buildAnswer drops it on "I don't know".
-			confidence: kind === "quiz" && conf !== null ? CONFIDENCE_STOPS[conf] : undefined,
+			confidence: showConfidence && conf !== null ? CONFIDENCE_STOPS[conf] : undefined,
 			...(hintsRef.current.length > 0 ? { hints: hintsRef.current } : {}),
 			// ink left off a free-text answer on purpose: the tutor is told, so "my drawing failed" is not graded as work
 			...(skipInk && qd.kind === "explain" && hasNewInk(inkState) ? { sketchUnsent: true } : {}),
@@ -640,12 +643,12 @@ function QuestionDockForm({
 		// The dock's own gate (the view disables Submit with the same one). The sketch page asks for the confidence itself
 		// (its Submit expands into the confidence buttons), so a press there counts like one in the dock.
 		const ov: SubmitOverride | undefined = pressedIdx === undefined && !dontKnow ? undefined : { ...(pressedIdx !== undefined ? { confIdx: pressedIdx } : {}), ...(dontKnow ? { dontKnow: true } : {}) };
-		if (!dockSubmitGate({ kind, mode: qd.mode, sel: selFor(ov), other, text: answerTextRef.current, confidenceSet: pressedIdx !== undefined || confIdx !== null, hasSketch: true }).canSubmit) return false;
+		if (!dockSubmitGate({ kind, mode: qd.mode, sel: selFor(ov), other, text: answerTextRef.current, confidenceSet: pressedIdx !== undefined || confIdx !== null, hasSketch: true, requireConfidence: placementRecall }).canSubmit) return false;
 		const req: AnswerRequest = { ...captureRequest(ov), sketch: sketchRefOf(sketch) };
 		return (await onSubmit(buildAnswer(qd, req, toolName), sketch, onAccepted)) ?? true;
 	};
 	// Why the sketch view's Submit waits (a choice question needs its pick; the confidence is asked on the sketch page).
-	const sketchGate = dockSubmitGate({ kind, mode: qd.mode, sel, other, text, confidenceSet: true, hasSketch: true });
+	const sketchGate = dockSubmitGate({ kind, mode: qd.mode, sel, other, text, confidenceSet: true, hasSketch: true, requireConfidence: placementRecall });
 	const sketchBlocked = sketchGate.canSubmit ? undefined : "Pick an answer first";
 
 	/* ENTER SUBMITS FROM ANYWHERE (owner round 6, 2026-10-05): the same
@@ -983,7 +986,7 @@ function QuestionDockForm({
 			{/* The confidence BUTTONS (owner, 2026-10-28; Anki style, replacing the slider and the Submit button): pick an answer,
 			    then press how sure you are — the press submits. "I don't know" is the leading button and needs no pick; the five
 			    levels wait for one. Keys: 1-5 press the levels, 0 presses "I don't know", ←/→ move the highlight, Enter presses it. */}
-			{kind === "quiz" && (
+			{showConfidence && (
 				<div className={cn("border-t border-border/60 px-4 py-2.5", wordingOnly && "hidden")} data-testid="confidence-row">
 					<ConfidenceButtons
 						onPick={pressLevel}
@@ -1275,7 +1278,7 @@ function QuestionDockForm({
 						<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
 							{compactionRunning ? "compacting session…" : <span className="lh-enter-hint [@media(pointer:coarse)]:hidden">↵ submits · ⇧↵ newline</span>}
 						</span>
-						{kind !== "quiz" && (
+						{!showConfidence && (
 							<Button
 								type="submit"
 								disabled={!canSubmit || compactionRunning || preparing}
@@ -1301,7 +1304,7 @@ function QuestionDockForm({
 					onCancelDictation={onEscape}
 					disabled={compactionRunning}
 					blocked={qd.mode === "text" ? undefined : sketchBlocked}
-					confidenceLevels={kind === "quiz" && qd.mode !== "text" && !sel.dontKnow}
+					confidenceLevels={(placementRecall || (kind === "quiz" && qd.mode !== "text")) && !sel.dontKnow}
 					choices={
 						qd.mode === "text" ? undefined : (
 							<SketchChoices

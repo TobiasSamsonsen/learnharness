@@ -89,6 +89,11 @@ import { installQuestionVerifier } from "../agent/question-verify.ts";
 import { checkQuizKey } from "./question-check.ts";
 import { installPracticeGrader } from "../agent/practice-grade.ts";
 import { gradeConcludedProblem } from "./practice-grade.ts";
+import { gradePlacementSubmission, installPlacementGrader } from "../agent/placement-grade.ts";
+import { gradePlacementSubmissionServer } from "./placement-grade.ts";
+import { formatPlacementStatus, placementProgressOf } from "../core/placement-frontier.ts";
+import type { AssistantMessage as PiAssistantMessage, ToolResultMessage as PiToolResultMessage } from "@earendil-works/pi-ai";
+import type { QuestionAnswerData } from "../core/question-core.ts";
 
 // The answer-key check (owner, 2026-10-25): every multiple-choice question
 // is run / solved by a second model before it is posed. Tests drive the
@@ -97,6 +102,9 @@ if (process.env.NODE_ENV !== "test") installQuestionVerifier(checkQuizKey);
 // The practice grader (owner, 2026-11-09): a second model grades each skill of
 // a concluded problem; without it (tests) a conclude carries no grades.
 if (process.env.NODE_ENV !== "test") installPracticeGrader(gradeConcludedProblem);
+// The placement grader (fork addition, 2026-11-24): grades probe/recall answers
+// using the answer, sketch read-back, and stated confidence as context.
+if (process.env.NODE_ENV !== "test") installPlacementGrader(gradePlacementSubmissionServer);
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
@@ -618,6 +626,58 @@ export async function handleChatInput(
 
 	turnClaimed = true;
 
+	// Placement grading (fork addition, 2026-11-24): grade no-sketch placement answers
+	// inside the turn lock right before write-ahead persistence and append the live DAG frontier status.
+	// Sketched placement answers are graded right after `read_sketch` succeeds.
+	const placementTurnInfo = record.course?.mode === "placement" && input.type === "answer" ? courseForTurn(chatId) : undefined;
+	if (placementTurnInfo?.placementSkills) {
+		const bySkillId = new Map(placementTurnInfo.placementSkills.map((s) => [s.id, s]));
+		for (const m of appends) {
+			if ((m as { role?: string }).role !== "toolResult") continue;
+			const tr = m as PiToolResultMessage;
+			if (tr.isError || (tr.toolName !== "probe" && tr.toolName !== "recall")) continue;
+			const details = tr.details as (QuestionAnswerData & { placementGrade?: unknown }) | undefined;
+			if (!details || details.dismissed || details.sketch) continue;
+
+			let callBlock: { name: string; arguments?: unknown } | undefined;
+			for (let i = record.messages.length - 1; i >= 0; i--) {
+				const msg = record.messages[i] as { role?: string };
+				if (msg.role !== "assistant") continue;
+				const hit = (msg as PiAssistantMessage).content.find((b) => b.type === "toolCall" && b.id === tr.toolCallId);
+				if (hit && hit.type === "toolCall") {
+					callBlock = hit;
+					break;
+				}
+			}
+			if (!callBlock) continue;
+			const skillId = (callBlock.arguments as { skill?: unknown } | undefined)?.skill;
+			if (typeof skillId !== "string") continue;
+			const skill = bySkillId.get(skillId) ?? { id: skillId, name: skillId };
+			const placementGrade = await gradePlacementSubmission({
+				callBlock,
+				answer: details,
+				skill,
+				sessionModel: conversation,
+			});
+			tr.details = { ...details, placementGrade } as unknown as PiToolResultMessage["details"];
+			const progress = placementProgressOf([...record.messages, ...appends], placementTurnInfo.placementSkills);
+			const statusLine = formatPlacementStatus(progress, placementTurnInfo.placementSkills);
+			for (const block of tr.content) {
+				if (block.type !== "text") continue;
+				try {
+					const parsed = JSON.parse(block.text) as Record<string, unknown>;
+					parsed.grade = placementGrade.grade;
+					parsed.status = statusLine;
+					block.text = JSON.stringify(parsed);
+				} catch {
+					// non-JSON text block: append status
+					block.text = `${block.text}\n${statusLine}`;
+				}
+				break;
+			}
+		}
+	}
+
 	// Write-ahead persistence: the input's native appends go on disk BEFORE
 	// the turn starts - the learner's answer is durable the instant the
 	// request arrives, and any remount, second tab, or server crash reads
@@ -725,6 +785,7 @@ export async function handleChatInput(
 	});
 	const course = courseForTurn(chatId);
 	let pendingSideBudgetError: Error | undefined;
+	let liveAgentMessages: (() => LhMessage[]) | undefined;
 	const agentOpts: AgentBuildOptions = {
 		pluginContributions,
 		engine,
@@ -809,7 +870,27 @@ export async function handleChatInput(
 							? teaching
 								? { tools: [finishLessonTool({ chatId, chatStore: stores.chatStore })] }
 								: {}
-							: { tools: [finishSessionTool({ chatId, chatStore: stores.chatStore })] }),
+							: {
+									tools: [
+										finishSessionTool({
+											chatId,
+											chatStore: stores.chatStore,
+											...(course.mode === "placement" && course.placementSkills
+												? {
+														placementCheck: () => {
+															const msgs = liveAgentMessages ? liveAgentMessages() : (stores.chatStore.getChat(chatId)?.messages ?? agentMessages);
+															const prog = placementProgressOf(msgs, course.placementSkills!);
+															const byId = new Map(course.placementSkills!.map((s) => [s.id, s]));
+															return {
+																uncoveredWeighted: prog.uncoveredWeighted.map((id) => ({ id, name: byId.get(id)?.name ?? id })),
+																stoppedEarly: prog.stoppedEarly,
+															};
+														},
+													}
+												: {}),
+										}),
+									],
+								}),
 					},
 				}
 			: {}),
@@ -822,7 +903,7 @@ export async function handleChatInput(
 	const constructed: TeachingAgent = buildAgent
 		? buildAgent({ ...agentOpts, teaching })
 		: course?.mode === "placement" && course.skills
-			? createPlacementAgent({ skills: course.skills }, agentOpts)
+			? createPlacementAgent({ skills: course.skills, placementSkills: course.placementSkills, sessionModel: conversation }, agentOpts)
 		: record.kind === "practice"
 			? createPracticeAgent(
 					{
@@ -887,6 +968,7 @@ export async function handleChatInput(
 					},
 					agentOpts,
 				);
+	liveAgentMessages = () => constructed.state.messages as unknown as LhMessage[];
 
 	// A test-injected agent gets no usage collector (tests assert the
 	// transcript, not the money channel); when it's ours, usage flows through

@@ -67,7 +67,8 @@ import {
 } from "../core/mastery.ts";
 import { DEFAULT_LESSON_LANGUAGE, type LessonLanguage } from "../core/language.ts";
 import { materialBlock } from "../core/materials.ts";
-import { concludedProblemsOf, missesForSession, openMisses, type ConcludedProblem, type MissedProblem } from "../core/missed-problems.ts";
+import { concludedProblemsOf, missesForSession, openMisses, recentSolvedForSession, type ConcludedProblem, type MissedProblem } from "../core/missed-problems.ts";
+import type { PlacementSkillInfo } from "../core/placement-frontier.ts";
 import { normalizePaceNote, type Pace } from "../core/pace.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { mergeSkillLines } from "../core/skills.ts";
@@ -926,7 +927,19 @@ export function createCourseSession(
 			ids = [skillId];
 			break;
 	}
-	const skills = ids.map((id) => sessionSkill(id, ctx));
+	const idSet = new Set(ids);
+	const placementWeights = mode === "placement" ? sanitizeWeights(course.skillWeights) : undefined;
+	const placementPriorities = placementWeights ? priorities(ids, (id) => ctx.skills.get(id)?.requires ?? [], placementWeights) : undefined;
+	const skills = ids.map((id) => {
+		const base = sessionSkill(id, ctx);
+		if (mode !== "placement") return base;
+		const requires = (ctx.skills.get(id)?.requires ?? []).filter((r) => idSet.has(r));
+		return {
+			...base,
+			...(requires.length > 0 ? { requires } : {}),
+			...(placementPriorities ? { priority: placementPriorities.get(id) } : {}),
+		};
+	});
 	const background =
 		mode === "learn" ? (ctx.skills.get(ids[0]!)?.requires ?? []).filter((r) => ctx.skills.has(r)).map((r) => sessionSkill(r, ctx)) : [];
 	const learnChats = learnChatsBySkill();
@@ -973,21 +986,46 @@ export function courseSessionSkillNames(chatId: string): { courseId: string; ski
  *  tool may tag. Undefined for other sessions, or when the course is gone. */
 export function courseForTurn(
 	chatId: string,
-): { section: string; mode: CourseMode; exam?: string; skills?: () => ReadonlyArray<{ id: string; name: string }>; lessonSkill?: { id: string; name: string }; openerSkills?: Array<{ id: string; name: string }> } | undefined {
+): { section: string; mode: CourseMode; exam?: string; skills?: () => ReadonlyArray<{ id: string; name: string }>; placementSkills?: readonly PlacementSkillInfo[]; lessonSkill?: { id: string; name: string }; openerSkills?: Array<{ id: string; name: string }> } | undefined {
 	const link = stores.chatStore.getChat(chatId)?.course;
 	if (!link) return undefined;
 	const course = stores.courseStore.getCourse(link.courseId);
 	const ctx = readContext();
-	const skills = link.skillIds.filter((id) => ctx.skills.has(id)).map((id) => sessionSkill(id, ctx));
+	const idSet = new Set(link.skillIds);
+	const weights = link.mode === "placement" ? sanitizeWeights(course?.skillWeights) : undefined;
+	const placementPriorities = link.mode === "placement" ? priorities(link.skillIds, (id) => ctx.skills.get(id)?.requires ?? [], weights) : undefined;
+	const skills = link.skillIds.filter((id) => ctx.skills.has(id)).map((id) => {
+		const base = sessionSkill(id, ctx);
+		if (link.mode !== "placement") return base;
+		const requires = (ctx.skills.get(id)?.requires ?? []).filter((r) => idSet.has(r));
+		return {
+			...base,
+			...(requires.length > 0 ? { requires } : {}),
+			...(weights && placementPriorities ? { priority: placementPriorities.get(id) } : {}),
+		};
+	});
 	// open misses on this session's skills: practice and review retest each as a variant (owner, 2026-11-16)
-	const missed = link.mode === "practice" || link.mode === "review" ? missesForSession(openMisses(ctx.problems.get(link.courseId) ?? []), link.skillIds) : [];
+	const courseProblems = link.mode === "practice" || link.mode === "review" ? (ctx.problems.get(link.courseId) ?? []) : [];
+	const missed = link.mode === "practice" || link.mode === "review" ? missesForSession(openMisses(courseProblems), link.skillIds) : [];
+	const recentSolved = link.mode === "practice" || link.mode === "review" ? recentSolvedForSession(courseProblems, link.skillIds) : [];
 	const nameOf = (id: string) => ctx.skills.get(id)?.name ?? id;
-	const section = coursePromptSection(link.mode, course?.title ?? "(deleted course)", skills, link.retest === true, missed.map((m) => ({
-		statement: m.statement,
-		skillNames: m.skills.filter((s) => link.skillIds.includes(s)).map(nameOf),
-		how: MISS_HOW[m.outcome] ?? "missed it",
-		date: new Date(m.at).toISOString().slice(0, 10),
-	})));
+	const section = coursePromptSection(
+		link.mode,
+		course?.title ?? "(deleted course)",
+		skills,
+		link.retest === true,
+		missed.map((m) => ({
+			statement: m.statement,
+			skillNames: m.skills.filter((s) => link.skillIds.includes(s)).map(nameOf),
+			how: MISS_HOW[m.outcome] ?? "missed it",
+			date: new Date(m.at).toISOString().slice(0, 10),
+		})),
+		recentSolved.map((s) => ({
+			statement: s.statement,
+			skillNames: s.skills.filter((id) => link.skillIds.includes(id)).map(nameOf),
+			date: new Date(s.at).toISOString().slice(0, 10),
+		})),
+	);
 	// The exam date becomes the teacher's exam line ("12 Dec 2026, 30 days left"), read fresh every turn so a changed
 	// date, and each passing day, reach the sessions already running. The course's stored time note is no longer read.
 	const exam = examWhen(course?.examDate, Date.now());
@@ -999,5 +1037,14 @@ export function courseForTurn(
 		: [];
 	if (link.mode === "learn") return { section, mode: link.mode, ...(exam ? { exam } : {}), ...(lessonSkill ? { lessonSkill } : {}), ...(openerSkills.length > 0 ? { openerSkills } : {}) };
 	const tags = skills.map((s) => ({ id: s.id, name: s.name }));
+	if (link.mode === "placement") {
+		const placementSkills: PlacementSkillInfo[] = skills.map((s) => ({
+			id: s.id,
+			name: s.name,
+			requires: s.requires ?? [],
+			priority: placementPriorities?.get(s.id) ?? 1,
+		}));
+		return { section, mode: link.mode, ...(exam ? { exam } : {}), skills: () => tags, placementSkills };
+	}
 	return { section, mode: link.mode, ...(exam ? { exam } : {}), skills: () => tags };
 }

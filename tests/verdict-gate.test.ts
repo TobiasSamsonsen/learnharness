@@ -37,6 +37,8 @@ const user = { role: "user", content: "teach me", timestamp: 0 };
 
 const recall = call("q1", "explain", { type: "recall", nodeId: "egen", skill: "sk_1", lead: "x", question: "q", correctAnswer: "a" });
 const afterRecall = [user, assistant([recall]), result("q1", "explain", { kind: "explain", sketch: { id: "s" } })];
+const nonOpenerRecall = call("q1", "explain", { type: "recall", nodeId: "egen", lead: "x", question: "q", correctAnswer: "a" });
+const afterNonOpenerRecall = [user, assistant([nonOpenerRecall]), result("q1", "explain", { kind: "explain", sketch: { id: "s" } })];
 const quiz = call("q1", "quiz", { type: "check", nodeId: "n1", lead: "x", question: "q", correctAnswer: "a" });
 const afterQuizMiss = [user, assistant([quiz]), result("q1", "quiz", { kind: "quiz", correct: false })];
 const afterQuizHit = [user, assistant([quiz]), result("q1", "quiz", { kind: "quiz", correct: true })];
@@ -78,7 +80,7 @@ describe("previous: skipped (a text answer that is not an attempt)", () => {
 
 describe("verdictGateProblem", () => {
 	it("replay: after a wrong recall, a predict on another node is refused", () => {
-		const p = problem(afterRecall, "explain", { type: "predict", nodeId: "mppd", previous: "wrong" });
+		const p = problem(afterNonOpenerRecall, "explain", { type: "predict", nodeId: "mppd", previous: "wrong" });
 		assert.deepEqual(p, { kind: "advanced", nodeId: "egen" });
 		assert.match(verdictGateReason(p!), /node `egen`/);
 	});
@@ -88,11 +90,15 @@ describe("verdictGateProblem", () => {
 		assert.equal(problem(afterRecall, "explain", { type: "recall", nodeId: "egen", skill: "sk_1", previous: "partly" }), null);
 	});
 
-	it("a miss refuses a predict on the same node, a final, and a recall that does not follow a recall", () => {
-		assert.equal(problem(afterRecall, "explain", { type: "predict", nodeId: "egen", previous: "wrong" })?.kind, "advanced");
-		assert.equal(problem(afterRecall, "explain", { type: "final", nodeId: "egen", previous: "partly" })?.kind, "advanced");
+	it("a miss refuses a predict on the same node, a final, and a recall that does not follow a recall (except prerequisite openers)", () => {
+		const nonOpenerRecall = call("q1", "explain", { type: "recall", nodeId: "egen", lead: "x", question: "q", correctAnswer: "a" });
+		const afterNonOpenerRecall = [user, assistant([nonOpenerRecall]), result("q1", "explain", { kind: "explain", sketch: { id: "s" } })];
+		assert.equal(problem(afterNonOpenerRecall, "explain", { type: "predict", nodeId: "egen", previous: "wrong" })?.kind, "advanced");
+		assert.equal(problem(afterNonOpenerRecall, "explain", { type: "final", nodeId: "egen", previous: "partly" })?.kind, "advanced");
 		assert.equal(problem(afterQuizMiss, "quiz", { type: "check", nodeId: "n2", previous: "wrong" })?.kind, "advanced");
 		assert.equal(problem(afterQuizMiss, "explain", { type: "recall", nodeId: "n1", previous: "wrong" })?.kind, "advanced");
+		// Prerequisite recall opener (carries `skill`) is exempt from the stay-on-node lock
+		assert.equal(problem(afterRecall, "explain", { type: "check", nodeId: "mppd", previous: "partly" }), null);
 	});
 
 	it("a right answer lets the tutor advance", () => {
@@ -125,9 +131,17 @@ describe("verdictGateProblem", () => {
 		assert.equal(problem(history, "quiz", { type: "predict", nodeId: "n2", previous: "right" }), null);
 	});
 
+	it("prerequisite recall openers (type recall with skill) are exempt from stay-on-node lock on miss, but still require previous and respect skipped", () => {
+		assert.equal(problem(afterRecall, "explain", { type: "predict", nodeId: "mppd", previous: "wrong" }), null);
+		assert.equal(problem(afterRecall, "quiz", { type: "predict", nodeId: "mppd", previous: "partly" }), null);
+		assert.deepEqual(problem(afterRecall, "explain", { type: "predict", nodeId: "mppd" }), { kind: "missing" });
+		const afterOpenerText = [user, assistant([recall]), result("q1", "explain", { kind: "explain", text: "wait" })];
+		assert.deepEqual(problem(afterOpenerText, "explain", { type: "predict", nodeId: "mppd", previous: "skipped" }), { kind: "skipped-moved", nodeId: "egen" });
+	});
+
 	it("refused calls and non-answer results are skipped when finding the last answer", () => {
 		const refusedCall = { ...result("q9", "quiz", {}), isError: true };
-		const history = [...afterRecall, assistant([call("q9", "quiz", {})]), refusedCall, result("r", "read_sketch", {})];
+		const history = [...afterNonOpenerRecall, assistant([call("q9", "quiz", {})]), refusedCall, result("r", "read_sketch", {})];
 		assert.deepEqual(problem(history, "explain", { type: "predict", nodeId: "mppd", previous: "wrong" }), { kind: "advanced", nodeId: "egen" });
 	});
 

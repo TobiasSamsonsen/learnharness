@@ -68,6 +68,7 @@ import {
 } from "../core/contracts.ts";
 import type { TurnInput, UserSteerInput } from "../core/input-events.ts";
 import { hasUnresolvedQuestion, endsInDismissal, endsInQuestionRecovery, newUserSteer, type LhMessage } from "../core/native-messages.ts";
+import { phaseAt3Lh } from "../core/phases.ts";
 import { prepareSubmissionImages, submissionImagePolicyKey } from "./submission-images.ts";
 import { fireJobAbort, isJobLive } from "../agent/subagents/aborts.ts";
 import { stores, effectiveSettings } from "./stores.ts";
@@ -594,7 +595,14 @@ async function pump(chatId: string): Promise<void> {
 			// derived from the tail, so any user message un-holds by construction.
 			// An interrupted question-recovery request also waits for explicit
 			// input; a queued job must not restart its replacement turn.
-			if (endsInDismissal(fresh.messages) || endsInQuestionRecovery(fresh.messages) || !automaticFollowUpAllowed(chatId)) {
+			// While waiting for the learner to approve the plan, hold background job
+			// steers (subagent-steer / subagent-abort) so finished figures don't
+			// chatter before approval; they ride into the approval turn via handOffEligible.
+			const awaitingPlanApproval =
+				Boolean(fresh.tree) &&
+				phaseAt3Lh(fresh.messages) === "plan" &&
+				fire.every((e) => e.steer.customType === "subagent-steer" || e.steer.customType === "subagent-abort");
+			if (endsInDismissal(fresh.messages) || endsInQuestionRecovery(fresh.messages) || awaitingPlanApproval || !automaticFollowUpAllowed(chatId)) {
 				parked = true;
 				return;
 			}

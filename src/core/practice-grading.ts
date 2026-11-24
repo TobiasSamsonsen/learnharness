@@ -83,7 +83,10 @@ export function renderProblemSpan(span: readonly LhMessage[], concludeCallId: st
 		} else if (role === "custom") {
 			const custom = m as { customType?: string; content?: unknown };
 			if (custom.customType === "practice-thinking") lines.push(`LEARNER (work submitted):\n${textOf(custom.content).trim()}`);
-			else if (custom.customType === "sketch-dispute") lines.push("LEARNER disputes the read-back of their sketch.");
+			else if (custom.customType === "sketch-dispute") {
+				const disputeText = String((m as { details?: { text?: unknown } }).details?.text ?? "").trim() || textOf(custom.content).trim();
+				lines.push(disputeText ? `LEARNER disputes the read-back of their sketch: ${disputeText}` : "LEARNER disputes the read-back of their sketch.");
+			}
 			else if (custom.customType === PRACTICE_HINT_MARKER) {
 				const d = (m as { details?: { size?: unknown; text?: unknown; problemCallId?: unknown; n?: unknown } }).details;
 				const page = typeof d?.problemCallId === "string" && typeof d.n === "number" ? pageReadings.get(hintPageId(d.problemCallId, d.n)) : undefined;

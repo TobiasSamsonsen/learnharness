@@ -11,7 +11,7 @@ import { sendToUserApplies } from "../src/agent/tools/send-to-user.ts";
 // A synthetic signature with the proposed marker in the opaque header.
 // This fixture exercises the heuristic, not a documented provider format.
 const sig = (type: string) => Buffer.from(`\x08\x04\x12\x10\n\x11\x08\x13\x18\x028\x01B\t${type}\x12\x0cpayload`).toString("base64");
-const thinking = (type: string) => ({ type: "thinking", thinking: "", thinkingSignature: sig(type) });
+const thinking = (type: string, text = type === "narration" ? "Hidden narration." : "") => ({ type: "thinking", thinking: text, thinkingSignature: sig(type) });
 const quiz = { type: "toolCall", id: "t1", name: "quiz", arguments: {} };
 const output = (message: unknown = "A complete synthetic explanation.") => ({
 	type: "toolCall", id: "s", name: "send_to_user", arguments: { message },
@@ -60,8 +60,10 @@ describe("a lead is not delivery beside a narration block (owner, 2026-11-14)", 
 });
 
 describe("isNarrationBlock", () => {
-	it("only recognizes the marker in a thinking signature's first 60 decoded bytes", () => {
+	it("only recognizes non-empty narration in a thinking signature's first 60 decoded bytes", () => {
 		assert.equal(isNarrationBlock(thinking("narration")), true);
+		assert.equal(isNarrationBlock(thinking("narration", "")), false);
+		assert.equal(isNarrationBlock(thinking("narration", "   \n ")), false);
 		for (const block of [
 			thinking("thinking"),
 			{ type: "thinking" },

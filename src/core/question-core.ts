@@ -702,8 +702,15 @@ export function dockSubmitGate(s: {
 	confidenceSet: boolean;
 	/** A sketch is attached — in text mode it answers on its own. */
 	hasSketch?: boolean;
+	/** Placement open-ended `recall` also asks for stated confidence (text mode). */
+	requireConfidence?: boolean;
 }): { canSubmit: boolean; needsConfidence: boolean } {
-	if (s.mode === "text") return { canSubmit: s.text.trim().length > 0 || s.hasSketch === true, needsConfidence: false };
+	if (s.mode === "text") {
+		if (s.sel.dontKnow) return { canSubmit: true, needsConfidence: false };
+		const hasAnswer = s.text.trim().length > 0 || s.hasSketch === true;
+		const needsConfidence = s.requireConfidence === true && hasAnswer && !s.confidenceSet;
+		return { canSubmit: hasAnswer && !needsConfidence, needsConfidence };
+	}
 	if (s.sel.dontKnow) return { canSubmit: true, needsConfidence: false };
 	const picked = (s.sel.otherSelected && s.other.trim().length > 0) || s.sel.selected.size > 0;
 	const needsConfidence = picked && s.kind === "quiz" && !s.confidenceSet;
@@ -903,9 +910,12 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 		}
 	}
 	if (qd.kind === "explain") {
-		// No client grading — the model grades in its reply, against the
+		// No client grading — the model (or placement grader) grades against the
 		// commitment. The commitment snapshots for the reveal + rendering.
 		base.committed = qd.committedAnswer;
+		if (!base.dontKnow && req.confidence !== undefined) {
+			base.confidence = Math.max(0, Math.min(100, Math.round(req.confidence)));
+		}
 	}
 	return base;
 }

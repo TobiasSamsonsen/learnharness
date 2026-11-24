@@ -37,11 +37,12 @@ export interface VerdictGateProblem {
 	nodeId?: string;
 }
 
-function argsOf(block: CallLike | undefined): { nodeId?: unknown; type?: unknown; previous?: unknown } {
+function argsOf(block: CallLike | undefined): { nodeId?: unknown; type?: unknown; previous?: unknown; skill?: unknown } {
 	return (block?.arguments && typeof block.arguments === "object" ? block.arguments : {}) as {
 		nodeId?: unknown;
 		type?: unknown;
 		previous?: unknown;
+		skill?: unknown;
 	};
 }
 
@@ -102,8 +103,11 @@ export function verdictGateProblem(
 	if (recorded === "miss" && declared === "right") return { kind: "contradiction" };
 	if (declared === "right") return null;
 
-	// a miss: the next question stays on the node and is a check (or a recall after a recall)
+	// a miss: the next question stays on the node and is a check (or a recall after a recall),
+	// EXCEPT for a prerequisite recall opener (`type: "recall"` with `skill` set), which is
+	// retrieval practice on an earlier skill and moves straight into the lesson after a brief repair.
 	const prior = argsOf(callOf(history, answered.toolCallId));
+	if (prior.type === "recall" && typeof prior.skill === "string" && prior.skill.trim() !== "") return null;
 	if (typeof prior.nodeId !== "string" || prior.nodeId === "") return null;
 	const sameNode = now.nodeId === prior.nodeId;
 	const allowed = now.type === "check" || (prior.type === "recall" && now.type === "recall");

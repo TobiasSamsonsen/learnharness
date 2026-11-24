@@ -72,6 +72,16 @@ describe("problem span", () => {
 		assert.match(text, /TUTOR'S CONCLUSION: outcome solvedWithHints, hint rung R1, miss class execution\. Verdict: Fixed after a hint\./);
 		assert.ok(!text.includes("sk_old"), "an earlier problem is not in the evidence");
 	});
+
+	it("includes the learner's sketch dispute text when present", () => {
+		const withDispute: LhMessage[] = [
+			...record().slice(0, -1),
+			{ id: "d1", role: "custom", customType: "sketch-dispute", content: "dispute", details: { text: "max(f'(x)), ikke absoluttverdi" }, display: true, timestamp: t++ } as unknown as LhMessage,
+			concludeCall("c1"),
+		];
+		const text = renderProblemSpan(problemSpanOf(withDispute, "c1"), "c1");
+		assert.match(text, /LEARNER disputes the read-back of their sketch: max\(f'\(x\)\), ikke absoluttverdi/);
+	});
 });
 
 describe("grader helpers", () => {

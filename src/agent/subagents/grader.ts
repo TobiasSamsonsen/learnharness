@@ -17,7 +17,7 @@ import { runSubmitAgent } from "./submit-agent.ts";
 
 const BASE_INSTRUCTIONS = `You grade how well a learner used each skill on ONE practice problem, after it ended. You did not tutor them. Grade only from the transcript, per skill: again < hard < good < easy, never more than the learner demonstrated.
 
-Who did the work decides: a tutor message that points at where the work is wrong or at what to do next is a hint, even a gentle one.
+Who did the work decides: a tutor message that points at where the work is wrong or at what to do next is a hint, even a gentle one. A tutor misreading the learner's sketch (and any dispute or extra turn spent correcting that misread) is the tutor's error — never count it as a hint, a wrong attempt, or hesitation.
 
 Hints. Every hint is in the transcript: from the learner's Hint button (marked HINT BY BUTTON, with its size) or from the tutor in chat (judge those by what they did). A hint has a size: SLIP (it only pointed at a mechanical slip: a dropped sign, a copying or arithmetic error), NUDGE (it pointed the learner the right way: the idea or the part to rethink), CARRY (it carried the learner forward: the next move or step). For each skill, name \`hint\`: the combined weight of all hints on THAT skill: none, slip, nudge or carry. Hints add up: several slips together can amount to a nudge, and nudges that together carry the learner forward amount to a carry. The system caps the grade by your weight afterwards (nudge: at most good; carry: at most hard), so grade the work shown and do not lower a grade twice for the same hint. A slip hint never lowers a grade.
 

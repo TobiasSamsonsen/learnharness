@@ -4,7 +4,7 @@ import { invalidInputResult, questionResult } from "./tool-execute.ts";
 import { providerEventObserver } from "./provider-events.ts";
 import type { Usage } from "@earendil-works/pi-ai";
 import { PATHS } from "../../config.ts";
-import { APP_IDENTITY, piEngineFor, type PiEngine } from "./models.ts";
+import { APP_IDENTITY, piEngineFor, type PiEngine, type ResolvedModelSpec } from "./models.ts";
 import { effectivePromptSegments } from "./prompt-segments.ts";
 import {
 	askUserQuestionTool,
@@ -16,7 +16,10 @@ import {
 } from "./tools.ts";
 import { practiceTools, createPracticeGate, type PracticeGate, type PracticeToolContext } from "./tools/practice.ts";
 import { pluginProblemTools, isPluginProblemPoseAcknowledgment, type NativePluginProblemContribution } from "./plugin-problem-tools.ts";
-import { placementProbeTool } from "./tools/course.ts";
+import { placementProbeTool, placementRecallTool } from "./tools/course.ts";
+import { placementGradeAfterReadSketchHook } from "./placement-grade.ts";
+import { FINISH_SESSION_TOOL } from "../core/course-session.ts";
+import { hasUnreadPlacementSketch, placementProgressOf, type PlacementProgress, type PlacementSkillInfo } from "../core/placement-frontier.ts";
 import { healToolRecord, withArgumentHeal } from "./tools/heal.ts";
 import { sendToUserApplies, sendToUserTool } from "./tools/send-to-user.ts";
 import { makeNarrationGuard, narrationGuardApplies, SEND_TO_USER_DELIVERY_RULE } from "./narration-guard.ts";
@@ -26,11 +29,11 @@ import { createReadTool, readTool } from "./tools/read.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { figureInputProblems } from "../core/figures/index.ts";
 import { circuitSolveTool, figureGuideTool } from "./tools/figures.ts";
-import { readSketchTool } from "./tools/sketch.ts";
+import { PLACEMENT_READ_SKETCH_ACK, readSketchTool } from "./tools/sketch.ts";
 import { READ_SKETCH_TOOL, isDoubtfulReadResult, sketchIdsOf } from "../core/sketch-gate.ts";
 import { QUESTION_TOOLS, TOGGLEABLE_TOOLS, type EnabledTools } from "../core/pending.ts";
 import type { PluginToolContext } from "../core/plugins.ts";
-import { toLlmMessages, nativeInputCause, newCheckNudgeMarker, PRACTICE_PROBLEM_TOOL, type HintPageResolver, type SketchImageResolver } from "../core/native-messages.ts";
+import { toLlmMessages, nativeInputCause, newCheckNudgeMarker, PRACTICE_PROBLEM_TOOL, sendToUserText, type HintPageResolver, type LhMessage, type SketchImageResolver } from "../core/native-messages.ts";
 import { PROSE_GATED_TOOLS, proseGateBlocks, proseGateReason, proseGateRefusedLast } from "../core/prose-gate.ts";
 import { leadFloorBlocks, leadFloorReason } from "../core/lead-floor-gate.ts";
 import { needsCheckNudge } from "../core/check-nudge.ts";
@@ -356,7 +359,17 @@ function baseAgentOptions(
 	// them nor lose them. read_sketch (Android plan M2) rides EVERY agent, always — practice builds its own (it shares
 	// the conclude gate). A caller-owned registry (opts.tools — the tests') is never touched.
 	if (!opts.tools && !tools.some((t) => t.name === READ_SKETCH_TOOL)) {
-		tools = [...tools, ...Object.values(healToolRecord({ read_sketch: readSketchTool({ known: () => sketchIdsOf(opts.messages ?? []) }) }))];
+		tools = [
+			...tools,
+			...Object.values(
+				healToolRecord({
+					read_sketch: readSketchTool({
+						known: () => sketchIdsOf(opts.messages ?? []),
+						...(kind === "placement" ? { ack: PLACEMENT_READ_SKETCH_ACK } : {}),
+					}),
+				}),
+			),
+		];
 	}
 	// show_figure (owner, 2026-11-12 — core/figure-show.ts) rides the teacher, always: a finished visual/demo stays
 	// hidden until it is called. It reads the RUN's history (the agent's state), so a figure handed in mid-run is found.
@@ -424,13 +437,22 @@ function baseAgentOptions(
 		// the visual gate (core/visual-gate.ts: a plan that calls for a picture gets it dispatched before the first teach
 		// question); then upstream's narration guard (narration-marked thinking is not delivery); then the plugin
 		// question ledger's exact-occurrence binding, which never refuses.
-		...(kind === "teacher" || questionLedger || narrationHooks ? (() => {
+		...(kind === "teacher" || kind === "placement" || questionLedger || narrationHooks ? (() => {
 			// A refusal cap (owner, 2026-11-10): after GATE_REFUSAL_CAP refusals by one gate in this run, that gate lets
 			// the call through, so a model that keeps failing it cannot loop. Run-local: the agent is built once per turn.
 			const refuse = makeGateRefusals();
 			return {
 				beforeToolCall: async (call: BeforeToolCallContext, signal?: AbortSignal) => {
 					const { assistantMessage, toolCall, context } = call;
+					if (kind === "placement" && (toolCall.name === "probe" || toolCall.name === "recall" || toolCall.name === FINISH_SESSION_TOOL)) {
+						const unread = hasUnreadPlacementSketch(context.messages as unknown as LhMessage[]);
+						if (unread) {
+							return {
+								block: true,
+								reason: `A sketch (${unread.sketchId}) is attached to the learner's last answer — call read_sketch on it first before posing the next question or finishing.`,
+							};
+						}
+					}
 					if (kind === "teacher") {
 						const refused =
 							refuse("prose", proseGateBlocks(context.messages, assistantMessage, toolCall.id, toolCall.name), proseGateReason(toolCall.name))
@@ -466,15 +488,26 @@ function baseAgentOptions(
 			};
 		})() : {}),
 		// The narration guard's after-hook only notes a delivery and overrides nothing, so a grader hook beside it (a
-		// course lesson's teacher) still decides the result.
-		...(narrationHooks?.afterToolCall || afterToolCall
-			? {
-					afterToolCall: async (call: AfterToolCallContext, signal?: AbortSignal) => {
-						const noted = await narrationHooks?.afterToolCall?.(call, signal);
-						return (await afterToolCall?.(call, signal)) ?? noted;
-					},
+		// course lesson's teacher) still decides the result. Also guards finish_session against double closing summaries.
+		afterToolCall: async (call: AfterToolCallContext, signal?: AbortSignal) => {
+			if (call.toolCall.name === FINISH_SESSION_TOOL && !call.isError) {
+				const at = call.assistantMessage.content.findIndex((b) => b.type === "toolCall" && b.id === call.toolCall.id);
+				const before = call.assistantMessage.content.slice(0, at < 0 ? call.assistantMessage.content.length : at);
+				let proseLen = 0;
+				for (const b of before) {
+					if (b.type === "text") proseLen += b.text.trim().length;
+					const sent = sendToUserText(b);
+					if (sent) proseLen += sent.trim().length;
 				}
-			: {}),
+				if (proseLen >= 120) {
+					return {
+						content: [{ type: "text", text: "Logged: the session is finished. You already gave your closing summary — end your turn with no further text or tool calls." }],
+					};
+				}
+			}
+			const noted = await narrationHooks?.afterToolCall?.(call, signal);
+			return (await afterToolCall?.(call, signal)) ?? noted;
+		},
 		// 0.87.1: shouldStopAfterTurn → finishTurn. Same call point (after
 		// tool results attach, before turn_end) and `{ action: "end" }` still
 		// exits BEFORE the steering poll — the parked-marker stranding our
@@ -655,9 +688,29 @@ export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOp
  * (tools/course.ts) + ask; its doctrine is prompts/placement/ plus the
  * course section. The answers are the evidence (core/mastery.ts).
  */
-export function createPlacementAgent(ctx: { skills: () => ReadonlyArray<{ id: string; name: string }> }, opts: AgentBuildOptions = {}) {
-	const tools = opts.tools ?? healToolRecord({ probe: placementProbeTool(ctx.skills), ask_user_question: askUserQuestionTool, figure_guide: figureGuideTool, circuit_solve: circuitSolveTool });
-	return baseAgentOptions("placement", opts, Object.values(tools));
+export function createPlacementAgent(
+	ctx: {
+		skills: () => ReadonlyArray<{ id: string; name: string }>;
+		placementSkills?: readonly PlacementSkillInfo[];
+		sessionModel?: ResolvedModelSpec;
+	},
+	opts: AgentBuildOptions = {},
+) {
+	let liveMessages: () => LhMessage[] = () => (opts.messages ?? []) as unknown as LhMessage[];
+	const getProgress = (): PlacementProgress | undefined => (ctx.placementSkills ? placementProgressOf(liveMessages(), ctx.placementSkills) : undefined);
+	const tools = opts.tools ?? healToolRecord({
+		probe: placementProbeTool(ctx.skills, getProgress),
+		recall: placementRecallTool(ctx.skills, getProgress),
+		ask_user_question: askUserQuestionTool,
+		figure_guide: figureGuideTool,
+		circuit_solve: circuitSolveTool,
+	});
+	const gradeHook = ctx.placementSkills
+		? placementGradeAfterReadSketchHook({ placementSkills: ctx.placementSkills, sessionModel: ctx.sessionModel })
+		: undefined;
+	const agent = baseAgentOptions("placement", opts, Object.values(tools), undefined, undefined, gradeHook);
+	liveMessages = () => agent.state.messages as unknown as LhMessage[];
+	return agent;
 }
 
 export type ProberAgent = ReturnType<typeof createProberAgent>;

@@ -56,10 +56,10 @@ export function leadFloorReason(toolName: string): string {
  * code cannot tell a wrong one from a right one and a reply to open-ended
  * recall is owed a real response either way.
  */
-function isMiss(result: ToolResultMessage): boolean {
+function isMiss(result: ToolResultMessage, declaredPrevious?: string): boolean {
 	// a steer is not an answer: nothing was wrong, so no repair is owed (the reply to what he wrote is the tutor's to size)
 	if (isSteeredResult(result)) return false;
-	if (result.toolName === "explain") return true;
+	if (result.toolName === "explain") return declaredPrevious !== "right";
 	return readAnswerVerdict(result) === "miss";
 }
 
@@ -120,6 +120,10 @@ export function leadFloorBlocks(
 	// last answer goes before it, as send_to_user or text; the plain presence rule (prose-gate.ts) still applies.
 	const callBlock = assistantMessage.content.find((b) => b.type === "toolCall" && b.id === toolCallId);
 	if (toolName === "explain" && callBlock?.type === "toolCall" && normalizeQuizType((callBlock.arguments as { type?: unknown } | undefined)?.type) === "final") return false;
+	const declaredPrevious =
+		callBlock?.type === "toolCall" && typeof (callBlock.arguments as { previous?: unknown } | undefined)?.previous === "string"
+			? (callBlock.arguments as { previous: string }).previous.trim().toLowerCase()
+			: undefined;
 	const rejected = new Set<string>();
 	for (const m of history) {
 		const r = m as ToolResultMessage;
@@ -140,7 +144,7 @@ export function leadFloorBlocks(
 		if (m.role === "toolResult") {
 			const result = m as ToolResultMessage;
 			if (result.isError || !GRADED_ANSWER_TOOLS.has(result.toolName)) continue;
-			return isMiss(result) && chars < LEAD_FLOOR_CHARS;
+			return isMiss(result, declaredPrevious) && chars < LEAD_FLOOR_CHARS;
 		}
 		if (m.role === "user") return false;
 	}

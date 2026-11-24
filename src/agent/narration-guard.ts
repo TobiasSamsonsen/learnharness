@@ -25,8 +25,8 @@ export function narrationGuardApplies(
 	return kind === "teacher" && sendToUserApplies(kind, model, toolsOverridden);
 }
 
-export function isNarrationBlock(block: { type: string; thinkingSignature?: string }): boolean {
-	return block.type === "thinking" && isNarrationSignature(block.thinkingSignature);
+export function isNarrationBlock(block: { type: string; thinking?: string; thinkingSignature?: string }): boolean {
+	return block.type === "thinking" && isNarrationSignature(block.thinkingSignature) && (block.thinking ?? "").trim().length > 0;
 }
 
 export function questionLacksDeliveredProse(message: AssistantMessage, toolName: string, delivered = false): boolean {

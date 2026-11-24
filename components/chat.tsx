@@ -16,7 +16,7 @@ import { findSurfaceBoundary } from "./plugin-surface-targets";
 import { scheduleOpeningSubmission } from "./plugin-submission-opening";
 import { activeProblemOccurrenceOf, buildAnswer, toClientQuestion, type PluginSubmission, type PluginSubmissionTarget, type QuestionData } from "@/src/core";
 import { validatePluginBuiltinSubmissionAnswer } from "@/src/core";
-import { derivePlanStatuses, sessionProgress } from "@/src/core";
+import { derivePlanStatuses, resolveLessonLanguage, sessionProgress, type LessonLanguage } from "@/src/core";
 import { visibleQueuedSteers } from "@/components/session-core";
 import { SetupDialog } from "@/components/setup-dialog";
 import { Hint } from "@/components/ui/hint";
@@ -1478,10 +1478,11 @@ export function Chat({
 		!compacting &&
 		!busy &&
 		phaseAt3(messages) === "plan";
+	const [sessionLanguage, setSessionLanguage] = useState<LessonLanguage>("en");
 	const sendPlanContinue = useCallback(() => {
 		if (!planContinueReady) return;
-		void send({ type: "text", text: "Looks good, let's start." });
-	}, [planContinueReady, send]);
+		void send({ type: "text", text: sessionLanguage === "nb" ? "Ser bra ut, la oss starte." : "Looks good, let's start." });
+	}, [planContinueReady, send, sessionLanguage]);
 
 	// ── Session usage (wave-4 stats bar) ──
 	// The money channel: the record's turns log and read-time server Pi
@@ -1510,6 +1511,14 @@ export function Chat({
 			// transient blip: stats stay on the last known figures
 		}
 	}, [readRecord]);
+	useEffect(() => {
+		let cancelled = false;
+		fetch(`/api/chats/${encodeURIComponent(chatId)}`)
+			.then((r) => (r.ok ? (r.json() as Promise<{ settings?: ChatSettings }>) : null))
+			.then((b) => { if (!cancelled && b) setSessionLanguage(resolveLessonLanguage(b.settings)); })
+			.catch(() => {});
+		return () => { cancelled = true; };
+	}, [chatId]);
 	useEffect(() => {
 		void syncTurns();
 	}, [syncTurns]);

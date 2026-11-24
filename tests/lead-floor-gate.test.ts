@@ -68,12 +68,17 @@ describe("leadFloorBlocks (the pure rule)", () => {
 		assert.equal(leadFloorBlocks(missed, assistant([call("q2", "explain", lead(40))]), "q2", "explain"), true);
 	});
 
-	it("every free-recall (explain) answer needs the floor: it has no verdict the code can read", () => {
+	it("every free-recall (explain) answer needs the floor unless the tutor declares previous: right", () => {
 		const explainResult = (verdict: Record<string, unknown>) => [user, assistant([call("q1", "explain", lead(300))]), answerResult("q1", "explain", verdict)];
 		const next = assistant([call("q2", "quiz", lead(40))]);
 		assert.equal(leadFloorBlocks(explainResult({}), next, "q2", "quiz"), true);
 		assert.equal(leadFloorBlocks(explainResult({ correct: true }), next, "q2", "quiz"), true);
 		assert.equal(leadFloorBlocks(explainResult({}), assistant([call("q2", "quiz", lead(LEAD_FLOOR_CHARS))]), "q2", "quiz"), false);
+
+		const rightCall: ToolCall = { ...call("q2", "explain", lead(40)), arguments: { ...quizArgs, previous: "right", lead: lead(40) } as ToolCall["arguments"] };
+		assert.equal(leadFloorBlocks(explainResult({}), assistant([rightCall]), "q2", "explain"), false, "previous: right skips the miss floor");
+		const partlyCall: ToolCall = { ...call("q2", "explain", lead(40)), arguments: { ...quizArgs, previous: "partly", lead: lead(40) } as ToolCall["arguments"] };
+		assert.equal(leadFloorBlocks(explainResult({}), assistant([partlyCall]), "q2", "explain"), true, "previous: partly still owes the floor");
 	});
 
 	it("the final problem is exempt: it takes no hint, so its short lead must not be padded (2026-11-17)", () => {
