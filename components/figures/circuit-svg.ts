@@ -14,7 +14,12 @@ import { labelHtml, labelSvg, mathHtml, measure, type Label } from "@/components
  */
 
 const U = 100;
-const STROKE = `stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"`;
+const STROKE_BASE = `stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"`;
+const STROKE = `${STROKE_BASE} stroke-width="1.5"`;
+/** A stroke of another width: one stroke-width attribute only — a duplicate is tolerated inline (the HTML parser) but makes the
+ *  full-screen image document (XML) fail to load, which showed a broken image. */
+const STROKE_FILLED = `${STROKE_BASE.replace('fill="none"', 'fill="currentColor" fill-opacity="0.15"')} stroke-width="1.5"`;
+const strokeW = (width: number) => `${STROKE_BASE} stroke-width="${width}"`;
 
 /** Half the symbol's length along its axis (the leads fill the rest). */
 const HALF: Partial<Record<Element["kind"], number>> = { R: 16, C: 4, L: 16, V: 13, I: 13, D: 8, S: 11, E: 13, G: 13 };
@@ -25,7 +30,7 @@ function body(el: Element): string {
 		case "R":
 			return `<rect x="-16" y="-6.5" width="32" height="13" ${STROKE}/>`;
 		case "C":
-			return `<path d="M-4 -12V12M4 -12V12" ${STROKE} stroke-width="2"/>`;
+			return `<path d="M-4 -12V12M4 -12V12" ${strokeW(2)}/>`;
 		case "L":
 			return `<path d="M-16 0a4 4 0 0 1 8 0a4 4 0 0 1 8 0a4 4 0 0 1 8 0a4 4 0 0 1 8 0" ${STROKE}/>`;
 		case "V":
@@ -37,13 +42,13 @@ function body(el: Element): string {
 		case "G":
 			return `<path d="M-13 0L0 -13L13 0L0 13Z" ${STROKE}/><path d="M-7 0H6M2 -4L7 0L2 4" ${STROKE}/>`;
 		case "D": {
-			const led = el.led ? `<path d="M0 -12l5 -6M3 -18h2v2M5 -11l5 -6M8 -17h2v2" ${STROKE} stroke-width="1.2"/>` : "";
-			return `<path d="M-8 -8L-8 8L8 0Z" ${STROKE} fill="currentColor" fill-opacity="0.15"/><path d="M8 -8V8" ${STROKE}/>${led}`;
+			const led = el.led ? `<path d="M0 -12l5 -6M3 -18h2v2M5 -11l5 -6M8 -17h2v2" ${strokeW(1.2)}/>` : "";
+			return `<path d="M-8 -8L-8 8L8 0Z" ${STROKE_FILLED}/><path d="M8 -8V8" ${STROKE}/>${led}`;
 		}
 		case "S": {
 			const before = el.switch!.before;
 			const lever = before ? `<path d="M-11 0H11" ${STROKE}/>` : `<path d="M-11 0L9 -11" ${STROKE}/>`;
-			const motion = el.switch!.before !== el.switch!.after ? `<path d="M${before ? "4 -3" : "6 -12"}a10 10 0 0 ${before ? "0" : "1"} ${before ? "4 -8" : "3 9"}" ${STROKE} stroke-width="1" marker-end="url(#ARROW)"/>` : "";
+			const motion = el.switch!.before !== el.switch!.after ? `<path d="M${before ? "4 -3" : "6 -12"}a10 10 0 0 ${before ? "0" : "1"} ${before ? "4 -8" : "3 9"}" ${strokeW(1)} marker-end="url(#ARROW)"/>` : "";
 			return `<circle cx="-11" r="2.2" fill="currentColor"/><circle cx="11" r="2.2" fill="currentColor"/>${lever}${motion}`;
 		}
 		default:
@@ -66,15 +71,15 @@ function transistorBody(el: Element, L: number, toBase: number, arrowId: string)
 		const arrow = npn ? `M7 12L18 0` : `M18 0L7 12`;
 		return (
 			`<circle cx="0" cy="8" r="23" ${STROKE}/>` +
-			`<path d="M-14 12H14M0 12V${toBase}" ${STROKE} stroke-width="2"/>` +
+			`<path d="M-14 12H14M0 12V${toBase}" ${strokeW(2)}/>` +
 			`<path d="M-${h} 0H-18L-7 12M18 0H${h}" ${STROKE}/>` +
 			`<path d="${arrow}" ${STROKE} marker-end="url(#${arrowId})"/>`
 		);
 	}
 	const nmos = el.model === "nmos";
 	return (
-		`<path d="M-14 19H14M0 19V${toBase}" ${STROKE} stroke-width="2"/>` +
-		`<path d="M-14 12H-6M-3 12H3M6 12H14" ${STROKE} stroke-width="2.4"/>` +
+		`<path d="M-14 19H14M0 19V${toBase}" ${strokeW(2)}/>` +
+		`<path d="M-14 12H-6M-3 12H3M6 12H14" ${strokeW(2.4)}/>` +
 		`<path d="M-${h} 0H-10V12M10 12V0H${h}M0 0H10" ${STROKE}/>` +
 		`<path d="${nmos ? "M0 0V10" : "M0 12V2"}" ${STROKE} marker-end="url(#${arrowId})"/>`
 	);
@@ -141,7 +146,7 @@ export function renderCircuitSvg(c: Circuit, fontPx: number): string {
 				// upright signs beside the inputs: − at the top input, + at the other
 				const minus = local(24, sl);
 				const plus = local(24, -sl);
-				parts.push(`<path d="M${(minus.x - 4).toFixed(1)} ${minus.y.toFixed(1)}h8M${(plus.x - 4).toFixed(1)} ${plus.y.toFixed(1)}h8M${plus.x.toFixed(1)} ${(plus.y - 4).toFixed(1)}v8" ${STROKE} stroke-width="1.3"/>`);
+				parts.push(`<path d="M${(minus.x - 4).toFixed(1)} ${minus.y.toFixed(1)}h8M${(plus.x - 4).toFixed(1)} ${plus.y.toFixed(1)}h8M${plus.x.toFixed(1)} ${(plus.y - 4).toFixed(1)}v8" ${strokeW(1.3)}/>`);
 				const l = measure(el.label !== undefined ? labelHtml(el.label) : mathHtml(nameLatex(el.name)), small);
 				const spot = local(L * 0.42, -(sl + 30));
 				place(l, spot.x, spot.y);
@@ -187,7 +192,7 @@ export function renderCircuitSvg(c: Circuit, fontPx: number): string {
 			const s = 6;
 			const [px, py] = [mx - ux * s, my - uy * s];
 			const [qx, qy] = [mx + ux * s, my + uy * s];
-			parts.push(`<path d="M${(px - 3).toFixed(1)} ${py.toFixed(1)}h6M${px.toFixed(1)} ${(py - 3).toFixed(1)}v6M${(qx - 3).toFixed(1)} ${qy.toFixed(1)}h6" ${STROKE} stroke-width="1.3"/>`);
+			parts.push(`<path d="M${(px - 3).toFixed(1)} ${py.toFixed(1)}h6M${px.toFixed(1)} ${(py - 3).toFixed(1)}v6M${(qx - 3).toFixed(1)} ${qy.toFixed(1)}h6" ${strokeW(1.3)}/>`);
 		}
 
 		// name and value
@@ -217,7 +222,7 @@ export function renderCircuitSvg(c: Circuit, fontPx: number): string {
 			const s = (HALF[el.kind] ?? 12) + 8;
 			const side = 12;
 			const sign = (x: number, y: number, plus: boolean) =>
-				parts.push(`<path d="M${(x - 3).toFixed(1)} ${y.toFixed(1)}h6${plus ? `M${x.toFixed(1)} ${(y - 3).toFixed(1)}v6` : ""}" ${STROKE} stroke-width="1.2"/>`);
+				parts.push(`<path d="M${(x - 3).toFixed(1)} ${y.toFixed(1)}h6${plus ? `M${x.toFixed(1)} ${(y - 3).toFixed(1)}v6` : ""}" ${strokeW(1.2)}/>`);
 			sign(mx - ux * s - nx * side, my - uy * s - ny * side, true);
 			sign(mx + ux * s - nx * side, my + uy * s - ny * side, false);
 		}
