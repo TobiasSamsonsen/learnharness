@@ -13,7 +13,7 @@ import type { Circuit, Direction, Element } from "./circuit.ts";
 
 const GND = "0";
 /** Search effort: ~2 s of search per hundred parts on a laptop; tuned so a typical figure (6–10 parts) lays out in a few hundred ms. */
-const BUDGET_SCALE = 3;
+const BUDGET_SCALE = 4;
 const Q = 4;
 type Pt = { x: number; y: number };
 const DIRS: Pt[] = [{ x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 0, y: -1 }];
@@ -25,7 +25,19 @@ interface Comp {
 	kind: Kind;
 	/** The net at each pin (two: n1, n2 · op-amp: out, −, + · transistor: C, E, B). "0" = a ground connection of its own. */
 	nets: string[];
+	/** The orientations a two-terminal part may take (0 right, 1 down, 2 left, 3 up): textbook conventions are rules, not wishes. */
+	orients: number[];
 }
+/** An op-amp's neighbours: the part across its feedback and the parts feeding its inputs. */
+interface OpInfo {
+	ci: number;
+	out: string;
+	minus: string;
+	plus: string;
+	feedback: number[];
+	inputs: number[];
+}
+let curOps: OpInfo[] = [];
 interface St {
 	x: number;
 	y: number;
@@ -376,13 +388,30 @@ function evaluate(comps: Comp[], st: St[], netId: Map<string, number>, wide: boo
 	for (let i = 0; i < n; i++) {
 		const c = comps[i]!;
 		const s = st[i]!;
-		if (c.kind === "two" && (c.el.kind === "V" || c.el.kind === "I") && s.o % 2 === 0) soft += 3;
-		// a source's + end up (the first node on top), and a part tied to ground stands upright above it
+		// a source's + end up (the first node on top)
 		if (c.kind === "two" && c.el.kind === "V" && s.o === 3) soft += 2;
-		if (c.kind === "two" && c.el.kind !== "W" && (c.nets[0] === GND || c.nets[1] === GND) && s.o % 2 === 0) soft += 3;
-		if (c.kind === "two" && c.el.kind === "W" && s.o !== 1) soft += 3;
-		if (c.kind === "opamp" && s.m) soft += 3; // − on top is the usual drawing
 		if (c.kind === "two" && s.l > 2) soft += (s.l - 2) * 0.5;
+		// the one ground symbol sits at the bottom of the drawing
+		if (c.kind === "two" && c.el.kind === "W" && c.nets[1] === GND) soft += (maxY - allPins[i]![1]!.y) / Q * 0.5;
+	}
+	// op-amps as drawn in a textbook: − on top when + is grounded; the feedback part on the side of the − input, level; the parts feeding
+	// an input in line with it
+	for (const op of curOps) {
+		const s = st[op.ci]!;
+		const [, minusPin, plusPin] = allPins[op.ci]! as [Pt, Pt, Pt];
+		if (s.m && op.plus === "#gnd") soft += 6;
+		const side = s.m ? 1 : -1;
+		for (const k of op.feedback) {
+			const p = allPins[k]!;
+			if (((p[0]!.y + p[1]!.y) / 2 - s.y) * side <= 0) soft += 5;
+			if (p[0]!.y !== p[1]!.y) soft += 1.5;
+		}
+		for (const k of op.inputs) {
+			const p = allPins[k]!;
+			if (p[0]!.y !== p[1]!.y) continue;
+			const target = comps[k]!.nets.includes(op.minus) ? minusPin : plusPin;
+			soft += (Math.abs(p[0]!.y - target.y) / Q) * 1.2;
+		}
 	}
 	return { cost: hard * 60 + soft, hard, routes };
 }
@@ -400,7 +429,7 @@ function search(comps: Comp[], netId: Map<string, number>, seed: number, iterati
 	let cur: St[] = comps.map((c, i) => ({
 		x: Math.round((i % 4) * 2.2 * Q) + Math.floor(rand() * 3) * Q,
 		y: Math.round(Math.floor(i / 4) * 2.2 * Q) + Math.floor(rand() * 3) * Q,
-		o: c.kind === "two" ? Math.floor(rand() * 4) : 0,
+		o: c.kind === "two" ? c.orients[Math.floor(rand() * c.orients.length)]! : 0,
 		l: 1 + Math.floor(rand() * 2),
 		m: false,
 	}));
@@ -432,7 +461,7 @@ function search(comps: Comp[], netId: Map<string, number>, seed: number, iterati
 				if (rand() < 0.5) s.x += b.x - a.x;
 				else s.y += b.y - a.y;
 			}
-		} else if (r < 0.74 && comps[i]!.kind === "two") s.o = Math.floor(rand() * 4);
+		} else if (r < 0.74 && comps[i]!.kind === "two") s.o = comps[i]!.orients[Math.floor(rand() * comps[i]!.orients.length)]!;
 		else if (r < 0.82 && comps[i]!.kind === "two") s.l = 1 + Math.floor(rand() * 3);
 		else if (r < 0.88 && comps[i]!.kind !== "two") s.m = !s.m;
 		else {
@@ -501,22 +530,45 @@ function build(c: Circuit, sig: string, attempt: number, allowance: number): Aut
 	const comps: Comp[] = [];
 	for (const e of c.elements) {
 		if (e.kind === "W") continue;
-		if (e.opamp) comps.push({ el: e, kind: "opamp", nets: [net(e.n1), net(e.control![1]), net(e.control![0])] });
-		else if (e.kind === "Q" || e.kind === "M") comps.push({ el: e, kind: "trans", nets: [net(e.n1), net(e.n2), net(e.third!)] });
-		else comps.push({ el: e, kind: "two", nets: [net(e.n1), net(e.n2)] });
+		if (e.opamp) comps.push({ el: e, kind: "opamp", nets: [net(e.n1), net(e.control![1]), net(e.control![0])], orients: [] });
+		else if (e.kind === "Q" || e.kind === "M") comps.push({ el: e, kind: "trans", nets: [net(e.n1), net(e.n2), net(e.third!)], orients: [] });
+		else comps.push({ el: e, kind: "two", nets: [net(e.n1), net(e.n2)], orients: [0, 1, 2, 3] });
 	}
-	// a grounded pin of an op-amp or transistor gets a short wire to its own ground symbol (a symbol right at the pin would sit
-	// inside the part's body)
-	let stubs = 0;
-	for (const comp of [...comps]) {
-		if (comp.kind === "two") continue;
-		comp.nets.forEach((nn, j) => {
-			if (nn !== GND) return;
-			const stub = `#g${stubs++}`;
-			comp.nets[j] = stub;
-			comps.push({ el: { kind: "W", name: "W", n1: stub, n2: GND, dir: "down", line: 0 }, kind: "two", nets: [stub, GND] });
+	// orientations: a part tied to ground stands upright with the ground at its foot; a source is vertical
+	for (const cm of comps) {
+		if (cm.kind !== "two" || cm.el.kind === "P") continue;
+		const g0 = cm.nets[0] === GND;
+		const g1 = cm.nets[1] === GND;
+		if (g0 !== g1) cm.orients = [g0 ? 3 : 1];
+		else if (cm.el.kind === "V" || cm.el.kind === "I") cm.orients = [1, 3];
+	}
+	// every ground connection joins ONE rail (as in a textbook), with a single ground symbol on a short wire; an open terminal pair keeps its own reference end
+	let single = 0;
+	let rail = false;
+	for (const cm of comps) {
+		cm.nets = cm.nets.map((nn) => {
+			if (nn !== GND) return nn;
+			if (cm.el.kind === "P") return `#p${single++}`;
+			rail = true;
+			return "#gnd";
 		});
 	}
+	if (rail) comps.push({ el: { kind: "W", name: "W", n1: "#gnd", n2: GND, dir: "down", line: 0 }, kind: "two", nets: ["#gnd", GND], orients: [1] });
+	// the op-amps' neighbours
+	curOps = [];
+	comps.forEach((cm, ci) => {
+		if (cm.kind !== "opamp") return;
+		const [out, minus, plus] = cm.nets as [string, string, string];
+		const feedback: number[] = [];
+		const inputs: number[] = [];
+		comps.forEach((o, k) => {
+			if (o.kind !== "two" || o.el.kind === "W" || o.el.kind === "P") return;
+			const [a, b] = o.nets as [string, string];
+			if ((a === out && b === minus) || (a === minus && b === out)) feedback.push(k);
+			else if (a === minus || b === minus || (plus !== "#gnd" && (a === plus || b === plus))) inputs.push(k);
+		});
+		curOps.push({ ci, out, minus, plus, feedback, inputs });
+	});
 	const netId = new Map<string, number>();
 	const names: string[] = [];
 	for (const comp of comps) for (const nn of comp.nets) if (nn !== GND && !netId.has(nn)) { netId.set(nn, names.length); names.push(nn); }

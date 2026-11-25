@@ -261,10 +261,11 @@ export function renderCircuitSvg(c: Circuit, fontPx: number): string {
 		place(l, p.x - l.w / 2 - 4, p.y - l.h / 2 - 4);
 	}
 
-	const minX = Math.min(...pts.map((p) => p.x)) - 10;
-	const minY = Math.min(...pts.map((p) => p.y)) - 10;
-	const maxX = Math.max(...pts.map((p) => p.x)) + 10;
-	const maxY = Math.max(...pts.map((p) => p.y)) + 10;
+	// room for a source's circle (radius 13) beside its end points
+	const minX = Math.min(...pts.map((p) => p.x)) - 18;
+	const minY = Math.min(...pts.map((p) => p.y)) - 18;
+	const maxX = Math.max(...pts.map((p) => p.x)) + 18;
+	const maxY = Math.max(...pts.map((p) => p.y)) + 18;
 	const W = maxX - minX;
 	const H = maxY - minY;
 	return (

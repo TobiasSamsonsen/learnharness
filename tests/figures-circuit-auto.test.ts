@@ -26,6 +26,11 @@ const GALLERY: Record<string, string> = {
 	"two RC sections": "V1 a 0 5V\nR1 a b 1k\nC1 b 0 1u\nR2 b c 1k\nC2 c 0 1u",
 	"common source": "V1 vdd 0 5V\nR1 vdd d 1k\nM1 d g 0 nmos\nV2 g 0 2V",
 	RLC: "V1 a 0 5V\nR1 a b 100\nL1 b c 10m\nC1 c 0 1u",
+	// the course's own op-amp figures (TTT4203 ERT 15 and ERT 25)
+	derivator: "V1 x 0 1V\nC1 x z 1u\nR1 z y 10k\nE1 y 0 opamp 0 z\nnodes z, y",
+	integrator2: "V1 x 0 1V\nR1 x z 10k\nC1 z y 1u\nE1 y 0 opamp 0 z\nnodes z, y",
+	"non-inverting (ERT 15 fig. 6)": "V1 vi 0 1V\nE1 o 0 opamp vi n\nR1 n 0 1k\nR2 n o 2k\nnodes n, o",
+	"constant current source (ERT 25 fig. 3)": "V1 a 0 5V\nR1 a p 10k\nR2 p 0 10k\nE1 o 0 opamp p n\nRL o n 1k\nR3 n 0 10k\nnodes n",
 };
 
 describe("the automatic layout draws any topology", () => {
@@ -62,10 +67,20 @@ describe("the automatic layout draws any topology", () => {
 		const auto = autoDirect(c, 0);
 		const laid = layoutDirected(auto.circuit);
 		assert.equal(verifyDrawing(auto, laid.placed), null);
-		// pull one wire off: the piece it carried is no longer connected
-		const wire = laid.placed.findIndex((p) => p.el.kind === "W");
-		const cut = laid.placed.map((p, i) => (i === wire ? { ...p, b: { x: p.a.x + 7, y: p.a.y + 7 } } : p));
+		// pull every wire off its far end: nothing is connected any more
+		const cut = laid.placed.map((p) => (p.el.kind === "W" ? { ...p, b: { x: p.a.x + 7, y: p.a.y + 7 } } : p));
 		assert.match(String(verifyDrawing(auto, cut)), /drawn as two separate pieces|drawn connected/);
+	});
+
+	it("textbook conventions: one ground symbol, sources and grounded parts upright", () => {
+		for (const src of [GALLERY.inverting!, GALLERY.integrator!, GALLERY["divider with load"]!]) {
+			const laid = layoutCircuit(parseCircuit(src));
+			const groundEnds = laid.placed.filter((p) => !p.el.opamp && (p.el.n1 === "0" || p.el.n2 === "0")).length;
+			assert.equal(groundEnds, 1, "one ground symbol for the whole circuit");
+			for (const p of laid.placed) {
+				if (p.el.kind === "V" || p.el.kind === "I") assert.equal(p.a.x, p.b.x, p.el.name + " is vertical");
+			}
+		}
 	});
 
 	it("a circuit that cannot be drawn cleanly is refused in the tutor's terms, never drawn wrong", () => {
