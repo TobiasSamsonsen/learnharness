@@ -18,31 +18,8 @@ const toolTurn = (index: number) => fauxAssistantMessage([
 const again = { name: "again", label: "again", description: "Offline continuation", parameters: Type.Object({}),
 	execute: async () => ({ content: [{ type: "text" as const, text: "Evidence retained" }], details: null }) };
 
-test("research runs past twelve tool turns and delivers only the natural final answer", async () => {
-	const final = "## Summary\nVerified fixture. [Source](https://example.invalid/evidence)\n\n## Gaps\nNone in this fixture.";
-	const { faux, engine } = scripted([
-		...Array.from({ length: 15 }, (_, index) => fauxAssistantMessage([
-			fauxText(`Searching ${index}; this is progress only.`),
-			fauxToolCall("web_search", { query: `query_${index}` }, { id: `search_${index}` }),
-		], { stopReason: "toolUse" })),
-		(context) => {
-			assert.ok(context.messages.some(m => m.role === "user" && m.content === "Original research question"));
-			assert.equal(context.messages.filter(m => m.role === "toolResult").length, 15);
-			assert.match(JSON.stringify(context.messages.at(-1)), /query_14/);
-			return fauxAssistantMessage(final);
-		},
-	]);
-	const queries: string[] = []; let usage = 0;
-	const brief = await runResearcherAgent("Original research question", { engine,
-		search: () => ({ id: "tavily", async search(query) { queries.push(query); return [{ title: "Offline", url: "https://example.invalid/evidence", snippet: `Evidence for ${query}` }]; } }),
-		onUsage: () => usage++,
-	});
-	assert.equal(brief, final);
-	assert.equal(faux.state.callCount, 16);
-	assert.equal(queries.length, 15);
-	assert.equal(usage, 16);
-});
-
+// Removed in the v0.7.0 merge (owner, 2026-11-25): upstream's "research runs past twelve tool turns" test. The fork keeps its researcher cap of 12 with the
+// salvage prompt (tests/practice-agents.test.ts / claude-code-stream.test.ts "(fork)").
 for (const maxTurns of [undefined, 2]) test(`shared runner ${maxTurns === undefined ? "has no default cap" : "enforces an explicit cap"}`, async () => {
 	const { faux, engine } = scripted([...Array.from({ length: 25 }, (_, index) => toolTurn(index)), fauxAssistantMessage("Completed")]);
 	const events: string[] = [];

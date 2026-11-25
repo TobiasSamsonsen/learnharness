@@ -75,21 +75,19 @@ test("adaptation off: today's stacked card, nothing measured, no layout reported
 		assert.equal(host.querySelector('[data-testid="question-columns"]'), null);
 		const scroll = dock.querySelector("[data-dock-scroll-area]")!;
 		assert.ok(scroll.querySelector("[data-question-part]") && scroll.querySelector("[data-question-options]"));
-		// Confidence has no box of its own: it follows the options inside the
-		// scrolling area (sharing its padding), above "Your thinking".
-		const confidence = scroll.querySelector<HTMLElement>("[data-question-confidence]")!;
-		assert.ok(confidence, "confidence scrolls with the options");
-		// Next in reading order after the options (wrappers are display: contents).
-		const order = [...scroll.querySelectorAll("[data-question-options], [data-question-confidence]")];
-		assert.deepEqual(order, [scroll.querySelector("[data-question-options]"), confidence]);
-		assert.equal(/border-t|px-4/.test(confidence.className), false, "no separator, no second side padding");
+		// The fork's confidence buttons (owner, 2026-10-28) are their own row below the answer area, not a slider inside it.
+		assert.equal(scroll.querySelector("[data-question-confidence]"), null, "no slider in the answer area");
+		assert.equal(scroll.querySelector('[data-testid="dont-know-button"]'), null, "\"I don't know\" is not an option row");
+		const confidenceRow = dock.querySelector('[data-testid="confidence-row"]')!;
+		assert.ok(confidenceRow && !scroll.contains(confidenceRow), "the confidence buttons sit below the answer area");
+		assert.ok(confidenceRow.querySelector('[data-testid="dont-know-button"]'), "\"I don't know\" leads the button row");
 		assert.equal(measurements, 0);
 		assert.ok(layouts.every((l) => l === null));
 		assert.equal(document.querySelector("[data-question-layout-probe]"), null);
 	} finally { await act(async () => root.unmount()); host.remove(); }
 });
 
-test("adaptation on: question left, options + confidence right (one scroller), thinking full width below; typing never re-measures", async () => {
+test("adaptation on: question left, options right (one scroller), confidence buttons and thinking full width below; typing never re-measures", async () => {
 	const layouts: (QuestionLayout | null)[] = [];
 	measurements = 0;
 	const { host, root, render } = await mount(request, layouts);
@@ -104,16 +102,14 @@ test("adaptation on: question left, options + confidence right (one scroller), t
 		assert.ok(left!.querySelector("[data-question-part]"));
 		assert.equal(left!.querySelector("[data-question-options]"), null);
 		assert.ok(right!.querySelector("[data-question-options]"));
-		// Confidence scrolls with the options, as stacked (owner): both
-		// inside the answer column's one scroller, nothing pinned beside it.
+		// The options sit in the answer column's one scroller, nothing pinned beside it; the fork's confidence buttons are a full-width row below.
 		const scroller = right!.querySelector<HTMLElement>("[data-dock-scroll-area]")!;
 		assert.equal(right!.children.length, 1, "nothing pinned outside the scroller");
 		assert.ok(scroller.querySelector("[data-question-options]"));
-		const confidence = scroller.querySelector<HTMLElement>("[data-question-confidence]")!;
-		assert.equal(confidence.previousElementSibling?.hasAttribute("data-question-options"), true);
-		// No divider; options and confidence centered together vertically.
+		assert.equal(grid.querySelector('[data-testid="confidence-row"]'), null, "the confidence buttons stay outside the columns");
+		assert.ok(dock.querySelector('[data-testid="confidence-row"]'));
+		// No divider; the options are centered vertically.
 		assert.equal(right!.className.includes("border-l"), false);
-		assert.equal(confidence.className.includes("border-t"), false);
 		assert.ok(right!.className.split(" ").includes("justify-center"));
 		// "Your thinking" stays outside the columns.
 		assert.equal(grid.querySelector('[data-testid="thinking-field"]'), null);
@@ -243,7 +239,7 @@ test("crossing the threshold keeps the same nodes both ways: focus, caret, scrol
 			radio: host.querySelector('[role="radio"]'),
 			question: host.querySelector("[data-question-part]"),
 			options: host.querySelector("[data-question-options]"),
-			slider: host.querySelector('[data-testid="confidence-slider"]'),
+			confidence: host.querySelector('[data-testid="confidence-row"]'),
 			thinking: host.querySelector('[data-testid="thinking-field"] [role="textbox"]'),
 		});
 		const wide = pick();
@@ -258,11 +254,11 @@ test("crossing the threshold keeps the same nodes both ways: focus, caret, scrol
 		assert.equal(dock.getAttribute("data-question-layout"), "columns");
 		const again = pick();
 		for (const key of Object.keys(wide) as (keyof typeof wide)[]) assert.equal(again[key], wide[key], `${key}: and narrow → wide`);
-		// Stacked: one scroll area holds question, options and confidence.
+		// Stacked: one scroll area holds question and options; the confidence buttons are the fork's row below it.
 		await render({ ...request, available: 700 });
 		const area = dock.querySelector<HTMLElement>("[data-dock-scroll-area]")!;
 		assert.equal(dock.querySelectorAll("[data-dock-scroll-area]").length, 1);
-		assert.ok(area.contains(wide.question) && area.contains(wide.options) && area.contains(wide.slider));
+		assert.ok(area.contains(wide.question) && area.contains(wide.options) && !area.contains(wide.confidence));
 	} finally { await act(async () => root.unmount()); host.remove(); }
 });
 

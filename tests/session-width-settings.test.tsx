@@ -74,7 +74,8 @@ it("the transcript column reads the variable; unset leaves today's full-bleed co
 	assert.match(css, /\.lh-transcript-column \{\s*max-width: calc\(var\(--lh-transcript-max\) \+ 1rem\);\s*\}/);
 	const chat = readFileSync(new URL("../components/chat.tsx", import.meta.url), "utf8");
 	assert.match(chat, /const COLUMN = "lh-transcript-column mx-auto w-full px-6";/);
-	assert.match(chat, /const DOCK = "mx-auto w-full max-w-\[46rem\] px-4";/);
+	// The fork's DOCK also carries the 60rem landscape-touch variant (owner, 2026-11-10).
+	assert.match(chat, /const DOCK = "mx-auto w-full max-w-\[46rem\] px-4[^"]*";/);
 });
 
 it("inline code and inline math never wrap on the session page; a span wider than its column scrolls", () => {

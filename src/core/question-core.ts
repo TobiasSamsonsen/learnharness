@@ -294,7 +294,7 @@ const explainType = Type.Union([Type.Literal("predict"), Type.Literal("check"), 
 	description:
 		"REQUIRED — the question's role, as a bare word (no quotes): predict = posed BEFORE you teach the step; check = posed AFTER " +
 		"the step's teaching is complete; final = the ONE unaided problem that ends a course lesson (a fresh case taking the whole " +
-		"skill, no hint anywhere in `lead`; a separate grader rates it when you call finish_lesson); recall = a course lesson's OPENER: a short question on a skill he learned earlier (set `skill` to its id), posed before the new material, no hint; the grader rates it when the lesson finishes. ONE question per turn either way.",
+		"skill, no hint anywhere in `lead`; a separate grader rates it when you call finish_lesson); recall = a course lesson's OPENER: a short question on a skill he learned earlier (set `skill` to its id), posed before the new material, no hint; the grader rates it when the lesson finishes.",
 });
 
 /** The text the learner reads before a teach question (owner, 2026-10-27).

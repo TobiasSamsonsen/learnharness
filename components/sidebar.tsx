@@ -388,7 +388,7 @@ export function SessionRow({
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
 			className={cn(
 				"relative mb-0.5 flex w-full items-center gap-2 rounded-xl px-3 text-left transition-colors hover:bg-accent",
-				compact ? "py-1 touch:py-2.5" : "py-2 touch:py-2.5",
+				compact ? "h-8 touch:h-auto touch:py-2.5" : "py-2 touch:py-2.5",
 				active && "bg-accent",
 				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
 			)}

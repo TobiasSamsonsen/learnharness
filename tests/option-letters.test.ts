@@ -32,6 +32,8 @@ test("letters map back to authored positions without changing the seeded permuta
 	const result = newAnswerResult(q.id, "quiz", answer);
 	assert.deepEqual(result.details, answer);
 	const json = JSON.parse(result.content[0]!.type === "text" ? result.content[0]!.text : "");
+	assert.equal(typeof json.next, "string", "the fork's reply instruction rides every answer");
+	delete json.next;
 	assert.deepEqual(json, {
 		kind: "quiz", optionOrder: q.optionOrder, correct: true, thinking: "I ruled out A.",
 		answers: [{ index: q.correctIndices![0], label: "Venus", letter: String.fromCharCode(64 + q.correctIndices![0]!) }],

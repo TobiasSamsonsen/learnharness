@@ -120,7 +120,7 @@ test("answered card: a remount reuses its solved layout; adaptation off keeps to
 	} finally { await act(async () => off.root.unmount()); off.host.remove(); }
 });
 
-test("the question card stand-in mirrors the pending card: options, I don't know, confidence", () => {
+test("the question card stand-in mirrors the pending card: its options (the fork's dock keeps \"I don't know\" and the confidence in the button row below)", () => {
 	const live = (html: string) => { const el = document.createElement("div"); el.innerHTML = html; return el; };
 	const quiz = questionCardStandIn(document as unknown as Document, {
 		label: "Prediction", kind: "quiz", multiSelect: false,
@@ -128,13 +128,12 @@ test("the question card stand-in mirrors the pending card: options, I don't know
 	});
 	assert.equal(quiz.question.textContent, "PredictionQ");
 	const rows = quiz.options.firstElementChild!.children;
-	assert.equal(rows.length, 3, "two options + I don't know");
-	assert.match(rows[2]!.className, /border-dashed/);
+	assert.equal(rows.length, 2, "two options; no I don't know row");
 	for (const row of rows) {
 		assert.match(row.className, /items-center/);
 		assert.doesNotMatch(row.firstElementChild!.className, /mt-0\.5/);
 	}
-	assert.ok(quiz.confidence?.textContent?.includes("Confidence"));
+	assert.equal(quiz.confidence, null, "no slider row: the confidence buttons are outside the answer area");
 
 	const ask = questionCardStandIn(document as unknown as Document, {
 		label: "Question", kind: "ask", multiSelect: true,

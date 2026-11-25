@@ -220,7 +220,7 @@ const FINAL_ONLY_DESCRIPTION =
 	"may name the method, remind him of a step or show part of the answer. Set `nodeId` (required) to the plan node the skill " +
 	"ends on. Say what his last answer showed BEFORE this call (send_to_user, or plain text if you have none): `lead` stays neutral, with no repair " +
 	"and no method named. The final is a case not used earlier in this lesson, even when he asks for something shorter: a shorter final has fewer " +
-	"parts, it never reuses earlier items. After his answer, say what was right and wrong, then call finish_lesson. ONE question per turn.";
+	"parts, it never reuses earlier items. After his answer, say what was right and wrong, then call finish_lesson.";
 
 function explainDescription(name: "explain" | "recall", nodeId: boolean, scope: ExplainScope = "checks", mixed = false): string {
 	if (scope === "finalOnly") return FINAL_ONLY_DESCRIPTION;
