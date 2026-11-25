@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { circuitQuantity, FigureError, formatSI, layoutCircuit, parseCircuit, parseSI } from "../src/core/figures/index.ts";
+import { circuitQuantity, FigureError, formatSI, layoutCircuit, layoutDirected, parseCircuit, parseSI } from "../src/core/figures/index.ts";
 
 const near = (a: number | string, b: number, tol: number) => {
 	assert.equal(typeof a, "number", String(a));
@@ -31,15 +31,17 @@ describe("values", () => {
 });
 
 describe("netlist and layout", () => {
-	it("places nodes on the grid from the directions; ground is never a constraint", () => {
-		const { nodes } = layoutCircuit(parseCircuit(divider));
+	it("the directed engine places nodes on the grid from the directions; ground is never a constraint", () => {
+		const { nodes } = layoutDirected(parseCircuit(divider));
 		assert.deepEqual(nodes.get("a"), { x: 0, y: 0 });
 		assert.deepEqual(nodes.get("b"), { x: 1, y: 0 });
 	});
 
-	it("a loop that does not close is refused with the offending line", () => {
+	it("directions are hints the automatic layout ignores: a loop that does not close in the directed engine still draws", () => {
+		const src = "V1 a 0 5V; down\nR1 a b 1k; right\nR2 b c 1k; down\nR3 c a 1k; right";
+		assert.doesNotThrow(() => parseCircuit(src));
 		assert.throws(
-			() => parseCircuit("V1 a 0 5V; down\nR1 a b 1k; right\nR2 b c 1k; down\nR3 c a 1k; right"),
+			() => layoutDirected(parseCircuit(src)),
 			(e: FigureError) => e.line === 4 && /goes right from c to a, but the other lines already put a 1 left and 1 up of c/.test(e.message),
 		);
 	});
@@ -120,9 +122,9 @@ describe("circuits in questions", async () => {
 		assert.equal(judgeFigureCheck([stem], [{ label: "1 mA" }, { label: "2 mA" }], [0], { figure: "c1", quantity: "I(R1)" }).verified, true);
 	});
 
-	it("a circuit with a broken loop is refused before posing; facts carry the DC solution", () => {
-		const [p] = figureProblems(["```circuit\nV1 a 0 5V; down\nR1 a b 1k; right\nR2 b c 1k; down\nR3 c a 1k; right\n```"]);
-		assert.match(p!, /^Figure 1 \(```circuit\) line 4: R3 goes right from c to a/);
+	it("a circuit that does not parse is refused before posing; facts carry the DC solution", () => {
+		const [p] = figureProblems(["```circuit\nV1 a 0 5V\nR1 a b 1k\nR2 b c 2q\n```"]);
+		assert.match(p!, /^Figure 1 \(```circuit\) line 3: "2q" is not a value/);
 		assert.match(figureFacts([stem]).join("\n"), /V\(b\) = 3 V/);
 	});
 
@@ -166,7 +168,7 @@ describe("op-amps and transistors (drawn; ideal op-amps solved)", () => {
 	});
 
 	it("op-amp terminals: − above + on the input side, the output one unit along", () => {
-		const { nodes } = layoutCircuit(parseCircuit("V1 a 0 1V; down\nR1 a n 1k; right\nE1 o 0 opamp p n; right\nW p 0; down"));
+		const { nodes } = layoutDirected(parseCircuit("V1 a 0 1V; down\nR1 a n 1k; right\nE1 o 0 opamp p n; right\nW p 0; down"));
 		const n = nodes.get("n")!;
 		assert.deepEqual(nodes.get("p"), { x: n.x, y: n.y + 0.5 });
 		assert.deepEqual(nodes.get("o"), { x: n.x + 1, y: n.y + 0.25 });
@@ -174,12 +176,12 @@ describe("op-amps and transistors (drawn; ideal op-amps solved)", () => {
 
 	it("a transistor's base sits beside its collector–emitter axis; it is drawn, not solved", () => {
 		const ce = parseCircuit("V1 vcc 0 12V; down\nR1 vcc c 2k; right\nQ1 c b e npn; down\nR2 e 0 1k; down\nW b x; left");
-		const { nodes } = layoutCircuit(ce);
+		const { nodes } = layoutDirected(ce);
 		const c = nodes.get("c")!;
 		assert.deepEqual(nodes.get("e"), { x: c.x, y: c.y + 1 });
 		assert.deepEqual(nodes.get("b"), { x: c.x - 0.5, y: c.y + 0.5 });
 		assert.match(String(circuitQuantity(ce, "V(c)")), /Q1 is a transistor — circuits with diodes or transistors are drawn, not solved/);
-		const { nodes: m } = layoutCircuit(parseCircuit("V1 vdd 0 5V; down\nR1 vdd d 1k; right\nM1 d g s nmos; down, mirror\nW s 0; down"));
+		const { nodes: m } = layoutDirected(parseCircuit("V1 vdd 0 5V; down\nR1 vdd d 1k; right\nM1 d g s nmos; down, mirror\nW s 0; down"));
 		assert.deepEqual(m.get("g"), { x: m.get("d")!.x + 0.5, y: m.get("d")!.y + 0.5 });
 	});
 
@@ -195,15 +197,17 @@ describe("parts drawn on top of each other", () => {
 	// the Superposisjon figure (2026-11-25): a resistor and a current source both run down from a to ground
 	const stacked = "V1 a1 0 12V; down\nR1 a1 a 1k; right\nR2 a 0 2k; down\nI1 a 0 3mA; down\nnodes a";
 
-	it("two parts on one stretch of line are refused, naming both and the fix", () => {
+	it("two parts on one stretch of line are refused by the directed engine, naming both and the fix; the automatic layout draws them side by side", () => {
 		assert.throws(
-			() => parseCircuit(stacked),
+			() => layoutDirected(parseCircuit(stacked)),
 			(err: unknown) => err instanceof FigureError && err.line === 4 && /R2 and I1 are drawn on top of each other/.test(err.message) && /W a b; right/.test(err.message),
 		);
+		assert.doesNotThrow(() => parseCircuit(stacked));
 	});
 
 	it("a wire stepping aside puts the parallel parts side by side", () => {
 		const c = parseCircuit("V1 a1 0 12V; down\nR1 a1 a 1k; right\nR2 a 0 2k; down\nW a b; right\nI1 b 0 3mA; down\nnodes a");
+		assert.doesNotThrow(() => layoutDirected(c));
 		assert.doesNotThrow(() => layoutCircuit(c));
 		near(circuitQuantity(c, "V(a)"), 6, 1e-6);
 	});

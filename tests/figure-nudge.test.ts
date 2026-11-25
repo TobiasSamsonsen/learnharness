@@ -15,14 +15,15 @@ const message = (text: string, stopReason: AssistantMessage["stopReason"] = "sto
 	stopReason, timestamp: 1,
 });
 const fence = (src: string) => "Look:\n\n```circuit id=c1\n" + src + "\n```\n\nDone.";
-const stacked = "V1 a1 0 12V; down\nR1 a1 a 1k; right\nR2 a 0 2k; down\nI1 a 0 3mA; down\nnodes a";
-const fixed = "V1 a1 0 12V; down\nR1 a1 a 1k; right\nR2 a 0 2k; down\nW a b; right\nI1 b 0 3mA; down\nnodes a";
+// a figure that stays broken now that the drawing is laid out automatically (parts drawn on top of each other can no longer happen)
+const stacked = "V1 a 0 12V\nR1 a b 2q\nR2 b 0 2k";
+const fixed = "V1 a 0 12V\nR1 a b 1k\nR2 b 0 2k";
 
 describe("textFigureProblems", () => {
-	it("names a figure whose parts sit on top of each other", () => {
+	it("names a figure that does not parse", () => {
 		const problems = textFigureProblems(message(fence(stacked)));
 		assert.equal(problems.length, 1);
-		assert.match(problems[0]!, /R2 and I1 are drawn on top of each other/);
+		assert.match(problems[0]!, /"2q" is not a value/);
 	});
 
 	it("is empty for a good figure, for text without a figure, and for a turn that is not a text-only stop", () => {
@@ -69,7 +70,7 @@ describe("the reminder is live in the teacher: once per run, hidden", () => {
 		]);
 		await agent.continue();
 		assert.equal(requests.length, 2, "the run continued at its own stop, then ended on the good figure");
-		assert.ok(requests[1]!.includes("drawn on top of each other"), "the second request ends with the problem");
+		assert.ok(requests[1]!.includes("is not a value"), "the second request ends with the problem");
 		const marker = agent.state.messages.find((m) => (m as { customType?: string }).customType === "check-nudge") as { content: string; display: boolean } | undefined;
 		assert.ok(marker && marker.display === false, "kept in the record as a hidden marker");
 	});

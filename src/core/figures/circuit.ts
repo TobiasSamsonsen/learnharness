@@ -17,6 +17,7 @@
  */
 
 import { FigureError, statements, type Statement } from "./lines.ts";
+import { autoDirect, verifyDrawing } from "./circuit-auto.ts";
 import { METRICS, metric, type Metric } from "./metrics.ts";
 
 export type ElementKind = "R" | "C" | "L" | "V" | "I" | "D" | "S" | "W" | "P" | "E" | "G" | "Q" | "M";
@@ -299,7 +300,7 @@ function placeOpamp(el: Element, u: Point, at: (n: string) => Point | undefined,
 /** Place every node on a grid from the directions (y grows downward).
  *  Ground terminals are not nodes of the drawing — each gets its own
  *  point. Throws when two lines put a node in different places. */
-export function layoutCircuit(c: Circuit): { nodes: Map<string, Point>; placed: PlacedElement[] } {
+export function layoutDirected(c: Circuit): { nodes: Map<string, Point>; placed: PlacedElement[] } {
 	const pos = new Map<string, Point>();
 	const placed: Array<PlacedElement | undefined> = [];
 	const remaining = new Set(c.elements.map((_, i) => i));
@@ -376,7 +377,9 @@ export function layoutCircuit(c: Circuit): { nodes: Map<string, Point>; placed: 
 			let maxX = -Infinity;
 			for (const p of pos.values()) maxX = Math.max(maxX, p.x);
 			clusterX = pos.size === 0 ? 0 : maxX + 2;
-			pos.set(start, { x: clusterX, y: 0 });
+			// a node named by its grid point (the automatic layout: "_x_y" in quarter units) starts exactly there
+			const named = /^_(\d+)_(\d+)$/.exec(start);
+			pos.set(start, named ? { x: Number(named[1]) / 4, y: Number(named[2]) / 4 } : { x: clusterX, y: 0 });
 		}
 	}
 	// two different nodes on one point would be drawn as one
@@ -406,6 +409,34 @@ export function layoutCircuit(c: Circuit): { nodes: Map<string, Point>; placed: 
 		}
 	}
 	return { nodes: pos, placed: placed as PlacedElement[] };
+}
+
+/**
+ * The drawing of a circuit (owner, 2026-11-25): placed and routed automatically from the netlist alone (circuit-auto.ts), then laid
+ * out and checked by layoutDirected like any directed netlist. The directions a netlist may still carry are ignored. A node's
+ * name resolves to the point of one of its pins.
+ */
+export function layoutCircuit(c: Circuit): { nodes: Map<string, Point>; placed: PlacedElement[] } {
+	let best: { laid: ReturnType<typeof layoutDirected>; auto: ReturnType<typeof autoDirect>; bad: number } | null = null;
+	let failure: unknown;
+	for (let attempt = 0; attempt < 4; attempt++) {
+		const auto = autoDirect(c, attempt);
+		try {
+			const laid = layoutDirected(auto.circuit);
+			const problem = verifyDrawing(auto, laid.placed);
+			const bad = auto.hard + (problem ? 100 : 0);
+			if (!best || bad < best.bad) best = { laid, auto, bad };
+			if (bad === 0) break;
+		} catch (e) {
+			failure = e;
+		}
+	}
+	if (!best) throw failure;
+	for (const [name, point] of best.auto.where) {
+		const p = best.laid.nodes.get(point);
+		if (p) best.laid.nodes.set(name, p);
+	}
+	return best.laid;
 }
 
 /** Do two placed parts lie on one grid line and share a stretch of it (touching at an end is fine)? */

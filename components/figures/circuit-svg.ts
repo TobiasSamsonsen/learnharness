@@ -253,7 +253,9 @@ export function renderCircuitSvg(c: Circuit, fontPx: number): string {
 	}
 	// labelled nodes
 	for (const n of c.shownNodes) {
-		const p = at(nodes.get(n)!);
+		const at0 = nodes.get(n);
+		if (!at0) continue; // a name with no drawn point of its own (merged into ground by a wire)
+		const p = at(at0);
 		parts.push(`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.6" fill="currentColor"/>`);
 		const l = measure(mathHtml(identLatex(n)), small);
 		place(l, p.x - l.w / 2 - 4, p.y - l.h / 2 - 4);
