@@ -75,7 +75,9 @@ const tools = ["list_sessions", "submit_review"].map((name) => ({
 function fakeEngine(failSecond = false, fixtureModel = model): PiEngine {
 	let calls = 0;
 	return { model: fixtureModel, level: "high", streamFn: (selected, context, options) => streamSimple(selected as typeof model, context, {
-		...options, apiKey: "NEVER_RECORD_THIS_FAKE_KEY",
+		// maxRetries 0: the assertion below ("no hidden retries") must not depend on a retry default of the provider layer; on the
+		// GitHub runner (main and PR runs) the pdfReader failure test saw two retries and failed after a 3 s backoff
+		...options, apiKey: "NEVER_RECORD_THIS_FAKE_KEY", maxRetries: 0,
 		fetch: async (_url, init) => {
 			const request = JSON.parse(String(init?.body));
 			assert.equal(request.stream, true);
