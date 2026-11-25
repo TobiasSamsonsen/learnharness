@@ -1,3 +1,5 @@
+import type { LhViewMessage } from "@/src/core";
+
 /**
  * Which assistant parts show in the transcript (owner, 2026-11-17: the live
  * line stands for all thinking and tool activity). Model Reasoning rows and
@@ -90,4 +92,15 @@ export function stepSeparators(parts: readonly RowPart[]): Set<number> {
 		i = j;
 	}
 	return out;
+}
+
+export function isSubagentSteer(message: LhViewMessage): boolean {
+	return (message.metadata as { subagentResult?: unknown } | undefined)?.subagentResult != null;
+}
+
+/** Keep the latest learner turn and any live tail fully laid out. Background
+ * deliveries and aborts carry teacher-facing text, not a new learner turn. */
+export function newestLearnerTurnFrom(messages: readonly LhViewMessage[]): number {
+	return messages.findLastIndex((message) => message.role === "user" && !isSubagentSteer(message)
+		&& message.parts.some((part) => part.type === "text" || part.type === "image"));
 }

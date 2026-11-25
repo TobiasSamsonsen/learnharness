@@ -3,7 +3,11 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ExpandIcon, MaximizeIcon, MinusIcon, PlusIcon, ShrinkIcon } from "lucide-react";
 import type { PlanNodeStatus } from "@/src/core";
-import { blockLayout, GRAPH_PAD, NODE_H, NODE_W_MIN, PlanDiagram, type LayoutNode } from "@/components/plan-block";
+import { GRAPH_PAD, PlanDiagram, PlanLayoutProbe, usePlanLayout } from "@/components/plan-block";
+import { NODE_W_MIN, type LayoutNode } from "@/components/plan-layout";
+
+/** The node height fallback of the old layout (a single-line label); plan-layout.ts now measures each node. */
+const NODE_H = 44;
 import { FIT_PAD, fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/components/pan-zoom";
 import { usePanZoomGestures } from "@/components/use-pan-zoom-gestures";
 import { cn } from "@/lib/utils";
@@ -81,7 +85,8 @@ export function SkillMap({
 	fitted?: boolean;
 }) {
 	const markerId = useId().replace(/[^a-zA-Z0-9-]/g, "");
-	const layout = useMemo(() => blockLayout(nodes, edges), [nodes, edges]);
+	// The real-font layout (upstream v0.7.0, #671): the hook measures the labels in the reading font; PlanLayoutProbe is its hidden probe.
+	const { layout, probe } = usePlanLayout({ nodes, edges });
 	const box = useMemo(() => ({ w: layout.width + 2 * PAD, h: layout.height + 2 * PAD }), [layout]);
 	// The focus nodes' bounding-box center, in the padded map's coordinates.
 	const focus = useMemo(() => {
@@ -205,7 +210,8 @@ export function SkillMap({
 						transition: panning || !settled ? "none" : "transform 180ms ease-out, opacity 160ms ease-out",
 					}}
 				>
-					<PlanDiagram nodes={nodes} edges={edges} statusOf={statusOf} markerId={markerId} pad={PAD} naturalSize />
+					<PlanDiagram layout={layout} nodes={nodes} edges={edges} statusOf={statusOf} markerId={markerId} pad={PAD} naturalSize />
+					<PlanLayoutProbe probe={probe} />
 				</div>
 				<div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-2">
 					<span className="truncate text-[11px] text-muted-foreground/60">

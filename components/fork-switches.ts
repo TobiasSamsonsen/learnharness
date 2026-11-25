@@ -11,6 +11,16 @@
  */
 export const upstreamSelectionTools = { current: false };
 
+/**
+ * `sessionFolders` (owner, 2026-11-25): upstream v0.7.0's session folders (the sidebar folder tree, drag into folders, Add
+ * folder, folder delete) and the graph's folder filter. Off: the sidebar stays the fork's flat list (Courses, Today, the
+ * Finished group, swipe rows) and the graph shows no folder filter. The sidebar itself is the fork's file; the folder code
+ * (components/sidebar-folders.tsx, graph-folder-filter.tsx, core/session-folders.ts) stays in the tree.
+ *
+ * Also off: upstream's desktop startup announcements (electron/main.cjs `STARTUP_MESSAGES`; a fetch from learnharness.ai at launch).
+ */
+export const sessionFolders = { current: false };
+
 /** A keyboard action that is not offered while its feature is off: not claimed, not listed, not rebindable. */
 export function isHiddenKeyAction(id: string): boolean {
 	return id === "toggle-question-thread" && !upstreamSelectionTools.current;

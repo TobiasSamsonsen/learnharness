@@ -7,7 +7,7 @@ import { resolveSourcePath } from "../tools/fs-shared.ts";
 import { piEngineFor, type PiEngine, type ThinkingLevel } from "../models.ts";
 import { providerEventObserver, type ProviderEventObserver } from "../provider-events.ts";
 import { backgroundCaptureStream, createBackgroundCapture, type BackgroundCapture } from "../background-capture.ts";
-import { workerRequestStream } from "../worker-request-admission.ts";
+import { createWorkerRequestScope } from "../worker-request-admission.ts";
 import type { PdfResult, PdfToolInput } from "../../core/contracts.ts";
 import { getHeadless, type HeadlessApi } from "./headless.ts";
 import { pdfExtract, pdfInfo, pdfProbe, pdfSearch, type PdfSearchHit } from "./pdf-ops.ts";
@@ -63,8 +63,6 @@ extracted or rendered.`;
 const INSTRUCTIONS = `${PDF_READING_DOCTRINE}
 
 ${BRIEF_DELIVERABLE}`;
-
-const MAX_ITERATIONS = 14;
 /** Rendered pages per pdf_render call — the skill renders selectively; a
  *  batch cap keeps one over-eager call from flooding the vision context. */
 const RENDER_BATCH_CAP = 6;
@@ -77,6 +75,7 @@ export interface PdfReaderOptions {
 	onUsage?: (usage: Usage) => void;
 	onActivity?: (line: string) => void;
 	headless?: HeadlessApi;
+	/** Optional assistant-turn cap; omitted = no turn-count limit. */
 	maxIterations?: number;
 	/** Replaces the system prompt (the material profiler: same doctrine,
 	 *  a profile as the deliverable). */
@@ -177,7 +176,7 @@ export async function runPdfReaderAgent(
 	input: PdfReaderInput,
 	opts: PdfReaderOptions = {},
 ): Promise<PdfResult> {
-	const maxIterations = opts.maxIterations ?? MAX_ITERATIONS;
+	const maxIterations = opts.maxIterations;
 	let pdfPath = input.path;
 	let openError: string | null;
 	// Source denial is an ordinary upfront PDF failure, before parsing,
@@ -204,7 +203,8 @@ export async function runPdfReaderAgent(
 	const reasoning = engine.level;
 	const sessionId = randomUUID();
 	const capture = createBackgroundCapture({ role: "pdfReader", runId: sessionId, sourceId: opts.chatId });
-	const streamEngine = { ...engine, streamFn: backgroundCaptureStream(workerRequestStream(engine.streamFn), capture) };
+	const requests = createWorkerRequestScope(engine.streamFn, opts.abortSignal);
+	const streamEngine = { ...engine, streamFn: backgroundCaptureStream(requests.streamFn, capture) };
 	const prompt = [
 		`PDF path: ${pdfPath}`,
 		`Question (what the teacher needs from this document): ${input.question || "(no question — give a structural overview)"}`,
@@ -224,7 +224,7 @@ export async function runPdfReaderAgent(
 	let captureError: unknown;
 
 	try {
-		for (let iteration = 0; iteration < maxIterations; iteration++) {
+		for (let iteration = 0; maxIterations === undefined || iteration < maxIterations; iteration++) {
 			const result = await streamOnce(
 				streamEngine,
 				opts.instructions ?? INSTRUCTIONS,
@@ -369,6 +369,7 @@ export async function runPdfReaderAgent(
 		const msg = err instanceof Error ? err.message : String(err);
 		return { path: pdfPath, question: input.question, brief: `PDF failed: the reader crashed — ${msg}`, pagesRead: [...read].sort((a, b) => a - b), pagesConsulted: [...consulted].sort((a, b) => a - b) };
 	} finally {
+		requests.close();
 		capture?.finish(captureError);
 	}
 

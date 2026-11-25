@@ -116,6 +116,7 @@ export {
 	graphSkillLayer,
 	startCourseDraft,
 } from "./courses.ts";
+export { refreshModelCatalog } from "./remote-model-catalog.ts";
 export { subscriptionControlsResponse, subscriptionBrowserResponse } from "./web-subscription-http.ts";
 export { sessionCost } from "./pricing.ts";
 export { initializePlugins, getPluginHost, getPluginAgentContributions, getPluginQuestionTypeResolver, pluginTransport } from "./plugins.ts";

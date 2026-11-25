@@ -16,6 +16,7 @@ import { useFieldCycle } from "@/components/field-cycle";
 import { useOptionalInteractionLayers } from "./interaction-layers";
 import { isInteractionScopeEligible } from "./plugin-input-focus";
 import { SidebarToggle } from "@/components/sidebar";
+import { sessionFolders } from "@/components/fork-switches";
 import { StatsBar } from "@/components/stats-bar";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { PathInput } from "@/components/path-input";
@@ -47,6 +48,7 @@ export function Home({
 	const bodyRef = useRef<HTMLDivElement>(null);
 	const surfaceTarget = usePageSurfaceBoundary({ active: pathname === "/", viewKey: "/", bodyRef });
 	const chromeStyle = useSurfaceChromeStyle(surfaceTarget);
+	const [folderFilterSlot, setFolderFilterSlot] = useState<HTMLElement | null>(null);
 	const [topic, setTopic] = useState("");
 	/* The topic MIRROR ("nothing gets lost" round, 2026-10-01 — same
 	 * mechanics as the chat composer, owner's consistency ruling): a
@@ -199,6 +201,7 @@ export function Home({
 			<main className="absolute inset-0">
 				{rendering ? (
 					<GraphView
+						folderFilterSlot={sessionFolders.current ? folderFilterSlot : null}
 						chainSelectOpen={chainSelectOpen}
 						practiceSelection={pickedIds}
 						onPracticeSelectionChange={setPracticeProps}
@@ -348,9 +351,15 @@ export function Home({
 			    the region at the same owned-surface rank. The drag mask remains
 			    first so later controls retain their Electron no-drag carve-outs. */}
 			<header style={chromeStyle} className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-2 px-3 pb-2 pt-[calc(0.5rem+var(--lh-safe-top))]">
-				<div className="pointer-events-auto">
+				{/* `contents`: the toggle's own collapse margin (w-0 -mr-3 while
+				    the sidebar is open) must act in THIS row, so the next control
+				    sits the header's top gap from the left edge. */}
+				<div className="pointer-events-auto contents">
 					<SidebarToggle />
 				</div>
+				{/* The graph's folder filter portals here (view only; graph
+				    rendering on). Empty when GraphView renders no control. */}
+				<div ref={setFolderFilterSlot} data-testid="graph-folder-filter-slot" className="pointer-events-auto empty:hidden" />
 			</header>
 
 			{/* First-run setup (unconfigured): the CTA's target and the send

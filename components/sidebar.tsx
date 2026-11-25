@@ -19,6 +19,9 @@ import { Hint } from "@/components/ui/hint";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useAppearance } from "@/components/settings/appearance";
+import type { StartupMessageOffer } from "@/components/startup-message";
+import { sidebarNameFont } from "@/components/sidebar-folders";
 import { fuzzyScore } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem, CourseSummary } from "@/src/core";
@@ -92,6 +95,9 @@ declare global {
 			getPathForFile?: (file: File) => string;
 			/** Choose one original directory path, without reading its contents. */
 			chooseAttachmentFolder?: () => Promise<string | null>;
+			/** Upstream's startup announcement (switched off in the fork: electron/main.cjs STARTUP_MESSAGES). */
+			takeStartupMessage?: () => Promise<StartupMessageOffer | null>;
+			dismissStartupMessage?: (id: string) => Promise<boolean>;
 			/** External Next desktop-dev uses the server's web connections. */
 			subscriptionTransport?: "desktop" | "web";
 			openSubscriptionBrowser?: (action: string) => Promise<void>;
@@ -356,7 +362,10 @@ export function SessionRow({
 	kbdSelected = false,
 	onContextMenu,
 	courseTitle,
+	compact = false,
 }: {
+	/** Appearance → Compact session list (upstream v0.7.0): no meta line, a tighter row on non-touch screens (touch keeps its 40px floor). */
+	compact?: boolean;
 	chat: ChatListItem;
 	active: boolean;
 	onOpen: () => void;
@@ -378,7 +387,8 @@ export function SessionRow({
 			data-drawer-close
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
 			className={cn(
-				"relative mb-0.5 flex w-full items-center gap-2 rounded-xl px-3 py-2 touch:py-2.5 text-left transition-colors hover:bg-accent",
+				"relative mb-0.5 flex w-full items-center gap-2 rounded-xl px-3 text-left transition-colors hover:bg-accent",
+				compact ? "py-1 touch:py-2.5" : "py-2 touch:py-2.5",
 				active && "bg-accent",
 				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
 			)}
@@ -390,10 +400,12 @@ export function SessionRow({
 				    the meta line below stays JetBrains Mono (machine data). One
 				    rule, finally applied to the picker too (owner, typography
 				    round): mono = chrome, Source Sans = human words. */}
-				<span className="block truncate font-prose text-(length:--lh-prose-size)">{chat.title}</span>
-				<span className="block truncate text-xs text-muted-foreground">
-					{courseTitle ? `${courseTitle} · ${sessionMeta(chat)}` : sessionMeta(chat)}
-				</span>
+				<span className={cn("block truncate", sidebarNameFont(compact))}>{chat.title}</span>
+				{!compact && (
+					<span className="block truncate text-xs text-muted-foreground">
+						{courseTitle ? `${courseTitle} · ${sessionMeta(chat)}` : sessionMeta(chat)}
+					</span>
+				)}
 			</span>
 			{/* The dumbbell rides the FAR RIGHT (owner round 6, 2026-10-05) —
 			    was left of the name; right-aligned keeps the titles flush with
@@ -410,7 +422,7 @@ export function SessionRow({
  *  title line becomes a text input — select-all on entry (the click means
  *  "replace", the header rename's rule), Enter/blur commits, Esc discards.
  *  The meta line stays so the row never changes height mid-edit. */
-export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; onCommit: (next: string) => void; onCancel: () => void }) {
+export function RenameRow({ chat, onCommit, onCancel, compact = false }: { chat: ChatListItem; onCommit: (next: string) => void; onCancel: () => void; compact?: boolean }) {
 	const [draft, setDraft] = useState(chat.title);
 	const interactions = useOptionalInteractionLayers();
 	const inputRef = useRef<HTMLInputElement | null>(null);
@@ -453,7 +465,7 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
 					data-testid="session-rename-input"
 					className="lh-input w-full min-w-0 truncate border-0 border-b border-border bg-transparent px-0 text-foreground outline-none"
 				/>
-				<span className="block truncate text-xs text-muted-foreground">{sessionMeta(chat)}</span>
+				{!compact && <span className="block truncate text-xs text-muted-foreground">{sessionMeta(chat)}</span>}
 			</span>
 		</div>
 	);
@@ -466,6 +478,7 @@ export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {
+	const { appearance: { compactSessionList } } = useAppearance();
 	const interactions = useInteractionLayers();
 	const { open, toggle, overlay, close } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
@@ -1018,6 +1031,7 @@ function SessionsSidebar() {
 								<RenameRow
 									key={c.id}
 									chat={c}
+									compact={compactSessionList}
 									onCommit={(next) => void commitRename(c.id, next)}
 									onCancel={() => setRenamingId(null)}
 								/>
@@ -1033,6 +1047,7 @@ function SessionsSidebar() {
 									]}
 								>
 									<SessionRow
+										compact={compactSessionList}
 										chat={c}
 										active={pathname === `/chat/${c.id}`}
 										kbdSelected={i === kbdIndex}

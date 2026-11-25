@@ -1,5 +1,6 @@
 "use client";
 
+import { transcriptMath } from "@/components/transcript-math";
 import { Button } from "@/components/ui/button";
 import {
   ButtonGroup,
@@ -14,7 +15,6 @@ import {
 import { cn } from "@/lib/utils";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
-import { createMathPlugin } from "@streamdown/math";
 
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
@@ -38,6 +38,7 @@ import {
 import { mdComponents } from "@/components/md-blocks";
 import { FigureScope } from "@/components/figures/figure-scope";
 import { repairMathForDisplay, transformMathDelimiters } from "@/src/core";
+import { rehypeGluePunctuation } from "@/components/md-nobreak";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: LhViewMessage["role"];
@@ -355,7 +356,7 @@ export const streamdownPlugins = {
     remarkPluginsAfter: [...cjk.remarkPluginsAfter, remarkBreaks],
   },
   code,
-  math: createMathPlugin({ singleDollarTextMath: true }),
+  math: transcriptMath,
 } as unknown as PluginConfig;
 
 // Remend's incomplete-HTML heuristic mistakes `<b` in `$a<b$` for a
@@ -378,11 +379,18 @@ export const streamdownRemend = { htmlTags: false, links: false, images: false }
 // becomes an "[Image blocked: alt]" badge. data: images were already
 // blocked by the sanitize step; the app's image and SVG cards don't render
 // through markdown. Links are unchanged.
+//
+// Punctuation glue (components/md-nobreak.ts) runs last in this list:
+// after sanitize/harden (its class survives) and before rehype-katex, which
+// Streamdown appends after the list.
 const [hardenPlugin, hardenOptions] = defaultRehypePlugins.harden as [unknown, Record<string, unknown>];
-export const streamdownRehypePlugins = Object.values({
-  ...defaultRehypePlugins,
-  harden: [hardenPlugin, { ...hardenOptions, allowedImagePrefixes: [] }],
-}) as NonNullable<StreamdownProps["rehypePlugins"]>;
+export const streamdownRehypePlugins = [
+  ...Object.values({
+    ...defaultRehypePlugins,
+    harden: [hardenPlugin, { ...hardenOptions, allowedImagePrefixes: [] }],
+  }),
+  rehypeGluePunctuation,
+] as NonNullable<StreamdownProps["rehypePlugins"]>;
 
 export const MessageResponse = memo(
   ({ className, children, ...props }: MessageResponseProps) => {
