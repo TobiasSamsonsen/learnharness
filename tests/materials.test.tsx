@@ -24,11 +24,12 @@ const core = await import("../src/core/materials.ts");
 const { materialStore } = await import("../src/store/materials.ts");
 const { materialTools, lineRange } = await import("../src/agent/tools/materials.ts");
 const { profileMaterial, splitImageReply } = await import("../src/agent/subagents/material-profiler.ts");
+const { configureWorkerRequestAdmission } = await import("../src/agent/worker-request-admission.ts");
 const { createTeacherAgent } = await import("../src/agent/teacher-agent.ts");
 const { chatStore } = await import("../src/store/chats.ts");
 const service = await import("../src/server/materials.ts");
 const { MaterialsControl, materialStatusLine, sourcesLabel } = await import("../components/materials-control.tsx");
-const { draftMaterials, uploadFiles } = await import("../components/materials-client.ts");
+const { draftMaterials, retryMaterials, uploadFiles } = await import("../components/materials-client.ts");
 
 after(() => fs.rmSync(TMP_DATA, { recursive: true, force: true }));
 
@@ -401,5 +402,217 @@ describe("uploadFiles (one file per request, 2026-10-25)", () => {
 		const error = await uploadFiles("course_x", [file("a.exe"), file("b.pdf"), file("c.exe")], fetchLike);
 		assert.equal(error, "a.exe is not a supported type; c.exe is not a supported type");
 		assert.equal(sent.length, 3);
+	});
+});
+
+describe("hard-limit classifier, profiler admission, queue, fail-fast, and retry", () => {
+	it("isHardLimitError recognizes plan/quota/auth stops and ignores single-file or transient errors", () => {
+		assert.equal(core.isHardLimitError("the reader crashed — You've hit your limit · resets 8pm"), true);
+		assert.equal(core.isHardLimitError("Claude usage limit reached"), true);
+		assert.equal(core.isHardLimitError("402 insufficient_quota: credit balance is too low"), true);
+		assert.equal(core.isHardLimitError("401 invalid api key"), true);
+		assert.equal(core.isHardLimitError("no vision model is configured"), true);
+
+		assert.equal(core.isHardLimitError("Bad encoding in flate stream"), false);
+		assert.equal(core.isHardLimitError("Illegal character: 41"), false);
+		assert.equal(core.isHardLimitError("encrypted"), false);
+		assert.equal(core.isHardLimitError("the material is empty"), false);
+		assert.equal(core.isHardLimitError("503 overloaded_error"), false);
+	});
+
+	it("completeOnce routes through workerRequestStream and forwards maxRetries: 3", async () => {
+		const { AssistantMessageEventStream } = await import("@earendil-works/pi-ai/utils/event-stream");
+		const faux = createFauxCore({});
+		const baseModel = faux.getModel();
+		let inFlight = 0;
+		let maxInFlight = 0;
+		const seenMaxRetries: unknown[] = [];
+		let idx = 0;
+		const streamFn: typeof faux.streamSimple = (_model, _ctx, opts) => {
+			inFlight++;
+			maxInFlight = Math.max(maxInFlight, inFlight);
+			seenMaxRetries.push((opts as { maxRetries?: unknown } | undefined)?.maxRetries);
+			const stream = new AssistantMessageEventStream();
+			const n = ++idx;
+			setTimeout(() => {
+				inFlight--;
+				const msg = fauxAssistantMessage(`## Scope\n- ok${n}`);
+				stream.push({ type: "done", reason: "stop", message: msg });
+				stream.end(msg);
+			}, 25);
+			return stream;
+		};
+		configureWorkerRequestAdmission(() => 1);
+		try {
+			const f1 = path.join(TMP_DATA, "c1.md");
+			const f2 = path.join(TMP_DATA, "c2.md");
+			fs.writeFileSync(f1, "text 1");
+			fs.writeFileSync(f2, "text 2");
+			const [r1, r2] = await Promise.all([
+				profileMaterial({ kind: "text", name: "c1.md", path: f1 }, { engine: { model: baseModel, streamFn } }),
+				profileMaterial({ kind: "text", name: "c2.md", path: f2 }, { engine: { model: baseModel, streamFn } }),
+			]);
+			assert.equal(r1.profile, "## Scope\n- ok1");
+			assert.equal(r2.profile, "## Scope\n- ok2");
+			assert.equal(maxInFlight, 1);
+			assert.deepEqual(seenMaxRetries, [3, 3]);
+		} finally {
+			configureWorkerRequestAdmission(() => 8);
+		}
+	});
+
+	it("queues material reads at most 2 at a time in FIFO order, derives queued, and cancels queued removals", async () => {
+		const chat = chatStore.createChat("Queue cap");
+		const started: string[] = [];
+		let active = 0;
+		let maxActive = 0;
+		const gates = new Map<string, () => void>();
+		service.materialProfilerOverride.current = (input) => {
+			started.push(input.name);
+			active++;
+			maxActive = Math.max(maxActive, active);
+			return new Promise((resolve) => {
+				gates.set(input.name, () => {
+					active--;
+					resolve({ profile: `## Scope\n- ${input.name}` });
+				});
+			});
+		};
+		try {
+			const added = ["1.md", "2.md", "3.md", "4.md"].map((name) =>
+				service.addUploadedMaterial(chat.id, { name, type: "text/markdown", bytes: new TextEncoder().encode(`content ${name}`) }),
+			);
+			assert.ok(added.every((r) => r.ok));
+			await new Promise((r) => setTimeout(r, 15));
+			assert.equal(maxActive, 2);
+			assert.deepEqual(started, ["1.md", "2.md"]);
+
+			const listed = service.listMaterials(chat.id);
+			assert.equal(listed.find((m) => m.name === "1.md")?.queued, undefined);
+			assert.equal(listed.find((m) => m.name === "2.md")?.queued, undefined);
+			assert.equal(listed.find((m) => m.name === "3.md")?.queued, true);
+			assert.equal(listed.find((m) => m.name === "4.md")?.queued, true);
+
+			// Cancel queued 3.md before it starts
+			const m3 = listed.find((m) => m.name === "3.md")!;
+			assert.equal(service.removeMaterial(chat.id, m3.id), true);
+
+			gates.get("1.md")!();
+			await new Promise((r) => setTimeout(r, 15));
+			assert.deepEqual(started, ["1.md", "2.md", "4.md"]);
+
+			gates.get("2.md")!();
+			gates.get("4.md")!();
+			await service.waitForMaterials(chat.id, 5000);
+			assert.equal(service.materialRunCount(), 0);
+			const done = service.listMaterials(chat.id);
+			assert.equal(done.length, 3);
+			assert.ok(done.every((m) => m.status === "ready"));
+		} finally {
+			service.materialProfilerOverride.current = undefined;
+			await service.waitForMaterials(chat.id, 1000);
+		}
+	});
+
+	it("fails fast on hard limit error for queued items, but keeps going past single-file errors", async () => {
+		const chat = chatStore.createChat("Fail fast");
+		const started: string[] = [];
+		const limitMsg = "the reader crashed — You've hit your limit · resets 8pm";
+		service.materialProfilerOverride.current = async (input) => {
+			started.push(input.name);
+			await new Promise((r) => setTimeout(r, 20));
+			if (input.name === "a.md") throw new Error(limitMsg);
+			return { profile: `## Scope\n- ${input.name}` };
+		};
+		try {
+			for (const name of ["a.md", "b.md", "c.md", "d.md"]) {
+				service.addUploadedMaterial(chat.id, { name, type: "text/markdown", bytes: new TextEncoder().encode(`body ${name}`) });
+			}
+			await service.waitForMaterials(chat.id, 5000);
+			// a.md and b.md ran concurrently; c.md and d.md were queued and failed fast without running
+			assert.deepEqual(started, ["a.md", "b.md"]);
+			const afterLimit = service.listMaterials(chat.id);
+			assert.equal(afterLimit.find((m) => m.name === "b.md")?.status, "ready");
+			assert.equal(afterLimit.find((m) => m.name === "a.md")?.status, "error");
+			assert.equal(afterLimit.find((m) => m.name === "c.md")?.error, limitMsg);
+			assert.equal(afterLimit.find((m) => m.name === "d.md")?.error, limitMsg);
+
+			// Now retry failed with a single-file error on a.md: c.md and d.md still succeed!
+			started.length = 0;
+			service.materialProfilerOverride.current = async (input) => {
+				started.push(input.name);
+				if (input.name === "a.md") throw new Error("Bad encoding in flate stream");
+				return { profile: `## Scope\n- retried ${input.name}` };
+			};
+			const retried = service.retryFailedMaterials(chat.id);
+			assert.ok(retried.ok);
+			assert.equal(retried.value.length, 3);
+			await service.waitForMaterials(chat.id, 5000);
+			assert.deepEqual(started.sort(), ["a.md", "c.md", "d.md"]);
+			const final = service.listMaterials(chat.id);
+			assert.equal(final.find((m) => m.name === "a.md")?.status, "error");
+			assert.equal(final.find((m) => m.name === "b.md")?.profile, "## Scope\n- b.md");
+			assert.equal(final.find((m) => m.name === "c.md")?.status, "ready");
+			assert.equal(final.find((m) => m.name === "d.md")?.status, "ready");
+		} finally {
+			service.materialProfilerOverride.current = undefined;
+			await service.waitForMaterials(chat.id, 1000);
+		}
+	});
+
+	it("retryMaterial retries one failed item, preserves ready items, and returns 409 when original is elsewhere", async () => {
+		const chat = chatStore.createChat("Single retry");
+		service.materialProfilerOverride.current = async (input) => {
+			if (input.name === "bad.md") throw new Error("transient");
+			return { profile: "## Scope\n- ok" };
+		};
+		try {
+			const bad = service.addUploadedMaterial(chat.id, { name: "bad.md", type: "text/markdown", bytes: new TextEncoder().encode("x") });
+			const elsewhere = service.addUploadedMaterial(chat.id, { name: "away.md", type: "text/markdown", bytes: new TextEncoder().encode("y") });
+			assert.ok(bad.ok && elsewhere.ok);
+			await service.waitForMaterials(chat.id, 5000);
+			// Simulate away.md failing on another device without local file
+			materialStore.update(chat.id, elsewhere.value.id, { status: "error", error: "failed there" });
+			fs.rmSync(materialStore.filePath(chat.id, elsewhere.value));
+
+			const refused = service.retryMaterial(chat.id, elsewhere.value.id);
+			assert.equal(refused.ok, false);
+			assert.equal(refused.ok ? 0 : refused.status, 409);
+
+			service.materialProfilerOverride.current = async () => ({ profile: "## Scope\n- recovered" });
+			const ok = service.retryMaterial(chat.id, bad.value.id);
+			assert.ok(ok.ok);
+			await service.waitForMaterials(chat.id, 5000);
+			const items = service.listMaterials(chat.id);
+			assert.equal(items.find((m) => m.id === bad.value.id)?.status, "ready");
+			assert.equal(items.find((m) => m.id === bad.value.id)?.profile, "## Scope\n- recovered");
+		} finally {
+			service.materialProfilerOverride.current = undefined;
+			await service.waitForMaterials(chat.id, 1000);
+		}
+	});
+
+	it("UI helpers format queued status, pill failed count, and retryMaterials requests", async () => {
+		const m = { id: "mat_x", kind: "pdf" as const, name: "b.pdf", file: "source.pdf", bytes: 1, addedAt: "t" };
+		assert.equal(materialStatusLine({ ...m, status: "reading", queued: true }), "queued");
+		assert.equal(materialStatusLine({ ...m, status: "reading" }), "reading…");
+		assert.equal(sourcesLabel(97, 0, 12), "Sources · 97 · 12 failed");
+		assert.equal(sourcesLabel(97, 2, 12), "Reading 2… · 12 failed");
+
+		const calls: { url: string; body: string }[] = [];
+		const fakeFetch = (async (url: string, init: { body: string }) => {
+			calls.push({ url, body: init.body });
+			return Response.json({ materials: [{ ...m, status: "reading" }], retried: 1 });
+		}) as unknown as typeof fetch;
+
+		const bulk = await retryMaterials("course_1", undefined, fakeFetch);
+		assert.equal(bulk.error, undefined);
+		assert.equal(bulk.materials?.length, 1);
+		const single = await retryMaterials("course_1", "mat_x", fakeFetch);
+		assert.equal(single.error, undefined);
+		assert.deepEqual(calls, [
+			{ url: "/api/courses/course_1/materials/retry", body: "{}" },
+			{ url: "/api/courses/course_1/materials/retry", body: '{"materialId":"mat_x"}' },
+		]);
 	});
 });

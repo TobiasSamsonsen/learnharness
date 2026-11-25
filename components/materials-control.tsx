@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CameraIcon, FileTextIcon, ImageIcon, LinkIcon, Loader2Icon, PaperclipIcon, XIcon } from "lucide-react";
+import { CameraIcon, FileTextIcon, ImageIcon, LinkIcon, Loader2Icon, PaperclipIcon, RotateCcwIcon, XIcon } from "lucide-react";
 import { usePopoverDismiss } from "./popover-dismiss.ts";
 import { MATERIAL_ACCEPT, isMaterialUrl, type LessonMaterial } from "@/src/core";
 import { MenuShell } from "@/components/menu-shell";
@@ -14,6 +14,7 @@ import {
 	draftMaterials,
 	fetchMaterials,
 	materialsPath,
+	retryMaterials,
 	uploadFiles,
 	useDraftMaterials,
 	type DraftMaterial,
@@ -36,16 +37,17 @@ import {
 
 /** One row's status line. Pure — exported for pins. */
 export function materialStatusLine(m: LessonMaterial): string {
-	if (m.status === "reading") return "reading…";
+	if (m.status === "reading") return m.queued ? "queued" : "reading…";
 	if (m.status === "error") return `not read${m.error ? ` — ${m.error}` : ""}`;
 	const base = m.kind === "pdf" && m.pages ? `${m.pages} pages` : m.kind === "web" ? "web page" : m.kind === "image" ? "image" : "text";
 	return m.originalElsewhere ? `${base} · original on another device` : base;
 }
 
 /** The pill's label. Pure. */
-export function sourcesLabel(count: number, reading: number): string {
-	if (reading > 0) return `Reading ${reading}…`;
-	return count === 0 ? "Sources" : `Sources · ${count}`;
+export function sourcesLabel(count: number, reading: number, failed = 0): string {
+	if (reading > 0) return failed > 0 ? `Reading ${reading}… · ${failed} failed` : `Reading ${reading}…`;
+	if (count === 0) return "Sources";
+	return failed > 0 ? `Sources · ${count} · ${failed} failed` : `Sources · ${count}`;
 }
 
 function KindIcon({ kind }: { kind: LessonMaterial["kind"] | "file" | "link" }) {
@@ -146,7 +148,24 @@ export function MaterialsControl({
 		read();
 	};
 
+	const retry = async (id?: string) => {
+		if (!chatId) return;
+		setError(null);
+		setBusy(true);
+		const res = await retryMaterials(chatId, id).catch(() => ({ error: "could not retry" }) as { materials?: LessonMaterial[]; error?: string });
+		setBusy(false);
+		if (res.error) setError(res.error);
+		if (res.materials) {
+			setMaterials(res.materials);
+			onChange?.(res.materials);
+		} else {
+			read();
+		}
+	};
+
 	const count = chatId ? materials.length : draft.length;
+	const failed = chatId ? materials.filter((m) => m.status === "error").length : 0;
+	const retryableFailed = chatId ? materials.filter((m) => m.status === "error" && !m.originalElsewhere) : [];
 	return (
 		<div ref={containerRef} className="relative flex items-center" data-testid="materials-control">
 			<Hint label={courseId ? "This course's curriculum" : chatId ? "This lesson's source material" : "Source material for the new lesson"} side="bottom">
@@ -161,7 +180,7 @@ export function MaterialsControl({
 					className={CONTROL_CLASS[variant]}
 				>
 					{reading > 0 ? <Loader2Icon className="size-3.5 animate-spin" /> : <PaperclipIcon className="size-3.5 text-muted-foreground" />}
-					<span className="text-card-foreground">{sourcesLabel(count, chatId ? reading : 0)}</span>
+					<span className="text-card-foreground">{sourcesLabel(count, chatId ? reading : 0, failed)}</span>
 				</button>
 			</Hint>
 			{camera.node}
@@ -190,6 +209,21 @@ export function MaterialsControl({
 							? "The curriculum: everything the course should teach. The course planner turns it into the skill map; every course session can read it."
 							: "The material sets the lesson's target; teaching uses its definitions, notation and terms and cites it."}
 					</div>
+					{chatId && retryableFailed.length > 0 && (
+						<div className="mb-1 flex items-center justify-between gap-2 rounded-md border border-border/70 bg-muted/40 px-2 py-1" data-testid="materials-retry-banner">
+							<span className="text-error">{retryableFailed.length} failed to read</span>
+							<button
+								type="button"
+								disabled={busy}
+								data-testid="materials-retry-all"
+								onClick={() => void retry()}
+								className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-0.5 text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+							>
+								<RotateCcwIcon className="size-3" />
+								Retry failed ({retryableFailed.length})
+							</button>
+						</div>
+					)}
 					{chatId
 						? materials.map((m) => (
 								<div key={m.id} className="flex items-center gap-2 rounded-md px-1 py-1" data-testid={`material-${m.id}`}>
@@ -202,6 +236,19 @@ export function MaterialsControl({
 											{materialStatusLine(m)}
 										</span>
 									</span>
+									{m.status === "error" && !m.originalElsewhere && (
+										<button
+											type="button"
+											disabled={busy}
+											aria-label={`Retry ${m.name}`}
+											title="Retry reading"
+											data-testid={`material-retry-${m.id}`}
+											onClick={() => void retry(m.id)}
+											className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+										>
+											<RotateCcwIcon className="size-3.5" />
+										</button>
+									)}
 									<button type="button" aria-label={`Remove ${m.name}`} onClick={() => void remove(m.id)} className="text-muted-foreground hover:text-foreground">
 										<XIcon className="size-3.5" />
 									</button>

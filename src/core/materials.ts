@@ -44,6 +44,21 @@ export interface LessonMaterial {
 	 *  arrived by sync but its original file is on the device it was uploaded
 	 *  to. The profile still works; reading or searching the original does not. */
 	originalElsewhere?: boolean;
+	/** DERIVED on read, never stored: waiting in the material-reading queue (status is "reading", no slot yet). */
+	queued?: boolean;
+}
+
+const HARD_LIMIT_PATTERNS = [
+	/hit your limit|usage limit|session limit|five.?hour|weekly limit/i,
+	/exceeded.{0,30}quota|insufficient_quota|credit balance|out of credit|billing_error|(^|\D)402(\D|$)/i,
+	/invalid.{0,10}api.?key|authentication_error|authentication_failed|not signed in|unauthori[sz]ed|(^|\D)401(\D|$)|no vision model is configured/i,
+];
+
+/** True when a material-reading failure is an account/plan/config stop where remaining queued items cannot succeed. Pure. */
+export function isHardLimitError(message: string): boolean {
+	const text = message.replace(/\s+/g, " ").trim();
+	if (!text) return false;
+	return HARD_LIMIT_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 /** Upload ceiling: textbooks are big, but a lesson's copy is local disk. */

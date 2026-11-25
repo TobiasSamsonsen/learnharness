@@ -4,6 +4,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import {
 	MATERIAL_MAX_BYTES,
 	imageMimeType,
+	isHardLimitError,
 	isMaterialUrl,
 	materialKindFor,
 	materialsPromptSection,
@@ -12,7 +13,7 @@ import {
 } from "../core/materials.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { piEngineForSpec } from "../agent/models.ts";
-import { profileMaterial } from "../agent/subagents/material-profiler.ts";
+import { profileMaterial, type MaterialProfile, type MaterialProfileInput } from "../agent/subagents/material-profiler.ts";
 import { fetchLink } from "../agent/tools/web.ts";
 import { materialTools } from "../agent/tools/materials.ts";
 import type { MaterialStore } from "../core/ports.ts";
@@ -37,18 +38,84 @@ import { stores } from "./stores.ts";
 type Result<T> = { ok: true; value: T } | { ok: false; status: number; error: string };
 
 interface Run {
+	key: string;
+	chatId: string;
+	materialId: string;
+	state: "queued" | "active";
 	promise: Promise<void>;
 	controller: AbortController;
 }
+
+interface QueueEntry {
+	key: string;
+	chatId: string;
+	materialId: string;
+	settled: boolean;
+	start: () => void;
+	failQueued: (reason: string) => void;
+}
+
+interface QueueState {
+	active: number;
+	queue: QueueEntry[];
+}
+
 const KEY = Symbol.for("lh.materialRuns");
+const QUEUE_KEY = Symbol.for("lh.materialQueue");
+const MATERIAL_QUEUE_CONCURRENCY = 2;
+
+/** Test seam for material profiling (parallels safeFetchOverride). */
+export const materialProfilerOverride: {
+	current?: (input: MaterialProfileInput, opts: { abortSignal: AbortSignal; chatId: string }) => Promise<MaterialProfile>;
+} = {};
+
 function runs(): Map<string, Run> {
 	const g = globalThis as Record<symbol, Map<string, Run> | undefined>;
 	g[KEY] ??= new Map();
 	return g[KEY];
 }
+function queueState(): QueueState {
+	const g = globalThis as Record<symbol, QueueState | undefined>;
+	g[QUEUE_KEY] ??= { active: 0, queue: [] };
+	return g[QUEUE_KEY];
+}
 const runKey = (chatId: string, id: string) => `${chatId}/${id}`;
 
-/** How many materials are being read right now (the idle check reads this). */
+function materialQueueLimit(): number {
+	const configured = stores.settingsStore.readSettings()?.agent?.workerRequestConcurrency;
+	if (typeof configured === "number" && Number.isSafeInteger(configured) && configured > 0) {
+		return Math.min(MATERIAL_QUEUE_CONCURRENCY, configured);
+	}
+	return MATERIAL_QUEUE_CONCURRENCY;
+}
+
+function failQueuedForOwner(chatId: string, reason: string): void {
+	const state = queueState();
+	const rest: QueueEntry[] = [];
+	const failed: QueueEntry[] = [];
+	for (const entry of state.queue) {
+		if (!entry.settled && entry.chatId === chatId) failed.push(entry);
+		else rest.push(entry);
+	}
+	state.queue = rest;
+	for (const entry of failed) entry.failQueued(reason);
+}
+
+function drainQueue(): void {
+	const state = queueState();
+	const limit = materialQueueLimit();
+	while (state.active < limit && state.queue.length > 0) {
+		const entry = state.queue.shift()!;
+		const run = runs().get(entry.key);
+		if (entry.settled || !run || run.controller.signal.aborted) continue;
+		entry.settled = true;
+		run.state = "active";
+		state.active++;
+		entry.start();
+	}
+}
+
+/** How many materials are being read or queued right now (the idle check reads this). */
 export function materialRunCount(): number {
 	return runs().size;
 }
@@ -65,51 +132,98 @@ function lessonStarted(chatId: string): boolean {
 	return (stores.chatStore.getChat(chatId)?.messages ?? []).some((m) => (m as { role?: string }).role === "assistant");
 }
 
-/** Profile one material in the background (idempotent per material). */
+/** Profile one material in the background through the bounded FIFO queue (idempotent per material). */
 function startProfile(chatId: string, material: LessonMaterial): Promise<void> {
 	const key = runKey(chatId, material.id);
 	const live = runs().get(key);
 	if (live) return live.promise;
 	const controller = new AbortController();
 	const { materialStore } = stores;
-	const promise = (async () => {
-		const spec = resolveRoleSpec("pdfReader", stores.settingsStore.readSettings());
-		if (!spec) {
-			materialStore.update(chatId, material.id, {
-				status: "error",
-				error: "no vision model is configured (Settings → Agent: the vision slot reads source material)",
-			});
-			return;
-		}
-		try {
-			// The profiler's model requests pass the process-wide worker-request admission (the one background-LLM pool).
-			const result = await profileMaterial(
-				{
-					kind: material.kind,
-					name: material.name,
-					path: materialStore.filePath(chatId, material),
-					mimeType: material.mimeType,
-				},
-				{ engine: piEngineForSpec(spec), abortSignal: controller.signal, chatId },
-			);
-			if (result.transcript !== undefined) {
-				fs.writeFileSync(materialStore.auxPath(chatId, material.id, "content.md"), result.transcript, "utf8");
+	let resolveDone!: () => void;
+	const promise = new Promise<void>((resolve) => {
+		resolveDone = resolve;
+	});
+	const run: Run = { key, chatId, materialId: material.id, state: "queued", promise, controller };
+	runs().set(key, run);
+
+	const entry: QueueEntry = {
+		key,
+		chatId,
+		materialId: material.id,
+		settled: false,
+		failQueued: (reason: string) => {
+			if (entry.settled) return;
+			entry.settled = true;
+			if (!controller.signal.aborted) {
+				materialStore.update(chatId, material.id, { status: "error", error: reason });
 			}
-			materialStore.update(chatId, material.id, {
-				status: "ready",
-				profile: result.profile,
-				...(result.pages !== undefined ? { pages: result.pages } : {}),
-				error: undefined,
+			runs().delete(key);
+			resolveDone();
+		},
+		start: () => {
+			void (async () => {
+				try {
+					const input: MaterialProfileInput = {
+						kind: material.kind,
+						name: material.name,
+						path: materialStore.filePath(chatId, material),
+						mimeType: material.mimeType,
+					};
+					let result: MaterialProfile;
+					if (materialProfilerOverride.current) {
+						result = await materialProfilerOverride.current(input, { abortSignal: controller.signal, chatId });
+					} else {
+						const spec = resolveRoleSpec("pdfReader", stores.settingsStore.readSettings());
+						if (!spec) {
+							const msg = "no vision model is configured (Settings → Agent: the vision slot reads source material)";
+							materialStore.update(chatId, material.id, { status: "error", error: msg });
+							failQueuedForOwner(chatId, msg);
+							return;
+						}
+						// The profiler's model requests pass the process-wide worker-request admission (the one background-LLM pool).
+						result = await profileMaterial(input, { engine: piEngineForSpec(spec), abortSignal: controller.signal, chatId });
+					}
+					if (controller.signal.aborted) return;
+					if (result.transcript !== undefined) {
+						fs.writeFileSync(materialStore.auxPath(chatId, material.id, "content.md"), result.transcript, "utf8");
+					}
+					materialStore.update(chatId, material.id, {
+						status: "ready",
+						profile: result.profile,
+						...(result.pages !== undefined ? { pages: result.pages } : {}),
+						error: undefined,
+					});
+				} catch (err) {
+					if (controller.signal.aborted) return; // removed while reading
+					const msg = err instanceof Error ? err.message : String(err);
+					materialStore.update(chatId, material.id, { status: "error", error: msg });
+					if (isHardLimitError(msg)) failQueuedForOwner(chatId, msg);
+				}
+			})().finally(() => {
+				queueState().active--;
+				runs().delete(key);
+				resolveDone();
+				drainQueue();
 			});
-		} catch (err) {
-			if (controller.signal.aborted) return; // removed while reading
-			materialStore.update(chatId, material.id, {
-				status: "error",
-				error: err instanceof Error ? err.message : String(err),
-			});
-		}
-	})().finally(() => runs().delete(key));
-	runs().set(key, { promise, controller });
+		},
+	};
+
+	controller.signal.addEventListener(
+		"abort",
+		() => {
+			if (entry.settled) return;
+			entry.settled = true;
+			const q = queueState().queue;
+			const idx = q.indexOf(entry);
+			if (idx >= 0) q.splice(idx, 1);
+			runs().delete(key);
+			resolveDone();
+		},
+		{ once: true },
+	);
+
+	queueState().queue.push(entry);
+	drainQueue();
 	return promise;
 }
 
@@ -118,9 +232,12 @@ export function listMaterials(chatId: string): LessonMaterial[] {
 	const materials = stores.materialStore.list(chatId);
 	for (const m of materials) if (m.status === "reading" && !runs().has(runKey(chatId, m.id))) void startProfile(chatId, m);
 	// Source files do not sync (owner decision, 2026-11-02): a material that arrived from another device has no original here.
-	return materials.map((m) =>
-		m.status !== "reading" && !fs.existsSync(stores.materialStore.filePath(chatId, m)) ? { ...m, originalElsewhere: true } : m,
-	);
+	return materials.map((m) => {
+		if (m.status === "reading") {
+			return runs().get(runKey(chatId, m.id))?.state === "queued" ? { ...m, queued: true } : m;
+		}
+		return !fs.existsSync(stores.materialStore.filePath(chatId, m)) ? { ...m, originalElsewhere: true } : m;
+	});
 }
 
 /** Add an uploaded file. */
@@ -197,6 +314,37 @@ export async function addLinkMaterial(chatId: string, url: string): Promise<Resu
 export function removeMaterial(chatId: string, id: string): boolean {
 	runs().get(runKey(chatId, id))?.controller.abort();
 	return stores.materialStore.remove(chatId, id);
+}
+
+/** Retry reading one failed material whose original file is stored locally. */
+export function retryMaterial(chatId: string, id: string): Result<LessonMaterial> {
+	if (!ownerExists(chatId)) return { ok: false, status: 404, error: "Unknown chat or course" };
+	const material = stores.materialStore.list(chatId).find((m) => m.id === id);
+	if (!material) return { ok: false, status: 404, error: "Unknown material" };
+	if (material.status === "reading") {
+		void startProfile(chatId, material);
+		return { ok: true, value: material };
+	}
+	if (material.status === "ready") return { ok: true, value: material };
+	if (!fs.existsSync(stores.materialStore.filePath(chatId, material))) {
+		return { ok: false, status: 409, error: "Original file is on another device and cannot be re-read here" };
+	}
+	const updated = stores.materialStore.update(chatId, id, { status: "reading", error: undefined })!;
+	void startProfile(chatId, updated);
+	return { ok: true, value: updated };
+}
+
+/** Retry all failed materials for an owner whose original files are stored locally. */
+export function retryFailedMaterials(chatId: string): Result<LessonMaterial[]> {
+	if (!ownerExists(chatId)) return { ok: false, status: 404, error: "Unknown chat or course" };
+	const failed = stores.materialStore
+		.list(chatId)
+		.filter((m) => m.status === "error" && fs.existsSync(stores.materialStore.filePath(chatId, m)));
+	const updated = failed
+		.map((m) => stores.materialStore.update(chatId, m.id, { status: "reading", error: undefined }))
+		.filter((m): m is LessonMaterial => m !== null);
+	for (const m of updated) void startProfile(chatId, m);
+	return { ok: true, value: updated };
 }
 
 /** Wait (bounded) until no material of the lesson is still being read. */
