@@ -5,7 +5,7 @@ Fork feature, owner design round 2026-10-26. Questions and lessons could show on
 ## Phases
 
 1. **Done** — shared infrastructure, ` ```plot ` and ` ```blocks ` (block diagrams, simulatable). Kyb Intro.
-2. **Done** — ` ```circuit `: an lcapy-style netlist with drawing directions (European symbols), solved by modified nodal analysis — DC, equivalent resistance, transients after switches move at t = 0 — behind `figureCheck`, the `circuit_solve` tool and a plot `transient` line. ADE.
+2. **Done** — ` ```circuit `: an lcapy-style netlist (European symbols), placed and routed automatically from the topology alone (2026-11-25, see below), solved by modified nodal analysis — DC, equivalent resistance, transients after switches move at t = 0 — behind `figureCheck`, the `circuit_solve` tool and a plot `transient` line. ADE.
 3. **Done** — ` ```logic ` (signal-flow gates, dff/dlatch/sr, cross-coupled gates allowed; simulated slot by slot) and ` ```timing ` (WaveJSON drawn by our own themed renderer, not the WaveDrom library; `"logic": "<id>"` simulates a linked diagram, `"hide": true` leaves a computed row blank to fill in). ADE.
 
 ## Decisions (owner)
@@ -26,7 +26,8 @@ Fork feature, owner design round 2026-10-26. Questions and lessons could show on
 | Block diagrams: parse, validate, simulate (RK4) | `src/core/figures/blocks.ts` |
 | Plots: parse, compute | `src/core/figures/plot.ts` |
 | Response metrics | `src/core/figures/metrics.ts` |
-| Circuits: parse, grid layout, MNA solver, quantities | `src/core/figures/circuit.ts` |
+| Circuits: parse, grid layout of a directed netlist, MNA solver, quantities | `src/core/figures/circuit.ts` |
+| Circuits: automatic placement and routing, drawing-vs-netlist check | `src/core/figures/circuit-auto.ts` |
 | Logic and timing: parse, simulate, WaveJSON | `src/core/figures/logic.ts` |
 | Question gate, `figureCheck`, label numbers, facts | `src/core/figures/figure-check.ts` |
 | The guide and circuit_solve tools | `src/agent/tools/figures.ts` |
@@ -39,6 +40,7 @@ Fork feature, owner design round 2026-10-26. Questions and lessons could show on
 
 - In integrator-chain diagrams, feedback gains are placed to the right of the forward path rather than underneath it (ELK cannot flip a block's direction).
 - Tick labels use a decimal point.
-- Circuits: diodes, BJTs (npn/pnp) and MOSFETs (nmos/pmos, enhancement, body tied to source) are drawn, not solved; op-amps are drawn and solved as ideal (V+ = V−). Netlist forms follow SPICE (Q c b e, M d g s) and lcapy (E out ref opamp in+ in−); symbols follow IEC 60617, the op-amp as the textbook triangle. Node 0 is ground and gets a symbol at every connection; every other node must land on one grid point (loops have to close).
+- Circuits: diodes, BJTs (npn/pnp) and MOSFETs (nmos/pmos, enhancement, body tied to source) are drawn, not solved; op-amps are drawn and solved as ideal (V+ = V−). Netlist forms follow SPICE (Q c b e, M d g s) and lcapy (E out ref opamp in+ in−); symbols follow IEC 60617, the op-amp as the textbook triangle. Node 0 is ground and gets a symbol at every connection.
+- Circuit layout (owner, 2026-11-25): the tutor writes the topology only. A hand-planned geometry (directions, lengths, op-amp offsets, wires to steer a loop) was something no model effort made reliable: in a real op-amp lesson the tutor put a current source on the + input. `circuit-auto.ts` now places every part and routes every wire with a seeded annealing search over a quarter-unit grid (op-amp inputs sit a quarter above and below its input side), merges wire elements into node names, gives a grounded op-amp or transistor pin its own short wire to a ground symbol, and emits an ordinary directed netlist (wires as `W` elements on nodes named by grid point) that `layoutDirected` places and checks as before. Same netlist, same picture on every device (the search is seeded from the netlist). `verifyDrawing` reads the wiring back off the geometry (wires join at their ends and where an end lands on another wire; crossings do not) and compares it with the netlist; `layoutCircuit` retries up to four searches and takes the best, so a clean-but-plain drawing beats a refused one. Directions written after the semicolon are ignored. Cost: about 150–300 ms for a typical 6–10 part figure on a laptop, cached by netlist.
 - Logic: a dff's clock must be a diagram input (no ripple counters yet); it samples its data from the slot before a rising edge. Timing works in whole slots.
 - Transients use backward Euler with 4000 steps (≈0.1 % error at τ for a 10τ window).

@@ -117,6 +117,8 @@ const inGrid = (x: number, y: number) => x >= -OFF && y >= -OFF && x < SZ - OFF 
 const bodyGen = new Int32Array(CELLS);
 const bodyCnt = new Int8Array(CELLS);
 const bodyOwner = new Int16Array(CELLS);
+const groundGen = new Int32Array(CELLS);
+const labelGen = new Int32Array(CELLS);
 const pinGen = new Int32Array(CELLS);
 const pinNet = new Int16Array(CELLS);
 const pinCnt = new Int8Array(CELLS);
@@ -230,6 +232,7 @@ function evaluate(comps: Comp[], st: St[], netId: Map<string, number>, wide: boo
 				if (!inGrid(p.x, p.y + d)) continue;
 				const cell = cellOf(p.x, p.y + d);
 				if (bodyGen[cell] === gen || pinGen[cell] === gen) hard += 1;
+				groundGen[cell] = gen;
 			}
 			const other = pins[j === 0 ? 1 : 0]!;
 			if (comps[i]!.kind === "two" && other.y > p.y) soft += 4;
@@ -284,6 +287,7 @@ function evaluate(comps: Comp[], st: St[], netId: Map<string, number>, wide: boo
 						const cell = cellOf(x, y);
 						if (bodyGen[cell] === gen && !(pinGen[cell] === gen && pinNet[cell] === id)) cost += 40;
 						else if (pinGen[cell] === gen && pinNet[cell] !== id) cost += 40;
+						else if (groundGen[cell] === gen) cost += 12;
 						if (wireGen[cell] === gen && wireNetA[cell] !== id && (wireNetB[cell] === -1 || wireNetB[cell] !== id)) cost += wireKey[cell] ? 40 : 3;
 					}
 				}
@@ -325,24 +329,37 @@ function evaluate(comps: Comp[], st: St[], netId: Map<string, number>, wide: boo
 		}
 		if (keepRoutes) routes.push({ net: String(id), pts: polylines });
 	}
-	// a part's name and value are drawn beside it (above a horizontal one, right of a vertical one): keep wires and parts off that spot
-	for (let i = 0; i < n; i++) {
-		const c = comps[i]!;
-		if (c.kind !== "two" || c.el.kind === "W" || c.el.kind === "P") continue;
-		const pins = allPins[i]!;
-		const mx = (pins[0]!.x + pins[1]!.x) / 2;
-		const my = (pins[0]!.y + pins[1]!.y) / 2;
-		const horizontal = pins[0]!.y === pins[1]!.y;
-		const x0 = horizontal ? Math.floor(mx) - 2 : Math.floor(mx) + 1;
-		const x1 = horizontal ? Math.floor(mx) + 2 : Math.floor(mx) + 4;
-		const y0 = horizontal ? Math.floor(my) - 2 : Math.floor(my) - 1;
-		const y1 = horizontal ? Math.floor(my) - 1 : Math.floor(my) + 1;
+	// a part's name and value are drawn beside it (above a horizontal one, right of a vertical one; a transistor's on the side away
+	// from its base): keep wires, parts and ground symbols off that spot
+	const labelHit = (x0: number, x1: number, y0: number, y1: number, owner: number) => {
+		let hit = 0;
 		for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
 			if (!inGrid(x, y)) continue;
 			const cell = cellOf(x, y);
-			if (wireGen[cell] === gen) soft += 2;
-			if (bodyGen[cell] === gen && !(bodyCnt[cell] === 1 && bodyOwner[cell] === i)) soft += 2;
+			if (wireGen[cell] === gen) hit += 3;
+			if (groundGen[cell] === gen) hit += 3;
+			if (bodyGen[cell] === gen && !(bodyCnt[cell] === 1 && bodyOwner[cell] === owner)) hit += 3;
+			// two names drawn over each other are unreadable
+			if (labelGen[cell] === gen) hit += 6;
+			labelGen[cell] = gen;
 		}
+		return hit;
+	};
+	for (let i = 0; i < n; i++) {
+		const c = comps[i]!;
+		const pins = allPins[i]!;
+		if (c.kind === "trans") {
+			const s = st[i]!;
+			soft += s.m ? labelHit(s.x - 5, s.x - 2, s.y + 1, s.y + 3, i) : labelHit(s.x + 2, s.x + 5, s.y + 1, s.y + 3, i);
+			continue;
+		}
+		if (c.kind !== "two" || c.el.kind === "W" || c.el.kind === "P") continue;
+		const chars = c.el.name.length + (c.el.valueText?.length ?? 0) + 1;
+		const w = Math.max(4, Math.ceil(chars * 0.4));
+		const mx = (pins[0]!.x + pins[1]!.x) / 2;
+		const my = (pins[0]!.y + pins[1]!.y) / 2;
+		if (pins[0]!.y === pins[1]!.y) soft += labelHit(Math.floor(mx - w / 2), Math.ceil(mx + w / 2), Math.floor(my) - 2, Math.floor(my) - 1, i);
+		else soft += labelHit(Math.floor(mx) + 2, Math.floor(mx) + 1 + w, Math.floor(my) - 1, Math.floor(my) + 1, i);
 	}
 	// compactness, the preferred orientation of the sources, no needlessly long parts
 	let minX = Infinity;
