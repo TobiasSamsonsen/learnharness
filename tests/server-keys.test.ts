@@ -207,6 +207,42 @@ describe("saveKey / deleteKey (immediate effect, no restart)", () => {
 			deleteKey("OPENROUTER_API_KEY");
 			assert.ok(!("OPENROUTER_API_KEY" in authStore.authVars()));
 		});
+
+		it("adding a new provider key duplicates the active profile under the provider label without switching active", async () => {
+			const { readSettings, writeSettings } = await import("../src/store/settings.ts");
+			const { CLAUDE_PROFILE_NAME } = await import("../src/core/profiles.ts");
+			writeSettings({
+				version: 1,
+				models: { strong: { model: { provider: "claude-code", id: "sonnet" }, thinkingLevel: "medium" } },
+				profiles: { active: CLAUDE_PROFILE_NAME, items: {} },
+			});
+			const r1 = saveKey("ANTHROPIC_API_KEY", "sk-ant-throwaway-0123456789");
+			assert.ok(r1.ok);
+			const afterAdd = readSettings();
+			assert.equal(afterAdd?.profiles?.active, CLAUDE_PROFILE_NAME);
+			assert.ok(afterAdd?.profiles?.items?.Anthropic, "Anthropic profile duplicated");
+			assert.equal(afterAdd?.profiles?.items?.Anthropic?.models?.strong?.model?.provider, "claude-code");
+
+			// Rotating the existing key does not overwrite the existing Anthropic profile
+			writeSettings({
+				...afterAdd!,
+				profiles: {
+					...afterAdd!.profiles!,
+					items: { ...afterAdd!.profiles!.items, Anthropic: { models: { strong: { model: { provider: "anthropic", id: "claude-sonnet-4-5" } } } } },
+				},
+			});
+			const r2 = saveKey("ANTHROPIC_API_KEY", "sk-ant-throwaway-rotated-9876");
+			assert.ok(r2.ok);
+			assert.equal(readSettings()?.profiles?.items?.Anthropic?.models?.strong?.model?.provider, "anthropic");
+
+			// Saving a tool key (not a model provider) does not create a profile
+			const r3 = saveKey("DEEPGRAM_API_KEY", "dg-throwaway-0123456789");
+			assert.ok(r3.ok);
+			assert.equal(readSettings()?.profiles?.items?.Deepgram, undefined);
+
+			deleteKey("ANTHROPIC_API_KEY");
+			deleteKey("DEEPGRAM_API_KEY");
+		});
 	});
 });
 

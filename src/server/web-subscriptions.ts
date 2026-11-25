@@ -11,8 +11,9 @@ import { chatGPTControl } from "../../electron/chatgpt-ipc.cjs";
 import { subscriptionControl } from "../../electron/subscription-ipc.cjs";
 import { emit } from "../core/events.ts";
 import type { ChatGPTStatus } from "../core/contracts/chatgpt.ts";
-import type { NativeSubscriptionSnapshot } from "../core/contracts/subscriptions.ts";
+import { NATIVE_SUBSCRIPTIONS, type NativeSubscriptionSnapshot } from "../core/contracts/subscriptions.ts";
 import { configureWebSubscriptionRuntime, publishWebSubscriptionPacket, webSubscriptionsEnabled, type SubscriptionRuntimeChannel as Channel, type SubscriptionRuntimePacket as Packet } from "../agent/subscription-runtime.ts";
+import { ensureProviderProfile } from "./provider-profiles.ts";
 export { webSubscriptionsEnabled } from "../agent/subscription-runtime.ts";
 interface BrowserAction { target: string; origin: string; scope: string; expires: number; current(): Promise<boolean> }
 const KEY = Symbol.for("lh.webSubscriptions");
@@ -23,7 +24,30 @@ function registry(): Registry {
 	const global = globalThis as typeof globalThis & { [KEY]?: Registry };
 	return global[KEY] ??= {};
 }
+const connectedSubscriptions = new Set<string>();
+function syncConnectedSubscriptionProfiles(channel: Channel, packet: Packet): void {
+	if (channel === "lh:chatgpt") {
+		const status = (packet as { status?: ChatGPTStatus }).status;
+		if (!status) return;
+		const connected = status.accounts.some((a) => a.id === status.activeId && a.connected);
+		if (connected && !connectedSubscriptions.has("chatgpt")) ensureProviderProfile("ChatGPT");
+		if (connected) connectedSubscriptions.add("chatgpt");
+		else connectedSubscriptions.delete("chatgpt");
+		return;
+	}
+	const statuses = (packet as { snapshot?: NativeSubscriptionSnapshot }).snapshot?.statuses;
+	if (!statuses) return;
+	for (const s of statuses) {
+		if (s.connected && !connectedSubscriptions.has(s.providerId)) {
+			const label = NATIVE_SUBSCRIPTIONS.find((p) => p.providerId === s.providerId)?.label;
+			if (label) ensureProviderProfile(label);
+		}
+		if (s.connected) connectedSubscriptions.add(s.providerId);
+		else connectedSubscriptions.delete(s.providerId);
+	}
+}
 function publish(channel: Channel, packet: Packet) {
+	syncConnectedSubscriptionProfiles(channel, packet);
 	publishWebSubscriptionPacket(channel, packet);
 	emit("subscriptions-changed", {});
 }

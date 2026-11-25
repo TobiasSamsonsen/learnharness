@@ -372,6 +372,88 @@ describe("portable settings", () => {
 	it("reads non-JSON as nothing portable", () => {
 		assert.equal(portableSettings("{torn"), null);
 	});
+
+	it("with profiles, syncs profiles.items without profiles.active or live models", () => {
+		const tabletA = {
+			version: 1,
+			models: { strong: { model: { provider: "anthropic", id: "claude-sonnet-4-5" } } },
+			agent: { workerRequestConcurrency: 4, models: { planner: { model: { provider: "anthropic", id: "claude-opus-4-5" } } } },
+			profiles: {
+				active: "Anthropic",
+				items: {
+					Default: { models: { strong: { model: { provider: "openai", id: "gpt-4.1" } } } },
+					Anthropic: { models: { strong: { model: { provider: "anthropic", id: "claude-sonnet-4-5" } } }, roles: { planner: { model: { provider: "anthropic", id: "claude-opus-4-5" } } } },
+				},
+			},
+		};
+		const tabletB = { ...tabletA, profiles: { ...tabletA.profiles, active: "Default" }, models: tabletA.profiles.items.Default.models };
+		const pA = portableSettings(JSON.stringify(tabletA))!;
+		const pB = portableSettings(JSON.stringify(tabletB))!;
+		assert.equal(pA, pB, "switching active profile does not change portable bytes");
+		const parsed = JSON.parse(pA) as Record<string, unknown>;
+		assert.equal("models" in parsed, false);
+		assert.deepEqual(parsed.agent, { workerRequestConcurrency: 4 });
+		assert.deepEqual(parsed.profiles, { items: tabletA.profiles.items });
+	});
+
+	it("keeps Claude subscription active on desktop while taking incoming user profiles", () => {
+		const tablet = {
+			version: 1,
+			models: { strong: { model: { provider: "anthropic", id: "claude-sonnet-4-5" } } },
+			agent: { workerRequestConcurrency: 4, models: { planner: { model: { provider: "anthropic", id: "claude-opus-4-5" } } } },
+			profiles: {
+				active: "Anthropic",
+				items: {
+					Anthropic: { models: { strong: { model: { provider: "anthropic", id: "claude-sonnet-4-5" } } }, roles: { planner: { model: { provider: "anthropic", id: "claude-opus-4-5" } } } },
+				},
+			},
+		};
+		const desktop = {
+			version: 1,
+			models: { strong: { model: { provider: "claude-code", id: "sonnet" } } },
+			agent: { models: { planner: { model: { provider: "claude-code", id: "opus" } } } },
+			profiles: { active: "Claude subscription", items: {} },
+		};
+		const out = JSON.parse(applyPortableSettings(JSON.stringify(desktop), portableSettings(JSON.stringify(tablet))!)) as Record<string, any>;
+		assert.equal(out.profiles.active, "Claude subscription");
+		assert.equal(out.models.strong.model.provider, "claude-code");
+		assert.equal(out.agent.models.planner.model.provider, "claude-code");
+		assert.equal(out.agent.workerRequestConcurrency, 4);
+		assert.equal(out.profiles.items.Anthropic.models.strong.model.provider, "anthropic");
+	});
+
+	it("refreshes live models when the active user profile is updated remotely and falls back when deleted", () => {
+		const desktop = {
+			version: 1,
+			models: { strong: { model: { provider: "anthropic", id: "old" } } },
+			profiles: { active: "Anthropic", items: { Default: { models: { strong: { model: { provider: "openai", id: "gpt-4.1" } } } }, Anthropic: { models: { strong: { model: { provider: "anthropic", id: "old" } } } } } },
+		};
+		const updatedRemote = portableSettings(JSON.stringify({
+			version: 1,
+			profiles: { active: "Anthropic", items: { Default: { models: { strong: { model: { provider: "openai", id: "gpt-4.1" } } } }, Anthropic: { models: { strong: { model: { provider: "anthropic", id: "new" } } } } } },
+		}))!;
+		const refreshed = JSON.parse(applyPortableSettings(JSON.stringify(desktop), updatedRemote)) as Record<string, any>;
+		assert.equal(refreshed.profiles.active, "Anthropic");
+		assert.equal(refreshed.models.strong.model.id, "new");
+
+		const deletedRemote = portableSettings(JSON.stringify({
+			version: 1,
+			profiles: { active: "Default", items: { Default: { models: { strong: { model: { provider: "openai", id: "gpt-4.1" } } } } } },
+		}))!;
+		const fallenBack = JSON.parse(applyPortableSettings(JSON.stringify(desktop), deletedRemote)) as Record<string, any>;
+		assert.equal(fallenBack.profiles.active, "Default");
+		assert.equal(fallenBack.models.strong.model.provider, "openai");
+	});
+
+	it("merges concurrent profile additions on two devices without conflict", () => {
+		const base = portableSettings(JSON.stringify({ version: 1, profiles: { active: "Default", items: { Default: { models: {} } } } }))!;
+		const local = portableSettings(JSON.stringify({ version: 1, profiles: { active: "Anthropic", items: { Default: { models: {} }, Anthropic: { models: { strong: "a" } } } } }))!;
+		const remote = portableSettings(JSON.stringify({ version: 1, profiles: { active: "OpenAI", items: { Default: { models: {} }, OpenAI: { models: { strong: "o" } } } } }))!;
+		const res = merge("settings.json", { base, local, remote });
+		assert.equal(res.loser, null);
+		const out = parse(res.content) as Record<string, any>;
+		assert.deepEqual(Object.keys(out.profiles.items).sort(), ["Anthropic", "Default", "OpenAI"]);
+	});
 });
 
 describe("mergeFile: materials", () => {

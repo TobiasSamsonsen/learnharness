@@ -11,7 +11,7 @@
  * A profile naming an unavailable provider still applies (owner, Q4): the UI
  * shows the warning, the catalog gate is not applied here.
  */
-import { applyProfile, createProfile, deleteProfile, renameProfile } from "@/src/core";
+import { applyProfile, createProfile, deleteProfile, duplicateActiveProfile, renameProfile } from "@/src/core";
 import { readSettingsRecord, writeSettingsRecord } from "@/src/server";
 
 export const dynamic = "force-dynamic";
@@ -22,13 +22,17 @@ export async function POST(req: Request) {
 		return Response.json({ error: 'Body must be {action, name}' }, { status: 400 });
 	}
 	const record = readSettingsRecord();
+	if (body.action === "duplicate") {
+		const next = duplicateActiveProfile(record, body.name);
+		return Response.json({ settings: next ? writeSettingsRecord(next) : record, created: next !== null });
+	}
 	const result =
 		body.action === "switch" ? applyProfile(record, body.name)
 		: body.action === "create" ? createProfile(record, body.name)
 		: body.action === "delete" ? deleteProfile(record, body.name)
 		: body.action === "rename" && typeof body.newName === "string" ? renameProfile(record, body.name, body.newName)
 		: null;
-	if (!result) return Response.json({ error: "action must be switch, create, rename (with newName) or delete" }, { status: 400 });
+	if (!result) return Response.json({ error: "action must be switch, create, duplicate, rename (with newName) or delete" }, { status: 400 });
 	if (!result.ok) return Response.json({ error: result.error }, { status: 400 });
 	return Response.json({ settings: writeSettingsRecord(result.record) });
 }

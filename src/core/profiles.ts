@@ -170,6 +170,19 @@ export function createProfile(record: UserSettings | null, raw: string): Profile
 	return { ok: true, record: { ...base, profiles } };
 }
 
+/** Duplicate the current active profile under `raw` without changing which profile is active.
+ *  Returns null when `raw` is invalid or a profile with that name already exists (case-insensitive,
+ *  including built-ins). Pure. */
+export function duplicateActiveProfile(record: UserSettings | null, raw: string): UserSettings | null {
+	const checked = checkProfileName(record, raw);
+	if (!checked.ok) return null;
+	const base = ensureProfilesRecord(record);
+	const active = base.profiles!.active!;
+	const snapshot = isBuiltinProfile(active) ? structuredClone(BUILTIN_PROFILES[active]!) : liveProfile(base);
+	const items = { ...base.profiles!.items, [checked.name]: snapshot };
+	return { ...base, profiles: { active, items } };
+}
+
 /** Rename a user profile (built-ins cannot be renamed). */
 export function renameProfile(record: UserSettings | null, from: string, raw: string): ProfileResult {
 	if (isBuiltinProfile(from)) return { ok: false, error: "The built-in profile cannot be renamed." };

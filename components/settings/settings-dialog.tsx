@@ -53,7 +53,7 @@ import { UpdateSettings } from "./update-settings.tsx";
 import { AgentSection, composePromptSwitch } from "./agent-section.tsx";
 import type { ModelsSettings } from "@/src/core";
 import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
-import { notifySettingsSaved } from "@/components/settings-signal";
+import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { KeysSection } from "./keys-section.tsx";
 import { SyncSection } from "./sync-section.tsx";
 import { Hint } from "@/components/ui/hint";
@@ -296,23 +296,22 @@ export function SettingsDialogBody({
 		return () => { authority.listeners.delete(apply); };
 	}, [writeOrder]);
 
-	// Fetch once per dialog mount. 200 {settings: null} is FIRST BOOT.
+	// Fetch once per dialog mount, and refresh when keys or sync update settings out-of-band.
 	// A GET started before a newer acknowledged save cannot roll it back.
-	useEffect(() => {
+	const reloadSettings = useCallback((isAlive: () => boolean = () => true) => {
 		const authority = writeOrder.current;
 		const acknowledgedAtRead = authority.acknowledged;
-		let alive = true;
-		const applyLoaded = (loaded: UserSettings | null, fileAccessError: string | null = null) => {
-			if (!alive) return;
+		const applyLoaded = (loaded: UserSettings | null, fileError: string | null = null) => {
+			if (!isAlive()) return;
 			const unchanged = authority.acknowledged === acknowledgedAtRead;
 			if (unchanged && loaded) {
 				authority.record = loaded;
-				authority.fileAccessError = fileAccessError;
+				authority.fileAccessError = fileError;
 			}
 			setRecord(unchanged ? loaded : authority.record ?? loaded);
-			setFileAccessError(unchanged ? fileAccessError : authority.fileAccessError ?? null);
+			setFileAccessError(unchanged ? fileError : authority.fileAccessError ?? null);
 		};
-		fetch("/api/settings")
+		return fetch("/api/settings")
 			.then((r) =>
 				r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`)),
 			)
@@ -320,8 +319,17 @@ export function SettingsDialogBody({
 				applyLoaded(body.settings ?? { version: CURRENT_SETTINGS_VERSION }, body.fileAccessError ?? null),
 			)
 			.catch(() => applyLoaded(null));
-		return () => { alive = false; };
 	}, [writeOrder]);
+
+	useEffect(() => {
+		let alive = true;
+		void reloadSettings(() => alive);
+		return () => { alive = false; };
+	}, [reloadSettings]);
+
+	useSettingsSaved((section) => {
+		if (section === "keys" || section === "sync") void reloadSettings();
+	});
 
 	/** ONE writer for the whole dialog: PUT the whole section, keep the
 	 *  record mirror in sync, surface route errors inline (a 400 is a
