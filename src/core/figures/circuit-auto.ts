@@ -456,6 +456,8 @@ function search(comps: Comp[], netId: Map<string, number>, seed: number, iterati
 
 export interface AutoLayout {
 	circuit: Circuit;
+	/** Search iterations this layout cost (the caller keeps a total budget). */
+	spent: number;
 	/** The net at each pin of the first `parts.length` elements of `circuit` (the parts, in order; ground connections are "0"). */
 	parts: Array<{ kind: Kind; nets: string[] }>;
 	/** Every original node name → the point name of one of its pins (for labels). */
@@ -466,17 +468,18 @@ export interface AutoLayout {
 const cache = new Map<string, AutoLayout>();
 
 /** One layout of the circuit; `attempt` > 0 searches again from another seed with more room (used when an attempt did not check out). */
-export function autoDirect(c: Circuit, attempt = 0): AutoLayout {
+export function autoDirect(c: Circuit, attempt = 0, allowance = Infinity): AutoLayout {
 	const sig = JSON.stringify(c.elements.map((e) => [e.kind, e.name, e.n1, e.n2, e.third, e.control, e.mirror, e.valueText, e.led, e.switch, e.v, e.i, e.label])) + "#" + attempt;
 	const hit = cache.get(sig);
 	if (hit) return hit;
-	const result = build(c, sig, attempt);
+	const result = build(c, sig, attempt, allowance);
 	if (cache.size > 200) cache.clear();
-	cache.set(sig, result);
+	// only a layout that went the whole way is remembered: one cut short by the allowance could differ from a full one
+	if (result.complete) cache.set(sig, result);
 	return result;
 }
 
-function build(c: Circuit, sig: string, attempt: number): AutoLayout {
+function build(c: Circuit, sig: string, attempt: number, allowance: number): AutoLayout & { complete: boolean } {
 	// wires only say two nodes are one: merge them (ground wins)
 	const parent = new Map<string, string>();
 	const find = (a: string): string => {
@@ -520,16 +523,20 @@ function build(c: Circuit, sig: string, attempt: number): AutoLayout {
 	const base = hash(sig);
 	let best: { st: St[]; ev: Eval } | null = null;
 	const budget = Math.min(4000, 700 + comps.length * 300) * (1 + attempt * 0.75) * BUDGET_SCALE * ((globalThis as { __autoBudget?: number }).__autoBudget ?? 1);
+	let spent = 0;
+	let complete = true;
 	for (let k = 0; k < 3; k++) {
-		const r = search(comps, netId, base + k * 7919 + attempt * 104729, budget);
+		if (k > 0 && spent + budget > allowance) { complete = false; break; }
+		const r = search(comps, netId, base + k * 7919 + attempt * 104729, Math.min(budget, Math.max(500, allowance - spent)));
+		spent += budget;
 		if (!best || r.ev.cost < best.ev.cost) best = r;
 		if (best.ev.hard === 0) break;
 	}
 	for (const r of best!.ev.routes) r.net = names[Number(r.net)]!;
-	return emit(c, comps, best!.st, best!.ev, net);
+	return { ...emit(c, comps, best!.st, best!.ev, net), spent, complete };
 }
 
-function emit(c: Circuit, comps: Comp[], st: St[], ev: Eval, net: (n: string) => string): AutoLayout {
+function emit(c: Circuit, comps: Comp[], st: St[], ev: Eval, net: (n: string) => string): Omit<AutoLayout, "spent"> {
 	// shift so every coordinate is non-negative, then name a node by its point
 	let minX = Infinity;
 	let minY = Infinity;

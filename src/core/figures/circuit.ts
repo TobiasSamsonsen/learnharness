@@ -417,26 +417,28 @@ export function layoutDirected(c: Circuit): { nodes: Map<string, Point>; placed:
  * name resolves to the point of one of its pins.
  */
 export function layoutCircuit(c: Circuit): { nodes: Map<string, Point>; placed: PlacedElement[] } {
-	let best: { laid: ReturnType<typeof layoutDirected>; auto: ReturnType<typeof autoDirect>; bad: number } | null = null;
-	let failure: unknown;
-	for (let attempt = 0; attempt < 4; attempt++) {
-		const auto = autoDirect(c, attempt);
+	// the searches share one deterministic budget (about half a second of work on a laptop at most), so a circuit that will not come out
+	// clean cannot hold the page
+	let allowance = 4 * Math.min(4000, 700 + c.elements.length * 300) * 3;
+	for (let attempt = 0; attempt < 4 && allowance > 0; attempt++) {
+		const auto = autoDirect(c, attempt, allowance);
+		allowance -= auto.spent;
+		if (auto.hard !== 0) continue;
+		let laid: ReturnType<typeof layoutDirected>;
 		try {
-			const laid = layoutDirected(auto.circuit);
-			const problem = verifyDrawing(auto, laid.placed);
-			const bad = auto.hard + (problem ? 100 : 0);
-			if (!best || bad < best.bad) best = { laid, auto, bad };
-			if (bad === 0) break;
-		} catch (e) {
-			failure = e;
+			laid = layoutDirected(auto.circuit);
+		} catch {
+			continue;
 		}
+		if (verifyDrawing(auto, laid.placed) !== null) continue;
+		for (const [name, point] of auto.where) {
+			const p = laid.nodes.get(point);
+			if (p) laid.nodes.set(name, p);
+		}
+		return laid;
 	}
-	if (!best) throw failure;
-	for (const [name, point] of best.auto.where) {
-		const p = best.laid.nodes.get(point);
-		if (p) best.laid.nodes.set(name, p);
-	}
-	return best.laid;
+	// never a drawing whose wiring differs from the netlist the answer is worked on
+	throw new FigureError(1, "this circuit could not be drawn cleanly — simplify it (fewer parts) or split it into two figures");
 }
 
 /** Do two placed parts lie on one grid line and share a stretch of it (touching at an end is fine)? */

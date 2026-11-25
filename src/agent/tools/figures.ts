@@ -99,7 +99,7 @@ In a quiz, \`figureCheck: {figure: "<plot id>", quantity: "tau(y2)"}\` verifies 
 
 const CIRCUIT_GUIDE = `# ${FENCE}circuit — schematics (IEC symbols; solvable without diodes and transistors)
 
-A netlist: one element per line, \`<name> <node> <node> [value][; options]\`. Write ONLY what is connected to what — the app places every part and routes every wire itself (always without overlaps, and the wiring it draws is checked against your netlist). Never plan a layout: no directions, no lengths, no wires to steer a loop (a direction or length written after the semicolon is ignored). Two parts that meet at one node simply share its name; a wire \`W a b\` just says two names are the same node. Node \`0\` is ground: every connection to it gets its own ground symbol. A trailing "…" is the element's label (LaTeX allowed), drawn instead of its name and value.
+A netlist: one element per line, \`<name> <node> <node> [value][; options]\`. Write ONLY what is connected to what — the app places every part and routes every wire itself, and checks the drawing against your netlist before it is shown (a circuit it cannot draw cleanly comes back to you: simplify it or split it into two figures). Never plan a layout: no directions, no lengths, no wires to steer a loop (a direction or length written after the semicolon is ignored). Two parts that meet at one node simply share its name; a wire \`W a b\` just says two names are the same node. Node \`0\` is ground: every connection to it gets its own ground symbol. A trailing "…" is the element's label (LaTeX allowed), drawn instead of its name and value.
 
 | Element | Line | Notes |
 |---|---|---|

@@ -68,6 +68,19 @@ describe("the automatic layout draws any topology", () => {
 		assert.match(String(verifyDrawing(auto, cut)), /drawn as two separate pieces|drawn connected/);
 	});
 
+	it("a circuit that cannot be drawn cleanly is refused in the tutor's terms, never drawn wrong", () => {
+		// shorted and self-referential parts: the kind of netlist no lesson needs
+		for (const src of ["V1 a 0 5V\nQ1 a c c npn\nR1 a d 1k\nL2 0 d 1m\nV4 b 0 3V\nV5 a 0 3V", "V1 a 0 5V\nE1 a 0 opamp a a\nR1 a b 1k"]) {
+			try {
+				const laid = layoutCircuit(parseCircuit(src));
+				assert.ok(laid.placed.length > 0); // drawn: then it was verified
+			} catch (e) {
+				assert.match(String(e), /could not be drawn cleanly — simplify it/);
+				assert.doesNotMatch(String(e), /_\d+_\d+/, "no internal node names reach the tutor");
+			}
+		}
+	});
+
 	it("a dozen parts lay out in well under two seconds", () => {
 		const lines = ["V1 n0 0 5V"];
 		for (let i = 0; i < 5; i++) lines.push(`R${i + 1} n${i} n${i + 1} 1k`, `C${i + 1} n${i + 1} 0 1u`);
