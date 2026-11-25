@@ -387,8 +387,9 @@ export function SessionRow({
 			data-drawer-close
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
 			className={cn(
-				"relative mb-0.5 flex w-full items-center gap-2 rounded-xl px-3 text-left transition-colors hover:bg-accent",
-				compact ? "h-8 touch:h-auto touch:py-2.5" : "py-2 touch:py-2.5",
+				"relative mb-0.5 flex w-full items-center gap-2 rounded-xl px-3 text-left hover:bg-accent",
+				// Compact rows change on hover at once (upstream, "remove the hover fade"); the others keep the fade.
+				compact ? "h-8 touch:h-auto touch:py-2.5" : "py-2 touch:py-2.5 transition-colors",
 				active && "bg-accent",
 				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
 			)}
