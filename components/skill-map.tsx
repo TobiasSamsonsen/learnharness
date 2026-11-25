@@ -211,8 +211,9 @@ export function SkillMap({
 					}}
 				>
 					<PlanDiagram layout={layout} nodes={nodes} edges={edges} statusOf={statusOf} markerId={markerId} pad={PAD} naturalSize />
-					<PlanLayoutProbe probe={probe} />
 				</div>
+				{/* Outside the pan/zoom transform: the probe measures the labels at the real font size (plan-block.tsx PlanLayoutProbe). */}
+				<PlanLayoutProbe probe={probe} />
 				<div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-2">
 					<span className="truncate text-[11px] text-muted-foreground/60">
 						<span className="[@media(hover:none)]:hidden">
