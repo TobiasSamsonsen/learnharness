@@ -389,7 +389,35 @@ export function layoutCircuit(c: Circuit): { nodes: Map<string, Point>; placed: 
 		}
 		owner.set(key(p), n);
 	}
+	// two parts drawn on one stretch of line would sit on top of each other (a resistor and a current source both going down from a
+	// node to ground: every ground connection gets its own point, so the node check above cannot see it)
+	const parts = (placed as PlacedElement[]).filter((p) => !p.el.opamp);
+	for (let i = 0; i < parts.length; i++) {
+		for (let k = i + 1; k < parts.length; k++) {
+			const p = parts[i]!;
+			const q = parts[k]!;
+			if (!segmentsOverlap(p, q)) continue;
+			const later = p.el.line > q.el.line ? p.el : q.el;
+			const earlier = later === p.el ? q.el : p.el;
+			throw new FigureError(
+				later.line,
+				`${earlier.name} and ${later.name} are drawn on top of each other (both run ${earlier.dir === later.dir ? later.dir : "along the same line"} from ${later.n1 === GROUND ? earlier.n1 : later.n1}) — put them on separate lines: step aside with a wire ("W a b; right") and draw one from the new node, so parallel parts sit side by side`,
+			);
+		}
+	}
 	return { nodes: pos, placed: placed as PlacedElement[] };
+}
+
+/** Do two placed parts lie on one grid line and share a stretch of it (touching at an end is fine)? */
+function segmentsOverlap(p: PlacedElement, q: PlacedElement): boolean {
+	const eps = 1e-9;
+	if (Math.abs(p.a.y - p.b.y) < eps && Math.abs(q.a.y - q.b.y) < eps && Math.abs(p.a.y - q.a.y) < eps) {
+		return Math.min(Math.max(p.a.x, p.b.x), Math.max(q.a.x, q.b.x)) - Math.max(Math.min(p.a.x, p.b.x), Math.min(q.a.x, q.b.x)) > eps;
+	}
+	if (Math.abs(p.a.x - p.b.x) < eps && Math.abs(q.a.x - q.b.x) < eps && Math.abs(p.a.x - q.a.x) < eps) {
+		return Math.min(Math.max(p.a.y, p.b.y), Math.max(q.a.y, q.b.y)) - Math.max(Math.min(p.a.y, p.b.y), Math.min(q.a.y, q.b.y)) > eps;
+	}
+	return false;
 }
 
 function describe(dx: number, dy: number): string {

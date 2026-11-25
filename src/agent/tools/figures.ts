@@ -134,6 +134,17 @@ P1 c 0; down
 nodes a, b
 ${FENCE}
 
+Example — parallel branches go side by side: two parts that both run down from one node would be drawn on top of each other (refused), so step aside with a wire. A current source next to a resistor:
+
+${FENCE}circuit id=norton
+V1 a1 0 12V; down
+R1 a1 a 1k; right
+R2 a 0 2k; down
+W a b; right
+I1 b 0 3mA; down
+nodes a
+${FENCE}
+
 Example — an RC circuit charged when the switch closes:
 
 ${FENCE}circuit id=rc

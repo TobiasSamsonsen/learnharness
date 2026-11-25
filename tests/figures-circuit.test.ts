@@ -190,3 +190,25 @@ describe("op-amps and transistors (drawn; ideal op-amps solved)", () => {
 		assert.throws(() => parseCircuit("E1 o 0 opamp p; right"), /an op-amp is "E1 out 0 opamp in\+ in-; right"/);
 	});
 });
+
+describe("parts drawn on top of each other", () => {
+	// the Superposisjon figure (2026-11-25): a resistor and a current source both run down from a to ground
+	const stacked = "V1 a1 0 12V; down\nR1 a1 a 1k; right\nR2 a 0 2k; down\nI1 a 0 3mA; down\nnodes a";
+
+	it("two parts on one stretch of line are refused, naming both and the fix", () => {
+		assert.throws(
+			() => parseCircuit(stacked),
+			(err: unknown) => err instanceof FigureError && err.line === 4 && /R2 and I1 are drawn on top of each other/.test(err.message) && /W a b; right/.test(err.message),
+		);
+	});
+
+	it("a wire stepping aside puts the parallel parts side by side", () => {
+		const c = parseCircuit("V1 a1 0 12V; down\nR1 a1 a 1k; right\nR2 a 0 2k; down\nW a b; right\nI1 b 0 3mA; down\nnodes a");
+		assert.doesNotThrow(() => layoutCircuit(c));
+		near(circuitQuantity(c, "V(a)"), 6, 1e-6);
+	});
+
+	it("parts that only touch at a node, or run on parallel lines, are fine", () => {
+		assert.doesNotThrow(() => parseCircuit("V1 a 0 5V; down\nR1 a b 2k; right\nR2 b 0 3k; down\nR3 a c 1k; up 2\nR4 c d 1k; right"));
+	});
+});

@@ -485,10 +485,11 @@ export function newPracticeHintMarker(problemCallId: string, n: number, size: Hi
 	};
 }
 
-/** The one hidden reminder a run gets when a turn that replies to a teach answer ends in text with no question (core/check-nudge.ts).
+/** The hidden reminder a run gets when a turn that replies to a teach answer ends in text with no question (core/check-nudge.ts), or
+ *  when a text-only reply carries a figure that cannot be drawn (core/figure-nudge.ts: pass its text).
  *  The model reads `content`; the transcript never shows it. */
-export function newCheckNudgeMarker(): LhMarkerMessage {
-	return { id: newMessageId(), role: "custom", customType: "check-nudge", content: CHECK_NUDGE_TEXT, display: false, details: {}, timestamp: Date.now() };
+export function newCheckNudgeMarker(content: string = CHECK_NUDGE_TEXT): LhMarkerMessage {
+	return { id: newMessageId(), role: "custom", customType: "check-nudge", content, display: false, details: {}, timestamp: Date.now() };
 }
 
 /** The learner's explicit move-on signal (owner round 16): appended by

@@ -37,6 +37,7 @@ import { toLlmMessages, nativeInputCause, newCheckNudgeMarker, PRACTICE_PROBLEM_
 import { PROSE_GATED_TOOLS, proseGateBlocks, proseGateReason, proseGateRefusedLast } from "../core/prose-gate.ts";
 import { leadFloorBlocks, leadFloorReason } from "../core/lead-floor-gate.ts";
 import { needsCheckNudge } from "../core/check-nudge.ts";
+import { figureNudgeText, textFigureProblems } from "../core/figure-nudge.ts";
 import { verdictGateProblem, verdictGateReason } from "../core/verdict-gate.ts";
 import { VISUAL_GATE_REASON, visualGateBlocks } from "../core/visual-gate.ts";
 import { SHOW_FIGURE_TOOL } from "../core/figure-show.ts";
@@ -403,6 +404,7 @@ function baseAgentOptions(
 	// The force-text step (fork): after the prose gate refuses a question, hide the gated tools for one request, then give
 	// the whole registry back (contributions included, so a plugin's tools are never lost to it).
 	let nudged = false;
+	let figureNudged = false;
 	const forceTextUpdate = (turn: PrepareNextTurnContext) => {
 		if (!hasGatedTool(agentTools)) return undefined;
 		const hidden = !hasGatedTool(turn.context.tools);
@@ -514,6 +516,16 @@ function baseAgentOptions(
 		// Wave C registerLiveAgent-before-runPiTurn design depends on.
 		// undefined preserves normal scheduling (the old boolean false).
 		finishTurn: (turn) => {
+			// A figure the learner could not see drawn (owner, 2026-11-25 — core/figure-nudge.ts): a text-only stop whose figures do not parse or
+			// lay out gets ONE hidden reminder listing the problems; the question tools already refuse such a figure outright.
+			if (!figureNudged && kind === "teacher") {
+				const problems = textFigureProblems(turn.message);
+				if (problems.length > 0) {
+					figureNudged = true;
+					agent.followUp(newCheckNudgeMarker(figureNudgeText(problems)) as unknown as AgentMessage);
+					return undefined;
+				}
+			}
 			// End a teaching turn with a check (owner, 2026-11-18 — core/check-nudge.ts): a text-only stop that replies to a teach answer gets ONE
 			// hidden reminder per run, handed to pi as a follow-up, so the run continues at its own stop instead of ending with nothing to answer.
 			if (!nudged && kind === "teacher" && hasGatedTool(agentTools) && needsCheckNudge(agent.state.messages, turn.message)) {
