@@ -446,6 +446,7 @@ async function streamOnce(
 		sessionId,
 		reasoning: reasoning && reasoning !== "off" ? reasoning : undefined,
 		signal: abortSignal,
+		maxRetries: 3,
 		onProviderStreamEvent: onProviderStreamEvent as never,
 	} as never);
 	for await (const event of stream) {

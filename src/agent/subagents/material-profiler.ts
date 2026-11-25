@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import { normalizeContext, type ImageContent, type TextContent, type Usage } from "@earendil-works/pi-ai";
 import type { PiEngine } from "../models.ts";
+import { workerRequestStream } from "../worker-request-admission.ts";
 import { PDF_READING_DOCTRINE, runPdfReaderAgent } from "./pdf-reader.ts";
 import { pdfInfo } from "./pdf-ops.ts";
 import { normalizePhoto } from "../image-processing/normalize.ts";
@@ -91,13 +92,15 @@ export async function completeOnce(
 	content: (TextContent | ImageContent)[],
 ): Promise<string> {
 	const { engine } = opts;
-	const stream = engine.streamFn(
+	const streamFn = workerRequestStream(engine.streamFn);
+	const stream = streamFn(
 		engine.model,
 		normalizeContext({ systemPrompt, messages: [{ role: "user", content, timestamp: Date.now() }] }),
 		{
 			reasoning: engine.level && engine.level !== "off" ? engine.level : undefined,
 			signal: opts.abortSignal,
 			sessionId: opts.chatId,
+			maxRetries: 3,
 		} as never,
 	);
 	const message = await stream.result();

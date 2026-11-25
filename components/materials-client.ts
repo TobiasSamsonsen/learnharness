@@ -88,6 +88,21 @@ export async function addLink(chatId: string, url: string, fetchLike: typeof fet
 	return ((await res.json().catch(() => ({}))) as { error?: string }).error ?? `could not add the link (${res.status})`;
 }
 
+export async function retryMaterials(
+	chatId: string,
+	materialId?: string,
+	fetchLike: typeof fetch = fetch,
+): Promise<{ materials?: LessonMaterial[]; error?: string }> {
+	const res = await fetchLike(`${materialsPath(chatId)}/retry`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(materialId ? { materialId } : {}),
+	});
+	const body = (await res.json().catch(() => ({}))) as { materials?: LessonMaterial[]; error?: string };
+	if (!res.ok) return { error: body.error ?? `could not retry (${res.status})` };
+	return { materials: body.materials ?? [] };
+}
+
 /** The send path's half of a draft: upload everything attached on the
  *  new-lesson screen into the freshly created lesson, then clear the
  *  draft. Errors are reported, never thrown — the lesson starts anyway
