@@ -58,6 +58,7 @@ import { customProviderAvailable, installCustomProviderSource } from "./custom-p
 import { claudeCodeAvailable } from "./claude-code-config.ts";
 import { CLAUDE_CODE_PROVIDER } from "../agent/claude-code/constants.ts";
 import { CUSTOM_AUTH_BINDING } from "../core/custom-provider-auth.ts";
+import { ensureProviderProfile } from "./provider-profiles.ts";
 
 // Shared HMR-stable provenance lets external CLIs exclude file-only injections
 // without importing this store-backed module into the agent layer.
@@ -216,6 +217,8 @@ export function saveKey(id: string, value: string): { ok: true; status: AuthKeyS
 	if (id === CUSTOM_PROVIDER.envVar || id === CUSTOM_AUTH_BINDING) return { ok: false, error: "Use the custom endpoint editor" };
 	const shape = isProviderEnvVar(id) ? genericProviderKeyGuard(id, value) : validateKeyShape(id, value);
 	if (!shape.ok) return { ok: false, error: shape.error };
+	const provider = AUTH_PROVIDER_KEYS.find((p) => p.envVar === id);
+	const wasPresent = provider ? keyValue(id) !== undefined : true;
 	const trimmed = value.trim();
 	authStore.setAuthVar(id, trimmed);
 	const record = boot();
@@ -223,6 +226,7 @@ export function saveKey(id: string, value: string): { ok: true; status: AuthKeyS
 		process.env[id] = trimmed;
 		record.fillGap.add(id);
 	}
+	if (provider && !wasPresent) ensureProviderProfile(provider.label);
 	// validateKeyShape guarantees catalog membership, so the row exists.
 	return { ok: true, status: keyStatuses().find((s) => s.id === id)! };
 }

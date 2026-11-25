@@ -53,7 +53,7 @@ import { UpdateSettings } from "./update-settings.tsx";
 import { AgentSection, composePromptSwitch } from "./agent-section.tsx";
 import type { ModelsSettings } from "@/src/core";
 import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
-import { notifySettingsSaved } from "@/components/settings-signal";
+import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { KeysSection } from "./keys-section.tsx";
 import { SyncSection } from "./sync-section.tsx";
 import { Hint } from "@/components/ui/hint";
@@ -296,32 +296,66 @@ export function SettingsDialogBody({
 		return () => { authority.listeners.delete(apply); };
 	}, [writeOrder]);
 
-	// Fetch once per dialog mount. 200 {settings: null} is FIRST BOOT.
+	// Fetch once per dialog mount, and refresh when keys or sync update settings out-of-band.
 	// A GET started before a newer acknowledged save cannot roll it back.
-	useEffect(() => {
+	const reloadSettings = useCallback(() => {
 		const authority = writeOrder.current;
 		const acknowledgedAtRead = authority.acknowledged;
+		return fetch("/api/settings")
+			.then((r) =>
+				r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`)),
+			)
+			.then((body: { settings: UserSettings | null; fileAccessError?: string }) => {
+				const loaded = body.settings ?? { version: CURRENT_SETTINGS_VERSION };
+				const fileError = body.fileAccessError ?? null;
+				const unchanged = authority.acknowledged === acknowledgedAtRead;
+				if (unchanged && loaded) {
+					authority.record = loaded;
+					authority.fileAccessError = fileError;
+				}
+				setRecord(unchanged ? loaded : authority.record ?? loaded);
+				setFileAccessError(unchanged ? fileError : authority.fileAccessError ?? null);
+			})
+			.catch(() => {
+				if (authority.acknowledged === acknowledgedAtRead) {
+					setRecord(null);
+					setFileAccessError(null);
+				}
+			});
+	}, [writeOrder]);
+
+	useEffect(() => {
 		let alive = true;
-		const applyLoaded = (loaded: UserSettings | null, fileAccessError: string | null = null) => {
-			if (!alive) return;
-			const unchanged = authority.acknowledged === acknowledgedAtRead;
-			if (unchanged && loaded) {
-				authority.record = loaded;
-				authority.fileAccessError = fileAccessError;
-			}
-			setRecord(unchanged ? loaded : authority.record ?? loaded);
-			setFileAccessError(unchanged ? fileAccessError : authority.fileAccessError ?? null);
-		};
+		const authority = writeOrder.current;
+		const acknowledgedAtRead = authority.acknowledged;
 		fetch("/api/settings")
 			.then((r) =>
 				r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`)),
 			)
-			.then((body: { settings: UserSettings | null; fileAccessError?: string }) =>
-				applyLoaded(body.settings ?? { version: CURRENT_SETTINGS_VERSION }, body.fileAccessError ?? null),
-			)
-			.catch(() => applyLoaded(null));
+			.then((body: { settings: UserSettings | null; fileAccessError?: string }) => {
+				if (!alive) return;
+				const loaded = body.settings ?? { version: CURRENT_SETTINGS_VERSION };
+				const fileError = body.fileAccessError ?? null;
+				const unchanged = authority.acknowledged === acknowledgedAtRead;
+				if (unchanged) {
+					authority.record = loaded;
+					authority.fileAccessError = fileError;
+				}
+				setRecord(unchanged ? loaded : authority.record ?? loaded);
+				setFileAccessError(unchanged ? fileError : authority.fileAccessError ?? null);
+			})
+			.catch(() => {
+				if (alive) {
+					setRecord(null);
+					setFileAccessError(null);
+				}
+			});
 		return () => { alive = false; };
 	}, [writeOrder]);
+
+	useSettingsSaved((section) => {
+		if (section === "keys" || section === "sync") void reloadSettings();
+	});
 
 	/** ONE writer for the whole dialog: PUT the whole section, keep the
 	 *  record mirror in sync, surface route errors inline (a 400 is a

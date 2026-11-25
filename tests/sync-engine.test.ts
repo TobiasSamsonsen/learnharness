@@ -312,4 +312,49 @@ describe("a round", () => {
 		remote.failPushes = 5;
 		await assert.rejects(a.sync(), (e: GitHubError) => e.code === "conflict");
 	});
+
+	it("syncs user profiles between tablet and desktop without overwriting desktop's Claude subscription", async () => {
+		const remote = new FakeRemote();
+		const desktop = device(remote);
+		const tablet = device(remote);
+		desktop.write("settings.json", j({
+			version: 1,
+			models: { strong: { model: { provider: "claude-code", id: "sonnet" } } },
+			agent: { models: { planner: { model: { provider: "claude-code", id: "opus" } } } },
+			profiles: { active: "Claude subscription", items: {} },
+		}));
+		await desktop.sync();
+		await tablet.sync();
+
+		// Tablet creates an Anthropic profile and configures Anthropic models
+		tablet.write("settings.json", j({
+			version: 1,
+			models: { strong: { model: { provider: "anthropic", id: "claude-sonnet-4-5" } } },
+			agent: { models: { planner: { model: { provider: "anthropic", id: "claude-opus-4-5" } } } },
+			profiles: {
+				active: "Anthropic",
+				items: {
+					Anthropic: {
+						models: { strong: { model: { provider: "anthropic", id: "claude-sonnet-4-5" } } },
+						roles: { planner: { model: { provider: "anthropic", id: "claude-opus-4-5" } } },
+					},
+				},
+			},
+		}));
+		await tablet.sync();
+		await desktop.sync();
+
+		const dSettings = JSON.parse(desktop.read("settings.json") ?? "{}") as Record<string, any>;
+		assert.equal(dSettings.profiles.active, "Claude subscription");
+		assert.equal(dSettings.models.strong.model.provider, "claude-code");
+		assert.equal(dSettings.agent.models.planner.model.provider, "claude-code");
+		assert.equal(dSettings.profiles.items.Anthropic.models.strong.model.provider, "anthropic");
+
+		// Switching active profile on tablet without editing models does not dirty sync
+		tablet.write("settings.json", j({
+			...JSON.parse(tablet.read("settings.json") ?? "{}"),
+			profiles: { ...JSON.parse(tablet.read("settings.json") ?? "{}").profiles, active: "Claude subscription" },
+		}));
+		assert.equal((await tablet.sync()).idle, true);
+	});
 });

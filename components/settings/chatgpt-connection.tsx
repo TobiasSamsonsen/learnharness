@@ -101,7 +101,16 @@ export function ChatGPTUIProvider({ children }: { children: React.ReactNode }) {
 			if (!owns(attempt)) return;
 			const current = next.accounts.find((a) => a.id === account.id && a.id === next.activeId && a.connected);
 			if (replyFailure || next.error || next.pending || !next.available || !current || (attempt.backgroundDirty && next.allowBackgroundUse !== attempt.background)) setError(replyFailure || next.error || CONTROL_ERROR);
-			else if (dialogRef.current === attempt.dialog) showDialog(null);
+			else {
+				if (!attempt.registration) {
+					void fetch("/api/settings/profiles", {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ action: "duplicate", name: "ChatGPT" }),
+					}).catch(() => {});
+				}
+				if (dialogRef.current === attempt.dialog) showDialog(null);
+			}
 		} catch { if (owns(attempt)) setError(CONTROL_ERROR); }
 		finally { finish(attempt); }
 	}

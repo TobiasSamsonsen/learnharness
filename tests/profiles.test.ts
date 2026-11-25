@@ -7,6 +7,7 @@ import {
 	applyProfile,
 	createProfile,
 	deleteProfile,
+	duplicateActiveProfile,
 	profileList,
 	profileMissingProviders,
 	renameProfile,
@@ -86,4 +87,18 @@ test("the profiles section survives the sanitizer", () => {
 	const clean = sanitizeUserSettings(JSON.parse(JSON.stringify({ ...created.record, profiles: { ...created.record.profiles, junk: 1 } })));
 	assert.equal(clean?.profiles?.active, "Work");
 	assert.equal(clean?.profiles?.items?.Work?.roles?.planner?.model?.id, "c");
+});
+
+test("duplicateActiveProfile copies the active profile without changing active", () => {
+	const applied = applyProfile(base(), CLAUDE_PROFILE_NAME);
+	assert.ok(applied.ok);
+	const dup = duplicateActiveProfile(applied.record, "Anthropic");
+	assert.ok(dup);
+	assert.equal(dup.profiles?.active, CLAUDE_PROFILE_NAME);
+	assert.equal(dup.profiles?.items?.Anthropic?.models?.strong?.model?.provider, "claude-code");
+	assert.equal(dup.profiles?.items?.Anthropic?.roles?.planner?.model?.id, "opus");
+
+	assert.equal(duplicateActiveProfile(dup, "anthropic"), null, "case-insensitive collision returns null");
+	assert.equal(duplicateActiveProfile(dup, CLAUDE_PROFILE_NAME), null, "built-in collision returns null");
+	assert.equal(duplicateActiveProfile(dup, "   "), null, "blank name returns null");
 });

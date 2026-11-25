@@ -28,6 +28,7 @@
  */
 
 import { CURRENT_CHAT_VERSION } from "./contracts/chat.ts";
+import { BUILTIN_PROFILES, DEFAULT_PROFILE_NAME, isBuiltinProfile } from "./profiles.ts";
 
 export type Side = "local" | "remote";
 
@@ -470,10 +471,43 @@ function mergeSections(i: MergeInput & { local: string; remote: string }, depth:
 		: result(pretty(m.value));
 }
 
+/** Merge settings.json: depth-1 sections (so {model, thinkingLevel} never half-merges) plus per-profile merging in profiles.items. */
+function mergeSettings(i: MergeInput & { local: string; remote: string }): MergeResult {
+	const l = parseObj(i.local);
+	const r = parseObj(i.remote);
+	if (!l || !r) return pickPreferred(i, "a settings file could not be read; kept the preferred copy");
+	const b = parseObj(i.base);
+	const omitProfiles = (o: Obj): Obj => {
+		const { profiles: _p, ...rest } = o;
+		return rest;
+	};
+	const baseMerge = mergeObject3(b ? omitProfiles(b) : null, omitProfiles(l), omitProfiles(r), i.prefer, 1);
+	const merged: Obj = { ...baseMerge.value };
+	let conflict = baseMerge.conflict;
+	if (isObj(l.profiles) || isObj(r.profiles)) {
+		const bItems = b && isObj(b.profiles) && isObj((b.profiles as Obj).items) ? ((b.profiles as Obj).items as Obj) : null;
+		const lItems = isObj(l.profiles) && isObj((l.profiles as Obj).items) ? ((l.profiles as Obj).items as Obj) : {};
+		const rItems = isObj(r.profiles) && isObj((r.profiles as Obj).items) ? ((r.profiles as Obj).items as Obj) : {};
+		const mi = mergeObject3(bItems, lItems, rItems, i.prefer, 0);
+		merged.profiles = { items: mi.value };
+		delete merged.models;
+		if (isObj(merged.agent)) {
+			const restAgent = Object.fromEntries(Object.entries(merged.agent as Obj).filter(([k]) => k !== "models"));
+			if (Object.keys(restAgent).length > 0) merged.agent = restAgent;
+			else delete merged.agent;
+		}
+		if (mi.conflict) conflict = true;
+	}
+	return conflict
+		? result(pretty(merged), { loser: other(i, i.prefer), notes: ["a setting was changed on both devices; kept the preferred one"] })
+		: result(pretty(merged));
+}
+
 // ─── Settings: the portable part ───────────────────────────────────────────
 
 /** Top-level sections that travel whole. */
 const PORTABLE_SECTIONS = ["version", "agent", "models", "graph", "compaction", "learner"] as const;
+const PORTABLE_SHARED_SECTIONS = ["version", "graph", "compaction", "learner"] as const;
 /** `general` travels only these; the rest of it (dictationEngine, dictationOnline, autoUpdate) is per device. */
 const PORTABLE_GENERAL = ["language", "pace", "difficulty"] as const;
 
@@ -488,9 +522,17 @@ export function canonicalJson(v: unknown): string {
 	return JSON.stringify(sort(v), null, "\t");
 }
 
+function agentWithoutModels(agent: unknown): Obj | undefined {
+	if (!isObj(agent)) return undefined;
+	const rest = Object.fromEntries(Object.entries(agent).filter(([k]) => k !== "models"));
+	return Object.keys(rest).length > 0 ? rest : undefined;
+}
+
 /**
  * The part of settings.json that travels between devices (owner decision,
  * 2026-11-02): models, agent, graph, compaction, learner (2026-11-11) and general.language/pace/difficulty.
+ * When `profiles` is present, `profiles.items` travels instead of live `models` / `agent.models`
+ * so `profiles.active` stays per-device.
  * customProvider, claudeCode, dictation, appearance, notices,
  * general.dictationEngine/autoUpdate and any unknown key stay on the device.
  * null when the text is not a JSON object.
@@ -499,7 +541,14 @@ export function portableSettings(json: string): string | null {
 	const s = parseObj(json);
 	if (!s) return null;
 	const out: Obj = {};
-	for (const k of PORTABLE_SECTIONS) if (k in s) out[k] = s[k];
+	if (isObj(s.profiles)) {
+		for (const k of PORTABLE_SHARED_SECTIONS) if (k in s) out[k] = s[k];
+		const agentRest = agentWithoutModels(s.agent);
+		if (agentRest) out.agent = agentRest;
+		out.profiles = { items: isObj(s.profiles.items) ? s.profiles.items : {} };
+	} else {
+		for (const k of PORTABLE_SECTIONS) if (k in s) out[k] = s[k];
+	}
 	if (isObj(s.general)) {
 		const g = Object.fromEntries(PORTABLE_GENERAL.filter((k) => k in (s.general as Obj)).map((k) => [k, (s.general as Obj)[k]]));
 		if (Object.keys(g).length > 0) out.general = g;
@@ -517,10 +566,60 @@ export function applyPortableSettings(localFull: string | null, portable: string
 	const incoming = parseObj(portable);
 	if (!incoming) return localFull ?? pretty(local);
 	const out: Obj = { ...local };
-	for (const k of PORTABLE_SECTIONS) {
-		if (k in incoming) out[k] = incoming[k];
-		else if (k !== "version") delete out[k];
+	const incomingHasProfiles = isObj(incoming.profiles);
+	const localHasProfiles = isObj(local.profiles);
+
+	if (!incomingHasProfiles && !localHasProfiles) {
+		for (const k of PORTABLE_SECTIONS) {
+			if (k in incoming) out[k] = incoming[k];
+			else if (k !== "version") delete out[k];
+		}
+	} else {
+		for (const k of PORTABLE_SHARED_SECTIONS) {
+			if (k in incoming) out[k] = incoming[k];
+			else if (k !== "version") delete out[k];
+		}
+		const prevAgentModels = isObj(local.agent) ? (local.agent as Obj).models : undefined;
+		const nextAgent: Obj = agentWithoutModels(incoming.agent) ?? {};
+		if (prevAgentModels !== undefined) nextAgent.models = prevAgentModels;
+		if (Object.keys(nextAgent).length > 0) out.agent = nextAgent;
+		else delete out.agent;
+
+		if (incomingHasProfiles) {
+			const incomingItems: Obj = isObj((incoming.profiles as Obj).items) ? { ...((incoming.profiles as Obj).items as Obj) } : {};
+			const localActive =
+				localHasProfiles && typeof (local.profiles as Obj).active === "string" ? ((local.profiles as Obj).active as string) : undefined;
+			const active =
+				localActive && (isBuiltinProfile(localActive) || Object.hasOwn(incomingItems, localActive))
+					? localActive
+					: Object.hasOwn(incomingItems, DEFAULT_PROFILE_NAME)
+						? DEFAULT_PROFILE_NAME
+						: (Object.keys(incomingItems)[0] ?? DEFAULT_PROFILE_NAME);
+			out.profiles = { active, items: incomingItems };
+
+			const activeProfile = isBuiltinProfile(active)
+				? (BUILTIN_PROFILES[active] as unknown as Obj)
+				: Object.hasOwn(incomingItems, active) && isObj(incomingItems[active])
+					? (incomingItems[active] as Obj)
+					: null;
+			if (activeProfile !== null) {
+				if (isObj(activeProfile.models) && Object.keys(activeProfile.models as Obj).length > 0) {
+					out.models = structuredClone(activeProfile.models);
+				} else {
+					delete out.models;
+				}
+				const agentObj: Obj = isObj(out.agent) ? { ...(out.agent as Obj) } : {};
+				if (isObj(activeProfile.roles) && Object.keys(activeProfile.roles as Obj).length > 0) {
+					agentObj.models = structuredClone(activeProfile.roles);
+				} else {
+					delete agentObj.models;
+				}
+				if (Object.keys(agentObj).length > 0) out.agent = agentObj;
+				else delete out.agent;
+			}
+		}
 	}
+
 	const general: Obj = isObj(local.general) ? { ...local.general } : {};
 	const inGeneral = isObj(incoming.general) ? incoming.general : {};
 	for (const k of PORTABLE_GENERAL) {
@@ -639,7 +738,7 @@ export function mergeFile(input: MergeInput): MergeResult {
 	if (p === "graph/positions.json") return mergePositions(i);
 	if (p === "graph/format.json") return mergeFormat(i);
 	if (p === "graph/render-settings.json") return mergeSections(i, 1);
-	if (p === "settings.json") return mergeSections(i, 1);
+	if (p === "settings.json") return mergeSettings(i);
 	if (/^materials\/[^/]+\/index\.json$/.test(p)) return mergeMaterials(i);
 	// prompt overrides, material text, sketch files and anything else: the preferred copy wins
 	// (sketch ids are write-once, so a real difference there is rare).

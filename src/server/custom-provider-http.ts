@@ -1,8 +1,10 @@
 /** PR #62's connect/manual-model/offline-pin workflow, with host request,
  * credential-binding and optimistic-write boundaries. No secret reaches GET. */
 import { createHmac, randomBytes } from "node:crypto";
+import { CUSTOM_PROVIDER } from "../core/auth-keys.ts";
 import { normalizeBaseUrl, parseModelIds, sanitizeCustomModelOverrides, type CustomProviderSettings } from "../core/settings.ts";
 import { readSettings, writeSettings } from "../store/settings.ts";
+import { ensureProviderProfile } from "./provider-profiles.ts";
 import { readCustomAuth } from "../store/auth.ts";
 import { customAuthState, customKeyAuthorized, persistCustomAuth } from "./custom-provider-auth.ts";
 import type { CustomAuthBinding } from "../core/custom-provider-auth.ts";
@@ -141,7 +143,9 @@ export async function customProviderMutation(request: Request): Promise<Response
 		const fileKey = authMode === "keyless" ? undefined : supplied && !envOwned ? supplied : now.auth.fileKey;
 		const fileKeyBaseUrl = authMode === "apiKey" ? envOwned ? now.auth.binding?.fileKeyBaseUrl : base : undefined;
 		const binding: CustomAuthBinding = { version: 1, id, baseUrl: base, authMode, ...(fileKey && fileKeyBaseUrl ? { fileKeyBaseUrl } : {}) };
+		const isNew = !before.cp?.baseUrl;
 		commit({ baseUrl: base, authMode, credentialBindingId: id, models, overrides, ...(manualModels.length ? { manualModels } : {}) }, binding, fileKey);
+		if (isNew) ensureProviderProfile(CUSTOM_PROVIDER.label);
 		return response({ ok: true, models });
 	} catch (error) {
 		return failure(error instanceof CustomBodyLimitError ? "Configuration body exceeds 64 KiB." : error instanceof SyntaxError ? "Invalid JSON body." : "Unable to save custom configuration. Reload configuration and retry.", error instanceof CustomBodyLimitError ? 413 : error instanceof SyntaxError ? 400 : 500);

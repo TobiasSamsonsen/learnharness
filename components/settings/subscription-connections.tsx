@@ -76,8 +76,20 @@ export function NativeSubscriptionUIProvider({ children }: { children: React.Rea
 	}
 	async function login() {
 		if (!dialog || !bridge || operation || !status?.available) return;
+		const wasConnected = !!statusesRef.current.find((s) => s.providerId === dialog)?.connected;
 		const owner = ++generation.current; setOperation("login"); setError(null);
-		try { await bridge.login(dialog, backgroundDirty ? background : undefined); await refresh(); if (mounted.current && generation.current === owner) setDialog(null); }
+		try {
+			await bridge.login(dialog, backgroundDirty ? background : undefined);
+			await refresh();
+			if (!wasConnected && statusesRef.current.find((s) => s.providerId === dialog)?.connected && descriptor) {
+				void fetch("/api/settings/profiles", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ action: "duplicate", name: descriptor.label }),
+				}).then(() => notifySettingsSaved("keys")).catch(() => {});
+			}
+			if (mounted.current && generation.current === owner) setDialog(null);
+		}
 		catch { if (mounted.current && generation.current === owner) setError("Sign-in did not complete. Try connecting again."); }
 		finally { if (mounted.current && generation.current === owner) setOperation(null); }
 	}
