@@ -52,6 +52,15 @@ describe("needsCheckNudge (the pure rule)", () => {
 		assert.equal(needsCheckNudge([...final, reply], reply), false, "a lesson may end in text after its final problem");
 		assert.equal(needsCheckNudge([...answered, assistant([text("")], "stop")], assistant([text("")], "stop")), false, "no text, nothing to remind about");
 	});
+
+	it("a learner's sketch dispute in between does not hide the unanswered teach answer (the Superposisjon lesson, 2026-11-25)", () => {
+		const reply = stop("Riktig. Parallell og serie sitter.");
+		const dispute = { role: "custom", customType: "sketch-dispute", content: "[The learner says your reading is wrong.]", display: true, timestamp: 1 };
+		const read = assistant([call("r1", "read_sketch", { sketchId: "sk_x" })]);
+		const history = [...answered, read, result("r1", "read_sketch", "Reading recorded, with doubts."), dispute, read, result("r1", "read_sketch", "Reading recorded."), reply];
+		assert.equal(needsCheckNudge(history, reply), true);
+		assert.equal(needsCheckNudge([...answered, { role: "custom", customType: "side-question", content: "q", display: false, timestamp: 1 }, reply], reply), false, "other custom messages still end the walk");
+	});
 });
 
 describe("the reminder is live in the teacher: once per run, hidden, and only mid-plan", () => {

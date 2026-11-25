@@ -60,6 +60,8 @@ export function needsCheckNudge(history: readonly unknown[], message: AssistantM
 			const type = (call?.arguments as { type?: unknown } | undefined)?.type;
 			return type !== "final";
 		}
+		// the learner's dispute of a sketch reading (core/sketch-gate.ts) is about the reading, not a new turn: the answer behind it is still unanswered
+		if ((m as { customType?: string }).customType === "sketch-dispute") continue;
 		return false; // a user or custom message: the learner spoke, or this is a fresh turn
 	}
 	return false;
