@@ -37,13 +37,13 @@ describe("netlist and layout", () => {
 		assert.deepEqual(nodes.get("b"), { x: 1, y: 0 });
 	});
 
-	it("directions are hints the automatic layout ignores: a loop that does not close in the directed engine still draws", () => {
+	it("a loop that does not close is refused with the offending line; the same circuit without directions draws", () => {
 		const src = "V1 a 0 5V; down\nR1 a b 1k; right\nR2 b c 1k; down\nR3 c a 1k; right";
-		assert.doesNotThrow(() => parseCircuit(src));
 		assert.throws(
-			() => layoutDirected(parseCircuit(src)),
+			() => parseCircuit(src),
 			(e: FigureError) => e.line === 4 && /goes right from c to a, but the other lines already put a 1 left and 1 up of c/.test(e.message),
 		);
+		assert.doesNotThrow(() => parseCircuit("V1 a 0 5V\nR1 a b 1k\nR2 b c 1k\nR3 c a 1k"));
 	});
 
 	it("malformed lines name the template", () => {
@@ -197,12 +197,12 @@ describe("parts drawn on top of each other", () => {
 	// the Superposisjon figure (2026-11-25): a resistor and a current source both run down from a to ground
 	const stacked = "V1 a1 0 12V; down\nR1 a1 a 1k; right\nR2 a 0 2k; down\nI1 a 0 3mA; down\nnodes a";
 
-	it("two parts on one stretch of line are refused by the directed engine, naming both and the fix; the automatic layout draws them side by side", () => {
+	it("two parts on one stretch of line are refused, naming both and the fix; without directions the app draws them side by side", () => {
 		assert.throws(
-			() => layoutDirected(parseCircuit(stacked)),
+			() => parseCircuit(stacked),
 			(err: unknown) => err instanceof FigureError && err.line === 4 && /R2 and I1 are drawn on top of each other/.test(err.message) && /W a b; right/.test(err.message),
 		);
-		assert.doesNotThrow(() => parseCircuit(stacked));
+		assert.doesNotThrow(() => parseCircuit("V1 a1 0 12V\nR1 a1 a 1k\nR2 a 0 2k\nI1 a 0 3mA\nnodes a"));
 	});
 
 	it("a wire stepping aside puts the parallel parts side by side", () => {

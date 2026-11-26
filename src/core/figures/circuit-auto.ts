@@ -711,6 +711,61 @@ interface PlacedLike {
  * lands on another wire; two wires crossing in the middle do not connect. Returns the first problem, or null.
  */
 export function verifyDrawing(auto: AutoLayout, placed: PlacedLike[]): string | null {
+	const parts = placed.slice(0, auto.parts.length);
+	const pinPoints: Pt[][] = parts.map((p, i) => {
+		const kind = auto.parts[i]!.kind;
+		if (kind === "two") return [p.a, p.b];
+		if (kind === "opamp") return [p.b, p.d!, p.c!];
+		return [p.a, p.b, p.c!];
+	});
+	return verifyPieces(placed, pinPoints, auto.parts.map((p) => p.nets), parts.map((p) => p.el.name), false);
+}
+
+/**
+ * The same check for a netlist the tutor directed itself (owner, 2026-11-26): the drawing must show exactly the wiring the netlist
+ * says. Names joined by a wire element are one node, a node joined to 0 is ground (every ground connection has its own symbol, so
+ * ground pins may share a piece or not), and a part's pins sit where its kind puts them (op-amp: output, −, +; transistor:
+ * collector, emitter, base).
+ */
+export function verifyDirected(c: Circuit, placed: PlacedLike[]): string | null {
+	const parent = new Map<string, string>();
+	const find = (a: string): string => {
+		let r = a;
+		while (parent.has(r) && parent.get(r) !== r) r = parent.get(r)!;
+		return r;
+	};
+	for (const e of c.elements) {
+		if (e.kind !== "W") continue;
+		for (const n of [e.n1, e.n2]) if (!parent.has(n)) parent.set(n, n);
+		const a = find(e.n1);
+		const b = find(e.n2);
+		// the ground class keeps the name "0" as its root, so that it is recognised below
+		if (a === b) continue;
+		if (b === GND) parent.set(a, b);
+		else if (a === GND) parent.set(b, a);
+		else parent.set(a, b);
+	}
+	const net = (n: string) => find(n);
+	const parts = placed.filter((p) => p.el.kind !== "W");
+	const pinPoints: Pt[][] = [];
+	const nets: string[][] = [];
+	for (const p of parts) {
+		const el = p.el;
+		if (el.opamp) {
+			pinPoints.push([p.b, p.d!, p.c!]);
+			nets.push([el.n1, el.control![1], el.control![0]].map(net));
+		} else if (el.third !== undefined) {
+			pinPoints.push([p.a, p.b, p.c!]);
+			nets.push([el.n1, el.n2, el.third].map(net));
+		} else {
+			pinPoints.push([p.a, p.b]);
+			nets.push([el.n1, el.n2].map(net));
+		}
+	}
+	return verifyPieces(placed, pinPoints, nets, parts.map((p) => p.el.name), true);
+}
+
+function verifyPieces(placed: PlacedLike[], pinPoints: Pt[][], partNets: string[][], partNames: string[], sharedGround: boolean): string | null {
 	const k4 = (p: Pt) => `${Math.round(p.x * 4)},${Math.round(p.y * 4)}`;
 	const parent = new Map<string, string>();
 	const find = (a: string): string => {
@@ -723,13 +778,6 @@ export function verifyDrawing(auto: AutoLayout, placed: PlacedLike[]): string | 
 	const union = (a: string, b: string) => { touch(a); touch(b); parent.set(find(a), find(b)); };
 	const wires = placed.filter((p) => p.el.kind === "W");
 	const bodies = placed.filter((p) => p.el.kind !== "W" && !p.el.opamp && p.el.kind !== "Q" && p.el.kind !== "M" && p.el.kind !== "P");
-	const parts = placed.slice(0, auto.parts.length);
-	const pinPoints: Pt[][] = parts.map((p, i) => {
-		const kind = auto.parts[i]!.kind;
-		if (kind === "two") return [p.a, p.b];
-		if (kind === "opamp") return [p.b, p.d!, p.c!];
-		return [p.a, p.b, p.c!];
-	});
 	const conductors: Pt[] = [];
 	for (const w of wires) { union(k4(w.a), k4(w.b)); conductors.push(w.a, w.b); }
 	for (const pins of pinPoints) for (const p of pins) { touch(k4(p)); conductors.push(p); }
@@ -742,20 +790,25 @@ export function verifyDrawing(auto: AutoLayout, placed: PlacedLike[]): string | 
 	};
 	for (const p of conductors) for (const w of wires) if (onSegment(p, w.a, w.b)) union(k4(p), k4(w.a));
 	for (const p of conductors) for (const body of bodies) if (onSegment(p, body.a, body.b)) return `a wire or pin lands on ${body.el.name}'s body`;
-	const seen = new Map<string, string>();
+	const seen = new Map<string, { id: string; part: string }>();
 	const pieceOf = new Map<string, string>();
+	const first = new Map<string, string>();
 	let ground = 0;
-	for (let i = 0; i < parts.length; i++) {
+	for (let i = 0; i < pinPoints.length; i++) {
 		for (let j = 0; j < pinPoints[i]!.length; j++) {
-			const net = auto.parts[i]!.nets[j]!;
+			const net = partNets[i]![j]!;
+			const name = partNames[i]!;
 			const piece = find(k4(pinPoints[i]![j]!));
+			// every ground connection is a point of its own; with a shared ground the pins may still meet in one piece
 			const id = net === GND ? `#${ground++}` : net;
 			const prevPiece = pieceOf.get(id);
-			if (prevPiece !== undefined && prevPiece !== piece) return `node ${net} is drawn as two separate pieces`;
+			if (prevPiece !== undefined && prevPiece !== piece) return `node ${net} is drawn as two separate pieces: ${first.get(id)} and ${name} are not joined by wires`;
 			pieceOf.set(id, piece);
+			if (!first.has(id)) first.set(id, name);
 			const owner = seen.get(piece);
-			if (owner !== undefined && owner !== id) return `nodes ${owner.startsWith("#") ? "0" : owner} and ${net === GND ? "0" : net} are drawn connected`;
-			seen.set(piece, id);
+			const label = net === GND && sharedGround ? "#" : id;
+			if (owner !== undefined && owner.id !== label) return `nodes ${owner.id.startsWith("#") ? "0" : owner.id} and ${net === GND ? "0" : net} are drawn connected: a wire or pin of ${name} lands on the wiring of ${owner.part}`;
+			seen.set(piece, { id: label, part: name });
 		}
 	}
 	return null;

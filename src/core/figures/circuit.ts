@@ -17,7 +17,7 @@
  */
 
 import { FigureError, statements, type Statement } from "./lines.ts";
-import { autoDirect, verifyDrawing } from "./circuit-auto.ts";
+import { autoDirect, verifyDirected, verifyDrawing } from "./circuit-auto.ts";
 import { METRICS, metric, type Metric } from "./metrics.ts";
 
 export type ElementKind = "R" | "C" | "L" | "V" | "I" | "D" | "S" | "W" | "P" | "E" | "G" | "Q" | "M";
@@ -47,6 +47,8 @@ export interface Element {
 	/** The value as written, for the drawing ("2k", "10u"). */
 	valueText?: string;
 	dir: Direction;
+	/** The line wrote a direction itself (a netlist is laid out as written only when every element line did). */
+	directed?: true;
 	/** Grid length in units; undefined = 1, or whatever closes the loop. */
 	len?: number;
 	/** Switch: its state before and after t = 0. */
@@ -160,6 +162,7 @@ function parseElement(st: Statement): Element {
 		const m = /^(right|left|up|down)(?:\s+(\d*\.?\d+))?$/.exec(raw);
 		if (m) {
 			el.dir = m[1] as Direction;
+			el.directed = true;
 			if (m[2]) el.len = Number(m[2]);
 			if (el.len !== undefined && !(el.len > 0)) throw new FigureError(st.line, "a length must be positive");
 			continue;
@@ -412,11 +415,29 @@ export function layoutDirected(c: Circuit): { nodes: Map<string, Point>; placed:
 }
 
 /**
- * The drawing of a circuit (owner, 2026-11-25): placed and routed automatically from the netlist alone (circuit-auto.ts), then laid
- * out and checked by layoutDirected like any directed netlist. The directions a netlist may still carry are ignored. A node's
- * name resolves to the point of one of its pins.
+ * The drawing of a circuit (owner, 2026-11-26): a netlist whose every element line carries a direction is drawn exactly as the tutor
+ * wrote it (layoutDirected), then the wiring is read back off the drawing and compared with the netlist (verifyDirected), so a part
+ * drawn where it touches another node is refused and handed back, never shown. A netlist with no direction at all (every circuit
+ * written between 2026-11-25 and 2026-11-26) is placed and routed by circuit-auto.ts (layoutAuto). Anything in between is refused:
+ * the app never picks part of a layout the tutor is directing. A node's name resolves to the point of one of its pins.
  */
 export function layoutCircuit(c: Circuit): { nodes: Map<string, Point>; placed: PlacedElement[] } {
+	const bare = c.elements.filter((e) => !e.directed);
+	if (bare.length === c.elements.length) return layoutAuto(c);
+	if (bare.length > 0) {
+		throw new FigureError(
+			bare[0]!.line,
+			`${bare.map((e) => e.name).join(", ")} ${bare.length === 1 ? "has" : "have"} no direction, but other lines do — write a direction after the semicolon on every element line (right, left, up or down, with an optional length: "R1 a b 2k; right 2"), or remove every direction and let the app place the circuit`,
+		);
+	}
+	const laid = layoutDirected(c);
+	const problem = verifyDirected(c, laid.placed);
+	if (problem !== null) throw new FigureError(1, `the drawing would not show your netlist: ${problem} — change a direction or a length (or step aside with a wire) so that only connected nodes meet`);
+	return laid;
+}
+
+/** The automatic placement and routing of a netlist without directions (circuit-auto.ts), laid out and checked like a directed one. */
+function layoutAuto(c: Circuit): { nodes: Map<string, Point>; placed: PlacedElement[] } {
 	// the searches share one deterministic budget (about half a second of work on a laptop at most), so a circuit that will not come out
 	// clean cannot hold the page
 	let allowance = 4 * Math.min(4000, 700 + c.elements.length * 300) * 3;

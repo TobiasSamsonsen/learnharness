@@ -99,86 +99,103 @@ In a quiz, \`figureCheck: {figure: "<plot id>", quantity: "tau(y2)"}\` verifies 
 
 const CIRCUIT_GUIDE = `# ${FENCE}circuit — schematics (IEC symbols; solvable without diodes and transistors)
 
-A netlist: one element per line, \`<name> <node> <node> [value][; options]\`. Write ONLY what is connected to what — the app places every part and routes every wire itself, and checks the drawing against your netlist before it is shown (a circuit it cannot draw cleanly comes back to you: simplify it or split it into two figures). Never plan a layout: no directions, no lengths, no wires to steer a loop (a direction or length written after the semicolon is ignored). Two parts that meet at one node simply share its name; a wire \`W a b\` just says two names are the same node. Node \`0\` is ground: every connection to it gets its own ground symbol. A trailing "…" is the element's label (LaTeX allowed), drawn instead of its name and value.
+A netlist: one element per line, \`<name> <node> <node> [value]; <direction> [length], [options]\`. The element is drawn FROM its first node TO its second in the given direction (right, left, up, down; length in grid units, default 1). EVERY element line needs a direction: you plan the drawing, so draw it the way a textbook does (below). Node \`0\` is ground: every connection to it gets its own ground symbol, so give the circuit one ground rail (below) and let a part that is alone on ground end on \`0\` itself; a loop never has to close through \`0\` — all other nodes must land consistently. The app checks the drawing before the learner sees it and sends it back to you with the line when a loop does not close, two parts lie on one stretch of line, a part's end lands on a node you did not connect it to, or only some lines have a direction. A trailing "…" is the element's label (LaTeX allowed), drawn instead of its name and value.
 
 | Element | Line | Notes |
 |---|---|---|
-| Resistor | \`R1 a b 2k\` | Values take SI prefixes: p n u (µ) m k M (meg) G — m is milli, M is mega. Units may follow: 2kΩ, 10uF, 5V. |
-| Capacitor | \`C1 b 0 10u\` | Option \`ic=2V\`: its voltage (first node − second) just before t = 0. |
-| Inductor | \`L1 b c 5m\` | Option \`ic=…\`: its current (first → second) just before t = 0. |
-| Voltage source | \`V1 a 0 5V\` | The FIRST node is + : V(a) − V(0) = 5 V. |
-| Current source | \`I1 0 a 2mA\` | Drives the current from the first node to the second through the source — out of the second node. |
-| Diode / LED | \`D1 a b\` / \`D1 a b; led\` | Anode first. Drawn, not solved. |
-| Switch | \`S1 a b closes\` | open, closed, opens (at t = 0) or closes (at t = 0). |
-| Wire | \`W a b\` | Name optional (\`W\`), no value. Only says a and b are one node. |
-| Terminal pair | \`P1 a b\` | Open terminals (klemmer) between a and b, e.g. for Thévenin. |
-| VCVS / VCCS | \`E1 o 0 a 0 20\` / \`G1 o 0 a 0 2m\` | Output nodes, then the controlling pair, then the gain: V(o) = 20·V(a, 0), or a current 2 mS·V(a, 0). |
-| Op-amp (ideal) | \`E1 o 0 opamp p n\` | lcapy's form: output, reference (0, not drawn), \`opamp\`, + input, − input. Solved as ideal (V+ = V−, no input current). |
-| BJT | \`Q1 c b e npn\` | SPICE order: collector, base, emitter, then npn or pnp. Drawn, not solved. |
-| MOSFET | \`M1 d g s nmos\` | SPICE order: drain, gate, source, then nmos or pmos (enhancement; body tied to the source). Drawn, not solved. |
+| Resistor | \`R1 a b 2k; right\` | Values take SI prefixes: p n u (µ) m k M (meg) G — m is milli, M is mega. Units may follow: 2kΩ, 10uF, 5V. |
+| Capacitor | \`C1 b 0 10u; down\` | Option \`ic=2V\`: its voltage (first node − second) just before t = 0. |
+| Inductor | \`L1 b c 5m; right\` | Option \`ic=…\`: its current (first → second) just before t = 0. |
+| Voltage source | \`V1 a 0 5V; down\` | The FIRST node is + : V(a) − V(0) = 5 V. |
+| Current source | \`I1 0 a 2mA; up\` | Drives the current from the first node to the second through the source — out of the second node. |
+| Diode / LED | \`D1 a b; right\` / \`D1 a b; right, led\` | Anode first. Drawn, not solved. |
+| Switch | \`S1 a b closes; right\` | open, closed, opens (at t = 0) or closes (at t = 0). |
+| Wire | \`W a b; up\` | Name optional (\`W\`), no value. |
+| Terminal pair | \`P1 a b; down\` | Open terminals (klemmer) between a and b, e.g. for Thévenin. |
+| VCVS / VCCS | \`E1 o 0 a 0 20; down\` / \`G1 o 0 a 0 2m; down\` | Output nodes, then the controlling pair, then the gain: V(o) = 20·V(a, 0), or a current 2 mS·V(a, 0). |
+| Op-amp (ideal) | \`E1 o 0 opamp p n; right\` | lcapy's form: output, reference (0, not drawn), \`opamp\`, + input, − input. The direction runs from the inputs to the output. Solved as ideal (V+ = V−, no input current). |
+| BJT | \`Q1 c b e npn; down\` | SPICE order: collector, base, emitter, then npn or pnp. The direction runs collector → emitter. Drawn, not solved. |
+| MOSFET | \`M1 d g s nmos; down\` | SPICE order: drain, gate, source, then nmos or pmos (enhancement; body tied to the source). The direction runs drain → source. Drawn, not solved. |
 
-Options after the semicolon: \`v=U_R\` (a voltage label across it, + at the first node), \`i=I_1\` (a current arrow, first → second node). Extra lines: \`nodes a, b\` labels those nodes in the drawing; \`sim 0..5m\` sets the transient time (seconds) for values in time.
+**Where the extra terminals land** (grid units; plan the wires to them): a transistor's base/gate sits 0.5 beside the MIDDLE of its collector–emitter (drain–source) axis — on the left of a vertical transistor, below a horizontal one (option \`mirror\`: the other side). An op-amp's inputs sit 0.25 on either side of its input side — − on top of a horizontal op-amp, on the left of a vertical one (\`mirror\` puts + there) — and the output is \`len\` (default 1) further along the direction, level with the middle: 0.25 below the − input. So feedback from the − input to the output of a rightward op-amp is \`R2 n f 10k; up\`, \`W f g; right\`, \`W g o; down 1.25\`.
+
+Options after the direction: \`v=U_R\` (a voltage label across it, + at the first node), \`i=I_1\` (a current arrow, first → second node), \`mirror\` (transistors, op-amps). Extra lines: \`nodes a, b\` labels those nodes in the drawing; \`sim 0..5m\` sets the transient time (seconds) for values in time.
+
+**Draw it the way a textbook does.** Signal runs left to right: inputs on the left, output on the right. Sources and every part tied to ground stand upright (\`V1 a g 5V; down\`, \`I1 g n 1mA; up\`). When several parts are grounded, give the circuit ONE ground rail: name a rail node (\`g\`), join the grounded parts to it with wires and end it with a single \`W g 0; down 0.5\`, not a ground symbol under every part (a part that is the only one grounded may end on \`0\` itself). An op-amp is drawn with its − input on top: the input resistor runs into the − input, the feedback part goes above the op-amp from the − input back to the output (\`R2 n f 10k; up\`, \`W f h; right\`, \`W h o; down 1.25\`), and the + input runs down to the rail. The + input sits 0.5 below the − input, so a source or wire that arrives on the − side must stay at the − input's height. Before sending, walk every line: each part must end on the node you named, and no two parts may share a stretch of line.
 
 Give the fence an id when a plot or a figureCheck refers to it: ${FENCE}circuit id=c1
 
 Example — a voltage divider with the output terminals marked:
 
 ${FENCE}circuit id=div
-V1 a 0 12V
-R1 a b 4k; v=U_1
-R2 b 0 2k; i=I_2
-P1 b 0
+V1 a 0 12V; down
+R1 a b 4k; right, v=U_1
+R2 b 0 2k; down, i=I_2
+W b c; right
+P1 c 0; down
 nodes a, b
 ${FENCE}
 
-Example — a current source next to a resistor (parallel branches need nothing special):
+Example — parallel branches go side by side: two parts that both run down from one node would be drawn on top of each other (refused), so step aside with a wire. A current source next to a resistor:
 
 ${FENCE}circuit id=norton
-V1 a1 0 12V
-R1 a1 a 1k
-R2 a 0 2k
-I1 0 a 3mA
+V1 a1 0 12V; down
+R1 a1 a 1k; right
+R2 a 0 2k; down
+W a b; right
+I1 b 0 3mA; down
 nodes a
 ${FENCE}
 
 Example — an RC circuit charged when the switch closes:
 
 ${FENCE}circuit id=rc
-V1 a 0 5V
-S1 a b closes
-R1 b c 1k
-C1 c 0 1u; v=v_C
+V1 a 0 5V; down
+S1 a b closes; right
+R1 b c 1k; right
+C1 c 0 1u; down, v=v_C
 sim 0..10m
 ${FENCE}
 
-Example — an inverting amplifier (gain −R2/R1; the + input is grounded by sharing node 0):
+Example — an inverting amplifier (gain −R2/R1), with one ground rail:
 
 ${FENCE}circuit id=inv
-V1 a 0 0.5V
-R1 a n 1k
-E1 o 0 opamp 0 n
-R2 n o 10k
+V1 a g 0.5V; down
+R1 a n 1k; right
+E1 o 0 opamp p n; right
+W p q; down 0.5
+W q g; left
+W g 0; down 0.5
+R2 n f 10k; up
+W f h; right
+W h o; down 1.25
 nodes o
 ${FENCE}
 
-Example — a current-to-voltage converter:
+Example — a current-to-voltage converter (the source feeds the − input from the left):
 
 ${FENCE}circuit id=iv
-I1 0 n 2mA
-E1 o 0 opamp 0 n
-R2 n o 5k
+W n m; left
+I1 g m 2mA; up
+E1 o 0 opamp p n; right
+W p q; down 0.5
+W q g; left
+W g 0; down 0.5
+R2 n f 5k; up
+W f h; right
+W h o; down 1.25
 nodes o
 ${FENCE}
 
 Example — a common-emitter stage (drawn only):
 
 ${FENCE}circuit id=ce
-V1 vcc 0 12V
-R1 vcc c 2k
-Q1 c b e npn
-R2 e 0 1k
-R3 vcc b 20k
-R4 b 0 5k
+V1 vcc 0 12V; down 2
+R1 vcc c 2k; right 3
+Q1 c b e npn; down
+R2 e 0 1k; down
+W b x; left
+R3 x 0 10k; down 1.5
 ${FENCE}
 
 Solving: \`circuit_solve\` computes quantities while you author; \`figureCheck\` checks a key: V(b), V(a,b), I(R1), P(R1), R(a,b) (sources zeroed — Thévenin), V(c, t=1m), I(C1, t=2m), tau(V(c)), steady(…), rise(…), settling(…). Currents run first node → second THROUGH the element (a source delivering power has a negative current). DC values use the switches' t ≥ 0 state; transients start from the t < 0 steady state. Give a transient at least ~7τ of sim time.`;

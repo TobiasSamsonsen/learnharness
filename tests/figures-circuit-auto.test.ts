@@ -1,6 +1,7 @@
 /**
- * The automatic layout of a ```circuit (owner, 2026-11-25): the tutor writes the topology, the app places and routes it. The old
- * way (directions the model planned by hand) drew a current source on top of an op-amp's + input and could not be fixed by effort.
+ * The automatic layout of a ```circuit (owner, 2026-11-25): a netlist without directions is placed and routed by the app. Since
+ * 2026-11-26 it is the fallback for netlists with no directions at all (the model's own layout is used when every line has one,
+ * see figures-circuit-directed.test.ts).
  */
 
 import assert from "node:assert/strict";
@@ -9,8 +10,6 @@ import { layoutCircuit, layoutDirected, parseCircuit } from "../src/core/figures
 import { autoDirect, verifyDrawing } from "../src/core/figures/circuit-auto.ts";
 
 const GALLERY: Record<string, string> = {
-	// the netlist the tutor wrote in the 2026-11-25 op-amp lesson, directions and all (they are ignored now)
-	"lesson I-to-V": "I1 0 n 2mA; up\nE1 o 0 opamp p n; right\nW p 0; down\nR2 n f 5k; up\nW f g; right\nW g o; down 1.25\nnodes o",
 	"I-to-V, topology only": "I1 0 n 2mA\nE1 o 0 opamp p n\nW p 0\nR2 n o 5k\nnodes o",
 	inverting: "V1 a 0 0.5V\nR1 a n 1k\nE1 o 0 opamp p n\nW p 0\nR2 n o 10k\nnodes o",
 	"non-inverting": "V1 a 0 1V\nE1 o 0 opamp a n\nR1 n 0 1k\nR2 n o 9k\nnodes o",
@@ -55,8 +54,8 @@ describe("the automatic layout draws any topology", () => {
 		assert.deepEqual(a, b);
 	});
 
-	it("directions in the netlist are ignored: the lesson's hand-planned netlist (which put the source on the + input) now draws cleanly", () => {
-		const c = parseCircuit(GALLERY["lesson I-to-V"]!);
+	it("the lesson's I-to-V circuit, written without directions, draws cleanly", () => {
+		const c = parseCircuit(GALLERY["I-to-V, topology only"]!);
 		const auto = autoDirect(c, 0);
 		assert.equal(auto.hard, 0);
 		assert.equal(verifyDrawing(auto, layoutDirected(auto.circuit).placed), null);
