@@ -146,23 +146,80 @@ export interface LiveTranscript {
 	settle(): void;
 }
 
-/** A partial this long is a stretch worth keeping, not a short guess that is still being corrected. */
-const RESTART_MIN_CHARS = 30;
+/** After this much silence between updates, a shrinking or single-word change is treated as a new stretch. */
+const PAUSE_COMMIT_MS = 1500;
+
+const wordsOf = (text: string): string[] =>
+	text
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}\s]/gu, " ")
+		.trim()
+		.split(/\s+/)
+		.filter(Boolean);
+
+const compactOf = (text: string): string => text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+
+function sharedPrefixLength(a: string, b: string): number {
+	let n = 0;
+	while (n < a.length && n < b.length && a[n] === b[n]) n++;
+	return n;
+}
+
+/** Ordered word matches (LCS) between `prevWords` and `nextWords`, allowing a trailing word prefix/extension match. */
+function orderedWordMatches(prevWords: readonly string[], nextWords: readonly string[]): number {
+	let prev = new Array<number>(nextWords.length + 1).fill(0);
+	let curr = new Array<number>(nextWords.length + 1).fill(0);
+	for (let i = 0; i < prevWords.length; i++) {
+		curr[0] = 0;
+		const a = prevWords[i] ?? "";
+		for (let j = 0; j < nextWords.length; j++) {
+			const b = nextWords[j] ?? "";
+			const matches = a === b || (i === prevWords.length - 1 && a.length >= 2 && (b.startsWith(a) || a.startsWith(b)));
+			curr[j + 1] = matches ? (prev[j] ?? 0) + 1 : Math.max(prev[j + 1] ?? 0, curr[j] ?? 0);
+		}
+		[prev, curr] = [curr, prev];
+	}
+	return prev[nextWords.length] ?? 0;
+}
 
 /**
- * The system recognizer commits a stretch on its own (after a pause, or about every 60 s) and starts the next partial
- * from scratch, with no final and no state line (measured on the Pixel, 2026-10-29: 400 and 717 characters followed by
- * "Hei" and "jeg"). Ordinary revisions keep their start (at least 60% shared in 401 recorded partials; a case change
- * only reshapes it), a restart shares none of it. So a long partial followed by one sharing under half of the shorter
- * one's start, ignoring case, was a finished stretch, and replacing it would delete it.
+ * True when `next` is a revision or continuation of `previous` (so replacing `previous` with `next` will not wipe
+ * already-spoken words). False when the recognizer started a fresh stretch after a pause or filler ("umm"/"eh").
  */
-function isRestart(previous: string, next: string): boolean {
-	if (previous.length < RESTART_MIN_CHARS) return false;
-	const a = previous.toLowerCase();
-	const b = next.toLowerCase();
-	let shared = 0;
-	while (shared < a.length && shared < b.length && a[shared] === b[shared]) shared++;
-	return shared < Math.min(a.length, b.length) / 2;
+function preservesPrevious(previous: string, next: string, elapsedMs: number): boolean {
+	const cp = compactOf(previous);
+	const cn = compactOf(next);
+	if (cp.length === 0) return true;
+	if (cn.length === 0) return false;
+	if (cn.includes(cp)) return true;
+
+	const pw = wordsOf(previous);
+	const nw = wordsOf(next);
+	if (pw.length === 0) return true;
+	if (nw.length === 0) return false;
+
+	const paused = elapsedMs >= PAUSE_COMMIT_MS;
+	const matched = orderedWordMatches(pw, nw);
+	if (paused && nw.length < pw.length && cn.length < cp.length && matched / pw.length < 0.8) return false;
+	if (pw.length === 1) return matched === 1 || (nw.length === 1 && !paused);
+	if (pw.length === 2) {
+		if (matched === 2) return true;
+		if (matched === 1 && nw.length >= 2 && !paused) return true;
+		return cp.length >= 4 && sharedPrefixLength(cp, cn) >= cp.length * 0.7 && cn.length >= cp.length * 0.7;
+	}
+	return matched / pw.length >= 0.6 || (cp.length >= 4 && sharedPrefixLength(cp, cn) >= cp.length * 0.7);
+}
+
+/** True when `next` recovers the full `kept` stretch after a temporary reset/flicker. */
+function recoversPrefix(kept: string, next: string): boolean {
+	const ck = compactOf(kept);
+	const cn = compactOf(next);
+	if (ck.length === 0 || cn.length < ck.length * 0.85) return false;
+	if (cn.startsWith(ck)) return true;
+	const kw = wordsOf(kept);
+	const nw = wordsOf(next);
+	if (kw.length === 0 || nw.length < kw.length) return false;
+	return orderedWordMatches(kw, nw.slice(0, kw.length + 2)) / kw.length >= 0.8;
 }
 
 /**
@@ -170,9 +227,10 @@ function isRestart(previous: string, next: string): boolean {
  * the field it went to, and a final replaces the partial. `resolveTarget` is asked for the field at the first piece of a
  * stretch, so a question that takes the claim mid-run gets the next stretch; a stretch stays in the field it began in.
  */
-export function createLiveTranscript(resolveTarget: () => Target): LiveTranscript {
-	let current: { text: string; target: Target } | null = null;
+export function createLiveTranscript(resolveTarget: () => Target, now: () => number = Date.now): LiveTranscript {
+	let current: { text: string; target: Target; at: number } | null = null;
 	const delivered: Array<{ text: string; target: Target }> = [];
+	const autoKept: Array<{ text: string; target: Target }> = [];
 	const clearPartial = (): Target | null => {
 		if (!current) return null;
 		const { text, target } = current;
@@ -180,32 +238,74 @@ export function createLiveTranscript(resolveTarget: () => Target): LiveTranscrip
 		current = null;
 		return target;
 	};
+	const recoverAutoKept = (t: string): Target | null => {
+		const first = autoKept[0];
+		if (!first) return null;
+		const sharedTarget = first.target;
+		if (autoKept.some((e) => e.target !== sharedTarget) || (current && current.target !== sharedTarget)) return null;
+		const combined = autoKept.map((e) => e.text).join(" ");
+		if (!recoversPrefix(combined, t)) return null;
+		clearPartial();
+		for (const entry of autoKept.splice(0).reverse()) {
+			entry.target(entry.text, true);
+			const idx = delivered.lastIndexOf(entry);
+			if (idx >= 0) delivered.splice(idx, 1);
+		}
+		return sharedTarget;
+	};
 	return {
 		partial(text) {
 			const t = text.trim();
 			if (!t || current?.text === t) return;
-			if (current && isRestart(current.text, t)) {
-				delivered.push(current); // the recognizer began a new stretch without a final: the old one stays
+			const ts = now();
+			const recoveredTarget = recoverAutoKept(t);
+			if (recoveredTarget) {
+				recoveredTarget(t);
+				current = { text: t, target: recoveredTarget, at: ts };
+				return;
+			}
+			if (current && !preservesPrevious(current.text, t, ts - current.at)) {
+				const kept = { text: current.text, target: current.target };
+				delivered.push(kept);
+				autoKept.push(kept);
 				current = null;
 			}
 			const target = clearPartial() ?? resolveTarget();
 			target(t);
-			current = { text: t, target };
+			current = { text: t, target, at: ts };
 		},
 		final(text) {
 			const t = text.trim();
+			if (!t) {
+				clearPartial();
+				autoKept.length = 0;
+				return;
+			}
+			const ts = now();
+			const recoveredTarget = recoverAutoKept(t);
+			if (recoveredTarget) {
+				recoveredTarget(t);
+				delivered.push({ text: t, target: recoveredTarget });
+				return;
+			}
+			if (current && !preservesPrevious(current.text, t, ts - current.at)) {
+				delivered.push({ text: current.text, target: current.target });
+				current = null;
+			}
 			const target = clearPartial() ?? resolveTarget();
-			if (!t) return;
 			target(t);
 			delivered.push({ text: t, target });
+			autoKept.length = 0;
 		},
 		discard() {
+			autoKept.length = 0;
 			clearPartial();
 			for (const { text, target } of delivered.splice(0).reverse()) target(text, true);
 		},
 		settle() {
 			current = null;
 			delivered.length = 0;
+			autoKept.length = 0;
 		},
 	};
 }
