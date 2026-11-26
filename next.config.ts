@@ -1,9 +1,23 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { NextConfig } from "next";
 import { MATERIAL_MAX_BYTES } from "./src/core/materials.ts";
 import { MAX_IMPORT_BODY_BYTES } from "./lib/notes-import-limits.ts";
 
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string; homepage: string };
+
+// Short commit the build was made from, shown beside the version ("0.7.0+962dea2", the same stamp the Android workflows use).
+// LH_COMMIT overrides (a build without .git); no git or no repo means no suffix.
+function buildCommit(): string {
+	const given = process.env.LH_COMMIT?.trim();
+	if (given) return given.slice(0, 7);
+	try {
+		return execFileSync("git", ["rev-parse", "--short=7", "HEAD"], { cwd: fileURLToPath(new URL(".", import.meta.url)), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+	} catch {
+		return "";
+	}
+}
 
 const nextConfig: NextConfig = {
 	// `next dev` only: lets the phone check (the Android debug build over `adb reverse`, docs/development.md) load the client chunks from
@@ -22,7 +36,7 @@ const nextConfig: NextConfig = {
 		proxyClientMaxBodySize: Math.max(MATERIAL_MAX_BYTES + 1024 * 1024, MAX_IMPORT_BODY_BYTES),
 	},
 	// Public build metadata only; no new runtime Electron version API.
-	env: { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage },
+	env: { LH_VERSION: pkg.version, LH_COMMIT: buildCommit(), LH_HOMEPAGE: pkg.homepage },
 	// Desktop target (Electron wrapper, 2026-09-17): standalone output = a
 	// self-contained .next/standalone/server.js the Electron shell spawns
 	// on 127.0.0.1. Harmless for plain web deploys (extra build output).

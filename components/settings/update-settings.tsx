@@ -13,6 +13,7 @@ export type UpdateState = {
 };
 
 export const APP_VERSION = process.env.LH_VERSION ?? "";
+const COMMIT = process.env.LH_COMMIT ?? "";
 const HOMEPAGE = process.env.LH_HOMEPAGE ?? "";
 export const MANUAL_UPDATE_HINT = "Checking downloads available updates. Downloaded updates install when you quit the app.";
 export const AUTO_UPDATE_HINT = "Check at startup and every 24 hours. Turning this off does not stop updates already in progress or ready to install.";
@@ -61,11 +62,14 @@ export function UpdateSettings({
 	autoUpdate,
 	onAutoUpdateChange,
 	version = APP_VERSION,
+	commit = COMMIT,
 	homepage = HOMEPAGE,
 }: {
 	autoUpdate: boolean;
 	onAutoUpdateChange: (on: boolean) => void;
 	version?: string;
+	/** Short commit of the build, shown as "version+commit"; the release-notes link still uses the plain version. */
+	commit?: string;
 	homepage?: string;
 }) {
 	const { state, failed } = useUpdateState();
@@ -84,7 +88,7 @@ export function UpdateSettings({
 	return (
 		<>
 			<SettingsRow
-				label={`Version ${version || "unknown"}`}
+				label={`Version ${version ? (commit ? `${version}+${commit}` : version) : "unknown"}`}
 				testid="row-version"
 				hint={
 					<>

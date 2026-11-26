@@ -80,7 +80,10 @@ afterEach(async () => {
 describe("version and contextual copy", () => {
 	it("build metadata comes from package.json and exposes only public version/homepage values", () => {
 		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-		assert.deepEqual(nextConfig.env, { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage });
+		const env = nextConfig.env as Record<string, string>;
+		assert.deepEqual(Object.keys(env).sort(), ["LH_COMMIT", "LH_HOMEPAGE", "LH_VERSION"]);
+		assert.equal(env.LH_VERSION, pkg.version); assert.equal(env.LH_HOMEPAGE, pkg.homepage);
+		assert.match(env.LH_COMMIT!, /^([0-9a-f]{7})?$/);
 	});
 
 	it("never claims live/latest information and keeps updater errors generic", () => {
@@ -101,6 +104,7 @@ describe("General update rows", () => {
 	it("browser/SSR shows version and installed-version release notes, without inactive controls or claims", () => {
 		const html = renderToStaticMarkup(<UpdateSettings {...props} />);
 		assert.ok(html.includes("Version 0.3.7"));
+		assert.ok(renderToStaticMarkup(<UpdateSettings {...props} commit="a3db8c1" />).includes("Version 0.3.7+a3db8c1"));
 		assert.ok(html.includes(`${props.homepage}/releases/tag/v0.3.7`));
 		assert.ok(!html.includes("update-check")); assert.ok(!html.includes("row-auto-update"));
 		assert.ok(!html.includes(MANUAL_UPDATE_HINT)); assert.ok(!html.includes("update-status"));
