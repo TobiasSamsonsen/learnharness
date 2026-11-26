@@ -247,3 +247,107 @@ test("the level normalizer spreads a narrow recognizer range over the whole mete
 	assert.ok(norm(0.2) < 0.15, "back to quiet it falls back");
 	for (const raw of [0, 1, 0.5, 0.5, 0.5]) assert.ok(norm(raw) >= 0 && norm(raw) <= 1);
 });
+
+test("short phrases (< 30 chars) are kept when a pause or filler word restarts partials in English and Norwegian", () => {
+	for (const [first, next] of [
+		["I think the answer is 5", "um"],
+		["Jeg tror svaret er fem", "eh"],
+		["Det er riktig", "og så"],
+		["First step", "um"],
+	] as const) {
+		const f = field();
+		const live = createLiveTranscript(() => f.append);
+		live.partial(first);
+		live.partial(next);
+		assert.equal(f.text, `${first} ${next}`);
+	}
+});
+
+test("restarts sharing the opening letter or opening word do not wipe the previous stretch", () => {
+	const cases: ReadonlyArray<readonly [string, string]> = [
+		["I think the derivative of x squared is 2x", "I"],
+		["I think the derivative of x squared is 2x", "in"],
+		["I think the derivative of x squared is 2x", "I think"],
+		["Er det sånn at vi bruker kjerneregelen", "eh"],
+		["Jeg tror at svaret på oppgaven er fem", "ja"],
+		["Jeg tror at svaret på oppgaven er fem", "jeg"],
+	];
+	for (const [first, next] of cases) {
+		const f = field();
+		const live = createLiveTranscript(() => f.append);
+		live.partial(first);
+		live.partial(next);
+		assert.equal(f.text, `${first} ${next}`);
+	}
+});
+
+test("a final with only a filler or post-pause clause keeps the previous partial", () => {
+	const en = field();
+	const liveEn = createLiveTranscript(() => en.append);
+	liveEn.partial("I think the derivative of x squared is 2x");
+	liveEn.final("um");
+	assert.equal(en.text, "I think the derivative of x squared is 2x um");
+
+	const nb = field();
+	const liveNb = createLiveTranscript(() => nb.append);
+	liveNb.partial("Jeg tror svaret blir fem");
+	liveNb.final("fordi x er to");
+	assert.equal(nb.text, "Jeg tror svaret blir fem fordi x er to");
+});
+
+test("pause-aware single-word and shrinking protection keeps prior speech after a pause", () => {
+	let clock = 1000;
+	const now = () => clock;
+
+	// Single word + 2s pause + "um" -> kept
+	const f1 = field();
+	const l1 = createLiveTranscript(() => f1.append, now);
+	l1.partial("Yes");
+	clock += 2000;
+	l1.partial("um");
+	assert.equal(f1.text, "Yes um");
+
+	// Single word + 2s pause + punctuated final -> replaced cleanly
+	const f2 = field();
+	const l2 = createLiveTranscript(() => f2.append, now);
+	l2.partial("Yes");
+	clock += 2000;
+	l2.final("Yes.");
+	assert.equal(f2.text, "Yes.");
+
+	// Short phrase + 2s pause + shrinking prefix -> kept
+	const f3 = field();
+	const l3 = createLiveTranscript(() => f3.append, now);
+	l3.partial("I think so");
+	clock += 2000;
+	l3.partial("I think");
+	assert.equal(f3.text, "I think so I think");
+
+	// Leading filler stripped by final after pause -> replaced cleanly without duplication
+	const f4 = field();
+	const l4 = createLiveTranscript(() => f4.append, now);
+	l4.partial("um I think the answer is 5");
+	clock += 2000;
+	l4.final("I think the answer is 5.");
+	assert.equal(f4.text, "I think the answer is 5.");
+});
+
+test("Norwegian compound-word revision replaces cleanly without duplication", () => {
+	const f = field();
+	const live = createLiveTranscript(() => f.append);
+	live.partial("kjerne regelen er grei");
+	live.partial("kjerneregelen er grei");
+	assert.equal(f.text, "kjerneregelen er grei");
+});
+
+test("flicker recovery deduplicates when the recognizer recovers the full stretch after a temporary reset", () => {
+	const f = field();
+	const live = createLiveTranscript(() => f.append);
+	live.partial("I think the voltage is 5 volts");
+	live.partial("um");
+	assert.equal(f.text, "I think the voltage is 5 volts um");
+	live.final("I think the voltage is 5 volts, um, and then.");
+	assert.equal(f.text, "I think the voltage is 5 volts, um, and then.");
+	live.discard();
+	assert.equal(f.text, "", "Esc still removes everything cleanly");
+});
