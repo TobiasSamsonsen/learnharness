@@ -30,6 +30,7 @@ function lifecycleFixture() {
 		});
 		const page = Object.assign(new EventEmitter(), {
 			target: () => ({ type: () => "page" }), url: () => "about:blank",
+			setViewport: async () => {},
 			setRequestInterception: async (enabled: boolean) => { guarded = enabled; },
 			setContent: async () => {
 				assert.equal(owner.alive, true);
