@@ -70,7 +70,7 @@ test("runDemo posts the html, probe and settle time with the token and returns t
 		assert.equal(s.seen.length, 1);
 		assert.equal(s.seen[0]?.url, "/run-demo");
 		assert.equal(s.seen[0]?.headers["x-lh-token"], TOKEN);
-		assert.deepEqual(s.seen[0]?.body, { html: "<p>hi</p>", probe: "document.title", settleMs: 2000 });
+		assert.deepEqual(s.seen[0]?.body, { html: "<p>hi</p>", probe: "document.title", settleMs: 2000, screenshot: false });
 		assert.deepEqual(r.consoleErrors, ["boom"]);
 		assert.deepEqual(r.failedRequests, ["https://cdn.example/x.js (net::ERR_FAILED)"]);
 		assert.deepEqual(r.probeResult, { n: 3 });
@@ -110,4 +110,20 @@ test("the answer's ok flag is recomputed, never trusted", () => {
 	const r = parseBridgeResult({ ok: true, consoleErrors: ["e"], pageErrors: [], failedRequests: [] });
 	assert.equal(r.ok, false);
 	assert.deepEqual(parseBridgeResult({}).consoleErrors, []);
+});
+
+test("a screenshot request travels to the shell and its base64 PNG comes back; a missing or empty one stays absent", async () => {
+	const shot = await shell(() => ({ status: 200, json: { consoleErrors: [], pageErrors: [], failedRequests: [], screenshot: "iVBORw0KGgo=" } }));
+	try {
+		const api = bridgedHeadless(base(), { env: { [BRIDGE_URL_ENV]: shot.url, [BRIDGE_TOKEN_ENV]: TOKEN } });
+		const withShot = await api!.runDemo("<p/>", { screenshot: true });
+		assert.deepEqual(withShot.screenshot, { data: "iVBORw0KGgo=", mimeType: "image/png" });
+		assert.equal(shot.seen[0]?.body.screenshot, true);
+		await api!.runDemo("<p/>");
+		assert.equal(shot.seen[1]?.body.screenshot, false);
+	} finally {
+		shot.close();
+	}
+	assert.equal(parseBridgeResult({ consoleErrors: [], screenshot: "" }).screenshot, undefined);
+	assert.equal(parseBridgeResult({ consoleErrors: [] }).screenshot, undefined);
 });

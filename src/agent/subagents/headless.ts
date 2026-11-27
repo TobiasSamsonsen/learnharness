@@ -34,9 +34,22 @@ export interface DemoRunResult {
 	failedRequests: string[];
 	/** Value of the optional probe expression, when requested and successful. */
 	probeResult?: unknown;
+	/** Layout faults found by the layout gate (demo-layout-gate.ts): growth under re-rendering, an over-tall page. */
+	layoutProblems?: string[];
+	/** What the page looked like once it settled, when RunDemoOptions.screenshot asked for it. */
+	screenshot?: DemoScreenshot;
 	/** True when nothing above recorded anything. */
 	ok: boolean;
 }
+
+/** A PNG of the settled demo, base64, ready to show a vision model. */
+export interface DemoScreenshot {
+	data: string;
+	mimeType: "image/png";
+}
+
+/** The demo's CSS viewport and pixel ratio: a tablet-like HiDPI screen, so a layout that only breaks at DPR 2 breaks here too. */
+export const DEMO_VIEWPORT = { width: 900, height: 700, deviceScaleFactor: 2 } as const;
 
 export interface RunDemoOptions {
 	/** How long to let the page settle (animations, async CDN loads) — default 2s. */
@@ -44,6 +57,8 @@ export interface RunDemoOptions {
 	/** Optional JS expression evaluated in the page after settling; its value
 	 * is returned to the builder so it can assert on internal state. */
 	probe?: string;
+	/** Also return a screenshot of the settled page. Taken in system Chrome by a second load (the app's own browser helper has a hidden window that never paints), so it is absent when no Chrome is installed. */
+	screenshot?: boolean;
 }
 
 export interface RenderSvgOptions {
@@ -272,10 +287,13 @@ async function connectBrowserService(): Promise<ConnectedBrowserService | null> 
  * discards its helper, never capture a Browser while a handshake is pending. */
 let helperPageChain: Promise<unknown> = Promise.resolve();
 
-async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => Promise<T>): Promise<T> {
+async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => Promise<T>, opts: { chromeOnly?: boolean } = {}): Promise<T> {
 	// Helper first (owner ruling 2026-10-10: the app's own Chromium primary,
 	// system Chrome fallback) — deterministic across users, zero install.
+	// chromeOnly skips the helper: its window is hidden, a hidden window never
+	// paints, and a screenshot of it waits for a frame that does not come.
 	const run = async (): Promise<{ value: T } | null> => {
+		if (opts.chromeOnly) return null;
 		const helper = await connectBrowserService();
 		if (!helper) return null;
 		const pages = await helper.browser.pages();
@@ -378,7 +396,25 @@ export async function loadIsolatedPage(page: IsolatedPage, html: string): Promis
 // ─── Demo execution ──────────────────────────────────────────────────────────
 
 async function runDemo(html: string, opts: RunDemoOptions = {}): Promise<DemoRunResult> {
-	return withBrowserPage(page => runDemoOnPage(page, html, opts));
+	const { screenshot, ...runOpts } = opts;
+	const result = await withBrowserPage(page => runDemoOnPage(page, html, runOpts));
+	if (!screenshot) return result;
+	// A picture is a bonus for the builder: any failure here (no system Chrome, a stuck page) leaves the run as it was.
+	const picture = await withBrowserPage(page => screenshotDemoOnPage(page, html, opts.settleMs ?? 2000), { chromeOnly: true }).catch(() => undefined);
+	return picture ? { ...result, screenshot: picture } : result;
+}
+
+/** Load the demo in system Chrome at the demo viewport, let it settle, photograph it. Every step gives up after 20 s. */
+export async function screenshotDemoOnPage(page: import("puppeteer-core").Page, html: string, settleMs: number): Promise<DemoScreenshot> {
+	page.setDefaultTimeout(20_000);
+	await page.setViewport({ ...DEMO_VIEWPORT });
+	const cleanup = await loadIsolatedPage(page, html);
+	try {
+		await new Promise((resolve) => setTimeout(resolve, settleMs));
+		return await captureDemoScreenshot(page);
+	} finally {
+		await cleanup();
+	}
 }
 
 /** Production execution on an owned page; the packaged gate uses this same
@@ -402,6 +438,7 @@ export async function runDemoOnPage(page: import("puppeteer-core").Page, html: s
 	try {
 		let cleanup: (() => Promise<void>) | undefined;
 		try {
+			await page.setViewport({ ...DEMO_VIEWPORT });
 			cleanup = await loadIsolatedPage(page, html);
 			await new Promise((resolve) => setTimeout(resolve, settleMs));
 			if (opts.probe) {
@@ -431,6 +468,17 @@ export async function runDemoOnPage(page: import("puppeteer-core").Page, html: s
 		...(probed ? { probeResult } : {}),
 		ok: consoleErrors.length === 0 && pageErrors.length === 0 && failedRequests.length === 0,
 	};
+}
+
+/** The settled page at half the HiDPI scale (so DEMO_VIEWPORT.width px wide), cut off at the card's height cap. */
+async function captureDemoScreenshot(page: import("puppeteer-core").Page): Promise<DemoScreenshot> {
+	const height = await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight));
+	const png = await page.screenshot({
+		type: "png",
+		captureBeyondViewport: true,
+		clip: { x: 0, y: 0, width: DEMO_VIEWPORT.width, height: Math.max(1, Math.min(height, 2400)), scale: 1 / DEMO_VIEWPORT.deviceScaleFactor },
+	});
+	return { data: Buffer.from(png).toString("base64"), mimeType: "image/png" };
 }
 
 // ─── SVG rasterization ───────────────────────────────────────────────────────

@@ -16,7 +16,7 @@ const REQUEST_TIMEOUT_MS = 75_000;
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => String(x)) : []);
 
-/** The shell's answer, validated: three string lists and an optional probe value; `ok` is recomputed here, never trusted. */
+/** The shell's answer, validated: three string lists, an optional probe value and an optional base64 PNG screenshot; `ok` is recomputed here, never trusted. */
 export function parseBridgeResult(body: unknown): DemoRunResult {
 	if (typeof body !== "object" || body === null) throw new Error("the render bridge sent an invalid answer");
 	const b = body as Record<string, unknown>;
@@ -30,6 +30,8 @@ export function parseBridgeResult(body: unknown): DemoRunResult {
 		ok: consoleErrors.length === 0 && pageErrors.length === 0 && failedRequests.length === 0,
 	};
 	if ("probeResult" in b && b.probeResult !== undefined && b.probeResult !== null) result.probeResult = b.probeResult;
+	const shot = b.screenshot;
+	if (typeof shot === "string" && shot.length > 0) result.screenshot = { data: shot, mimeType: "image/png" };
 	return result;
 }
 
@@ -53,7 +55,7 @@ export function bridgedHeadless(base: HeadlessApi, opts: BridgeOptions = {}): He
 			const response = await doFetch(`${url.replace(/\/+$/, "")}/run-demo`, {
 				method: "POST",
 				headers: { "content-type": "application/json", "x-lh-token": token },
-				body: JSON.stringify({ html, probe: runOpts?.probe ?? null, settleMs: runOpts?.settleMs ?? 2000 }),
+				body: JSON.stringify({ html, probe: runOpts?.probe ?? null, settleMs: runOpts?.settleMs ?? 2000, screenshot: runOpts?.screenshot === true }),
 				signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 			});
 			if (!response.ok) throw new Error(`the render bridge answered ${response.status}`);

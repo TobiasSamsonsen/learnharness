@@ -77,6 +77,18 @@ class DemoBridgeTest {
 		assertTrue(js.contains("__lhProbeDone"))
 	}
 
+	@Test fun theDemoViewIsLaidOutAtATabletWidthInDevicePixels() {
+		assertEquals(1800, DemoPage.pixels(DemoPage.VIEW_WIDTH_CSS, 2f))
+		assertEquals(1400, DemoPage.pixels(DemoPage.VIEW_HEIGHT_CSS, 2f))
+		assertEquals(3015, DemoPage.pixels(DemoPage.VIEW_WIDTH_CSS, 3.35f))
+		assertEquals(1, DemoPage.pixels(0, 2f))
+	}
+
+	@Test fun theScreenshotStopsWhereTheLessonCardCutsADemoOff() {
+		assertEquals(2400, DemoPage.MAX_HEIGHT_CSS)
+		assertTrue(DemoPage.HEIGHT_READ.contains("scrollHeight"))
+	}
+
 	@Test fun theServerLearnsTheBridgeOnlyWhenThereIsOne() {
 		val without = ServerEnv.of(3000, "t")
 		assertFalse(without.containsKey("LH_DEMO_BRIDGE_URL"))

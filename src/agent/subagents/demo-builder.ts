@@ -2,12 +2,14 @@ import { DEFAULT_LESSON_LANGUAGE, withLanguageDirective, type LessonLanguage } f
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Usage } from "@earendil-works/pi-ai";
-import { serverExecute } from "../tool-execute.ts";
-import type { PiEngine } from "../models.ts";
+import { serverExecute, type ImageFileResult } from "../tool-execute.ts";
+import { piEngineFor, type PiEngine } from "../models.ts";
+import { processImage, type ModelImageResizeOptions } from "../image-processing/index.ts";
 import { runSubagent } from "./pi-run.ts";
 import type { DemoResult } from "../../core/contracts.ts";
 import { getHeadless, type DemoRunResult, type HeadlessApi } from "./headless.ts";
 import { healToolRecord } from "../tools/heal.ts";
+import { runDemoGated } from "./demo-layout-gate.ts";
 
 /**
  * The demo-builder sub-agent (vision §2 interactive demos + §2.5 "sub-agents
@@ -65,11 +67,21 @@ Build quality:
 - Controls need labels; sliders/inputs need current-value readouts. A learner should operate it unguided.
 - Smooth enough interaction; requestAnimationFrame for animation, not setInterval when it matters.
 - Dark-mode neutral: pick a clean light background for the demo area so it reads on any card.
+- HiDPI: the learner's screen is a tablet or phone with devicePixelRatio 2-3, and run_demo loads your page at 2. For a
+  <canvas>, keep the CSS size (a fixed number, or style.height) separate from the backing-store size
+  (canvas.width = cssW * dpr). NEVER read canvas.height / canvas.width (or the height attribute) back as the layout
+  size: at dpr 2 that doubles the canvas on every redraw and fills the screen. Keep the intended size in a constant
+  or a data attribute.
 
 THE HOUSE RULE — never deliver untested:
 1. Call write_demo with the complete HTML document.
-2. Call run_demo. It loads the file in a headless browser, waits ~2s, and reports console errors, uncaught
-   errors (window.onerror), and failed requests. Optionally pass a probe: a JS expression evaluated in
+2. Call run_demo. It loads the file in a headless browser at devicePixelRatio 2, waits ~2s, and reports console errors,
+   uncaught errors (window.onerror), and failed requests. It then re-renders the page (resize and input events on
+   every control, then ~1s of animation) and FAILS if the page height or any canvas grew. When the model can see
+   images it also attaches a screenshot of the settled page: LOOK at it before you finish. Overlapping or clipped
+   labels, text running past its box, a drawing that does not connect (a circuit with no return path, a part
+   floating in space), markers in odd places, and empty plots are bugs even when the numbers are right: fix them and
+   run again. Optionally pass a probe: a JS expression evaluated in
    the page (e.g. "typeof window.simulate === 'function'" or a state assertion) to check deeper.
 3. If run_demo reports problems, FIX the document and call write_demo again, then run_demo again.
    Iterate until run_demo reports PASSED.
@@ -115,10 +127,16 @@ const runDemoInput = Type.Object({
 	),
 });
 
+/** What the builder's model can see: set only when it takes images, so a text-only model never gets a screenshot. */
+export interface DemoVision {
+	resize?: ModelImageResizeOptions;
+}
+
 export function createDemoBuilderTools(
 	state: BuilderState,
 	headless: HeadlessApi,
 	onActivity?: (line: string) => void,
+	vision?: DemoVision,
 ): Record<string, AgentTool<any>> {
 	return healToolRecord({
 		write_demo: {
@@ -139,7 +157,8 @@ export function createDemoBuilderTools(
 			name: "run_demo",
 			label: "run_demo",
 			description:
-				"Headlessly execute the current demo in a browser and report console errors, uncaught errors, and failed requests. " +
+				"Headlessly execute the current demo in a browser (devicePixelRatio 2) and report console errors, uncaught errors, failed requests, " +
+				"and layout faults (the page or a canvas growing when it re-renders). A screenshot of the settled page comes back when you can see images. " +
 				"Optionally pass a probe expression to assert on page state.",
 			parameters: runDemoInput,
 			execute: serverExecute("run_demo", runDemoInput, async ({ probe }) => {
@@ -148,7 +167,7 @@ export function createDemoBuilderTools(
 				if (reason) return `HEADLESS UNAVAILABLE: ${reason}`;
 				let result: DemoRunResult;
 				try {
-					result = await headless.runDemo(state.html, probe ? { probe } : undefined);
+					result = await runDemoGated(headless, state.html, { ...(probe ? { probe } : {}), screenshot: Boolean(vision) });
 				} catch (err) {
 					const msg = err instanceof Error ? err.message : String(err);
 					onActivity?.("run_demo: browser error");
@@ -159,7 +178,18 @@ export function createDemoBuilderTools(
 				onActivity?.(
 					result.ok ? "run_demo: clean" : `run_demo: ${summarizeCounts(result)}`,
 				);
-				return formatRunResult(result);
+				const text = formatRunResult(result);
+				if (!vision || !result.screenshot) return text;
+				const shown = await processImage(Buffer.from(result.screenshot.data, "base64"), result.screenshot.mimeType, {
+					resizeOptions: vision.resize,
+				});
+				if (!shown.ok) return text;
+				const answer: ImageFileResult = {
+					text: [text, "Screenshot of the settled page attached: look at it before you finish.", ...shown.hints].join("\n"),
+					images: [{ data: shown.data, mimeType: shown.mimeType }],
+					details: text,
+				};
+				return answer;
 			}),
 		},
 	});
@@ -170,6 +200,7 @@ function summarizeCounts(result: DemoRunResult): string {
 		result.consoleErrors.length > 0 ? `${result.consoleErrors.length} console error${result.consoleErrors.length === 1 ? "" : "s"}` : null,
 		result.pageErrors.length > 0 ? `${result.pageErrors.length} page error${result.pageErrors.length === 1 ? "" : "s"}` : null,
 		result.failedRequests.length > 0 ? `${result.failedRequests.length} failed request${result.failedRequests.length === 1 ? "" : "s"}` : null,
+		(result.layoutProblems?.length ?? 0) > 0 ? `${result.layoutProblems!.length} layout problem${result.layoutProblems!.length === 1 ? "" : "s"}` : null,
 	].filter(Boolean);
 	return counts.length > 0 ? counts.join(", ") : "ok";
 }
@@ -180,7 +211,7 @@ function formatRunResult(result: DemoRunResult): string {
 			result.probeResult !== undefined
 				? ` Probe result: ${JSON.stringify(result.probeResult) ?? "undefined"}.`
 				: "";
-		return `PASSED: no console errors, no uncaught errors, no failed requests.${probe} If you are satisfied, finish with your notes; otherwise keep improving and re-test.`;
+		return `PASSED: no console errors, no uncaught errors, no failed requests, stable layout when re-rendered at devicePixelRatio 2.${probe} If you are satisfied, finish with your notes; otherwise keep improving and re-test.`;
 	}
 	const sections: string[] = [`FAILED: ${summarizeCounts(result)}.`];
 	if (result.consoleErrors.length > 0)
@@ -189,6 +220,8 @@ function formatRunResult(result: DemoRunResult): string {
 		sections.push(`Uncaught errors:\n${result.pageErrors.slice(0, 10).map((e) => `- ${e}`).join("\n")}`);
 	if (result.failedRequests.length > 0)
 		sections.push(`Failed requests:\n${result.failedRequests.slice(0, 10).map((r) => `- ${r}`).join("\n")}`);
+	if ((result.layoutProblems?.length ?? 0) > 0)
+		sections.push(`Layout problems:\n${result.layoutProblems!.map((p) => `- ${p}`).join("\n")}`);
 	sections.push("Fix the document (write_demo) and re-test (run_demo).");
 	return sections.join("\n");
 }
@@ -196,7 +229,7 @@ function formatRunResult(result: DemoRunResult): string {
 /** Short summary of a run for failure notes. */
 function failureSummary(result: DemoRunResult | null): string {
 	if (!result) return "never tested";
-	const details = [...result.consoleErrors, ...result.pageErrors, ...result.failedRequests].slice(0, 5);
+	const details = [...result.consoleErrors, ...result.pageErrors, ...result.failedRequests, ...(result.layoutProblems ?? [])].slice(0, 5);
 	return details.length > 0 ? `${summarizeCounts(result)} — ${details.join(" | ")}` : summarizeCounts(result);
 }
 
@@ -223,9 +256,13 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 
 	let finalText = "";
 	try {
-		const result = await runSubagent(Object.values(createDemoBuilderTools(state, headless, opts.onActivity)), {
+		const engine = opts.engine ?? piEngineFor("demoBuilder");
+		const vision: DemoVision | undefined = engine.model.input.includes("image")
+			? { resize: engine.model.inputLimits?.images?.resize }
+			: undefined;
+		const result = await runSubagent(Object.values(createDemoBuilderTools(state, headless, opts.onActivity, vision)), {
 			role: "demoBuilder",
-			engine: opts.engine,
+			engine,
 			systemPrompt: withLanguageDirective(INSTRUCTIONS, opts.language ?? DEFAULT_LESSON_LANGUAGE, "artifact"),
 			prompt,
 			maxTurns: opts.maxSteps,
@@ -256,7 +293,7 @@ export async function runDemoBuilder(input: DemoBuilderInput, opts: DemoBuilderO
 		opts.onActivity?.("final verification");
 		let verify: DemoRunResult;
 		try {
-			verify = await headless.runDemo(state.html);
+			verify = await runDemoGated(headless, state.html);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			return { title, html: "", tested: true, notes: `FAILED: final verification crashed — ${msg}` };

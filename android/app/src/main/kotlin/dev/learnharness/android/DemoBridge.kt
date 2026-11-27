@@ -3,8 +3,13 @@ package dev.learnharness.android
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
+import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
@@ -23,6 +28,7 @@ import java.net.Socket
 import java.security.MessageDigest
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -30,9 +36,14 @@ import org.json.JSONObject
  * The demo browser (docs/android/m12-plan.md, step 5). The Linux guest has no Chromium, so the server asks the shell:
  * `POST /run-demo {html, probe, settleMs}` on a loopback port, guarded by a token the server gets in its environment
  * (LH_DEMO_BRIDGE_URL / LH_DEMO_BRIDGE_TOKEN; src/agent/subagents/headless-bridge.ts is the client). Each run loads the html
- * into a fresh system WebView, lets it settle, evaluates the optional probe (awaiting a promise) and answers with what
- * the page printed: console errors, uncaught exceptions, failed sub-requests, the probe's value. The demo is model-written
- * code: its WebView gets no bridge object, no cookies and no file access.
+ * into a fresh system WebView, lets it settle, optionally photographs the settled page (`screenshot: true`), evaluates the
+ * optional probe (awaiting a promise) and answers with what the page printed: console errors, uncaught exceptions, failed
+ * sub-requests, the probe's value and the screenshot (a base64 PNG). The demo is model-written code: its WebView gets no
+ * bridge object, no cookies and no file access.
+ *
+ * The WebView is laid out at a real tablet width (DemoPage.VIEW_WIDTH_CSS css px) and the device's own pixel ratio, behind the
+ * app's own views and deaf to touch: a 1x1 view (the first version) made every width-dependent layout meaningless and could
+ * not be photographed (owner report 2026-11-27: a demo that only broke at devicePixelRatio 2 passed here).
  */
 class DemoBridge(private val context: Context, private val token: String) {
 	private var socket: ServerSocket? = null
@@ -70,7 +81,7 @@ class DemoBridge(private val context: Context, private val token: String) {
 					else -> try {
 						val body = JSONObject(request.body)
 						val probe = if (body.isNull("probe")) null else body.getString("probe")
-						val result = synchronized(runs) { run(body.getString("html"), probe, body.optLong("settleMs", 2000)) }
+						val result = synchronized(runs) { run(body.getString("html"), probe, body.optLong("settleMs", 2000), body.optBoolean("screenshot", false)) }
 						LoopbackHttp.response(200, result.toString())
 					} catch (e: Exception) {
 						LoopbackHttp.response(500, JSONObject().put("error", e.message ?: e.javaClass.simpleName).toString())
@@ -85,20 +96,22 @@ class DemoBridge(private val context: Context, private val token: String) {
 	}
 
 	/** Runs one demo and blocks until it is done (or has timed out). */
-	private fun run(html: String, probe: String?, settleMs: Long): JSONObject {
+	private fun run(html: String, probe: String?, settleMs: Long, screenshot: Boolean): JSONObject {
 		val done = CompletableFuture<JSONObject>()
-		main.post { Run(html, probe, settleMs.coerceIn(0, 15_000), done).begin() }
-		return done.get(LOAD_TIMEOUT_MS + 15_000 + 15_000, TimeUnit.MILLISECONDS)
+		main.post { Run(html, probe, settleMs.coerceIn(0, 15_000), screenshot, done).begin() }
+		return done.get(LOAD_TIMEOUT_MS + 15_000 + SCREENSHOT_BUDGET_MS + 15_000, TimeUnit.MILLISECONDS)
 	}
 
 	/** One page load. All of its state is touched on the main thread only. */
 	@SuppressLint("SetJavaScriptEnabled")
-	private inner class Run(private val html: String, private val probe: String?, private val settleMs: Long, private val done: CompletableFuture<JSONObject>) {
+	private inner class Run(private val html: String, private val probe: String?, private val settleMs: Long, private val screenshot: Boolean, private val done: CompletableFuture<JSONObject>) {
 		private val consoleErrors = JSONArray()
 		private val pageErrors = JSONArray()
 		private val failedRequests = JSONArray()
 		private var finished = false
-		private val webView = WebView(context)
+		private var screenshotData: String? = null
+		private val webView = DemoWebView(context)
+		private val density = context.resources.displayMetrics.density
 
 		fun begin() {
 			webView.settings.apply {
@@ -109,7 +122,8 @@ class DemoBridge(private val context: Context, private val token: String) {
 				mediaPlaybackRequiresUserGesture = false
 			}
 			CookieManager.getInstance().setAcceptThirdPartyCookies(webView, false)
-			host?.addView(webView, ViewGroup.LayoutParams(1, 1)) // a window is what makes requestAnimationFrame tick
+			// a window is what makes requestAnimationFrame tick; index 0 keeps the page under the app's own views
+			host?.addView(webView, 0, ViewGroup.LayoutParams(DemoPage.pixels(DemoPage.VIEW_WIDTH_CSS, density), DemoPage.pixels(DemoPage.VIEW_HEIGHT_CSS, density)))
 			if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
 				WebViewCompat.addDocumentStartJavaScript(webView, DemoPage.ERROR_HOOK, setOf("*"))
 			}
@@ -145,9 +159,28 @@ class DemoBridge(private val context: Context, private val token: String) {
 			if (finished) return
 			// the load may have timed out above; this runs once either way
 			finished = true
+			if (screenshot) takeScreenshot { runProbe() } else runProbe()
+		}
+
+		private fun runProbe() {
 			if (probe == null) return collect(null, null)
 			webView.evaluateJavascript(DemoPage.probeStart(probe), null)
 			pollProbe(System.currentTimeMillis() + PROBE_TIMEOUT_MS)
+		}
+
+		/** Grows the view to the document's height (capped), gives it a moment to lay out and paint, then photographs it. */
+		private fun takeScreenshot(next: () -> Unit) {
+			webView.evaluateJavascript(DemoPage.HEIGHT_READ) { raw ->
+				val css = raw?.trim('"')?.toDoubleOrNull()?.toInt() ?: DemoPage.VIEW_HEIGHT_CSS
+				webView.layoutParams?.let {
+					it.height = DemoPage.pixels(css.coerceIn(1, DemoPage.MAX_HEIGHT_CSS), density)
+					webView.layoutParams = it
+				}
+				main.postDelayed({
+					screenshotData = DemoPage.snapshot(webView, density)
+					next()
+				}, SCREENSHOT_LAYOUT_MS)
+			}
 		}
 
 		private fun pollProbe(deadline: Long) {
@@ -173,6 +206,7 @@ class DemoBridge(private val context: Context, private val token: String) {
 					.put("pageErrors", pageErrors)
 					.put("failedRequests", failedRequests)
 				if (probeValue != null && probeValue != JSONObject.NULL) result.put("probeResult", probeValue)
+				screenshotData?.let { result.put("screenshot", it) }
 				(webView.parent as? ViewGroup)?.removeView(webView)
 				webView.destroy()
 				done.complete(result)
@@ -183,14 +217,55 @@ class DemoBridge(private val context: Context, private val token: String) {
 	companion object {
 		const val LOAD_TIMEOUT_MS = 30_000L
 		const val PROBE_TIMEOUT_MS = 15_000L
+		const val SCREENSHOT_LAYOUT_MS = 500L
+		const val SCREENSHOT_BUDGET_MS = 5_000L
 
 		/** The visible activity's root, set while it is resumed: a WebView with a window gets animation frames. */
 		@Volatile var host: ViewGroup? = null
 	}
 }
 
+/** The demo's WebView is a picture to take, not a surface to touch: it refuses every touch so taps reach the app under it. */
+private class DemoWebView(context: Context) : WebView(context) {
+	override fun dispatchTouchEvent(event: MotionEvent): Boolean = false
+}
+
 /** The JavaScript the shell injects; kept as constants so the wire contract is readable in one place. */
 object DemoPage {
+	/** The demo's layout width in css px (a tablet pane) and its first height; the screenshot grows the view to the document. */
+	const val VIEW_WIDTH_CSS = 900
+	const val VIEW_HEIGHT_CSS = 700
+
+	/** The lesson card cuts a demo off at this height (components/artifacts/demo-card.tsx), so a screenshot stops there too. */
+	const val MAX_HEIGHT_CSS = 2400
+
+	const val HEIGHT_READ = "Math.ceil(document.documentElement.scrollHeight)"
+
+	/** css px to device px at the device's density; never zero. */
+	fun pixels(css: Int, density: Float): Int = (css * density).roundToInt().coerceAtLeast(1)
+
+	/** A base64 PNG of the view, scaled back down to css px (so VIEW_WIDTH_CSS wide), or null when it could not be drawn. */
+	fun snapshot(view: View, density: Float): String? = try {
+		val w = view.width
+		val h = view.height
+		if (w <= 0 || h <= 0) {
+			null
+		} else {
+			val full = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+			Canvas(full).also {
+				it.drawColor(Color.WHITE)
+				view.draw(it)
+			}
+			val scaled = Bitmap.createScaledBitmap(full, (w / density).roundToInt().coerceAtLeast(1), (h / density).roundToInt().coerceAtLeast(1), true)
+			val png = ByteArrayOutputStream().also { scaled.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+			if (scaled !== full) scaled.recycle()
+			full.recycle()
+			Base64.encodeToString(png, Base64.NO_WRAP)
+		}
+	} catch (_: Throwable) {
+		null
+	}
+
 	/** Uncaught exceptions and rejections, collected where the WebView API has no pageerror event. */
 	const val ERROR_HOOK = """
 		window.__lhErrors = [];

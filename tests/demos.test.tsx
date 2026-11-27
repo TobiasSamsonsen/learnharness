@@ -744,6 +744,87 @@ describe("demo builder (fake model + fake headless)", () => {
 		assert.match(result.notes ?? "", /^FAILED: .*Chrome/);
 	});
 
+	it("fails a demo whose layout grows when re-rendered, names the cause, and lets the builder fix it", async () => {
+		const growing: DemoRunResult = {
+			...CLEAN_RUN,
+			probeResult: {
+				lhGate: 1,
+				before: { h: 700, c: [{ id: "m", w: 958, h: 680 }] },
+				afterProbe: { h: 700, c: [{ id: "m", w: 958, h: 680 }] },
+				afterRound1: { h: 700, c: [{ id: "m", w: 958, h: 680 }] },
+				afterStress: { h: 700, c: [{ id: "m", w: 958, h: 5440 }] },
+			},
+		};
+		const settled: DemoRunResult = {
+			...CLEAN_RUN,
+			probeResult: {
+				lhGate: 1,
+				before: { h: 700, c: [{ id: "m", w: 958, h: 680 }] },
+				afterProbe: { h: 700, c: [{ id: "m", w: 958, h: 680 }] },
+				afterRound1: { h: 700, c: [{ id: "m", w: 958, h: 680 }] },
+				afterStress: { h: 700, c: [{ id: "m", w: 958, h: 680 }] },
+			},
+		};
+		const runs: Array<{ probe?: string; screenshot?: boolean } | undefined> = [];
+		const headless = fakeHeadless();
+		headless.runDemo = async (html: string, opts) => {
+			headless.demoRuns.push(html);
+			runs.push(opts);
+			return html.includes("GROWS") ? growing : settled;
+		};
+		const activities: string[] = [];
+		const model = scriptedModel([
+			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: "<html>GROWS</html>" } }] },
+			{ toolCalls: [{ toolCallId: "r1", toolName: "run_demo", input: {} }] },
+			{ toolCalls: [{ toolCallId: "w2", toolName: "write_demo", input: { html: GOOD_HTML } }] },
+			{ toolCalls: [{ toolCallId: "r2", toolName: "run_demo", input: { probe: "1 + 1" } }] },
+			{ text: "Drag the cursor." },
+		]);
+		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless, onActivity: (line) => activities.push(line) });
+		assert.equal(result.html, GOOD_HTML);
+		assert.ok(activities.includes("run_demo: 1 layout problem"), activities.join(" | "));
+		assert.ok(activities.includes("run_demo: clean"));
+		assert.ok(runs.every((r) => typeof r?.probe === "string" && r.probe.includes("lhGate")), "every run goes through the layout gate");
+		assert.ok(runs[1]?.probe?.includes(JSON.stringify("1 + 1")), "the builder's own probe is carried inside the gate");
+	});
+
+	it("never delivers a demo that grows when re-rendered, even if the model skips run_demo", async () => {
+		const growing: DemoRunResult = {
+			...CLEAN_RUN,
+			probeResult: {
+				lhGate: 1,
+				before: { h: 700, c: [{ id: "m", w: 958, h: 680 }] },
+				afterProbe: { h: 700, c: [{ id: "m", w: 958, h: 680 }] },
+				afterRound1: { h: 700, c: [{ id: "m", w: 958, h: 680 }] },
+				afterStress: { h: 700, c: [{ id: "m", w: 958, h: 5440 }] },
+			},
+		};
+		const headless = fakeHeadless();
+		headless.runDemo = async () => growing;
+		const model = scriptedModel([
+			{ toolCalls: [{ toolCallId: "w1", toolName: "write_demo", input: { html: GOOD_HTML } }] },
+			{ text: "Done." },
+		]);
+		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless });
+		assert.equal(result.html, "");
+		assert.match(result.notes ?? "", /^FAILED:.*1 layout problem.*canvas "m" kept growing/);
+	});
+
+	it("tells the builder about devicePixelRatio and the screenshot", async () => {
+		const prompts: string[] = [];
+		const inner = scriptedModel([{ text: "I cannot build this." }]);
+		const engine: PiEngine = {
+			...inner,
+			streamFn: (model, context, options) => {
+				prompts.push(getCurrentSystemPrompt(context.messages) ?? "");
+				return inner.streamFn(model, context, options);
+			},
+		};
+		await runDemoBuilder({ title: "T", brief: "b" }, { engine, headless: fakeHeadless() });
+		assert.match(prompts[0] ?? "", /NEVER read canvas\.height/);
+		assert.match(prompts[0] ?? "", /LOOK at it before you finish/);
+	});
+
 	it("fails when the model never writes a demo", async () => {
 		const model = scriptedModel([{ text: "I cannot build this." }]);
 		const result = await runDemoBuilder({ title: "T", brief: "b" }, { engine: model, headless: fakeHeadless() });
