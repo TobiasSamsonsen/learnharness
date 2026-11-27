@@ -18,10 +18,13 @@ const plan = await import("../src/core/exam-plan.ts");
 const mastery = await import("../src/core/mastery.ts");
 const { weighCourse, weightsProblems } = await import("../src/agent/subagents/exam-weigher.ts");
 const { courseStore } = await import("../src/store/courses.ts");
+const { chatStore } = await import("../src/store/chats.ts");
 const courses = await import("../src/server/courses.ts");
 const { PATCH, GET } = await import("../app/api/courses/[id]/route.ts");
 const { GET: todayGET } = await import("../app/api/today/route.ts");
 const { mergeFile } = await import("../src/core/sync-merge.ts");
+const { AppRouterContext } = await import("next/dist/shared/lib/app-router-context.shared-runtime.js");
+const { ServerEventsProvider } = await import("../components/server-events.tsx");
 
 after(() => fs.rmSync(TMP_DATA, { recursive: true, force: true }));
 
@@ -106,13 +109,17 @@ describe("the exam date, pace and forecast", () => {
 		assert.equal(plan.forecastLine(plan.forecast({ skillsLeft: 5, daysLeft: 10, pacePerDay: 0 })), "needs 0.5 lessons/day · no lessons finished lately");
 	});
 
-	it("suggests 1 to 3 lessons today: enough for the pace, one without an exam date, none with nothing next", () => {
+	it("suggests 1 to 3 lessons today: enough for the pace, one without an exam date, none with nothing next, and counts down as lessons finish", () => {
 		assert.equal(plan.lessonsToday(null, 8), 1);
 		assert.equal(plan.lessonsToday(0.3, 8), 1);
 		assert.equal(plan.lessonsToday(1.1, 8), 2);
 		assert.equal(plan.lessonsToday(7, 8), 3);
 		assert.equal(plan.lessonsToday(2, 1), 1);
 		assert.equal(plan.lessonsToday(2, 0), 0);
+		assert.equal(plan.lessonsToday(1.1, 7, 1), 1, "1 of 2 finished today leaves 1");
+		assert.equal(plan.lessonsToday(1.1, 6, 2), 0, "2 of 2 finished today leaves 0");
+		assert.equal(plan.lessonsToday(1.1, 5, 3), 0, "learning ahead clamps at 0");
+		assert.equal(plan.lessonsToday(null, 5, 1), 0, "without an exam date, 1 finished today leaves 0");
 	});
 });
 
@@ -726,4 +733,197 @@ describe("exam-aware review (owner, 2026-11-16)", () => {
 		assert.equal(picked[0], picked.reduce((best, id) => (states.get(id)!.state.stability > states.get(best)!.state.stability ? id : best)), "morale (the strongest) first");
 	});
 
+});
+
+describe("completed today items stay struck through instead of being replaced", () => {
+	let seq = 0;
+	const assistantMsg = (calls: Array<{ id: string; name: string; args: unknown }>, at: number) =>
+		({
+			id: `ep_m${++seq}`,
+			role: "assistant",
+			content: calls.map((c) => ({ type: "toolCall", id: c.id, name: c.name, arguments: c.args })),
+			api: "faux",
+			provider: "faux",
+			model: "faux",
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+			stopReason: "toolUse",
+			timestamp: at,
+		}) as never;
+	const resultMsg = (toolCallId: string, toolName: string, at: number) =>
+		({ id: `ep_m${++seq}`, role: "toolResult", toolCallId, toolName, content: [{ type: "text", text: "ok" }], isError: false, timestamp: at }) as never;
+
+	function recordLearnFinish(courseId: string, skillId: string, at: number) {
+		const c = chatStore.createChat(`Learn ${skillId}`, undefined, { courseId, mode: "learn", skillIds: [skillId] });
+		const id = `fin_${++seq}`;
+		chatStore.saveMessages(c.id, [assistantMsg([{ id, name: "finish_lesson", args: { summary: "done" } }], at), resultMsg(id, "finish_lesson", at)]);
+		return c.id;
+	}
+
+	function recordSolvedProblem(courseId: string, mode: "review" | "practice", skillIds: string[], at: number) {
+		const c = chatStore.createChat(`${mode} ${skillIds.join(",")}`, "practice", { courseId, mode, skillIds });
+		const p = `p_${++seq}`;
+		const k = `c_${++seq}`;
+		chatStore.saveMessages(c.id, [
+			assistantMsg([{ id: p, name: "problem", args: { statement: "S", mode: "recall", modelSolution: "M", skills: skillIds } }], at),
+			resultMsg(p, "problem", at),
+			assistantMsg([{ id: k, name: "conclude", args: { outcome: "solved", verdict: "ok", rung: null, missClass: null, retest: false } }], at + 1),
+			resultMsg(k, "conclude", at + 1),
+		]);
+		return c.id;
+	}
+
+	function isoDaysFromNow(days: number): string {
+		const d = new Date(Date.now() + days * DAY);
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+	}
+
+	it("finishing a lesson today reduces today's remaining lessons instead of pulling a replacement, while yesterday's and Learn-again finishes do not", async () => {
+		// 11 skills with exam in 10 days -> neededPerDay = 1.1 -> 2 lessons today
+		const defs = Array.from({ length: 11 }, (_, i) => ({ key: `s${i}` }));
+		const { courseId, id } = approvedCourse("Quota Course", defs);
+		courses.setCourseExamDate(courseId, isoDaysFromNow(10));
+
+		const before = courses.courseView(courseId)!.plan;
+		assert.deepEqual(before.lessons, [id("s0"), id("s1")]);
+		assert.equal(before.doneLessons, undefined);
+
+		const now = Date.now();
+		const midToday = plan.localMidnight(now) + 60_000;
+		const yesterday = plan.localMidnight(now) - DAY;
+
+		// Yesterday's finish on s0 does not count toward today's quota (still leaves 2/day from 10 remaining in 10 days, or 11? wait: 10 left / 10 days = 1/day, so put yesterday finish on an extra or check before!).
+		// First verify finishing s0 today reduces today's remaining lessons to [s1] (NOT [s1, s2]).
+		recordLearnFinish(courseId, id("s0"), midToday);
+		const afterOne = courses.courseView(courseId)!.plan;
+		assert.deepEqual(afterOne.lessons, [id("s1")], "s1 remains; s2 is not pulled in to replace s0");
+		assert.deepEqual(afterOne.doneLessons, [id("s0")]);
+
+		const todayRes1 = await (await todayGET()).json() as { courses: Array<{ courseId: string; reviewDue: number; lessons: Array<{ skillId: string }>; doneLessons?: Array<{ skillId: string }> }> };
+		const entry1 = todayRes1.courses.find((c) => c.courseId === courseId)!;
+		assert.deepEqual(entry1.lessons.map((l) => l.skillId), [id("s1")]);
+		assert.deepEqual(entry1.doneLessons?.map((l) => l.skillId), [id("s0")]);
+		assert.equal(todayUi.todayItemCount([{ ...entry1, reviewDue: 0 } as never]), 1);
+		assert.equal(todayUi.todayDoneCount([entry1 as never]), 1);
+
+		// Finish s1 today -> 0 remaining, both in doneLessons
+		recordLearnFinish(courseId, id("s1"), midToday + 10_000);
+		const afterTwo = courses.courseView(courseId)!.plan;
+		assert.deepEqual(afterTwo.lessons, []);
+		assert.deepEqual(afterTwo.doneLessons, [id("s0"), id("s1")]);
+
+		// Separate course: yesterday's finish + "Learn again" today do not eat into today's quota
+		const { courseId: c2, id: id2 } = approvedCourse("Yesterday & Relearn", [{ key: "a" }, { key: "b" }, { key: "c" }]);
+		recordLearnFinish(c2, id2("a"), yesterday);
+		recordLearnFinish(c2, id2("a"), midToday); // Learn again on already-learned skill a
+		const plan2 = courses.courseView(c2)!.plan;
+		assert.deepEqual(plan2.lessons, [id2("b")], "b is still suggested today");
+		assert.equal(plan2.doneLessons, undefined, "re-learning a does not count as today's new lesson");
+	});
+
+	it("reviewDoneToday is true only when all due/fading reviews are cleared today, not on partial reviews or non-due practice", async () => {
+		const { courseId, id } = approvedCourse("Review Course", [{ key: "a" }, { key: "b" }, { key: "c" }]);
+		const now = Date.now();
+		const midToday = plan.localMidnight(now) + 60_000;
+		const longAgo = now - 30 * DAY;
+
+		// Learn a and b 30 days ago -> both are due today; learn c today -> c is NOT due
+		recordLearnFinish(courseId, id("a"), longAgo);
+		recordLearnFinish(courseId, id("b"), longAgo + 1000);
+		recordLearnFinish(courseId, id("c"), midToday);
+
+		assert.equal(courses.courseView(courseId)!.plan.reviewDue, 2);
+
+		// Practice non-due skill c today -> does not clear review or mark reviewDoneToday
+		recordSolvedProblem(courseId, "practice", [id("c")], midToday + 5000);
+		assert.equal(courses.courseView(courseId)!.plan.reviewDue, 2);
+		assert.equal(courses.courseView(courseId)!.plan.reviewDoneToday, undefined);
+
+		// Review only skill a -> b is still due, so reviewDoneToday stays undefined
+		recordSolvedProblem(courseId, "review", [id("a")], midToday + 10_000);
+		const partial = courses.courseView(courseId)!.plan;
+		assert.equal(partial.reviewDue, 1);
+		assert.equal(partial.reviewDoneToday, undefined);
+
+		// Review skill b -> all due reviews cleared today -> reviewDoneToday: true
+		recordSolvedProblem(courseId, "review", [id("b")], midToday + 20_000);
+		const cleared = courses.courseView(courseId)!.plan;
+		assert.equal(cleared.reviewDue, 0);
+		assert.equal(cleared.reviewDoneToday, true);
+
+		const todayBody = await (await todayGET()).json() as { courses: Array<{ courseId: string; reviewDue: number; reviewDoneToday?: boolean }> };
+		const entry = todayBody.courses.find((c) => c.courseId === courseId)!;
+		assert.equal(entry.reviewDue, 0);
+		assert.equal(entry.reviewDoneToday, true);
+	});
+
+	it("renders unfinished items above struck-through completed items with checkmarks on TodayPage and ExamPlanSection", () => {
+		const router = { push() {}, replace() {}, back() {}, forward() {}, refresh() {}, prefetch: async () => {} } as never;
+		const noopConnect = () => ({ close() {} }) as never;
+		const wrap = (children: unknown) => (
+			<AppRouterContext.Provider value={router}>
+				<ServerEventsProvider connect={noopConnect}>{children as never}</ServerEventsProvider>
+			</AppRouterContext.Provider>
+		);
+		const todayCourses = [
+			{
+				courseId: "c1",
+				title: "Calc",
+				daysLeft: 5,
+				reviewDue: 0,
+				reviewBatch: 0,
+				reviewDoneToday: true,
+				lessons: [{ skillId: "sk_2", name: "Chain rule", weight: 2 }],
+				doneLessons: [{ skillId: "sk_1", name: "Product rule", weight: 1 }],
+			},
+		];
+		const html = renderToStaticMarkup(wrap(<todayPage.TodayPage initial={todayCourses} />));
+		assert.match(html, /data-testid="today-learn"[\s\S]*Chain rule/);
+		assert.match(html, /data-testid="today-review-done"[\s\S]*line-through[^>]*>Review</);
+		assert.match(html, /data-testid="today-learn-done"[\s\S]*line-through[^>]*>Product rule</);
+		assert.ok(html.indexOf('data-testid="today-learn"') < html.indexOf('data-testid="today-review-done"'), "unfinished items stay above completed ones");
+		assert.ok(html.indexOf('data-testid="today-review-done"') < html.indexOf('data-testid="today-learn-done"'));
+
+		// When all items are done today (0 remaining, >0 done), TodayPage shows the cards instead of today-empty
+		const allDoneCourses = [
+			{
+				courseId: "c1",
+				title: "Calc",
+				reviewDue: 0,
+				reviewBatch: 0,
+				reviewDoneToday: true,
+				lessons: [],
+				doneLessons: [{ skillId: "sk_1", name: "Product rule", weight: 1 }],
+			},
+		];
+		assert.equal(todayUi.todayItemCount(allDoneCourses), 0);
+		assert.equal(todayUi.todayDoneCount(allDoneCourses), 2);
+		const allDoneHtml = renderToStaticMarkup(wrap(<todayPage.TodayPage initial={allDoneCourses} />));
+		assert.ok(!allDoneHtml.includes('data-testid="today-empty"'), "does not show empty state when items were completed today");
+		assert.match(allDoneHtml, /data-testid="today-learn-done"/);
+
+		// ExamPlanSection renders remaining lessons above doneLessons and reviewDoneToday below Learn today
+		const names = new Map([["sk_1", "Product rule"], ["sk_2", "Chain rule"]]);
+		const examHtml = renderToStaticMarkup(
+			<examUi.ExamPlanSection
+				courseId="c1"
+				plan={{ skillsLeft: 1, reviewDue: 0, reviewBatch: 0, reviewDoneToday: true, lessons: ["sk_2"], doneLessons: ["sk_1"] }}
+				names={names}
+				weightOf={() => 1}
+				nextUp={["sk_2"]}
+				learningCount={1}
+				hasWeights={false}
+				readiness={null}
+				weighing={false}
+				canWeigh={true}
+				busy={false}
+				onStart={() => {}}
+				onChanged={() => {}}
+			/>,
+		);
+		assert.match(examHtml, /data-testid="course-today-lesson-sk_2"[\s\S]*Chain rule/);
+		assert.match(examHtml, /data-testid="course-today-done-sk_1"[\s\S]*line-through[^>]*>Product rule</);
+		assert.match(examHtml, /data-testid="course-today-review-done"[\s\S]*line-through[^>]*>Review</);
+		assert.ok(examHtml.indexOf("course-today-lesson-sk_2") < examHtml.indexOf("course-today-done-sk_1"));
+		assert.ok(examHtml.indexOf("course-today-done-sk_1") < examHtml.indexOf("course-today-review-done"));
+	});
 });

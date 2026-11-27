@@ -346,16 +346,25 @@ export function skillEventsOf(messages: readonly LhMessage[], link: ChatCourseLi
 	return events;
 }
 
+/** One review step emitted by `foldSkills` when `onReview` is provided. */
+export interface FoldReviewRecord {
+	skillId: string;
+	prev: SkillState | undefined;
+	at: number;
+	event: SkillEvent;
+}
+
 /** Fold every skill event (any order — sorted here) into memory states.
  *  Skills without evidence are absent (= not learned). */
-export function foldSkills(events: readonly SkillEvent[], requiresOf: (id: string) => readonly string[]): Map<string, SkillState> {
+export function foldSkills(events: readonly SkillEvent[], requiresOf: (id: string) => readonly string[], onReview?: (record: FoldReviewRecord) => void): Map<string, SkillState> {
 	const states = new Map<string, SkillState>();
 	/** One review of `skillId` with `grade` at `at` (ms). An `again` on a
 	 *  skill never learned is no review: a miss must not unlock what builds
 	 *  on it. */
-	const review = (skillId: string, grade: Grade, at: number) => {
+	const review = (skillId: string, grade: Grade, at: number, event: SkillEvent) => {
 		const state = states.get(skillId);
 		if (!state && grade === "again") return;
+		onReview?.({ skillId, prev: state, at, event });
 		const elapsedDays = state ? Math.max(0, (at - state.lastReview) / DAY_MS) : 0;
 		const next = algorithm.next_state(state ? { stability: state.stability, difficulty: state.difficulty } : null, elapsedDays, GRADE_NUMBER[grade]);
 		states.set(skillId, { stability: next.stability, difficulty: next.difficulty, lastReview: at });
@@ -371,31 +380,31 @@ export function foldSkills(events: readonly SkillEvent[], requiresOf: (id: strin
 	};
 	/** Credit every transitive prerequisite `good` and seeded lower (inferred,
 	 *  so weaker evidence), skipping any directly missed. */
-	const creditPrereqs = (skillId: string, at: number) => {
+	const creditPrereqs = (skillId: string, at: number, event: SkillEvent) => {
 		for (const id of prerequisiteClosure(skillId, requiresOf)) {
 			if (id === skillId || missedDirectly.has(id)) continue;
-			review(id, "good", at);
+			review(id, "good", at, event);
 			seed(id, PREREQUISITE_SEED_DAYS);
 		}
 	};
 	/** A clean placement credit: the skill itself `easy` and seeded known, plus
 	 *  transitive prerequisites. */
-	const credit = (skillId: string, at: number) => {
-		review(skillId, "easy", at);
+	const credit = (skillId: string, at: number, event: SkillEvent) => {
+		review(skillId, "easy", at, event);
 		seed(skillId, PLACEMENT_SEED_DAYS);
-		creditPrereqs(skillId, at);
+		creditPrereqs(skillId, at, event);
 	};
 	const sorted = [...events].sort((a, b) => a.at - b.at);
 	for (const event of sorted) {
 		if (event.outcome === "dismissed" || event.outcome === "placementMiss") continue;
 		if (event.outcome === "placementKnown") {
-			credit(event.skillId, event.at);
+			credit(event.skillId, event.at, event);
 			continue;
 		}
 		if (event.outcome === "placementGood") {
-			review(event.skillId, "good", event.at);
+			review(event.skillId, "good", event.at, event);
 			seed(event.skillId, PLACEMENT_GOOD_SEED_DAYS);
-			creditPrereqs(event.skillId, event.at);
+			creditPrereqs(event.skillId, event.at, event);
 			continue;
 		}
 		const grade = event.grade ?? defaultGrade(event.outcome);
@@ -403,11 +412,11 @@ export function foldSkills(events: readonly SkillEvent[], requiresOf: (id: strin
 		if (event.placement) {
 			// the legacy placement check (problems): a clean solve credits like a
 			// confident placement answer; a miss is nothing
-			if (event.outcome === "solved") credit(event.skillId, event.at);
-			else if (grade !== "again") review(event.skillId, grade, event.at);
+			if (event.outcome === "solved") credit(event.skillId, event.at, event);
+			else if (grade !== "again") review(event.skillId, grade, event.at, event);
 			continue;
 		}
-		review(event.skillId, grade, event.at);
+		review(event.skillId, grade, event.at, event);
 	}
 	return states;
 }

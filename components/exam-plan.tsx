@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState } from "react";
-import { Loader2Icon } from "lucide-react";
+import { CheckIcon, Loader2Icon } from "lucide-react";
 import { examDateLabel, forecastLine, readinessBasis, readinessStep, understandingColor, type Readiness, SKILL_WEIGHTS, WEIGHT_LABELS, type CoursePlan, type CourseMode, type CourseSkillView, type SkillWeightValue } from "@/src/core";
 import { cn } from "@/lib/utils";
 import { PAGE_HEAD, SECTION_HEAD } from "@/components/section-heads";
@@ -200,9 +200,11 @@ export function ExamPlanSection(props: ExamPlanSectionProps) {
 
 	const f = plan.forecast;
 	const more = nextUp.filter((id) => !plan.lessons.includes(id)).slice(0, MORE_NEXT_UP);
+	const doneLessons = plan.doneLessons ?? [];
+	const reviewDone = plan.reviewDue === 0 && plan.reviewDoneToday === true;
 	const practiceAll = learningCount > 1;
 	const retest = (plan.retestCount ?? 0) > 0 && onRetest !== undefined;
-	const boxHasItems = plan.reviewDue > 0 || plan.lessons.length > 0 || more.length > 0 || practiceAll || retest;
+	const boxHasItems = plan.reviewDue > 0 || plan.lessons.length > 0 || doneLessons.length > 0 || reviewDone || more.length > 0 || practiceAll || retest;
 	const learnRow = (id: string, testid: string) => (
 		<div key={id} className="flex items-center justify-between gap-2 py-1.5 text-sm" data-testid={testid}>
 			<span className="min-w-0 flex-1 line-clamp-2 break-words sm:line-clamp-none sm:block sm:truncate">
@@ -212,6 +214,15 @@ export function ExamPlanSection(props: ExamPlanSectionProps) {
 			<button type="button" className={BTN} disabled={busy} onClick={() => onStart("learn", id)}>
 				Learn
 			</button>
+		</div>
+	);
+	const doneLearnRow = (id: string, testid: string) => (
+		<div key={id} className="flex items-center justify-between gap-2 py-1.5 text-sm text-muted-foreground" data-testid={testid}>
+			<span className="min-w-0 flex-1 line-clamp-2 break-words line-through sm:line-clamp-none sm:block sm:truncate">
+				{names.get(id) ?? id}
+				{weightOf(id) !== 1 && <span className="ml-2 text-xs text-muted-foreground">w{weightOf(id)}</span>}
+			</span>
+			<CheckIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Done" />
 		</div>
 	);
 	return (
@@ -232,10 +243,19 @@ export function ExamPlanSection(props: ExamPlanSectionProps) {
 								</button>
 							</div>
 						)}
-						{plan.lessons.length > 0 && (
+						{(plan.lessons.length > 0 || doneLessons.length > 0) && (
 							<div data-testid="course-today">
 								<div className={BOX_HEAD}>Learn today</div>
-								<div className="divide-y divide-border/50">{plan.lessons.map((id) => learnRow(id, `course-today-lesson-${id}`))}</div>
+								<div className="divide-y divide-border/50">
+									{plan.lessons.map((id) => learnRow(id, `course-today-lesson-${id}`))}
+									{doneLessons.map((id) => doneLearnRow(id, `course-today-done-${id}`))}
+								</div>
+							</div>
+						)}
+						{reviewDone && (
+							<div className="flex items-center justify-between gap-2 text-sm text-muted-foreground" data-testid="course-today-review-done">
+								<span className="line-through">Review</span>
+								<CheckIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Done" />
 							</div>
 						)}
 						{more.length > 0 && (

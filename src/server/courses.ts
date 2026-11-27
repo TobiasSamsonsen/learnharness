@@ -26,6 +26,7 @@ import {
 	forecast,
 	lessonsPerDay,
 	lessonsToday,
+	localMidnight,
 	mergeModelWeights,
 	orderNextUp,
 	parseExamDate,
@@ -49,6 +50,7 @@ import { chainsForSelection, formatChainLine } from "../core/chains.ts";
 import { getGraph } from "../core/graph.ts";
 import {
 	courseProgressPercent,
+	fadesBefore,
 	foldSkills,
 	inCourseEvidence,
 	isKnown,
@@ -172,6 +174,10 @@ interface ReadContext {
 	notes: Map<string, LessonNote>;
 	/** Per course: its concluded practice, review and check problems (core/missed-problems.ts). */
 	problems: Map<string, ConcludedProblem[]>;
+	/** Skill ids not learned before local midnight that received a Learn `finished` event today, in finish order. */
+	newlyFinishedToday: string[];
+	/** Reviews today (`dayStart <= at <= now`) on already-learned skills (`prev !== undefined`). */
+	todayReviews: Array<{ skillId: string; prev: SkillState; at: number }>;
 	now: number;
 }
 
@@ -180,8 +186,28 @@ function readContext(): ReadContext {
 	const nodeIds = new Set(graph.nodes.map((n) => n.id));
 	const skills = allSkills(nodeIds);
 	const { byCourse, notes, problems } = courseEvidence();
-	const skillStates = foldSkills([...byCourse.values()].flat(), (id) => skills.get(id)?.requires ?? []);
-	return { graph, nodeIds, skills, skillStates, byCourse, notes, problems, now: Date.now() };
+	const now = Date.now();
+	const dayStart = localMidnight(now);
+	const learnedBeforeToday = new Set<string>();
+	const seenFinishedToday = new Set<string>();
+	const newlyFinishedToday: string[] = [];
+	const todayReviews: Array<{ skillId: string; prev: SkillState; at: number }> = [];
+	const skillStates = foldSkills(
+		[...byCourse.values()].flat(),
+		(id) => skills.get(id)?.requires ?? [],
+		({ skillId, prev, at, event }) => {
+			if (at < dayStart) {
+				learnedBeforeToday.add(skillId);
+			} else if (at <= now) {
+				if (prev !== undefined) todayReviews.push({ skillId, prev, at });
+				if (event.outcome === "finished" && event.skillId === skillId && !learnedBeforeToday.has(skillId) && !seenFinishedToday.has(skillId)) {
+					seenFinishedToday.add(skillId);
+					newlyFinishedToday.push(skillId);
+				}
+			}
+		},
+	);
+	return { graph, nodeIds, skills, skillStates, byCourse, notes, problems, newlyFinishedToday, todayReviews, now };
 }
 
 function checkContext(ctx = readContext()): DraftCheckContext {
@@ -297,7 +323,15 @@ function examPlanOf(course: CourseRecord, p: SkillPartition, ctx: ReadContext): 
 	const firstActivity = events.length > 0 ? Math.min(...events.map((e) => e.at)) : undefined;
 	const daysLeft = course.examDate ? daysUntil(course.examDate, ctx.now) : undefined;
 	const f = daysLeft === undefined ? undefined : forecast({ skillsLeft, daysLeft, pacePerDay: lessonsPerDay(finishes, ctx.now, firstActivity) });
-	const lessons = nextUp.slice(0, lessonsToday(f ? f.neededPerDay : null, nextUp.length));
+	const inCourse = new Set(p.order);
+	const doneLessons = ctx.newlyFinishedToday.filter((id) => inCourse.has(id) && (priority.get(id) ?? 1) > 0);
+	const startSkillsLeft = skillsLeft + doneLessons.length;
+	const startNeededPerDay = daysLeft === undefined ? null : forecast({ skillsLeft: startSkillsLeft, daysLeft, pacePerDay: 0 }).neededPerDay;
+	const lessons = nextUp.slice(0, lessonsToday(startNeededPerDay, nextUp.length, doneLessons.length));
+	const examAt = examInstant(course.examDate, ctx.now);
+	const reviewDoneToday =
+		p.review.length === 0 &&
+		ctx.todayReviews.some((r) => inCourse.has(r.skillId) && (needsReview(r.prev, r.at) || (examAt !== undefined && fadesBefore(r.prev, examAt))));
 	const plan: CoursePlan = {
 		...(course.examDate ? { examDate: course.examDate } : {}),
 		...(daysLeft !== undefined ? { daysLeft } : {}),
@@ -308,6 +342,8 @@ function examPlanOf(course: CourseRecord, p: SkillPartition, ctx: ReadContext): 
 		retestCount: p.order.some((id) => p.states.get(id)?.learned) ? retestSkills(p).length : 0,
 		reviewBatch: Math.min(p.review.length, REVIEW_SESSION_SIZE),
 		lessons,
+		...(doneLessons.length > 0 ? { doneLessons } : {}),
+		...(reviewDoneToday ? { reviewDoneToday: true } : {}),
 	};
 	return { plan, nextUp, notExamined, priority };
 }
@@ -334,7 +370,8 @@ export function todayCourses(): TodayCourse[] {
 	for (const course of courses) {
 		const p = partitionOf(course, ctx);
 		const { plan } = examPlanOf(course, p, ctx);
-		if (plan.reviewDue === 0 && plan.lessons.length === 0) continue;
+		const doneLessons = plan.doneLessons ?? [];
+		if (plan.reviewDue === 0 && plan.lessons.length === 0 && !plan.reviewDoneToday && doneLessons.length === 0) continue;
 		const weights = sanitizeWeights(course.skillWeights);
 		out.push({
 			courseId: course.id,
@@ -343,7 +380,9 @@ export function todayCourses(): TodayCourse[] {
 			...(plan.daysLeft !== undefined ? { daysLeft: plan.daysLeft } : {}),
 			reviewDue: plan.reviewDue,
 			reviewBatch: plan.reviewBatch,
+			...(plan.reviewDoneToday ? { reviewDoneToday: true } : {}),
 			lessons: plan.lessons.map((id) => ({ skillId: id, name: ctx.skills.get(id)?.name ?? id, weight: weightOf(weights, id) })),
+			...(doneLessons.length > 0 ? { doneLessons: doneLessons.map((id) => ({ skillId: id, name: ctx.skills.get(id)?.name ?? id, weight: weightOf(weights, id) })) } : {}),
 			updatedAt: course.updatedAt,
 		});
 	}

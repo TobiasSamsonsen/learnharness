@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { CheckIcon } from "lucide-react";
 import type { TodayCourse } from "@/src/core";
 import { SidebarToggle } from "@/components/sidebar";
 import { HEAD_COUNT, PAGE_HEAD } from "@/components/section-heads";
-import { todayItemCount, useStartReview, useTodayCourses } from "@/components/today-section";
+import { todayDoneCount, todayItemCount, useStartReview, useTodayCourses } from "@/components/today-section";
 import { cn } from "@/lib/utils";
 
 /**
@@ -32,6 +33,7 @@ export function TodayPage({ initial }: { initial: TodayCourse[] }) {
 	const courses = useTodayCourses(initial) ?? initial;
 	const { busy, startReview } = useStartReview();
 	const count = todayItemCount(courses);
+	const done = todayDoneCount(courses);
 	return (
 		<div className="relative h-dvh overflow-y-auto">
 			<header className="lh-drag z-10 bg-background/85 pb-2 pt-[calc(0.5rem+var(--lh-safe-top))] backdrop-blur sm:sticky sm:top-0">
@@ -41,7 +43,7 @@ export function TodayPage({ initial }: { initial: TodayCourse[] }) {
 				</div>
 			</header>
 			<div className="mx-auto max-w-5xl px-4 pb-16 pt-4 sm:px-6" data-testid="today-page">
-				{count === 0 ? (
+				{count === 0 && done === 0 ? (
 					<p className="text-sm text-muted-foreground" data-testid="today-empty">
 						Nothing to review or learn today. Open a course to practice or learn ahead.
 					</p>
@@ -78,6 +80,21 @@ export function TodayPage({ initial }: { initial: TodayCourse[] }) {
 												<button type="button" className={BTN} onClick={() => router.push(`/course/${c.courseId}?learn=${encodeURIComponent(l.skillId)}`)}>
 													Learn
 												</button>
+											</div>
+										))}
+										{c.reviewDue === 0 && c.reviewDoneToday && (
+											<div className="flex items-center justify-between gap-2 py-2 text-sm text-muted-foreground" data-testid="today-review-done">
+												<span className="line-through">Review</span>
+												<CheckIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Done" />
+											</div>
+										)}
+										{(c.doneLessons ?? []).map((l) => (
+											<div key={l.skillId} className="flex items-center justify-between gap-2 py-2 text-sm text-muted-foreground" data-testid="today-learn-done">
+												<span className="min-w-0 truncate line-through">
+													{l.name}
+													{l.weight !== 1 && <span className={HEAD_COUNT}>w{l.weight}</span>}
+												</span>
+												<CheckIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Done" />
 											</div>
 										))}
 									</div>

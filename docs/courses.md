@@ -410,10 +410,12 @@ exam date and a weight per skill, so the learner spends the time left on what th
   priority 2-3 skill were known and nothing else (ADE 75%, Kyb Intro 92%, Matte 1 59%); the 80/20 idea is an outcome of
   the weights, not a fixed split, because the foundation and the most tested skills are 52-84% of a course's skills.
 - **Today.** Reviews due, then enough lessons to hold the pace (1 to 3; 1 without an exam date), taken
-  from the ordered Next up. It shows on the course page (Start / Learn buttons) and as a list above
-  Courses in the sidebar (`GET /api/today`, courses with the soonest exam first, five lines at most): a
-  review line starts the review, a lesson line opens the course page on that lesson's pace dialog
-  (`?learn=<skill id>`).
+  from the ordered Next up. Lessons finished today count against today's quota instead of pulling replacements
+  into the list, and stay struck through below the remaining items (as does Review once due/fading reviews are
+  cleared today) on both the course page and `/today`. It shows on the course page (Start / Learn buttons) and as
+  a row above Courses in the sidebar (`GET /api/today`, courses with the soonest exam first, keeping a checkmark
+  once all of today's items are done): `/today` starts a review or opens the course page on that lesson's pace
+  dialog (`?learn=<skill id>`).
 - **What the teacher is told (owner, 2026-11-14).** The course's sessions get one line from the exam date in the
   `<pace>` section, "The learner's exam: 14 Dec 2026, 30 days left. Use it to judge how much to cover and what to
   cut" (plus "but keep the usual depth unless he asks to move faster" for Thorough); "tomorrow" or "today" near the

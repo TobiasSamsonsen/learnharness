@@ -222,6 +222,12 @@ function localDayStart(now: number): number {
 	return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
+/** Local midnight (start of the local calendar day containing `now`) in epoch ms. */
+export function localMidnight(now: number): number {
+	const d = new Date(now);
+	return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
 /** Whole days from today (local) to the exam day: 0 on the day, negative after it. */
 export function daysUntil(examDate: string, now: number): number {
 	const [y, m, d] = examDate.split("-").map(Number) as [number, number, number];
@@ -336,11 +342,12 @@ export function forecastLine(f: Forecast): string {
 /** Most lessons one Today list suggests for a course. */
 export const TODAY_MAX_LESSONS = 3;
 
-/** How many lessons to suggest today: enough to hold the pace the exam needs (1 to 3; 1 without an exam date). */
-export function lessonsToday(neededPerDay: number | null, nextUpCount: number): number {
+/** How many lessons to suggest today: enough to hold the pace the exam needs (1 to 3; 1 without an exam date), reduced by lessons already finished today. */
+export function lessonsToday(neededPerDay: number | null, nextUpCount: number, doneToday = 0): number {
 	if (nextUpCount <= 0) return 0;
 	const wanted = neededPerDay === null ? 1 : Math.ceil(neededPerDay);
-	return Math.min(nextUpCount, TODAY_MAX_LESSONS, Math.max(1, wanted));
+	const quota = Math.min(TODAY_MAX_LESSONS, Math.max(1, wanted));
+	return Math.min(nextUpCount, Math.max(0, quota - Math.max(0, doneToday)));
 }
 
 /** The plan the course page and the Today list read (src/server/courses.ts builds it). */
@@ -361,4 +368,8 @@ export interface CoursePlan {
 	reviewBatch: number;
 	/** The lessons to take today: the first of the ordered Next up. */
 	lessons: string[];
+	/** Examined course skill ids newly learned via a finished Learn session today, in finish order. */
+	doneLessons?: string[];
+	/** True when `reviewDue === 0` and at least one due or exam-fading skill in this course was reviewed today. */
+	reviewDoneToday?: boolean;
 }

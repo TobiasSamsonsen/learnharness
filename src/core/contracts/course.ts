@@ -184,8 +184,12 @@ export interface TodayCourse {
 	/** Reviews due, and how many the next review takes (0 = none due). */
 	reviewDue: number;
 	reviewBatch: number;
+	/** True when `reviewDue === 0` and at least one due or exam-fading skill in this course was reviewed today. */
+	reviewDoneToday?: boolean;
 	/** The lessons to take today, in order. */
 	lessons: Array<{ skillId: string; name: string; weight: number }>;
+	/** Lessons newly learned via a finished Learn session today, in finish order. */
+	doneLessons?: Array<{ skillId: string; name: string; weight: number }>;
 }
 
 /** One skill's state in a course view. */

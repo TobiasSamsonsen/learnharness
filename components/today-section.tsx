@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { CalendarCheckIcon, ChevronRightIcon } from "lucide-react";
+import { CalendarCheckIcon, CheckIcon, ChevronRightIcon } from "lucide-react";
 import type { TodayCourse } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { cn } from "@/lib/utils";
@@ -61,6 +61,11 @@ export function todayLines(courses: readonly TodayCourse[], max = TODAY_MAX_LINE
 /** Every item line across the courses, uncapped: the Today page's count. Pure. */
 export function todayItemCount(courses: readonly TodayCourse[]): number {
 	return courses.reduce((n, c) => n + (c.reviewDue > 0 ? 1 : 0) + c.lessons.length, 0);
+}
+
+/** Every item completed today across the courses. Pure. */
+export function todayDoneCount(courses: readonly TodayCourse[]): number {
+	return courses.reduce((n, c) => n + (c.reviewDoneToday ? 1 : 0) + (c.doneLessons?.length ?? 0), 0);
 }
 
 /** The Today data, fresh on the same events as the course list (the sidebar row and the Today page). */
@@ -127,7 +132,8 @@ export function TodaySection() {
 	const pathname = usePathname();
 	const courses = useTodayCourses();
 	const count = courses ? todayItemCount(courses) : 0;
-	if (count === 0) return null;
+	const done = courses ? todayDoneCount(courses) : 0;
+	if (count === 0 && done === 0) return null;
 	const active = pathname === "/today";
 	return (
 		<div className="mx-3 mb-1" data-testid="today-section">
@@ -143,7 +149,11 @@ export function TodaySection() {
 			>
 				<CalendarCheckIcon className="size-3.5" />
 				Today
-				<span className="font-normal tabular-nums text-muted-foreground/60">{count}</span>
+				{count > 0 ? (
+					<span className="font-normal tabular-nums text-muted-foreground/60">{count}</span>
+				) : (
+					<CheckIcon className="size-3.5 shrink-0 text-muted-foreground/60" aria-label="All done today" data-testid="today-done" />
+				)}
 				<ChevronRightIcon className="ml-auto size-3.5" />
 			</Link>
 		</div>
