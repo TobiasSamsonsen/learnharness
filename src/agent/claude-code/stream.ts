@@ -698,6 +698,9 @@ class ClaudeProcess implements LiveProcess {
 			}
 			return;
 		}
+		// The CLI ends every finished message with a successful result line. Upstream now parses it (to catch a non-streamed
+		// answer on an open turn); once the turn is finished it is the normal trailer, not "moving on", as before the merge.
+		if (event.type === "resultSuccess" && this.turn.finished) return;
 		// Moving on before held calls were answered means the CLI did not
 		// honor this tool wait. Never execute further stdout-only intentions.
 		if (this.turn.finished) {
