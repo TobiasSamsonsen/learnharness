@@ -487,7 +487,7 @@ function OpenSetupDialog({ onClose, onDone }: SetupDialogProps) {
 							<div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5" data-testid="setup-claude-preset">
 								<span className="text-xs text-muted-foreground">
 									<span className="block text-sm text-foreground">Use my Claude subscription</span>
-									Sonnet teaches, Opus plans each lesson, Haiku handles background work — tuned for plan usage limits.
+									Opus teaches and plans each lesson, Haiku handles background work — tuned for plan usage limits.
 								</span>
 								<button
 									type="button"

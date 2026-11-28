@@ -10,7 +10,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import { BUILTIN_PROFILES, CLAUDE_PROFILE_NAME, applyProfile } from "../src/core/profiles.ts";
+import { BUILTIN_PROFILES, CLAUDE_CHEAP_PROFILE_NAME, CLAUDE_PROFILE_NAME, applyProfile } from "../src/core/profiles.ts";
 
 type Pick = { model: { provider: string; id: string }; thinkingLevel: ThinkingLevel };
 const CLAUDE_SUBSCRIPTION_PRESET = {
@@ -23,21 +23,57 @@ import { pct, planUsageHint } from "../components/plan-usage.tsx";
 
 test("every preset model exists in the claude-code catalog at a supported level", () => {
 	const catalog = [...CLAUDE_CODE_MODELS];
-	const picks = [...Object.values(CLAUDE_SUBSCRIPTION_PRESET.models), ...Object.values(CLAUDE_SUBSCRIPTION_PRESET.roles)];
-	for (const p of picks) {
-		const model = catalog.find((m) => m.id === p.model.id);
-		assert.ok(model, `${p.model.id} is in the catalog`);
-		assert.ok(getSupportedThinkingLevels(model).includes(p.thinkingLevel), `${p.model.id} supports ${p.thinkingLevel}`);
+	for (const preset of Object.values(BUILTIN_PROFILES)) {
+		const picks = [...Object.values(preset.models ?? {}), ...Object.values(preset.roles ?? {})] as Pick[];
+		for (const p of picks) {
+			const model = catalog.find((m) => m.id === p.model.id);
+			assert.ok(model, `${p.model.id} is in the catalog`);
+			assert.ok(getSupportedThinkingLevels(model).includes(p.thinkingLevel), `${p.model.id} supports ${p.thinkingLevel}`);
+		}
 	}
 });
 
-test("the routing: Sonnet teaches, Opus only plans, Haiku does the cheap tier", () => {
+test("the routing: Opus teaches and plans (low/medium), Haiku does the cheap tier, no Sonnet", () => {
 	const { models, roles } = CLAUDE_SUBSCRIPTION_PRESET;
-	assert.equal(models.strong.model.id, "sonnet");
+	assert.equal(models.strong.model.id, "opus");
+	assert.equal(models.strong.thinkingLevel, "low");
+	assert.equal(models.vision.model.id, "opus");
+	assert.equal(models.vision.thinkingLevel, "low");
 	assert.equal(models.cheap.model.id, "haiku");
+	assert.equal(models.cheap.thinkingLevel, "low");
 	assert.equal(roles.planner.model.id, "opus");
-	const opusUses = [...Object.values(models), ...Object.values(roles)].filter((p) => p.model.id.includes("opus"));
-	assert.equal(opusUses.length, 1, "Opus appears exactly once: the planning turn");
+	assert.equal(roles.planner.thinkingLevel, "medium");
+	assert.equal(roles.demoBuilder.model.id, "opus");
+	assert.equal(roles.demoBuilder.thinkingLevel, "low");
+	const sonnetUses = [...Object.values(models), ...Object.values(roles)].filter((p) => p.model.id.includes("sonnet"));
+	assert.equal(sonnetUses.length, 0, "Sonnet is not used in the Claude subscription preset");
+});
+
+test("the cheap preset routing: Haiku teaches/demos/vision, Opus low plans", async () => {
+	const { resolveRoleSpec } = await import("../src/core/settings-resolution.ts");
+	const cheapPreset = BUILTIN_PROFILES[CLAUDE_CHEAP_PROFILE_NAME]!;
+	assert.equal(cheapPreset.models?.strong?.model?.id, "haiku");
+	assert.equal(cheapPreset.models?.strong?.thinkingLevel, "medium");
+	assert.equal(cheapPreset.models?.cheap?.model?.id, "haiku");
+	assert.equal(cheapPreset.models?.cheap?.thinkingLevel, "low");
+	assert.equal(cheapPreset.models?.vision?.model?.id, "haiku");
+	assert.equal(cheapPreset.models?.vision?.thinkingLevel, "low");
+	assert.equal(cheapPreset.roles?.planner?.model?.id, "opus");
+	assert.equal(cheapPreset.roles?.planner?.thinkingLevel, "low");
+	assert.equal(cheapPreset.roles?.demoBuilder?.model?.id, "haiku");
+	assert.equal(cheapPreset.roles?.demoBuilder?.thinkingLevel, "medium");
+
+	const applied = applyProfile(null, CLAUDE_CHEAP_PROFILE_NAME);
+	assert.ok(applied.ok);
+	assert.equal(applied.record.profiles?.active, CLAUDE_CHEAP_PROFILE_NAME);
+	assert.equal(resolveRoleSpec("planner", applied.record)?.id, "opus");
+	assert.equal(resolveRoleSpec("planner", applied.record)?.thinkingLevel, "low");
+	assert.equal(resolveRoleSpec("demoBuilder", applied.record)?.id, "haiku");
+	assert.equal(resolveRoleSpec("demoBuilder", applied.record)?.thinkingLevel, "medium");
+	assert.equal(resolveRoleSpec("extractor", applied.record)?.id, "haiku");
+	assert.equal(resolveRoleSpec("extractor", applied.record)?.thinkingLevel, "low");
+	assert.equal(resolveRoleSpec("pdfReader", applied.record)?.id, "haiku");
+	assert.equal(resolveRoleSpec("pdfReader", applied.record)?.thinkingLevel, "low");
 });
 
 test("applying the built-in profile keeps every other setting, and replaces the models", () => {
@@ -54,7 +90,7 @@ test("applying the built-in profile keeps every other setting, and replaces the 
 	assert.equal(merged.graph?.enabled, false);
 	assert.equal(merged.graph?.extractionChunkTokens, undefined, "tuning is not part of a profile");
 	assert.equal(merged.profiles?.active, CLAUDE_PROFILE_NAME);
-	assert.equal(withClaudeSubscriptionPreset(null).models?.strong?.model?.id, "sonnet", "a first-boot record works too");
+	assert.equal(withClaudeSubscriptionPreset(null).models?.strong?.model?.id, "opus", "a first-boot record works too");
 });
 
 test("the plan meter's text", () => {
@@ -79,9 +115,9 @@ test("an override reaches the role's engine resolution (the runner, extraction a
 	const { BACKGROUND_MODEL_ROLES } = await import("../src/core/settings.ts");
 	const record = withClaudeSubscriptionPreset(null);
 	assert.equal(resolveRoleSpec("planner", record)?.id, "opus", "preset: the planner on Opus");
-	assert.equal(resolveRoleSpec("demoBuilder", record)?.id, "sonnet", "preset: demos on Sonnet, not the cheap slot");
+	assert.equal(resolveRoleSpec("demoBuilder", record)?.id, "opus", "preset: demos on Opus, not the cheap slot");
 	assert.equal(resolveRoleSpec("extractor", record)?.id, "haiku", "no override: follows the cheap slot");
-	assert.equal(resolveRoleSpec("pdfReader", record)?.id, "sonnet", "no override: follows the vision slot");
+	assert.equal(resolveRoleSpec("pdfReader", record)?.id, "opus", "no override: follows the vision slot");
 	for (const role of BACKGROUND_MODEL_ROLES) {
 		const pinned = { ...record, agent: { models: { [role]: { model: { provider: "claude-code", id: "haiku" }, thinkingLevel: "high" } } } };
 		const spec = resolveRoleSpec(role, pinned as never);

@@ -956,7 +956,7 @@ export function AgentSection({
 
 			{/* Per-role models (fork addition): each role on its own model, or
 			    following its slot. The Claude-subscription preset sets two of
-			    these (planner → Opus, demo builder → Sonnet). */}
+			    these (planner → Opus medium, demo builder → Opus low). */}
 			<SettingsGroup label="Roles" testid="group-roles">
 				{ROLE_ROWS.filter(({ role }) => role !== "sideQuestion" || upstreamSelectionTools.current).map(({ role, label, hint, slot }) => {
 					const override = agent?.models?.[role];

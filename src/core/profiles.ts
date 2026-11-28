@@ -16,19 +16,24 @@ import type { ModelProfile, ModelsSettings, ProfilesSettings, UserSettings } fro
  * (copy)" and the edit lands there. Its extraction-batch and compaction tuning
  * is NOT part of a profile.
  *
- *   strong (prober, teacher, practice)  Sonnet, medium — every learner turn
+ *   strong (prober, teacher, practice)  Opus, low — every learner turn
  *   planner (the planning turn only)    Opus, medium — one turn a lesson, and
  *                                       the whole lesson follows its plan
  *   cheap (researcher, extractor,       Haiku, low — summarizing and
  *          auditor)                     structuring, the most frequent calls
- *   demoBuilder                         Sonnet, low — it writes working code
- *   checker (answer keys)               follows strong (Sonnet)
- *   vision (visual maker, PDF reader,   Sonnet, low — math pages and figures
+ *   demoBuilder                         Opus, low — it writes working code
+ *   checker (answer keys)               follows strong (Opus)
+ *   vision (visual maker, PDF reader,   Opus, low — math pages and figures
  *           source-material profiles)
+ *
+ * Built-in "Claude subscription (cheap)": quota-saver variant (Haiku medium
+ * for strong & demoBuilder, Haiku low for cheap & vision, Opus low for
+ * planner).
  */
 
 export const DEFAULT_PROFILE_NAME = "Default";
 export const CLAUDE_PROFILE_NAME = "Claude subscription";
+export const CLAUDE_CHEAP_PROFILE_NAME = "Claude subscription (cheap)";
 export const PROFILE_NAME_MAX = 60;
 
 const pick = (id: string, thinkingLevel: ThinkingLevel) => ({ model: { provider: "claude-code", id }, thinkingLevel });
@@ -36,13 +41,24 @@ const pick = (id: string, thinkingLevel: ThinkingLevel) => ({ model: { provider:
 export const BUILTIN_PROFILES: Readonly<Record<string, ModelProfile>> = {
 	[CLAUDE_PROFILE_NAME]: {
 		models: {
-			strong: pick("sonnet", "medium"),
+			strong: pick("opus", "low"),
 			cheap: pick("haiku", "low"),
-			vision: pick("sonnet", "low"),
+			vision: pick("opus", "low"),
 		},
 		roles: {
 			planner: pick("opus", "medium"),
-			demoBuilder: pick("sonnet", "low"),
+			demoBuilder: pick("opus", "low"),
+		},
+	},
+	[CLAUDE_CHEAP_PROFILE_NAME]: {
+		models: {
+			strong: pick("haiku", "medium"),
+			cheap: pick("haiku", "low"),
+			vision: pick("haiku", "low"),
+		},
+		roles: {
+			planner: pick("opus", "low"),
+			demoBuilder: pick("haiku", "medium"),
 		},
 	},
 };

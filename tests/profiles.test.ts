@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+	CLAUDE_CHEAP_PROFILE_NAME,
 	CLAUDE_PROFILE_NAME,
 	DEFAULT_PROFILE_NAME,
 	activeProfileName,
@@ -25,7 +26,11 @@ const base = (): UserSettings => ({
 
 test("no profiles yet: Default is seeded from the live models", () => {
 	assert.equal(activeProfileName(base()), DEFAULT_PROFILE_NAME);
-	assert.deepEqual(profileList(base()), [{ name: "Default", builtin: false }, { name: CLAUDE_PROFILE_NAME, builtin: true }]);
+	assert.deepEqual(profileList(base()), [
+		{ name: "Default", builtin: false },
+		{ name: CLAUDE_PROFILE_NAME, builtin: true },
+		{ name: CLAUDE_CHEAP_PROFILE_NAME, builtin: true },
+	]);
 });
 
 test("create, switch, and the active profile mirrors later edits", () => {
@@ -58,10 +63,12 @@ test("editing under the built-in profile forks a copy", () => {
 test("names: unique, non-empty, built-in reserved; rename and delete rules", () => {
 	assert.equal(createProfile(base(), "  ").ok, false);
 	assert.equal(createProfile(base(), CLAUDE_PROFILE_NAME.toLowerCase()).ok, false);
+	assert.equal(createProfile(base(), CLAUDE_CHEAP_PROFILE_NAME.toLowerCase()).ok, false);
 	assert.equal(createProfile(base(), "default").ok, false);
 	const two = createProfile(base(), "Work");
 	assert.ok(two.ok);
 	assert.equal(renameProfile(two.record, CLAUDE_PROFILE_NAME, "x").ok, false);
+	assert.equal(renameProfile(two.record, CLAUDE_CHEAP_PROFILE_NAME, "x").ok, false);
 	const renamed = renameProfile(two.record, "Work", "Study");
 	assert.ok(renamed.ok);
 	assert.equal(renamed.record.profiles?.active, "Study");
@@ -71,6 +78,7 @@ test("names: unique, non-empty, built-in reserved; rename and delete rules", () 
 	assert.equal(deleted.record.models?.strong?.model?.id, "a");
 	assert.equal(deleteProfile(deleted.record, "Default").ok, false, "last profile stays");
 	assert.equal(deleteProfile(deleted.record, CLAUDE_PROFILE_NAME).ok, false);
+	assert.equal(deleteProfile(deleted.record, CLAUDE_CHEAP_PROFILE_NAME).ok, false);
 });
 
 test("missing providers are reported, never blocking", () => {
